@@ -1,0 +1,588 @@
+package service
+
+import (
+	"context"
+	"fmt"
+	"io"
+	"strings"
+
+	"gorm.io/gorm"
+
+	"property-inspection/internal/module/system/dto"
+	"property-inspection/internal/module/system/model"
+	"property-inspection/internal/pkg/authz"
+	"property-inspection/internal/pkg/errs"
+	"property-inspection/internal/pkg/excel"
+	"property-inspection/internal/pkg/password"
+	"property-inspection/internal/pkg/response"
+	"property-inspection/internal/pkg/timefmt"
+	"property-inspection/internal/pkg/types"
+)
+
+// importMaxRows 单次导入数据行上限（接口文档 §2.3.9）。
+const importMaxRows = 500
+
+// exportMaxRows 导出行数上限。
+const exportMaxRows = 10000
+
+// UserService 用户管理服务。killSessions 用于重置密码/停用/删除后踢下线。
+type UserService struct {
+	db           *gorm.DB
+	killSessions func(ctx context.Context, userID string)
+}
+
+func NewUserService(db *gorm.DB, killSessions func(ctx context.Context, userID string)) *UserService {
+	return &UserService{db: db, killSessions: killSessions}
+}
+
+// listQuery 组装列表/导出共用的查询条件。
+func (s *UserService) listQuery(q *dto.UserListQuery) *gorm.DB {
+	db := s.db.Model(&model.SysUser{})
+	if q.Username != "" {
+		db = db.Where("username LIKE ? OR name LIKE ?", "%"+q.Username+"%", "%"+q.Username+"%")
+	}
+	if q.Phone != "" {
+		db = db.Where("phone LIKE ?", "%"+q.Phone+"%")
+	}
+	if q.RoleID != "" {
+		db = db.Where("role_ids @> ?::jsonb", fmt.Sprintf(`["%s"]`, q.RoleID))
+	}
+	if q.CommunityID != "" {
+		db = db.Where("community_ids @> ?::jsonb", fmt.Sprintf(`["%s"]`, q.CommunityID))
+	}
+	if q.Status != nil {
+		db = db.Where("status = ?", model.StatusStr(*q.Status))
+	}
+	return db
+}
+
+// List 用户分页列表（附带角色名与小区名）。
+func (s *UserService) List(q *dto.UserListQuery) (*response.Page, *errs.Error) {
+	db := s.listQuery(q)
+	var total int64
+	if err := db.Count(&total).Error; err != nil {
+		return nil, errs.ErrInternal
+	}
+	var users []model.SysUser
+	offset, limit := q.Normalize()
+	if err := db.Order("id ASC").Offset(offset).Limit(limit).Find(&users).Error; err != nil {
+		return nil, errs.ErrInternal
+	}
+	items := make([]dto.UserItem, 0, len(users))
+	for i := range users {
+		items = append(items, s.toItem(&users[i]))
+	}
+	return &response.Page{List: items, Total: total, Page: q.Page, PageSize: q.PageSize}, nil
+}
+
+// toItem 转换为列表视图（角色名、小区名反查）。
+func (s *UserService) toItem(u *model.SysUser) dto.UserItem {
+	item := dto.UserItem{
+		ID:             u.ID,
+		Username:       u.Username,
+		Name:           u.Name,
+		Phone:          u.Phone,
+		Avatar:         u.Avatar,
+		Roles:          []dto.RoleItem{},
+		CommunityIDs:   u.CommunityIDs,
+		CommunityNames: []string{},
+		Status:         model.StatusInt(u.Status),
+		LastLoginAt:    timefmt.TP(u.LastLoginAt),
+		CreatedAt:      timefmt.T(u.CreatedAt),
+	}
+	if u.Openid != nil {
+		item.Openid = *u.Openid
+	}
+	if len(u.RoleIDs) > 0 {
+		var roles []model.SysRole
+		s.db.Select("id", "name").Where("id IN ?", []string(u.RoleIDs)).Find(&roles)
+		for _, r := range roles {
+			item.Roles = append(item.Roles, dto.RoleItem{ID: r.ID, Name: r.Name})
+		}
+	}
+	if len(u.CommunityIDs) > 0 {
+		var names []string
+		s.db.Model(&model.Community{}).Where("id IN ?", []string(u.CommunityIDs)).Order("id ASC").Pluck("name", &names)
+		item.CommunityNames = names
+	}
+	return item
+}
+
+// Create 新增用户。
+func (s *UserService) Create(req *dto.UserCreateReq) (string, *errs.Error) {
+	if !password.ValidUsername(req.Username) {
+		return "", errs.ErrParam.WithMsg("username 须为 4–32 位字母数字下划线")
+	}
+	if !password.ValidPassword(req.Password) {
+		return "", errs.ErrParam.WithMsg("password 须为 8–32 位且含字母与数字")
+	}
+	if !password.ValidPhone(req.Phone) {
+		return "", errs.ErrParam.WithMsg("phone 手机号格式错误")
+	}
+	var count int64
+	s.db.Model(&model.SysUser{}).Where("username = ?", req.Username).Count(&count)
+	if count > 0 {
+		return "", errs.ErrUsernameExists
+	}
+	userType, be := s.resolveRoles(req.RoleIDs)
+	if be != nil {
+		return "", be
+	}
+	if be := s.checkCommunities(req.CommunityIDs); be != nil {
+		return "", be
+	}
+	hash, err := password.Hash(req.Password)
+	if err != nil {
+		return "", errs.ErrInternal
+	}
+	status := model.StatusEnabled
+	if req.Status != nil {
+		status = model.StatusStr(*req.Status)
+	}
+	user := model.SysUser{
+		Username:     req.Username,
+		Password:     hash,
+		Name:         req.Name,
+		Phone:        req.Phone,
+		RoleIDs:      req.RoleIDs,
+		CommunityIDs: req.CommunityIDs,
+		UserType:     userType,
+		Status:       status,
+	}
+	if user.CommunityIDs == nil {
+		user.CommunityIDs = types.IDArray{}
+	}
+	if err := s.db.Create(&user).Error; err != nil {
+		return "", errs.ErrInternal
+	}
+	authz.SyncAllQuiet(s.db)
+	return user.ID, nil
+}
+
+// Detail 用户详情。
+func (s *UserService) Detail(id string) (*dto.UserDetail, *errs.Error) {
+	var u model.SysUser
+	if err := s.db.First(&u, "id = ?", id).Error; err != nil {
+		return nil, errs.ErrNotFound
+	}
+	d := &dto.UserDetail{
+		ID:           u.ID,
+		Username:     u.Username,
+		Name:         u.Name,
+		Phone:        u.Phone,
+		Avatar:       u.Avatar,
+		RoleIDs:      u.RoleIDs,
+		CommunityIDs: u.CommunityIDs,
+		Status:       model.StatusInt(u.Status),
+		LastLoginAt:  timefmt.TP(u.LastLoginAt),
+		CreatedAt:    timefmt.T(u.CreatedAt),
+		UpdatedAt:    timefmt.T(u.UpdatedAt),
+	}
+	if u.Openid != nil {
+		d.Openid = *u.Openid
+	}
+	return d, nil
+}
+
+// Update 修改用户（username 不可改，改密码走重置接口）。
+func (s *UserService) Update(id string, req *dto.UserUpdateReq) *errs.Error {
+	var u model.SysUser
+	if err := s.db.First(&u, "id = ?", id).Error; err != nil {
+		return errs.ErrNotFound
+	}
+	if !password.ValidPhone(req.Phone) {
+		return errs.ErrParam.WithMsg("phone 手机号格式错误")
+	}
+	userType, be := s.resolveRoles(req.RoleIDs)
+	if be != nil {
+		return be
+	}
+	if be := s.checkCommunities(req.CommunityIDs); be != nil {
+		return be
+	}
+	updates := map[string]any{
+		"name":          req.Name,
+		"phone":         req.Phone,
+		"role_ids":      types.IDArray(req.RoleIDs),
+		"community_ids": types.IDArray(req.CommunityIDs),
+		"user_type":     userType,
+	}
+	if req.Status != nil {
+		updates["status"] = model.StatusStr(*req.Status)
+	}
+	if err := s.db.Model(&u).Updates(updates).Error; err != nil {
+		return errs.ErrInternal
+	}
+	authz.SyncAllQuiet(s.db)
+	return nil
+}
+
+// ResetPassword 管理员重置密码，重置后该用户全部会话失效。
+func (s *UserService) ResetPassword(ctx context.Context, id string, newPassword string) *errs.Error {
+	var u model.SysUser
+	if err := s.db.First(&u, "id = ?", id).Error; err != nil {
+		return errs.ErrNotFound
+	}
+	if !password.ValidPassword(newPassword) {
+		return errs.ErrParam.WithMsg("new_password 须为 8–32 位且含字母与数字")
+	}
+	hash, err := password.Hash(newPassword)
+	if err != nil {
+		return errs.ErrInternal
+	}
+	if err := s.db.Model(&u).Updates(map[string]any{
+		"password":             hash,
+		"must_change_password": false,
+	}).Error; err != nil {
+		return errs.ErrInternal
+	}
+	s.killSessions(ctx, id)
+	return nil
+}
+
+// SetStatus 启用/停用（停用即会话失效；不能操作当前登录账号）。
+func (s *UserService) SetStatus(ctx context.Context, id string, status int, operatorID string) *errs.Error {
+	if id == operatorID {
+		return errs.ErrSelfOperation
+	}
+	var u model.SysUser
+	if err := s.db.First(&u, "id = ?", id).Error; err != nil {
+		return errs.ErrNotFound
+	}
+	if err := s.db.Model(&u).Update("status", model.StatusStr(status)).Error; err != nil {
+		return errs.ErrInternal
+	}
+	if status == 0 {
+		s.killSessions(ctx, id)
+	}
+	authz.SyncAllQuiet(s.db)
+	return nil
+}
+
+// Delete 软删除（不能删除当前登录账号）。
+func (s *UserService) Delete(ctx context.Context, id string, operatorID string) *errs.Error {
+	if id == operatorID {
+		return errs.ErrSelfOperation
+	}
+	res := s.db.Delete(&model.SysUser{}, "id = ?", id)
+	if res.Error != nil {
+		return errs.ErrInternal
+	}
+	if res.RowsAffected == 0 {
+		return errs.ErrNotFound
+	}
+	s.killSessions(ctx, id)
+	authz.SyncAllQuiet(s.db)
+	return nil
+}
+
+// resolveRoles 校验角色存在并按角色推导用户类型（inspector/repair 优先，否则 admin）。
+func (s *UserService) resolveRoles(roleIDs []string) (string, *errs.Error) {
+	var roles []model.SysRole
+	if err := s.db.Where("id IN ?", roleIDs).Find(&roles).Error; err != nil {
+		return "", errs.ErrInternal
+	}
+	if len(roles) != len(uniqueStrings(roleIDs)) {
+		return "", errs.ErrParam.WithMsg("role_ids 中存在无效角色")
+	}
+	userType := "admin"
+	for _, r := range roles {
+		if r.Code == "inspector" {
+			userType = "inspector"
+		} else if r.Code == "repair" && userType != "inspector" {
+			userType = "repair"
+		}
+	}
+	return userType, nil
+}
+
+// checkCommunities 校验小区存在。
+func (s *UserService) checkCommunities(ids []string) *errs.Error {
+	if len(ids) == 0 {
+		return nil
+	}
+	var count int64
+	s.db.Model(&model.Community{}).Where("id IN ?", ids).Count(&count)
+	if count != int64(len(uniqueStrings(ids))) {
+		return errs.ErrCommunityNotExist
+	}
+	return nil
+}
+
+// Export 按筛选导出全部用户（上限 10000 行）。
+func (s *UserService) Export(q *dto.UserListQuery) ([]excel.UserExportRow, *errs.Error) {
+	var users []model.SysUser
+	if err := s.listQuery(q).Order("id ASC").Limit(exportMaxRows + 1).Find(&users).Error; err != nil {
+		return nil, errs.ErrInternal
+	}
+	if len(users) > exportMaxRows {
+		return nil, errs.ErrParam.WithMsg("导出数据超过 10000 行，请缩小筛选范围")
+	}
+	rows := make([]excel.UserExportRow, 0, len(users))
+	for i := range users {
+		item := s.toItem(&users[i])
+		roleNames := make([]string, 0, len(item.Roles))
+		for _, r := range item.Roles {
+			roleNames = append(roleNames, r.Name)
+		}
+		statusText := "启用"
+		if item.Status == 0 {
+			statusText = "停用"
+		}
+		rows = append(rows, excel.UserExportRow{
+			Username:    item.Username,
+			Name:        item.Name,
+			Phone:       item.Phone,
+			Roles:       strings.Join(roleNames, ","),
+			Communities: strings.Join(item.CommunityNames, ","),
+			Status:      statusText,
+			LastLoginAt: item.LastLoginAt,
+			CreatedAt:   item.CreatedAt,
+		})
+	}
+	return rows, nil
+}
+
+// Import 逐行校验导入用户（跳过失败行，成功行落库）。
+func (s *UserService) Import(r io.Reader) (*dto.ImportResult, string, *errs.Error) {
+	rows, err := excel.ParseUserImport(r)
+	if err != nil {
+		return nil, "", errs.ErrImportFileType
+	}
+	// 过滤整行为空的行
+	dataRows := make([][]string, 0, len(rows))
+	rowNums := make([]int, 0, len(rows))
+	for i, row := range rows {
+		if isEmptyRow(row) {
+			continue
+		}
+		dataRows = append(dataRows, row)
+		rowNums = append(rowNums, i+3) // Excel 实际行号（1 表头 + 1 示例）
+	}
+	if len(dataRows) == 0 {
+		return nil, "", errs.ErrImportEmpty
+	}
+	if len(dataRows) > importMaxRows {
+		return nil, "", errs.ErrImportTooMany
+	}
+
+	// 预载角色与小区名称映射、已有用户名集合
+	roleByName := map[string]model.SysRole{}
+	{
+		var roles []model.SysRole
+		s.db.Find(&roles)
+		for _, r := range roles {
+			roleByName[r.Name] = r
+		}
+	}
+	commByName := map[string]string{}
+	{
+		var comms []model.Community
+		s.db.Select("id", "name").Find(&comms)
+		for _, cm := range comms {
+			commByName[cm.Name] = cm.ID
+		}
+	}
+	existingPhones := map[string]bool{}
+	{
+		var phones []string
+		s.db.Model(&model.SysUser{}).Pluck("phone", &phones)
+		for _, p := range phones {
+			existingPhones[p] = true
+		}
+		// username 即手机号，同样占用
+		var usernames []string
+		s.db.Model(&model.SysUser{}).Pluck("username", &usernames)
+		for _, u := range usernames {
+			existingPhones[u] = true
+		}
+	}
+
+	result := &dto.ImportResult{Total: len(dataRows), FailDetails: []dto.FailDetail{}}
+	seen := map[string]bool{}
+	for i, row := range dataRows {
+		cell := func(idx int) string {
+			if idx < len(row) {
+				return strings.TrimSpace(row[idx])
+			}
+			return ""
+		}
+		name, phone, roleText, commText := cell(0), cell(1), cell(2), cell(3)
+		initPwd, statusText, remark := cell(4), cell(5), cell(6)
+
+		fail := func(reason string) {
+			result.FailDetails = append(result.FailDetails, dto.FailDetail{Row: rowNums[i], Phone: phone, Reason: reason})
+		}
+		// 1. 必填校验
+		if name == "" || phone == "" || roleText == "" || commText == "" {
+			fail("姓名/手机号/角色/所属小区均为必填")
+			continue
+		}
+		// 2. 手机号格式与唯一性（库中或本批次重复均失败）
+		if !password.ValidPhone(phone) {
+			fail("手机号格式错误")
+			continue
+		}
+		if existingPhones[phone] || seen[phone] {
+			fail("手机号已存在")
+			continue
+		}
+		// 3. 角色逐一匹配
+		roleNames := strings.Split(roleText, ",")
+		roleIDs := make([]string, 0, len(roleNames))
+		roleCodes := make([]string, 0, len(roleNames))
+		roleOK := true
+		for _, rn := range roleNames {
+			rn = strings.TrimSpace(rn)
+			role, ok := roleByName[rn]
+			if !ok {
+				fail(fmt.Sprintf("角色「%s」不存在", rn))
+				roleOK = false
+				break
+			}
+			roleIDs = append(roleIDs, role.ID)
+			roleCodes = append(roleCodes, role.Code)
+		}
+		if !roleOK {
+			continue
+		}
+		// 4. 小区逐一匹配
+		commNames := strings.Split(commText, ",")
+		commIDs := make([]string, 0, len(commNames))
+		commOK := true
+		for _, cn := range commNames {
+			cn = strings.TrimSpace(cn)
+			id, ok := commByName[cn]
+			if !ok {
+				fail(fmt.Sprintf("小区「%s」不存在", cn))
+				commOK = false
+				break
+			}
+			commIDs = append(commIDs, id)
+		}
+		if !commOK {
+			continue
+		}
+		// 初始密码：E 列或手机号后 6 位（文档约定默认值，不受手动创建的密码强度规则约束）
+		if initPwd != "" && !password.ValidPassword(initPwd) {
+			fail("初始密码须为 8–32 位且含字母与数字")
+			continue
+		}
+		if initPwd == "" {
+			initPwd = phone[len(phone)-6:]
+		}
+		userType := "admin"
+		for _, code := range roleCodes {
+			if code == "inspector" {
+				userType = "inspector"
+			} else if code == "repair" && userType != "inspector" {
+				userType = "repair"
+			}
+		}
+		status := model.StatusEnabled
+		if statusText == "停用" {
+			status = model.StatusDisabled
+		}
+		hash, err := password.Hash(initPwd)
+		if err != nil {
+			return nil, "", errs.ErrInternal
+		}
+		user := model.SysUser{
+			Username:           phone,
+			Password:           hash,
+			Name:               name,
+			Phone:              phone,
+			RoleIDs:            roleIDs,
+			CommunityIDs:       commIDs,
+			UserType:           userType,
+			Status:             status,
+			MustChangePassword: true, // 导入用户首次登录强制改密
+			Remark:             remark,
+		}
+		if err := s.db.Create(&user).Error; err != nil {
+			fail("写入失败：" + err.Error())
+			continue
+		}
+		seen[phone] = true
+		result.SuccessCount++
+	}
+	result.FailCount = len(result.FailDetails)
+	msg := fmt.Sprintf("导入完成：成功 %d 条，失败 %d 条", result.SuccessCount, result.FailCount)
+	return result, msg, nil
+}
+
+// isEmptyRow 判断整行为空。
+func isEmptyRow(row []string) bool {
+	for _, c := range row {
+		if strings.TrimSpace(c) != "" {
+			return false
+		}
+	}
+	return true
+}
+
+func uniqueStrings(ids []string) []string {
+	seen := map[string]bool{}
+	out := make([]string, 0, len(ids))
+	for _, id := range ids {
+		if !seen[id] {
+			seen[id] = true
+			out = append(out, id)
+		}
+	}
+	return out
+}
+
+// UpdateProfile 修改当前用户基本资料（姓名、手机号；手机号全局唯一校验）。
+func (s *UserService) UpdateProfile(uid string, name, phone string) *errs.Error {
+	var u model.SysUser
+	if err := s.db.First(&u, "id = ?", uid).Error; err != nil {
+		return errs.ErrNotFound
+	}
+	if strings.TrimSpace(name) == "" {
+		return errs.ErrParam.WithMsg("name 为必填项")
+	}
+	if !password.ValidPhone(phone) {
+		return errs.ErrParam.WithMsg("phone 手机号格式错误")
+	}
+	// 手机号同时可能作为他人登录名（导入用户 username=手机号），两处都要排重
+	var count int64
+	s.db.Model(&model.SysUser{}).Where("id <> ? AND (phone = ? OR username = ?)", uid, phone, phone).Count(&count)
+	if count > 0 {
+		return errs.ErrPhoneExists
+	}
+	if err := s.db.Model(&u).Updates(map[string]any{"name": name, "phone": phone}).Error; err != nil {
+		return errs.ErrInternal
+	}
+	return nil
+}
+
+// ChangePassword 修改当前用户密码：校验旧密码，新密码强度同创建规则；
+// 成功后清除 must_change_password，并使该用户全部会话失效（含当前，需重新登录）。
+func (s *UserService) ChangePassword(ctx context.Context, uid string, oldPwd, newPwd string) *errs.Error {
+	var u model.SysUser
+	if err := s.db.First(&u, "id = ?", uid).Error; err != nil {
+		return errs.ErrNotFound
+	}
+	if !password.Compare(u.Password, oldPwd) {
+		return errs.ErrBadCredentials
+	}
+	if !password.ValidPassword(newPwd) {
+		return errs.ErrParam.WithMsg("新密码须为 8–32 位且含字母与数字")
+	}
+	if oldPwd == newPwd {
+		return errs.ErrParam.WithMsg("新密码不能与旧密码相同")
+	}
+	hash, err := password.Hash(newPwd)
+	if err != nil {
+		return errs.ErrInternal
+	}
+	if err := s.db.Model(&u).Updates(map[string]any{
+		"password":             hash,
+		"must_change_password": false,
+	}).Error; err != nil {
+		return errs.ErrInternal
+	}
+	s.killSessions(ctx, uid)
+	return nil
+}

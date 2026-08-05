@@ -1,0 +1,50 @@
+// Element Plus 主题定制：以 CSS 变量方式对齐设计令牌
+// 完整变量清单见 element-plus/theme-chalk/src/common/var.scss
+@use './variables.scss' as *;
+
+:root {
+  --el-color-primary: #{$color-primary};
+  --el-color-primary-light-3: #{$color-primary-hover};
+  --el-color-primary-light-5: #7d96f4;
+  --el-color-primary-light-7: #b0c2f9;
+  --el-color-primary-light-8: #ccd7fb;
+  --el-color-primary-light-9: #{$color-primary-light};
+  --el-color-primary-dark-2: #{$color-primary-active};
+
+  --el-color-success: #{$color-success};
+  --el-color-warning: #{$color-warning};
+  --el-color-danger: #{$color-danger};
+  --el-color-error: #{$color-danger};
+  --el-color-info: #{$color-info};
+
+  --el-text-color-primary: #{$color-text-primary};
+  --el-text-color-regular: #{$color-text-regular};
+  --el-text-color-secondary: #{$color-text-secondary};
+  --el-text-color-placeholder: #{$color-text-placeholder};
+
+  --el-border-color: #{$color-border-dark};
+  --el-border-color-light: #{$color-border};
+  --el-border-color-lighter: #{$color-border};
+  --el-border-color-extra-light: #eef0f3;
+
+  --el-fill-color-light: #f2f3f5;
+  --el-bg-color-page: #{$color-bg-page};
+
+  // 全局圆角：小元素 4px
+  --el-border-radius-base: #{$radius-small};
+  --el-border-radius-small: #{$radius-small};
+  --el-border-radius-round: 20px;
+
+  --el-font-size-base: #{$font-size-body};
+  --el-font-size-small: #{$font-size-aux};
+  --el-font-size-extra-small: #{$font-size-aux};
+
+  --el-font-family: -apple-system, 'PingFang SC', 'Microsoft YaHei',
+    'Helvetica Neue', Arial, sans-serif;
+
+  // 浮层阴影（设计令牌仅两级，浮层用此档）
+  --el-box-shadow: #{$shadow-popup};
+  --el-box-shadow-light: #{$shadow-popup};
+  --el-box-shadow-lighter: #{$shadow-popup};
+  --el-box-shadow-dark: #{$shadow-popup};
+}

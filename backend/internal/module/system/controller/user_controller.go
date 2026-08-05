@@ -1,0 +1,268 @@
+package controller
+
+import (
+	"bytes"
+	"fmt"
+	"path/filepath"
+	"strings"
+	"time"
+
+	"github.com/gin-gonic/gin"
+
+	"property-inspection/internal/middleware"
+	"property-inspection/internal/module/system/dto"
+	"property-inspection/internal/module/system/service"
+	"property-inspection/internal/pkg/bind"
+	"property-inspection/internal/pkg/errs"
+	"property-inspection/internal/pkg/excel"
+	"property-inspection/internal/pkg/response"
+)
+
+// 导入文件大小上限 5MB。
+const importMaxFileSize = 5 << 20
+
+// UserController 用户管理接口。
+type UserController struct {
+	svc *service.UserService
+}
+
+func NewUserController(svc *service.UserService) *UserController {
+	return &UserController{svc: svc}
+}
+
+// List GET /system/users
+func (ctl *UserController) List(c *gin.Context) {
+	var q dto.UserListQuery
+	if be := bind.Query(c, &q); be != nil {
+		response.Fail(c, be)
+		return
+	}
+	page, be := ctl.svc.List(&q)
+	if be != nil {
+		response.Fail(c, be)
+		return
+	}
+	response.OK(c, page)
+}
+
+// Create POST /system/users
+func (ctl *UserController) Create(c *gin.Context) {
+	var req dto.UserCreateReq
+	if be := bind.JSON(c, &req); be != nil {
+		response.Fail(c, be)
+		return
+	}
+	id, be := ctl.svc.Create(&req)
+	if be != nil {
+		response.Fail(c, be)
+		return
+	}
+	response.OK(c, gin.H{"id": id})
+}
+
+// Detail GET /system/users/:id
+func (ctl *UserController) Detail(c *gin.Context) {
+	id, be := pathID(c)
+	if be != nil {
+		response.Fail(c, be)
+		return
+	}
+	detail, be := ctl.svc.Detail(id)
+	if be != nil {
+		response.Fail(c, be)
+		return
+	}
+	response.OK(c, detail)
+}
+
+// Update PUT /system/users/:id
+func (ctl *UserController) Update(c *gin.Context) {
+	id, be := pathID(c)
+	if be != nil {
+		response.Fail(c, be)
+		return
+	}
+	var req dto.UserUpdateReq
+	if be := bind.JSON(c, &req); be != nil {
+		response.Fail(c, be)
+		return
+	}
+	if be := ctl.svc.Update(id, &req); be != nil {
+		response.Fail(c, be)
+		return
+	}
+	response.OK(c, nil)
+}
+
+// ResetPassword PUT /system/users/:id/password/reset
+func (ctl *UserController) ResetPassword(c *gin.Context) {
+	id, be := pathID(c)
+	if be != nil {
+		response.Fail(c, be)
+		return
+	}
+	var req dto.ResetPasswordReq
+	if be := bind.JSON(c, &req); be != nil {
+		response.Fail(c, be)
+		return
+	}
+	if be := ctl.svc.ResetPassword(c.Request.Context(), id, req.NewPassword); be != nil {
+		response.Fail(c, be)
+		return
+	}
+	response.OK(c, nil)
+}
+
+// SetStatus PUT /system/users/:id/status
+func (ctl *UserController) SetStatus(c *gin.Context) {
+	id, be := pathID(c)
+	if be != nil {
+		response.Fail(c, be)
+		return
+	}
+	var req dto.StatusReq
+	if be := bind.JSON(c, &req); be != nil {
+		response.Fail(c, be)
+		return
+	}
+	if be := ctl.svc.SetStatus(c.Request.Context(), id, req.Status, middleware.CurrentUserID(c)); be != nil {
+		response.Fail(c, be)
+		return
+	}
+	response.OK(c, nil)
+}
+
+// Delete DELETE /system/users/:id
+func (ctl *UserController) Delete(c *gin.Context) {
+	id, be := pathID(c)
+	if be != nil {
+		response.Fail(c, be)
+		return
+	}
+	if be := ctl.svc.Delete(c.Request.Context(), id, middleware.CurrentUserID(c)); be != nil {
+		response.Fail(c, be)
+		return
+	}
+	response.OK(c, nil)
+}
+
+// ImportTemplate GET /system/users/import-template（直接返回 Excel 文件流）
+func (ctl *UserController) ImportTemplate(c *gin.Context) {
+	f, err := excel.UserImportTemplate()
+	if err != nil {
+		response.Fail(c, errs.ErrInternal)
+		return
+	}
+	defer f.Close()
+	var buf bytes.Buffer
+	if err := f.Write(&buf); err != nil {
+		response.Fail(c, errs.ErrInternal)
+		return
+	}
+	writeExcel(c, "user_import_template.xlsx", buf.Bytes())
+}
+
+// Import POST /system/users/import（multipart 上传 .xlsx）
+func (ctl *UserController) Import(c *gin.Context) {
+	fileHeader, err := c.FormFile("file")
+	if err != nil {
+		response.Fail(c, errs.ErrParam.WithMsg("缺少上传文件 file"))
+		return
+	}
+	if !strings.EqualFold(filepath.Ext(fileHeader.Filename), ".xlsx") {
+		response.Fail(c, errs.ErrImportFileType)
+		return
+	}
+	if fileHeader.Size > importMaxFileSize {
+		response.Fail(c, errs.ErrParam.WithMsg("导入文件不能超过 5MB"))
+		return
+	}
+	f, err := fileHeader.Open()
+	if err != nil {
+		response.Fail(c, errs.ErrInternal)
+		return
+	}
+	defer f.Close()
+	result, msg, be := ctl.svc.Import(f)
+	if be != nil {
+		response.Fail(c, be)
+		return
+	}
+	response.OKMsg(c, msg, result)
+}
+
+// Export GET /system/users/export（按筛选导出 Excel 文件流）
+func (ctl *UserController) Export(c *gin.Context) {
+	var q dto.UserListQuery
+	if be := bind.Query(c, &q); be != nil {
+		response.Fail(c, be)
+		return
+	}
+	rows, be := ctl.svc.Export(&q)
+	if be != nil {
+		response.Fail(c, be)
+		return
+	}
+	f, err := excel.ExportUsers(rows)
+	if err != nil {
+		response.Fail(c, errs.ErrInternal)
+		return
+	}
+	defer f.Close()
+	var buf bytes.Buffer
+	if err := f.Write(&buf); err != nil {
+		response.Fail(c, errs.ErrInternal)
+		return
+	}
+	writeExcel(c, fmt.Sprintf("users_%s.xlsx", time.Now().Format("20060102")), buf.Bytes())
+}
+
+// writeExcel 输出 Excel 文件流（非统一 JSON 结构）。
+func writeExcel(c *gin.Context, filename string, data []byte) {
+	c.Header("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+	c.Header("Content-Disposition", fmt.Sprintf(`attachment; filename="%s"`, filename))
+	c.Data(200, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", data)
+}
+
+// UpdateProfile PUT /system/users/profile（登录即可）：修改本人基本资料，返回最新用户信息。
+func (ctl *UserController) UpdateProfile(c *gin.Context) {
+	var req struct {
+		Name  string `json:"name" binding:"required"`
+		Phone string `json:"phone" binding:"required"`
+	}
+	if be := bind.JSON(c, &req); be != nil {
+		response.Fail(c, be)
+		return
+	}
+	uid := middleware.CurrentUserID(c)
+	if be := ctl.svc.UpdateProfile(uid, req.Name, req.Phone); be != nil {
+		response.Fail(c, be)
+		return
+	}
+	// 返回最新用户信息（与 /auth/info 同构的用户字段子集）
+	detail, be := ctl.svc.Detail(uid)
+	if be != nil {
+		response.Fail(c, be)
+		return
+	}
+	response.OK(c, detail)
+}
+
+// ChangePassword PUT /system/users/password（登录即可）：修改本人密码。
+// 取舍说明：改密成功后该用户全部会话（含当前）失效，需用新密码重新登录——
+// 安全性优先，避免改密后旧 token 仍可用的窗口期。
+func (ctl *UserController) ChangePassword(c *gin.Context) {
+	var req struct {
+		OldPassword string `json:"old_password" binding:"required"`
+		NewPassword string `json:"new_password" binding:"required"`
+	}
+	if be := bind.JSON(c, &req); be != nil {
+		response.Fail(c, be)
+		return
+	}
+	if be := ctl.svc.ChangePassword(c.Request.Context(), middleware.CurrentUserID(c), req.OldPassword, req.NewPassword); be != nil {
+		response.Fail(c, be)
+		return
+	}
+	response.OK(c, nil)
+}

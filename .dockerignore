@@ -1,0 +1,13 @@
+# 根上下文 .dockerignore（生产镜像构建用）
+**/node_modules
+**/dist
+**/.git
+backend/bin
+backend/tmp
+backend/uploads
+backend/.tmp
+.tmp
+docs
+*.md
+.env*
+docker-compose*.yml

@@ -1,0 +1,21 @@
+# 环境配置（含密码等敏感信息，只提交 .env.example）
+.env.dev
+.env.prod
+.env.local
+
+# 依赖与构建产物
+node_modules/
+frontend/dist/
+backend/bin/
+backend/tmp/
+
+# 本地上传文件与临时文件
+backend/uploads/
+.tmp/
+
+# 日志
+*.log
+
+# 编辑器
+.idea/
+.vscode/

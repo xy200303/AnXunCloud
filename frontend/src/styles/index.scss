@@ -1,0 +1,181 @@
+// 全局样式：页面骨架、通用列表页范式（对应 UI 文档 §3.2）
+@use './element-vars.scss';
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#app {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family: -apple-system, 'PingFang SC', 'Microsoft YaHei', 'Helvetica Neue',
+    Arial, sans-serif;
+  font-size: $font-size-body;
+  color: $color-text-primary;
+  background-color: $color-bg-page;
+  // 数据、编号、时间使用等宽数字，防止表格列抖动
+  font-variant-numeric: tabular-nums;
+  -webkit-font-smoothing: antialiased;
+}
+
+a {
+  color: $color-primary;
+  text-decoration: none;
+}
+
+// 页面整体不允许横向滚动（表格列多时在表格内滚动）
+html,
+body {
+  overflow-x: hidden;
+}
+
+// ===== 通用列表页范式 =====
+// 搜索区 / 工具栏 / 表格 / 分页，均为灰底上的白卡片
+.app-container {
+  padding: $spacing-lg;
+}
+
+.filter-card,
+.table-card {
+  background: $color-bg-card;
+  border-radius: $radius-card;
+  padding: $spacing-lg;
+}
+
+.filter-card {
+  margin-bottom: $spacing-lg;
+
+  .el-form--inline .el-form-item {
+    margin-right: $spacing-lg;
+    margin-bottom: $spacing-sm;
+  }
+}
+
+.table-card {
+  .table-toolbar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: $spacing-lg;
+  }
+
+  .table-toolbar-left {
+    display: flex;
+    gap: $spacing-sm;
+  }
+
+  .pagination-wrap {
+    display: flex;
+    justify-content: flex-end;
+    margin-top: $spacing-lg;
+  }
+}
+
+// 表格行高 48px、斑马纹由 el-table 属性控制
+.el-table {
+  --el-table-row-hover-bg-color: #{$color-primary-light};
+
+  th.el-table__cell {
+    background: $color-table-header;
+    color: $color-text-regular;
+    font-weight: 600;
+  }
+}
+
+// 操作列链接间距
+.el-table .el-button + .el-button,
+.el-table .el-button + .el-dropdown {
+  margin-left: $spacing-sm;
+}
+
+// 页面标题
+.page-title {
+  font-size: $font-size-page-title;
+  font-weight: 600;
+  line-height: 1.3;
+  margin: 0 0 $spacing-lg;
+}
+
+// 卡片标题
+.card-title {
+  font-size: $font-size-card-title;
+  font-weight: 600;
+  line-height: 1.3;
+  margin: 0;
+}
+
+// 辅助说明文字
+.text-secondary {
+  color: $color-text-secondary;
+  font-size: $font-size-aux;
+}
+
+// 对话框/抽屉浮层阴影由 Element 变量控制（见 element-vars.scss）
+// 状态标签：功能色同时配文字，不单独依赖颜色
+
+// 动画：150–300ms，仅 transform/opacity；尊重系统减弱动效设置
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+// 侧边栏深色主题
+.sidebar-menu.el-menu {
+  border-right: none;
+  background-color: $color-sidebar;
+
+  .el-menu-item,
+  .el-sub-menu__title {
+    color: $color-sidebar-text;
+
+    &:hover {
+      background-color: $color-sidebar-hover;
+      color: $color-white;
+    }
+  }
+
+  .el-menu-item.is-active {
+    color: $color-white;
+    background-color: $color-sidebar-hover;
+    // 当前项高亮：主色左条
+    box-shadow: inset 3px 0 0 $color-primary;
+  }
+
+  .el-menu--inline {
+    background-color: $color-sidebar-submenu;
+
+    .el-menu-item,
+    .el-sub-menu__title {
+      background-color: $color-sidebar-submenu;
+
+      &:hover {
+        background-color: $color-sidebar-hover;
+      }
+    }
+  }
+}
+
+// 滚动条收敛
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: $color-border-dark;
+  border-radius: $radius-small;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}

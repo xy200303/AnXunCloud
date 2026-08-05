@@ -1,0 +1,62 @@
+// 设计令牌（对应 docs/UI-UX设计方案.md §二）
+// 组件内禁止写死裸色值，统一引用本文件变量
+
+// 品牌主色
+$color-primary: #2b5aed;
+$color-primary-hover: #4a74f0;
+$color-primary-active: #1f47c8;
+$color-primary-light: #eaefff;
+
+// 语义色
+$color-success: #2ba471;
+$color-warning: #ed7b2f;
+$color-danger: #d54941;
+$color-info: #909399;
+
+// 中性色
+$color-bg-page: #f5f6f8;
+$color-bg-card: #ffffff;
+$color-sidebar: #1f2d3d;
+$color-sidebar-hover: #26374b;
+$color-sidebar-submenu: #1a2634;
+$color-sidebar-text: #bfcbd9;
+$color-white: #ffffff;
+$color-table-header: #fafbfc;
+$color-text-primary: #1f2329;
+$color-text-regular: #4e5969;
+$color-text-secondary: #86909c;
+$color-text-placeholder: #c0c4cc;
+$color-border: #e5e6eb;
+$color-border-dark: #c9cdd4;
+
+// 字阶
+$font-size-page-title: 18px;
+$font-size-card-title: 16px;
+$font-size-body: 14px;
+$font-size-aux: 12px;
+$font-size-data: 28px;
+
+// 间距（4 的倍数体系）
+$spacing-xs: 4px;
+$spacing-sm: 8px;
+$spacing-md: 12px;
+$spacing-lg: 16px;
+$spacing-xl: 24px;
+$spacing-xxl: 32px;
+
+// 圆角
+$radius-small: 4px;
+$radius-card: 6px;
+
+// 阴影（浮层专用，卡片静止态无阴影）
+$shadow-popup: 0 4px 16px rgba(0, 0, 0, 0.08);
+
+// 布局尺寸
+$sidebar-width: 220px;
+$sidebar-width-collapsed: 64px;
+$navbar-height: 50px;
+$tags-view-height: 40px;
+
+// z-index 标尺：0 内容 / 10 吸顶 / 100 固定导航 / 1000 抽屉对话框 / 2000 消息提示
+$z-sticky: 10;
+$z-fixed-nav: 100;

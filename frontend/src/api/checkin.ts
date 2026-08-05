@@ -1,0 +1,25 @@
+// 打卡记录检索接口（接口文档 §2.14）
+import { request, type PageResult } from '@/utils/request'
+import type { CheckinItem, CheckinDetail } from './biz-types'
+
+export interface CheckinQuery {
+  page?: number
+  page_size?: number
+  community_id?: string
+  point_id?: string
+  inspector_id?: string
+  task_id?: string
+  result?: string
+  checkin_type?: string
+  is_suspect?: boolean
+  start_time?: string
+  end_time?: string
+}
+
+export function listCheckins(params: CheckinQuery) {
+  return request<PageResult<CheckinItem>>({ url: '/inspection/checkins', method: 'get', params })
+}
+
+export function getCheckin(id: string) {
+  return request<CheckinDetail>({ url: `/inspection/checkins/${id}`, method: 'get' })
+}

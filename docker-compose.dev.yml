@@ -1,0 +1,80 @@
+# 开发环境：postgres + redis + backend(air 热更新) + frontend(vite dev server)
+# 启动：docker compose --env-file .env.dev -f docker-compose.dev.yml up -d --build
+name: pi-dev
+services:
+  postgres:
+    image: postgres:15-alpine
+    container_name: pi-dev-dev-postgres
+    env_file: .env.dev
+    environment:
+      POSTGRES_USER: ${PI_POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${PI_POSTGRES_PASSWORD:?need PI_POSTGRES_PASSWORD}
+      POSTGRES_DB: ${PI_POSTGRES_DBNAME:-property_inspection}
+    ports:
+      - "25433:5432"        # 避开本地 pi-postgres(25432)
+    volumes:
+      - pgdata_dev:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  redis:
+    image: redis:7-alpine
+    container_name: pi-dev-dev-redis
+    ports:
+      - "26380:6379"        # 避开本地 pi-redis(26379)
+    volumes:
+      - redisdata_dev:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: backend-dev
+    container_name: pi-dev-dev-backend
+    env_file: .env.dev
+    environment:
+      # 容器网络内用服务名互联（覆盖 .env.dev 的 127.0.0.1）
+      PI_POSTGRES_HOST: postgres
+      PI_POSTGRES_PORT: "5432"
+      PI_REDIS_ADDR: redis:6379
+    ports:
+      - "8090:8090"
+    volumes:
+      - ./backend:/app                 # 挂载源码，air 监听变更热编译
+      - gomodcache:/go/pkg/mod         # 依赖缓存，加速重编译
+      - gobuildcache:/root/.cache/go-build
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: frontend-dev
+    container_name: pi-dev-dev-frontend
+    environment:
+      VITE_PROXY_TARGET: http://backend:8090   # vite dev server 代理到 backend 容器
+    ports:
+      - "5180:5180"                 # 与 vite.config.ts 的 dev 端口一致
+    volumes:
+      - ./frontend:/app             # 挂载源码，vite HMR
+      - /app/node_modules           # 匿名卷保留容器内依赖
+    depends_on:
+      - backend
+
+volumes:
+  pgdata_dev:
+  redisdata_dev:
+  gomodcache:
+  gobuildcache:

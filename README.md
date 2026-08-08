@@ -154,7 +154,7 @@ docker compose --env-file .env.prod -f docker-compose.prod.yml down
 
 ## 权限体系（Casbin）
 
-接口鉴权使用 **Casbin（RBAC with domains）**，模型见 `backend/internal/pkg/authz/rbac_model.conf`：
+接口鉴权使用 **Casbin v3 + gorm-adapter v3.41（RBAC with domains）**，模型见 `backend/internal/pkg/authz/rbac_model.conf`：
 
 - **请求/策略**：三元组 `r = sub, dom, obj` / `p = sub, dom, obj`，匹配 `g(r.sub,p.sub,r.dom) && r.dom==p.dom && (p.obj=="*" || keyMatch2(r.obj,p.obj))`；
 - **domain（多租户预留）**：`dom` 当前统一为 `default`；未来多租户（物业公司级隔离）扩展时，按租户生成子域（如 `tenant:<id>`），策略与 g 规则挂在对应域下即可，业务代码无需改动。小区级数据权限不属于 casbin 域，仍由 `ApplyCommunityFilter`/`CheckCommunity` 在查询层过滤；

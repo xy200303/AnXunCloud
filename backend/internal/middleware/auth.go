@@ -9,13 +9,13 @@ import (
 	"go.uber.org/zap"
 	"gorm.io/gorm"
 
-	"property-inspection/internal/module/system/model"
-	"property-inspection/internal/pkg/authz"
-	"property-inspection/internal/pkg/errs"
-	"property-inspection/internal/pkg/jwtutil"
-	"property-inspection/internal/pkg/logger"
-	"property-inspection/internal/pkg/response"
-	"property-inspection/internal/pkg/session"
+	"anxuncloud/internal/module/system/model"
+	"anxuncloud/internal/pkg/authz"
+	"anxuncloud/internal/pkg/errs"
+	"anxuncloud/internal/pkg/jwtutil"
+	"anxuncloud/internal/pkg/logger"
+	"anxuncloud/internal/pkg/response"
+	"anxuncloud/internal/pkg/session"
 )
 
 // 上下文键

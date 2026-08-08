@@ -5,13 +5,13 @@ import (
 
 	"gorm.io/gorm"
 
-	"property-inspection/internal/pkg/authz"
+	"anxuncloud/internal/pkg/authz"
 
-	"property-inspection/internal/module/system/dto"
-	"property-inspection/internal/module/system/model"
-	"property-inspection/internal/pkg/errs"
-	"property-inspection/internal/pkg/response"
-	"property-inspection/internal/pkg/timefmt"
+	"anxuncloud/internal/module/system/dto"
+	"anxuncloud/internal/module/system/model"
+	"anxuncloud/internal/pkg/errs"
+	"anxuncloud/internal/pkg/response"
+	"anxuncloud/internal/pkg/timefmt"
 )
 
 // RoleService 角色管理服务。

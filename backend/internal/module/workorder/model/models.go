@@ -6,7 +6,7 @@ import (
 
 	"gorm.io/gorm"
 
-	"property-inspection/internal/pkg/types"
+	"anxuncloud/internal/pkg/types"
 )
 
 // 工单状态

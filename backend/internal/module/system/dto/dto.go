@@ -1,7 +1,7 @@
 // Package dto 系统管理模块请求/响应结构。
 package dto
 
-import "property-inspection/internal/pkg/response"
+import "anxuncloud/internal/pkg/response"
 
 // ========== 用户 ==========
 

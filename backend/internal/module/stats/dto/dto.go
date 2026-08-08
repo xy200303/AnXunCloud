@@ -1,7 +1,7 @@
 // Package dto 统计模块请求结构。
 package dto
 
-import "property-inspection/internal/pkg/response"
+import "anxuncloud/internal/pkg/response"
 
 // ReportQuery 报表公共筛选参数。
 type ReportQuery struct {

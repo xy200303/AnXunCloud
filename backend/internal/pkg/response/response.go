@@ -6,7 +6,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"property-inspection/internal/pkg/errs"
+	"anxuncloud/internal/pkg/errs"
 )
 
 // body 统一响应体。

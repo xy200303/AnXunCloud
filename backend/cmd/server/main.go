@@ -13,12 +13,12 @@ import (
 
 	"go.uber.org/zap"
 
-	"property-inspection/internal/config"
-	"property-inspection/internal/pkg/authz"
-	"property-inspection/internal/pkg/database"
-	"property-inspection/internal/pkg/logger"
-	"property-inspection/internal/pkg/redis"
-	"property-inspection/internal/router"
+	"anxuncloud/internal/config"
+	"anxuncloud/internal/pkg/authz"
+	"anxuncloud/internal/pkg/database"
+	"anxuncloud/internal/pkg/logger"
+	"anxuncloud/internal/pkg/redis"
+	"anxuncloud/internal/router"
 )
 
 func main() {

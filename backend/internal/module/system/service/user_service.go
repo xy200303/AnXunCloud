@@ -8,15 +8,15 @@ import (
 
 	"gorm.io/gorm"
 
-	"property-inspection/internal/module/system/dto"
-	"property-inspection/internal/module/system/model"
-	"property-inspection/internal/pkg/authz"
-	"property-inspection/internal/pkg/errs"
-	"property-inspection/internal/pkg/excel"
-	"property-inspection/internal/pkg/password"
-	"property-inspection/internal/pkg/response"
-	"property-inspection/internal/pkg/timefmt"
-	"property-inspection/internal/pkg/types"
+	"anxuncloud/internal/module/system/dto"
+	"anxuncloud/internal/module/system/model"
+	"anxuncloud/internal/pkg/authz"
+	"anxuncloud/internal/pkg/errs"
+	"anxuncloud/internal/pkg/excel"
+	"anxuncloud/internal/pkg/password"
+	"anxuncloud/internal/pkg/response"
+	"anxuncloud/internal/pkg/timefmt"
+	"anxuncloud/internal/pkg/types"
 )
 
 // importMaxRows 单次导入数据行上限（接口文档 §2.3.9）。

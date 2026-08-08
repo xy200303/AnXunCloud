@@ -1,15 +1,15 @@
 # 生产环境：postgres + redis + app（单服务单端口，后端托管前端 SPA）
 # 启动：docker compose --env-file .env.prod -f docker-compose.prod.yml up -d --build
-name: pi-prod
+name: anxuncloud-prod
 services:
   postgres:
     image: postgres:15-alpine
-    container_name: pi-prod-prod-postgres
+    container_name: anxuncloud-prod-postgres
     env_file: .env.prod
     environment:
       POSTGRES_USER: ${PI_POSTGRES_USER:-postgres}
       POSTGRES_PASSWORD: ${PI_POSTGRES_PASSWORD:?need PI_POSTGRES_PASSWORD}
-      POSTGRES_DB: ${PI_POSTGRES_DBNAME:-property_inspection}
+      POSTGRES_DB: ${PI_POSTGRES_DBNAME:-anxuncloud}
     # 不对外暴露端口，仅容器网络内访问
     volumes:
       - pgdata_prod:/var/lib/postgresql/data
@@ -22,7 +22,7 @@ services:
 
   redis:
     image: redis:7-alpine
-    container_name: pi-prod-prod-redis
+    container_name: anxuncloud-prod-redis
     volumes:
       - redisdata_prod:/data
     healthcheck:
@@ -37,7 +37,7 @@ services:
       context: .                       # 根目录上下文（需同时构建 frontend/dist）
       dockerfile: Dockerfile
       target: prod
-    container_name: pi-prod-prod-app
+    container_name: anxuncloud-prod-app
     env_file: .env.prod
     ports:
       - "18080:8080"                   # 唯一对外端口（避开本机 8080 占用）

@@ -7,15 +7,15 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"property-inspection/internal/middleware"
-	"property-inspection/internal/module/mp/dto"
-	"property-inspection/internal/module/mp/service"
-	systemsvc "property-inspection/internal/module/system/service"
-	wodto "property-inspection/internal/module/workorder/dto"
-	wosvc "property-inspection/internal/module/workorder/service"
-	"property-inspection/internal/pkg/bind"
-	"property-inspection/internal/pkg/errs"
-	"property-inspection/internal/pkg/response"
+	"anxuncloud/internal/middleware"
+	"anxuncloud/internal/module/mp/dto"
+	"anxuncloud/internal/module/mp/service"
+	systemsvc "anxuncloud/internal/module/system/service"
+	wodto "anxuncloud/internal/module/workorder/dto"
+	wosvc "anxuncloud/internal/module/workorder/service"
+	"anxuncloud/internal/pkg/bind"
+	"anxuncloud/internal/pkg/errs"
+	"anxuncloud/internal/pkg/response"
 )
 
 // MPController 小程序端接口。

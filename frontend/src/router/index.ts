@@ -30,8 +30,8 @@ const router = createRouter({
 // 导航守卫：登录校验 + 动态路由注入
 router.beforeEach(async (to) => {
   document.title = to.meta?.title
-    ? `${to.meta.title} · 物业巡检管理系统`
-    : '物业巡检管理系统 · 管理后台'
+    ? `${to.meta.title} · 安巡云`
+    : '安巡云 · 管理后台'
 
   const hasToken = !!getToken()
 

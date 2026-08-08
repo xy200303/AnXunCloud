@@ -3,7 +3,7 @@
     <aside class="sidebar">
       <div class="logo">
         <el-icon :size="22" class="logo-icon"><OfficeBuilding /></el-icon>
-        <span v-show="!appStore.sidebarCollapsed" class="logo-text">物业巡检管理系统</span>
+        <span v-show="!appStore.sidebarCollapsed" class="logo-text">安巡云</span>
       </div>
       <el-scrollbar class="menu-scroll">
         <el-menu

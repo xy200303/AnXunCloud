@@ -5,10 +5,10 @@ import (
 
 	"gorm.io/gorm"
 
-	"property-inspection/internal/module/system/model"
-	"property-inspection/internal/pkg/errs"
-	"property-inspection/internal/pkg/response"
-	"property-inspection/internal/pkg/timefmt"
+	"anxuncloud/internal/module/system/model"
+	"anxuncloud/internal/pkg/errs"
+	"anxuncloud/internal/pkg/response"
+	"anxuncloud/internal/pkg/timefmt"
 
 	"github.com/gin-gonic/gin"
 )

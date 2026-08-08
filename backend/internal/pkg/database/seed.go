@@ -3,9 +3,9 @@ package database
 import (
 	"gorm.io/gorm"
 
-	"property-inspection/internal/module/system/model"
-	"property-inspection/internal/pkg/password"
-	"property-inspection/internal/pkg/types"
+	"anxuncloud/internal/module/system/model"
+	"anxuncloud/internal/pkg/password"
+	"anxuncloud/internal/pkg/types"
 )
 
 // Seed 写入系统预置数据（超管、内置角色、菜单树、字典、默认参数）。

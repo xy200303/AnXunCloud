@@ -12,7 +12,7 @@ import (
 	"golang.org/x/image/font/opentype"
 	"golang.org/x/image/math/fixed"
 
-	"property-inspection/internal/pkg/logger"
+	"anxuncloud/internal/pkg/logger"
 	"go.uber.org/zap"
 )
 

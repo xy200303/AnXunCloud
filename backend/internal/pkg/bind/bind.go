@@ -11,7 +11,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/go-playground/validator/v10"
 
-	"property-inspection/internal/pkg/errs"
+	"anxuncloud/internal/pkg/errs"
 )
 
 // JSON 绑定 JSON 请求体；语法错误返回 40002，校验失败返回 40001（含字段原因）。

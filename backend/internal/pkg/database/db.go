@@ -9,7 +9,7 @@ import (
 	"gorm.io/gorm"
 	gormlogger "gorm.io/gorm/logger"
 
-	"property-inspection/internal/config"
+	"anxuncloud/internal/config"
 )
 
 // Connect 建立 GORM 连接池。

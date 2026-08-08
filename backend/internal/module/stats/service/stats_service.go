@@ -9,15 +9,15 @@ import (
 	"github.com/xuri/excelize/v2"
 	"gorm.io/gorm"
 
-	"property-inspection/internal/middleware"
-	insmodel "property-inspection/internal/module/inspection/model"
-	"property-inspection/internal/module/stats/dto"
-	sysmodel "property-inspection/internal/module/system/model"
-	womodel "property-inspection/internal/module/workorder/model"
-	"property-inspection/internal/pkg/errs"
-	"property-inspection/internal/pkg/response"
-	"property-inspection/internal/pkg/storage"
-	"property-inspection/internal/pkg/timefmt"
+	"anxuncloud/internal/middleware"
+	insmodel "anxuncloud/internal/module/inspection/model"
+	"anxuncloud/internal/module/stats/dto"
+	sysmodel "anxuncloud/internal/module/system/model"
+	womodel "anxuncloud/internal/module/workorder/model"
+	"anxuncloud/internal/pkg/errs"
+	"anxuncloud/internal/pkg/response"
+	"anxuncloud/internal/pkg/storage"
+	"anxuncloud/internal/pkg/timefmt"
 )
 
 // StatsService 统计报表服务。

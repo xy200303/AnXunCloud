@@ -1,7 +1,7 @@
 // Package dto 小区与楼栋模块请求结构。
 package dto
 
-import "property-inspection/internal/pkg/response"
+import "anxuncloud/internal/pkg/response"
 
 type CommunityListQuery struct {
 	response.PageQuery

@@ -2,8 +2,8 @@
 //
 // 设计要点：
 //   - domain 预留给多租户（未来按"物业公司"隔离），当前所有策略挂在默认域 default；
-//   - 权限点映射：system:user:list → obj=/system/user, act=list（按最后一个冒号拆分，
-//     obj 走 keyMatch2 路径匹配，支持 /* 通配；act 走 regexMatch）；
+//   - 资源标识为完整权限点字符串（如 system:user:list），不做路径拆分；
+//     obj 匹配：p.obj == "*" 全量通配（超管），或 keyMatch2 前缀通配（如 system:user:*，为整模块授权预留）；
 //   - 策略数据源仍是 sys_role / sys_menu / sys_role_menu（后台界面与 API 不变），
 //     角色/用户变更后调用 SyncAll 全量重建 casbin 策略，保证不出脏策略；
 //   - g 规则：user:<id> → role:<code>（默认域）；p 规则：role:<code> → 各权限点；
@@ -13,7 +13,6 @@ package authz
 import (
 	_ "embed"
 	"fmt"
-	"strings"
 	"sync"
 
 	"github.com/casbin/casbin/v2"
@@ -21,8 +20,8 @@ import (
 	gormadapter "github.com/casbin/gorm-adapter/v3"
 	"gorm.io/gorm"
 
-	sysmodel "property-inspection/internal/module/system/model"
-	"property-inspection/internal/pkg/logger"
+	sysmodel "anxuncloud/internal/module/system/model"
+	"anxuncloud/internal/pkg/logger"
 	"go.uber.org/zap"
 )
 
@@ -57,16 +56,7 @@ func Init(db *gorm.DB) error {
 	return nil
 }
 
-// SplitPerm 权限点拆分：system:user:list → ("/system/user", "list")。
-func SplitPerm(perm string) (obj, act string) {
-	idx := strings.LastIndex(perm, ":")
-	if idx < 0 {
-		return "/" + perm, ".*"
-	}
-	return "/" + strings.ReplaceAll(perm[:idx], ":", "/"), perm[idx+1:]
-}
-
-// EnforceAny 校验用户是否拥有任一权限点。
+// EnforceAny 校验用户是否拥有任一权限点（完整字符串等值/通配匹配）。
 func EnforceAny(userID string, perms ...string) (bool, error) {
 	mu.Lock()
 	e := enforcer
@@ -76,8 +66,7 @@ func EnforceAny(userID string, perms ...string) (bool, error) {
 	}
 	sub := "user:" + userID
 	for _, perm := range perms {
-		obj, act := SplitPerm(perm)
-		ok, err := e.Enforce(sub, DefaultDomain, obj, act)
+		ok, err := e.Enforce(sub, DefaultDomain, perm)
 		if err != nil {
 			return false, err
 		}
@@ -107,7 +96,7 @@ func SyncAll(db *gorm.DB) error {
 		sub := "role:" + role.Code
 		if role.Code == sysmodel.SuperAdminCode {
 			// 超管通配策略：覆盖全部权限点（含后续新增）
-			rules = append(rules, []string{sub, DefaultDomain, "/*", ".*"})
+			rules = append(rules, []string{sub, DefaultDomain, "*"})
 			continue
 		}
 		var perms []string
@@ -119,8 +108,7 @@ func SyncAll(db *gorm.DB) error {
 			return err
 		}
 		for _, perm := range perms {
-			obj, act := SplitPerm(perm)
-			rules = append(rules, []string{sub, DefaultDomain, obj, act})
+			rules = append(rules, []string{sub, DefaultDomain, perm})
 		}
 	}
 

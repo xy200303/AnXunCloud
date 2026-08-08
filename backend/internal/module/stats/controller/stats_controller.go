@@ -6,11 +6,11 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"property-inspection/internal/module/stats/dto"
-	"property-inspection/internal/module/stats/service"
-	"property-inspection/internal/pkg/bind"
-	"property-inspection/internal/pkg/errs"
-	"property-inspection/internal/pkg/response"
+	"anxuncloud/internal/module/stats/dto"
+	"anxuncloud/internal/module/stats/service"
+	"anxuncloud/internal/pkg/bind"
+	"anxuncloud/internal/pkg/errs"
+	"anxuncloud/internal/pkg/response"
 )
 
 // StatsController 统计报表 + 工作台接口。

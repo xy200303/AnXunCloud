@@ -3,9 +3,9 @@ package service
 import (
 	"gorm.io/gorm"
 
-	"property-inspection/internal/module/system/dto"
-	"property-inspection/internal/module/system/model"
-	"property-inspection/internal/pkg/errs"
+	"anxuncloud/internal/module/system/dto"
+	"anxuncloud/internal/module/system/model"
+	"anxuncloud/internal/pkg/errs"
 )
 
 // MenuService 菜单管理服务。

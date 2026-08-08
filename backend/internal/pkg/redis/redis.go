@@ -6,7 +6,7 @@ import (
 
 	"github.com/redis/go-redis/v9"
 
-	"property-inspection/internal/config"
+	"anxuncloud/internal/config"
 )
 
 // Connect 建立 Redis 客户端并探测连通性。

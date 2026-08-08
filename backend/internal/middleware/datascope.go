@@ -4,7 +4,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 
-	"property-inspection/internal/pkg/errs"
+	"anxuncloud/internal/pkg/errs"
 )
 
 // 数据权限基础能力：按当前用户的 community_ids 过滤查询。

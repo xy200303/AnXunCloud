@@ -42,6 +42,10 @@ CREATE TABLE IF NOT EXISTS casbin_rule (
 );
 COMMENT ON TABLE casbin_rule IS 'Casbin 策略表（p：角色→权限点；g：用户→角色，域 default）';
 `},
+	{Version: 6, Name: "casbin_rule_rebuild", SQL: `
+-- 策略模型调整为三元组（sub, dom, obj=完整权限点字符串）：casbin_rule 为派生数据，清空后由启动 SyncAll 重建
+DELETE FROM casbin_rule;
+`},
 }
 
 // Migrate 执行未应用过的迁移，并确保当月与下月分区存在。

@@ -11,14 +11,14 @@ import (
 	"github.com/redis/go-redis/v9"
 	"gorm.io/gorm"
 
-	"property-inspection/internal/middleware"
-	sysmodel "property-inspection/internal/module/system/model"
-	"property-inspection/internal/module/workorder/dto"
-	"property-inspection/internal/module/workorder/model"
-	"property-inspection/internal/pkg/errs"
-	"property-inspection/internal/pkg/response"
-	"property-inspection/internal/pkg/timefmt"
-	"property-inspection/internal/pkg/types"
+	"anxuncloud/internal/middleware"
+	sysmodel "anxuncloud/internal/module/system/model"
+	"anxuncloud/internal/module/workorder/dto"
+	"anxuncloud/internal/module/workorder/model"
+	"anxuncloud/internal/pkg/errs"
+	"anxuncloud/internal/pkg/response"
+	"anxuncloud/internal/pkg/timefmt"
+	"anxuncloud/internal/pkg/types"
 )
 
 // OrderService 工单服务。

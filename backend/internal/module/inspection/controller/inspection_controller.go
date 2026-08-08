@@ -7,11 +7,11 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 
-	"property-inspection/internal/module/inspection/dto"
-	"property-inspection/internal/module/inspection/service"
-	"property-inspection/internal/pkg/bind"
-	"property-inspection/internal/pkg/errs"
-	"property-inspection/internal/pkg/response"
+	"anxuncloud/internal/module/inspection/dto"
+	"anxuncloud/internal/module/inspection/service"
+	"anxuncloud/internal/pkg/bind"
+	"anxuncloud/internal/pkg/errs"
+	"anxuncloud/internal/pkg/response"
 )
 
 // InspectionController 巡检模块接口。

@@ -9,14 +9,14 @@ import (
 	"github.com/redis/go-redis/v9"
 	"gorm.io/gorm"
 
-	"property-inspection/internal/middleware"
-	"property-inspection/internal/module/inspection/dto"
-	"property-inspection/internal/module/inspection/model"
-	sysmodel "property-inspection/internal/module/system/model"
-	"property-inspection/internal/pkg/errs"
-	"property-inspection/internal/pkg/response"
-	"property-inspection/internal/pkg/timefmt"
-	"property-inspection/internal/pkg/types"
+	"anxuncloud/internal/middleware"
+	"anxuncloud/internal/module/inspection/dto"
+	"anxuncloud/internal/module/inspection/model"
+	sysmodel "anxuncloud/internal/module/system/model"
+	"anxuncloud/internal/pkg/errs"
+	"anxuncloud/internal/pkg/response"
+	"anxuncloud/internal/pkg/timefmt"
+	"anxuncloud/internal/pkg/types"
 )
 
 var timeWindowRe = regexp.MustCompile(`^\d{2}:\d{2}-\d{2}:\d{2}$`)
@@ -108,7 +108,7 @@ func (s *PlanService) Detail(c *gin.Context, id string) (gin.H, *errs.Error) {
 		buildingName := ""
 		if pt.BuildingID != nil {
 			var b model.Building
-			if s.db.Select("name").First(&b, *pt.BuildingID).Error == nil {
+			if s.db.Select("name").First(&b, "id = ?", *pt.BuildingID).Error == nil {
 				buildingName = b.Name
 			}
 		}

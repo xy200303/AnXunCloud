@@ -11,13 +11,13 @@ import (
 	"github.com/redis/go-redis/v9"
 	"gorm.io/gorm"
 
-	"property-inspection/internal/middleware"
-	"property-inspection/internal/module/auth/dto"
-	"property-inspection/internal/module/system/model"
-	"property-inspection/internal/pkg/errs"
-	"property-inspection/internal/pkg/jwtutil"
-	"property-inspection/internal/pkg/password"
-	"property-inspection/internal/pkg/session"
+	"anxuncloud/internal/middleware"
+	"anxuncloud/internal/module/auth/dto"
+	"anxuncloud/internal/module/system/model"
+	"anxuncloud/internal/pkg/errs"
+	"anxuncloud/internal/pkg/jwtutil"
+	"anxuncloud/internal/pkg/password"
+	"anxuncloud/internal/pkg/session"
 )
 
 // ChannelAdmin 后台会话渠道。

@@ -6,12 +6,12 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 
-	"property-inspection/internal/middleware"
-	"property-inspection/internal/module/workorder/dto"
-	"property-inspection/internal/module/workorder/service"
-	"property-inspection/internal/pkg/bind"
-	"property-inspection/internal/pkg/errs"
-	"property-inspection/internal/pkg/response"
+	"anxuncloud/internal/middleware"
+	"anxuncloud/internal/module/workorder/dto"
+	"anxuncloud/internal/module/workorder/service"
+	"anxuncloud/internal/pkg/bind"
+	"anxuncloud/internal/pkg/errs"
+	"anxuncloud/internal/pkg/response"
 )
 
 // OrderController 工单接口。

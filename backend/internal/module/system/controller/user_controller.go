@@ -9,13 +9,13 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"property-inspection/internal/middleware"
-	"property-inspection/internal/module/system/dto"
-	"property-inspection/internal/module/system/service"
-	"property-inspection/internal/pkg/bind"
-	"property-inspection/internal/pkg/errs"
-	"property-inspection/internal/pkg/excel"
-	"property-inspection/internal/pkg/response"
+	"anxuncloud/internal/middleware"
+	"anxuncloud/internal/module/system/dto"
+	"anxuncloud/internal/module/system/service"
+	"anxuncloud/internal/pkg/bind"
+	"anxuncloud/internal/pkg/errs"
+	"anxuncloud/internal/pkg/excel"
+	"anxuncloud/internal/pkg/response"
 )
 
 // 导入文件大小上限 5MB。

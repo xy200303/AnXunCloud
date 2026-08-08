@@ -2,7 +2,7 @@
   <div class="login-page">
     <div class="login-header">
       <el-icon :size="32" class="logo-icon"><OfficeBuilding /></el-icon>
-      <h1 class="system-name">物业巡检管理系统</h1>
+      <h1 class="system-name">安巡云</h1>
       <p class="system-sub">管理后台</p>
     </div>
 

@@ -1,4 +1,4 @@
-module property-inspection
+module anxuncloud
 
 go 1.26
 

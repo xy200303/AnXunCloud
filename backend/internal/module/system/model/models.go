@@ -6,7 +6,7 @@ import (
 
 	"gorm.io/gorm"
 
-	"property-inspection/internal/pkg/types"
+	"anxuncloud/internal/pkg/types"
 )
 
 // 常量定义（取值与数据库 CHECK 约束一致）

@@ -1,7 +1,7 @@
 // Package dto 小程序端请求结构。
 package dto
 
-import "property-inspection/internal/pkg/response"
+import "anxuncloud/internal/pkg/response"
 
 type MPLoginReq struct {
 	Code      string `json:"code" binding:"required"`

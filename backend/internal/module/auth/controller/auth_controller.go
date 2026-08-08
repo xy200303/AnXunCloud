@@ -4,12 +4,12 @@ package controller
 import (
 	"github.com/gin-gonic/gin"
 
-	"property-inspection/internal/middleware"
-	"property-inspection/internal/module/auth/dto"
-	"property-inspection/internal/module/auth/service"
-	"property-inspection/internal/pkg/bind"
-	"property-inspection/internal/pkg/errs"
-	"property-inspection/internal/pkg/response"
+	"anxuncloud/internal/middleware"
+	"anxuncloud/internal/module/auth/dto"
+	"anxuncloud/internal/module/auth/service"
+	"anxuncloud/internal/pkg/bind"
+	"anxuncloud/internal/pkg/errs"
+	"anxuncloud/internal/pkg/response"
 )
 
 // AuthController 认证接口。

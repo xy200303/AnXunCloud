@@ -9,10 +9,10 @@ import (
 	"github.com/redis/go-redis/v9"
 	"gorm.io/gorm"
 
-	"property-inspection/internal/module/system/dto"
-	"property-inspection/internal/module/system/model"
-	"property-inspection/internal/pkg/errs"
-	"property-inspection/internal/pkg/response"
+	"anxuncloud/internal/module/system/dto"
+	"anxuncloud/internal/module/system/model"
+	"anxuncloud/internal/pkg/errs"
+	"anxuncloud/internal/pkg/response"
 )
 
 // configCacheKey 参数全量缓存（《数据库设计文档》§7.2：config:all）。

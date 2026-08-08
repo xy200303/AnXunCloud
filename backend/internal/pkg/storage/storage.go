@@ -22,8 +22,8 @@ import (
 
 	"github.com/google/uuid"
 
-	"property-inspection/internal/config"
-	"property-inspection/internal/pkg/errs"
+	"anxuncloud/internal/config"
+	"anxuncloud/internal/pkg/errs"
 )
 
 // Storage 存储服务。

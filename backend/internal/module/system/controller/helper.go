@@ -5,7 +5,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 
-	"property-inspection/internal/pkg/errs"
+	"anxuncloud/internal/pkg/errs"
 )
 
 // pathID 解析路径参数 {id}（UUID）。

@@ -3,10 +3,10 @@ package controller
 import (
 	"github.com/gin-gonic/gin"
 
-	"property-inspection/internal/middleware"
-	"property-inspection/internal/module/system/service"
-	"property-inspection/internal/pkg/bind"
-	"property-inspection/internal/pkg/response"
+	"anxuncloud/internal/middleware"
+	"anxuncloud/internal/module/system/service"
+	"anxuncloud/internal/pkg/bind"
+	"anxuncloud/internal/pkg/response"
 )
 
 // NoticeController 通知公告接口。

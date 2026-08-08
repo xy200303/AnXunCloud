@@ -3,10 +3,10 @@ package controller
 import (
 	"github.com/gin-gonic/gin"
 
-	"property-inspection/internal/module/system/dto"
-	"property-inspection/internal/module/system/service"
-	"property-inspection/internal/pkg/bind"
-	"property-inspection/internal/pkg/response"
+	"anxuncloud/internal/module/system/dto"
+	"anxuncloud/internal/module/system/service"
+	"anxuncloud/internal/pkg/bind"
+	"anxuncloud/internal/pkg/response"
 )
 
 // ConfigController 参数配置接口。

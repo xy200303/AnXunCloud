@@ -1,6 +1,6 @@
-# 物业巡检管理系统
+# 安巡云 AnXunCloud · 物业巡检管理系统
 
-物业巡检闭环管理系统：巡检员用**微信小程序**完成"到点打卡（二维码/GPS 围栏）+ 强制现场拍照 + 异常上报"，管理端用 **Web 后台**掌握每个小区/点位/人员的执行情况，形成"任务 → 执行 → 异常 → 整改 → 复核"完整闭环。
+**安巡云（AnXunCloud）**——物业巡检闭环管理系统：巡检员用**微信小程序**完成"到点打卡（二维码/GPS 围栏）+ 强制现场拍照 + 异常上报"，管理端用 **Web 后台**掌握每个小区/点位/人员的执行情况，形成"任务 → 执行 → 异常 → 整改 → 复核"完整闭环。
 
 ## 技术栈与架构
 
@@ -93,14 +93,14 @@ docker compose --env-file .env.prod -f docker-compose.prod.yml up -d --build
 ```
 
 app 容器由根目录唯一 `Dockerfile` 的 `prod` target 多阶段构建：node 构建 `frontend/dist` → go 构建后端二进制 → alpine 运行镜像（含二进制 + dist + 中文字体）。
-手动构建示例：`docker build --target prod -t pi-app .`（dev 镜像对应 `--target backend-dev` / `--target frontend-dev`）。
+手动构建示例：`docker build --target prod -t anxuncloud-app .`（dev 镜像对应 `--target backend-dev` / `--target frontend-dev`）。
 后端托管 SPA：只暴露一个端口，`/` 返回前端页面，前端 history 路由刷新不 404，`/api`、`/uploads` 正常走后端。
 
 ## 本地不用 Docker 的开发方式
 
 ```bash
 # 1. 数据库与缓存（任意方式：本地实例或临时容器）
-docker run -d --name pi-local-pg -e POSTGRES_PASSWORD=dev_pwd_123 -e POSTGRES_DB=property_inspection -p 25433:5432 postgres:15-alpine
+docker run -d --name axc-local-pg -e POSTGRES_PASSWORD=dev_pwd_123 -e POSTGRES_DB=anxuncloud -p 25433:5432 postgres:15-alpine
 docker run -d --name pi-local-redis -p 26380:6379 redis:7-alpine
 
 # 2. 后端（自动加载 ../.env.dev；也可 ENV_FILE=../.env.dev 显式指定）
@@ -144,7 +144,7 @@ docker compose -f docker-compose.dev.yml exec backend go run ./cmd/server -migra
 docker compose -f docker-compose.dev.yml down -v   # 清数据卷（慎用）
 
 # 进入数据库
-docker compose -f docker-compose.dev.yml exec postgres psql -U postgres -d property_inspection
+docker compose -f docker-compose.dev.yml exec postgres psql -U postgres -d anxuncloud
 
 # 停止 / 清理
 docker compose -f docker-compose.dev.yml down
@@ -156,12 +156,12 @@ docker compose --env-file .env.prod -f docker-compose.prod.yml down
 
 接口鉴权使用 **Casbin（RBAC with domains）**，模型见 `backend/internal/pkg/authz/rbac_model.conf`：
 
-- **请求/策略**：`r = sub, dom, obj, act` / `p = sub, dom, obj, act`，匹配 `g(r.sub,p.sub,r.dom) && keyMatch2(r.obj,p.obj) && regexMatch(r.act,p.act)`；
+- **请求/策略**：三元组 `r = sub, dom, obj` / `p = sub, dom, obj`，匹配 `g(r.sub,p.sub,r.dom) && r.dom==p.dom && (p.obj=="*" || keyMatch2(r.obj,p.obj))`；
 - **domain（多租户预留）**：`dom` 当前统一为 `default`；未来多租户（物业公司级隔离）扩展时，按租户生成子域（如 `tenant:<id>`），策略与 g 规则挂在对应域下即可，业务代码无需改动。小区级数据权限不属于 casbin 域，仍由 `ApplyCommunityFilter`/`CheckCommunity` 在查询层过滤；
-- **权限点映射**：菜单权限点 `system:user:list` 拆分为 `obj=/system/user`、`act=list`（按最后一个冒号拆分），obj 支持 `/*` 通配；
-- **策略规则**：`p` 规则为 `role:<code> → 权限点`（super_admin 角色下发通配策略 `/*` + `.*`，天然覆盖后续新增权限点）；`g` 规则为 `user:<id> → role:<code>`（默认域）；策略持久化在 PG `casbin_rule` 表（迁移 v5 建表）；
+- **资源标识**：obj 直接为完整权限点字符串（如 `system:user:list`，不做路径拆分）；通配支持两种形式——`*` 全量（超管策略）与 `system:user:*` 模块级前缀（keyMatch2，为"某角色开放整个模块"预留）；
+- **策略规则**：`p` 规则为 `role:<code> | default | <权限点>`（super_admin 角色为通配策略 `*`，天然覆盖后续新增权限点）；`g` 规则为 `user:<uuid> → role:<code>`（默认域）；策略持久化在 PG `casbin_rule` 表（迁移 v5 建表、v6 按新格式重建）；
 - **策略同步时机**：`sys_role`/`sys_menu`/`sys_role_menu` 仍是后台管理的数据源（界面与 API 不变）。在以下时机由 `authz.SyncAll` 全量重建策略（ClearPolicy + SavePolicy，无脏策略）：角色分配菜单（2.4.6）、角色增删改、用户创建/改角色/停用/删除、服务启动 seed 后；
-- **中间件**：路由上的 `RequirePerm("system:user:list")` 用法不变，内部改为 `enforcer.Enforce(user:<id>, default, obj, act)`；登录态（JWT 双令牌 + Redis 会话）不受影响。
+- **中间件**：路由上的 `RequirePerm("system:user:list")` 用法不变，内部为 `enforcer.Enforce(user:<uuid>, default, "system:user:list")`；登录态（JWT 双令牌 + Redis 会话）不受影响。
 
 ## 生产部署 Checklist
 
@@ -176,7 +176,7 @@ docker compose --env-file .env.prod -f docker-compose.prod.yml down
 
 ## 故障排查 FAQ
 
-- **compose 报 "project name must not be empty"**：项目目录为中文名，compose 文件已内置项目名（dev 为 `pi-dev`，prod 为 `pi-prod`，两者相互独立可同时运行）；旧版本 compose 请自行加 `-p` 参数。
+- **compose 报 "project name must not be empty"**：项目目录为中文名，compose 文件已内置项目名（dev 为 `anxuncloud-dev`，prod 为 `anxuncloud-prod`，两者相互独立可同时运行）；旧版本 compose 请自行加 `-p` 参数。
 - **后端起不来，连不上数据库**：dev 容器内必须用服务名 `postgres`/`redis`（compose 已自动覆盖）；本地直跑确认用映射端口 25433/26380。
 - **air 不触发热编译**：Windows 挂载卷已启用轮询（`.air.toml` poll=800ms）；仍无效时重启 backend 容器。
 - **前端 5180 打不开/接口 404**：确认 backend 容器健康（`docker compose ps`）；代理目标由 `VITE_PROXY_TARGET` 注入，改了需重建 frontend 容器。

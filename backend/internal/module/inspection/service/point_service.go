@@ -14,16 +14,16 @@ import (
 	qrcode "github.com/skip2/go-qrcode"
 	"gorm.io/gorm"
 
-	"property-inspection/internal/middleware"
-	"property-inspection/internal/module/inspection/dto"
-	"property-inspection/internal/module/inspection/model"
-	sysmodel "property-inspection/internal/module/system/model"
-	"property-inspection/internal/pkg/errs"
-	"property-inspection/internal/pkg/response"
-	"property-inspection/internal/pkg/storage"
-	"property-inspection/internal/pkg/timefmt"
-	"property-inspection/internal/pkg/types"
-	"property-inspection/internal/pkg/watermark"
+	"anxuncloud/internal/middleware"
+	"anxuncloud/internal/module/inspection/dto"
+	"anxuncloud/internal/module/inspection/model"
+	sysmodel "anxuncloud/internal/module/system/model"
+	"anxuncloud/internal/pkg/errs"
+	"anxuncloud/internal/pkg/response"
+	"anxuncloud/internal/pkg/storage"
+	"anxuncloud/internal/pkg/timefmt"
+	"anxuncloud/internal/pkg/types"
+	"anxuncloud/internal/pkg/watermark"
 )
 
 // PointService 点位服务。
@@ -83,7 +83,7 @@ func (s *PointService) toItem(p *model.InspectionPoint) gin.H {
 	}
 	if p.BuildingID != nil {
 		var b model.Building
-		if s.db.Select("name").First(&b, *p.BuildingID).Error == nil {
+		if s.db.Select("name").First(&b, "id = ?", *p.BuildingID).Error == nil {
 			buildingName = b.Name
 		}
 	}
@@ -229,7 +229,7 @@ func (s *PointService) MapPoints(c *gin.Context, communityID string) ([]gin.H, *
 		buildingName := ""
 		if p.BuildingID != nil {
 			var b model.Building
-			if s.db.Select("name").First(&b, *p.BuildingID).Error == nil {
+			if s.db.Select("name").First(&b, "id = ?", *p.BuildingID).Error == nil {
 				buildingName = b.Name
 			}
 		}

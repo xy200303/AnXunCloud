@@ -12,8 +12,8 @@ import (
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 
-	"property-inspection/internal/module/system/model"
-	"property-inspection/internal/pkg/logger"
+	"anxuncloud/internal/module/system/model"
+	"anxuncloud/internal/pkg/logger"
 	"go.uber.org/zap"
 )
 

@@ -9,13 +9,13 @@ import (
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 
-	"property-inspection/internal/config"
-	"property-inspection/internal/module/mp/dto"
-	sysmodel "property-inspection/internal/module/system/model"
-	"property-inspection/internal/pkg/errs"
-	"property-inspection/internal/pkg/exifutil"
-	"property-inspection/internal/pkg/storage"
-	"property-inspection/internal/pkg/timefmt"
+	"anxuncloud/internal/config"
+	"anxuncloud/internal/module/mp/dto"
+	sysmodel "anxuncloud/internal/module/system/model"
+	"anxuncloud/internal/pkg/errs"
+	"anxuncloud/internal/pkg/exifutil"
+	"anxuncloud/internal/pkg/storage"
+	"anxuncloud/internal/pkg/timefmt"
 )
 
 // UploadService 上传服务：STS 凭证、dev 本地上传、OSS 回调。

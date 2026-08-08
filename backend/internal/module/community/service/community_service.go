@@ -5,13 +5,13 @@ import (
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 
-	"property-inspection/internal/middleware"
-	"property-inspection/internal/module/community/dto"
-	insmodel "property-inspection/internal/module/inspection/model"
-	sysmodel "property-inspection/internal/module/system/model"
-	"property-inspection/internal/pkg/errs"
-	"property-inspection/internal/pkg/response"
-	"property-inspection/internal/pkg/timefmt"
+	"anxuncloud/internal/middleware"
+	"anxuncloud/internal/module/community/dto"
+	insmodel "anxuncloud/internal/module/inspection/model"
+	sysmodel "anxuncloud/internal/module/system/model"
+	"anxuncloud/internal/pkg/errs"
+	"anxuncloud/internal/pkg/response"
+	"anxuncloud/internal/pkg/timefmt"
 )
 
 // CommunityService 小区与楼栋服务。
@@ -48,7 +48,7 @@ func (s *CommunityService) ListCommunities(c *gin.Context, q *dto.CommunityListQ
 		managerName := ""
 		if r.ManagerID != nil {
 			var u sysmodel.SysUser
-			if s.db.Select("name").First(&u, *r.ManagerID).Error == nil {
+			if s.db.Select("name").First(&u, "id = ?", *r.ManagerID).Error == nil {
 				managerName = u.Name
 			}
 		}
@@ -100,7 +100,7 @@ func (s *CommunityService) CommunityDetail(c *gin.Context, id string) (gin.H, *e
 	managerName := ""
 	if row.ManagerID != nil {
 		var u sysmodel.SysUser
-		if s.db.Select("name").First(&u, *row.ManagerID).Error == nil {
+		if s.db.Select("name").First(&u, "id = ?", *row.ManagerID).Error == nil {
 			managerName = u.Name
 		}
 	}

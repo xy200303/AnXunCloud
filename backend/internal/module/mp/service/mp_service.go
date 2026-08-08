@@ -13,17 +13,17 @@ import (
 	"github.com/redis/go-redis/v9"
 	"gorm.io/gorm"
 
-	"property-inspection/internal/config"
-	insmodel "property-inspection/internal/module/inspection/model"
-	"property-inspection/internal/module/mp/dto"
-	sysmodel "property-inspection/internal/module/system/model"
-	womodel "property-inspection/internal/module/workorder/model"
-	wosvc "property-inspection/internal/module/workorder/service"
-	"property-inspection/internal/pkg/errs"
-	"property-inspection/internal/pkg/jwtutil"
-	"property-inspection/internal/pkg/response"
-	"property-inspection/internal/pkg/session"
-	"property-inspection/internal/pkg/timefmt"
+	"anxuncloud/internal/config"
+	insmodel "anxuncloud/internal/module/inspection/model"
+	"anxuncloud/internal/module/mp/dto"
+	sysmodel "anxuncloud/internal/module/system/model"
+	womodel "anxuncloud/internal/module/workorder/model"
+	wosvc "anxuncloud/internal/module/workorder/service"
+	"anxuncloud/internal/pkg/errs"
+	"anxuncloud/internal/pkg/jwtutil"
+	"anxuncloud/internal/pkg/response"
+	"anxuncloud/internal/pkg/session"
+	"anxuncloud/internal/pkg/timefmt"
 )
 
 // ChannelMP 小程序会话渠道。
@@ -335,7 +335,7 @@ func (s *MPService) TaskDetail(inspectorID, taskID string) (gin.H, *errs.Error) 
 		buildingName := ""
 		if pt.BuildingID != nil {
 			var b insmodel.Building
-			if s.db.Select("name").First(&b, *pt.BuildingID).Error == nil {
+			if s.db.Select("name").First(&b, "id = ?", *pt.BuildingID).Error == nil {
 				buildingName = b.Name
 			}
 		}

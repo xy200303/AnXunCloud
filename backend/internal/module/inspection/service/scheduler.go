@@ -7,8 +7,8 @@ import (
 
 	"gorm.io/gorm"
 
-	"property-inspection/internal/pkg/database"
-	"property-inspection/internal/pkg/logger"
+	"anxuncloud/internal/pkg/database"
+	"anxuncloud/internal/pkg/logger"
 	"go.uber.org/zap"
 )
 

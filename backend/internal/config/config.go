@@ -149,7 +149,7 @@ func registerDefaults(v *viper.Viper) {
 		"postgres.port":          5432,
 		"postgres.user":          "postgres",
 		"postgres.password":      "",
-		"postgres.dbname":        "property_inspection",
+		"postgres.dbname":        "anxuncloud",
 		"postgres.sslmode":       "disable",
 		"postgres.max_open_conns": 20,
 		"postgres.max_idle_conns": 5,

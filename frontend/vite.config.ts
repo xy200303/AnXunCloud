@@ -38,11 +38,13 @@ export default defineConfig({
   build: {
     rollupOptions: {
       output: {
-        // 大依赖独立分包，避免单 chunk 过大
-        manualChunks: {
-          'element-plus': ['element-plus', '@element-plus/icons-vue'],
-          echarts: ['echarts'],
-          vendor: ['vue', 'vue-router', 'pinia', 'axios']
+        // vite 8（rolldown）：manualChunks 对象形式已移除，改用 advancedChunks 分组
+        advancedChunks: {
+          groups: [
+            { name: 'element-plus', test: /node_modules[\\/]+(element-plus|@element-plus)/ },
+            { name: 'echarts', test: /node_modules[\\/]+(echarts|zrender)/ },
+            { name: 'vendor', test: /node_modules[\\/]+(vue|vue-router|pinia|axios)/ }
+          ]
         }
       }
     }

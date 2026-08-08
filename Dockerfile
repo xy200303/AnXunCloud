@@ -8,7 +8,7 @@
 #   docker build --target prod -t pi-app .
 
 # ========== 后端开发 ==========
-FROM golang:1.26-alpine AS backend-dev
+FROM golang:1.26.5-alpine AS backend-dev
 WORKDIR /app
 RUN go install github.com/air-verse/air@latest
 COPY backend/go.mod backend/go.sum ./
@@ -32,7 +32,7 @@ COPY frontend/ ./
 RUN npm run build
 
 # ========== 生产：阶段二 构建后端二进制 ==========
-FROM golang:1.26-alpine AS be
+FROM golang:1.26.5-alpine AS be
 WORKDIR /be
 COPY backend/go.mod backend/go.sum ./
 RUN go mod download

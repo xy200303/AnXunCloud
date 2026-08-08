@@ -2,7 +2,7 @@ import { defineConfig } from 'vite'
 import vue from '@vitejs/plugin-vue'
 import { fileURLToPath, URL } from 'node:url'
 
-// 开发期代理：/api 转发到本地后端；mock 开关见 src/mock（VITE_USE_MOCK）
+// 开发期代理：/api 转发到本地后端
 export default defineConfig({
   plugins: [vue()],
   resolve: {

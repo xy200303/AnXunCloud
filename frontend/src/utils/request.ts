@@ -1,13 +1,7 @@
 // axios 封装：baseURL /api/admin、Bearer token、统一错误提示、401 跳登录、文件流下载
-import axios, { AxiosError, type AxiosRequestConfig, type AxiosResponse } from 'axios'
+import axios, { AxiosError, type AxiosRequestConfig } from 'axios'
 import { ElMessage } from 'element-plus'
 import { getToken, clearToken } from '@/utils/auth'
-import { mockAdapter } from '@/mock'
-
-// 开发期 mock 开关：
-// - 默认关闭（业务接口已全部对接真实后端 http://localhost:8090）
-// - VITE_USE_MOCK=true 时启用完整 mock（系统管理旧页面可脱离后端点通）
-const useMock = import.meta.env.DEV && import.meta.env.VITE_USE_MOCK === 'true'
 
 // 统一响应结构（接口文档 §1.3）
 export interface ApiResult<T = any> {
@@ -37,16 +31,7 @@ function toLogin() {
 
 const service = axios.create({
   baseURL: '/api/admin',
-  timeout: 30000,
-  adapter: async (config) => {
-    if (useMock) {
-      const mockResp = await mockAdapter(config)
-      if (mockResp) return mockResp
-    }
-    // 未命中 mock 时透传真实后端（vite proxy → http://localhost:8090）
-    // axios 1.x 的 defaults.adapter 是名称数组（['xhr','http','fetch']），需用 getAdapter 解析
-    return axios.getAdapter(['xhr', 'fetch'])(config)
-  }
+  timeout: 30000
 })
 
 // 请求拦截：注入 Bearer token

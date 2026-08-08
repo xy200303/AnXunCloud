@@ -5,6 +5,7 @@ import (
 
 	"anxuncloud/internal/module/system/dto"
 	"anxuncloud/internal/module/system/model"
+	"anxuncloud/internal/pkg/bind"
 	"anxuncloud/internal/pkg/errs"
 	"anxuncloud/internal/pkg/response"
 	"anxuncloud/internal/pkg/timefmt"
@@ -29,8 +30,8 @@ func (s *LogService) OperationList(q *dto.OperationLogQuery) (*response.Page, *e
 	if q.Action != "" {
 		db = db.Where("action = ?", q.Action)
 	}
-	if q.Status != nil {
-		db = db.Where("status = ?", logStatusStr(*q.Status))
+	if status, ok, _ := bind.StatusFilter(q.Status); ok {
+		db = db.Where("status = ?", logStatusStr(status))
 	}
 	var be *errs.Error
 	if db, be = timeRange(db, q.StartTime, q.EndTime); be != nil {
@@ -74,8 +75,8 @@ func (s *LogService) LoginList(q *dto.LoginLogQuery) (*response.Page, *errs.Erro
 	if q.IP != "" {
 		db = db.Where("ip LIKE ?", "%"+q.IP+"%")
 	}
-	if q.Status != nil {
-		db = db.Where("status = ?", logStatusStr(*q.Status))
+	if status, ok, _ := bind.StatusFilter(q.Status); ok {
+		db = db.Where("status = ?", logStatusStr(status))
 	}
 	var be *errs.Error
 	if db, be = timeRange(db, q.StartTime, q.EndTime); be != nil {
@@ -108,8 +109,8 @@ func (s *LogService) LoginList(q *dto.LoginLogQuery) (*response.Page, *errs.Erro
 }
 
 // logStatusStr 日志状态：1 success / 0 fail。
-func logStatusStr(status int) string {
-	if status == 1 {
+func logStatusStr(status string) string {
+	if status == "enabled" {
 		return "success"
 	}
 	return "fail"

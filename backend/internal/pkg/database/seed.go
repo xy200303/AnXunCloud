@@ -247,6 +247,7 @@ func seedAdmin(tx *gorm.DB, superRoleID string, username, pwd, name string) erro
 		Username: username,
 		Password: hash,
 		Name:     name,
+		IsBuiltin: true, // 唯一超管账号：禁止删除/停用/移除超管角色
 		RoleIDs:  types.IDArray{superRoleID},
 		UserType: "admin",
 		Status:   model.StatusEnabled,
@@ -310,6 +311,7 @@ func seedConfigs(tx *gorm.DB) error {
 		{Key: "msg.subscribe_enabled", Name: "微信订阅消息开关", Value: "true", Remark: "任务提醒/工单指派/整改驳回"},
 		{Key: "msg.wecom_webhook_enabled", Name: "企业微信工单推送开关", Value: "false", Remark: "开启需配置 webhook 地址（应用配置，不入库）"},
 		{Key: "security.login_fail_limit", Name: "登录失败锁定次数", Value: "5", Remark: "连续失败锁定 10 分钟（配合 Redis 计数）"},
+		// auth.register_enabled 由迁移 v7 统一插入（覆盖新库与存量库），seed 不再重复
 	}
 	for i := range configs {
 		if err := tx.Create(&configs[i]).Error; err != nil {

@@ -11,6 +11,7 @@ import (
 	"anxuncloud/internal/module/system/dto"
 	"anxuncloud/internal/module/system/model"
 	"anxuncloud/internal/pkg/authz"
+	"anxuncloud/internal/pkg/bind"
 	"anxuncloud/internal/pkg/errs"
 	"anxuncloud/internal/pkg/excel"
 	"anxuncloud/internal/pkg/password"
@@ -50,8 +51,8 @@ func (s *UserService) listQuery(q *dto.UserListQuery) *gorm.DB {
 	if q.CommunityID != "" {
 		db = db.Where("community_ids @> ?::jsonb", fmt.Sprintf(`["%s"]`, q.CommunityID))
 	}
-	if q.Status != nil {
-		db = db.Where("status = ?", model.StatusStr(*q.Status))
+	if status, ok, _ := bind.StatusFilter(q.Status); ok {
+		db = db.Where("status = ?", status)
 	}
 	return db
 }
@@ -87,6 +88,7 @@ func (s *UserService) toItem(u *model.SysUser) dto.UserItem {
 		CommunityIDs:   u.CommunityIDs,
 		CommunityNames: []string{},
 		Status:         model.StatusInt(u.Status),
+		IsBuiltin:      u.IsBuiltin,
 		LastLoginAt:    timefmt.TP(u.LastLoginAt),
 		CreatedAt:      timefmt.T(u.CreatedAt),
 	}
@@ -174,6 +176,7 @@ func (s *UserService) Detail(id string) (*dto.UserDetail, *errs.Error) {
 		RoleIDs:      u.RoleIDs,
 		CommunityIDs: u.CommunityIDs,
 		Status:       model.StatusInt(u.Status),
+		IsBuiltin:    u.IsBuiltin,
 		LastLoginAt:  timefmt.TP(u.LastLoginAt),
 		CreatedAt:    timefmt.T(u.CreatedAt),
 		UpdatedAt:    timefmt.T(u.UpdatedAt),
@@ -184,11 +187,20 @@ func (s *UserService) Detail(id string) (*dto.UserDetail, *errs.Error) {
 	return d, nil
 }
 
-// Update 修改用户（username 不可改，改密码走重置接口）。
+// Update 修改用户（username 不可改，改密码走重置接口；内置账号不可移除 super_admin 角色）。
 func (s *UserService) Update(id string, req *dto.UserUpdateReq) *errs.Error {
 	var u model.SysUser
 	if err := s.db.First(&u, "id = ?", id).Error; err != nil {
 		return errs.ErrNotFound
+	}
+	if u.IsBuiltin {
+		var superRole model.SysRole
+		if err := s.db.Select("id").Where("code = ?", model.SuperAdminCode).First(&superRole).Error; err != nil {
+			return errs.ErrInternal
+		}
+		if !types.IDArray(req.RoleIDs).Contains(superRole.ID) {
+			return errs.ErrBuiltinAccount.WithMsg("内置账号不可移除超级管理员角色")
+		}
 	}
 	if !password.ValidPhone(req.Phone) {
 		return errs.ErrParam.WithMsg("phone 手机号格式错误")
@@ -240,7 +252,7 @@ func (s *UserService) ResetPassword(ctx context.Context, id string, newPassword 
 	return nil
 }
 
-// SetStatus 启用/停用（停用即会话失效；不能操作当前登录账号）。
+// SetStatus 启用/停用（停用即会话失效；不能操作当前登录账号；内置账号不可停用）。
 func (s *UserService) SetStatus(ctx context.Context, id string, status int, operatorID string) *errs.Error {
 	if id == operatorID {
 		return errs.ErrSelfOperation
@@ -248,6 +260,9 @@ func (s *UserService) SetStatus(ctx context.Context, id string, status int, oper
 	var u model.SysUser
 	if err := s.db.First(&u, "id = ?", id).Error; err != nil {
 		return errs.ErrNotFound
+	}
+	if u.IsBuiltin && status == 0 {
+		return errs.ErrBuiltinAccount.WithMsg("内置账号不可停用")
 	}
 	if err := s.db.Model(&u).Update("status", model.StatusStr(status)).Error; err != nil {
 		return errs.ErrInternal
@@ -259,10 +274,17 @@ func (s *UserService) SetStatus(ctx context.Context, id string, status int, oper
 	return nil
 }
 
-// Delete 软删除（不能删除当前登录账号）。
+// Delete 软删除（不能删除当前登录账号；内置账号不可删除）。
 func (s *UserService) Delete(ctx context.Context, id string, operatorID string) *errs.Error {
 	if id == operatorID {
 		return errs.ErrSelfOperation
+	}
+	var u model.SysUser
+	if err := s.db.First(&u, "id = ?", id).Error; err != nil {
+		return errs.ErrNotFound
+	}
+	if u.IsBuiltin {
+		return errs.ErrBuiltinAccount.WithMsg("内置账号不可删除")
 	}
 	res := s.db.Delete(&model.SysUser{}, "id = ?", id)
 	if res.Error != nil {

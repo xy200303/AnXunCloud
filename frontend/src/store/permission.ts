@@ -49,6 +49,8 @@ export const usePermissionStore = defineStore('permission', {
       const menus = await getRoutes()
       this.menus = menus
       const children = buildRoutes(menus)
+      // 首页落点：第一个可用菜单页（新注册账号无菜单时落个人中心）
+      const firstPath = children[0]?.path || '/profile'
       // 隐藏路由：不进侧边菜单，由列表页跳转进入
       const hiddenRoutes: RouteRecordRaw[] = [
         {
@@ -71,10 +73,19 @@ export const usePermissionStore = defineStore('permission', {
         }
       ]
       children.push(...hiddenRoutes)
+      // 个人中心：任何登录用户可访问（仅操作本人数据）；菜单未下发时兜底注册
+      if (!children.some((r) => r.path === '/profile')) {
+        children.push({
+          path: '/profile',
+          component: viewModules['../views/profile/index.vue'],
+          name: '/profile',
+          meta: { title: '个人中心' }
+        } as RouteRecordRaw)
+      }
       const layoutRoute: RouteRecordRaw = {
         path: '/',
         component: Layout,
-        redirect: '/dashboard',
+        redirect: firstPath,
         children
       }
       this.loaded = true

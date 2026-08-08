@@ -38,6 +38,7 @@ type SysUser struct {
 	CommunityIDs       types.IDArray `gorm:"type:jsonb" json:"community_ids"`
 	UserType           string        `gorm:"size:16" json:"user_type"`
 	Status             string        `gorm:"size:16" json:"status"`
+	IsBuiltin          bool          `json:"is_builtin"`
 	MustChangePassword bool          `json:"must_change_password"`
 	LastLoginAt        *time.Time    `json:"last_login_at"`
 	Remark             string        `gorm:"size:255" json:"remark"`

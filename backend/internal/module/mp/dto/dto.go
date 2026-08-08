@@ -56,5 +56,5 @@ type MyOrdersQuery struct {
 type MessageQuery struct {
 	response.PageQuery
 	Type   string `form:"type"`
-	IsRead *bool  `form:"is_read"`
+	IsRead string `form:"is_read"`
 }

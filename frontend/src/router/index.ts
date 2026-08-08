@@ -6,13 +6,18 @@ import { usePermissionStore } from '@/store/permission'
 import { useTagsViewStore } from '@/store/tagsView'
 
 // 白名单：无需登录
-const WHITE_LIST = ['/login', '/404']
+const WHITE_LIST = ['/login', '/register', '/404']
 
 export const constantRoutes: RouteRecordRaw[] = [
   {
     path: '/login',
     component: () => import('@/views/login/index.vue'),
     meta: { title: '登录' }
+  },
+  {
+    path: '/register',
+    component: () => import('@/views/register/index.vue'),
+    meta: { title: '注册' }
   },
   {
     path: '/404',
@@ -40,9 +45,9 @@ router.beforeEach(async (to) => {
     return { path: '/login', query: { redirect: to.fullPath } }
   }
 
-  // 已登录访问登录页 → 工作台
-  if (to.path === '/login') {
-    return { path: '/dashboard' }
+  // 已登录访问登录/注册页 → 首页（落到第一个可用菜单）
+  if (to.path === '/login' || to.path === '/register') {
+    return { path: '/' }
   }
 
   const userStore = useUserStore()

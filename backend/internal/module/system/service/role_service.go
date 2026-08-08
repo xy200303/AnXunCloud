@@ -6,6 +6,7 @@ import (
 	"gorm.io/gorm"
 
 	"anxuncloud/internal/pkg/authz"
+	"anxuncloud/internal/pkg/bind"
 
 	"anxuncloud/internal/module/system/dto"
 	"anxuncloud/internal/module/system/model"
@@ -27,8 +28,8 @@ func (s *RoleService) List(q *dto.RoleListQuery) (*response.Page, *errs.Error) {
 	if q.Name != "" {
 		db = db.Where("name LIKE ? OR code LIKE ?", "%"+q.Name+"%", "%"+q.Name+"%")
 	}
-	if q.Status != nil {
-		db = db.Where("status = ?", model.StatusStr(*q.Status))
+	if status, ok, _ := bind.StatusFilter(q.Status); ok {
+		db = db.Where("status = ?", status)
 	}
 	var total int64
 	if err := db.Count(&total).Error; err != nil {

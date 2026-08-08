@@ -70,6 +70,7 @@ export interface UserItem {
   community_ids: string[]
   community_names?: string[]
   status: number
+  is_builtin?: boolean
   last_login_at: string
   created_at: string
 }

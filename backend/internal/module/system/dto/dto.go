@@ -12,7 +12,7 @@ type UserListQuery struct {
 	Phone       string `form:"phone"`
 	RoleID      string `form:"role_id"`
 	CommunityID string `form:"community_id"`
-	Status      *int   `form:"status"`
+	Status      string `form:"status"`
 }
 
 // UserCreateReq 新增用户。
@@ -63,6 +63,7 @@ type UserItem struct {
 	CommunityIDs   []string   `json:"community_ids"`
 	CommunityNames []string   `json:"community_names"`
 	Status         int        `json:"status"`
+	IsBuiltin      bool       `json:"is_builtin"`
 	LastLoginAt    string     `json:"last_login_at"`
 	CreatedAt      string     `json:"created_at"`
 }
@@ -78,6 +79,7 @@ type UserDetail struct {
 	RoleIDs      []string `json:"role_ids"`
 	CommunityIDs []string `json:"community_ids"`
 	Status       int     `json:"status"`
+	IsBuiltin    bool    `json:"is_builtin"`
 	LastLoginAt  string  `json:"last_login_at"`
 	CreatedAt    string  `json:"created_at"`
 	UpdatedAt    string  `json:"updated_at"`
@@ -104,7 +106,7 @@ type FailDetail struct {
 type RoleListQuery struct {
 	response.PageQuery
 	Name   string `form:"name"`
-	Status *int   `form:"status"`
+	Status string `form:"status"`
 }
 
 // RoleSaveReq 新增/修改角色。
@@ -152,7 +154,7 @@ type RoleDetail struct {
 // MenuListQuery 菜单树查询。
 type MenuListQuery struct {
 	Title  string `form:"title"`
-	Status *int   `form:"status"`
+	Status string `form:"status"`
 }
 
 // MenuSaveReq 新增/修改菜单。
@@ -204,7 +206,7 @@ type DictDataQuery struct {
 	response.PageQuery
 	TypeCode string `form:"type_code" binding:"required"`
 	Label    string `form:"label"`
-	Status   *int   `form:"status"`
+	Status   string `form:"status"`
 }
 
 // DictDataSaveReq 新增/修改字典数据。
@@ -242,7 +244,7 @@ type OperationLogQuery struct {
 	Username  string `form:"username"`
 	Module    string `form:"module"`
 	Action    string `form:"action"`
-	Status    *int   `form:"status"`
+	Status   string `form:"status"`
 	StartTime string `form:"start_time"`
 	EndTime   string `form:"end_time"`
 }
@@ -252,7 +254,7 @@ type LoginLogQuery struct {
 	response.PageQuery
 	Username  string `form:"username"`
 	IP        string `form:"ip"`
-	Status    *int   `form:"status"`
+	Status   string `form:"status"`
 	StartTime string `form:"start_time"`
 	EndTime   string `form:"end_time"`
 }

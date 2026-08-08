@@ -6,6 +6,7 @@ import (
 	"anxuncloud/internal/module/system/dto"
 	"anxuncloud/internal/module/system/model"
 	"anxuncloud/internal/pkg/errs"
+	"anxuncloud/internal/pkg/bind"
 	"anxuncloud/internal/pkg/response"
 	"anxuncloud/internal/pkg/timefmt"
 )
@@ -104,8 +105,8 @@ func (s *DictService) ListData(q *dto.DictDataQuery) (*response.Page, *errs.Erro
 	if q.Label != "" {
 		db = db.Where("label LIKE ?", "%"+q.Label+"%")
 	}
-	if q.Status != nil {
-		db = db.Where("status = ?", model.StatusStr(*q.Status))
+	if status, ok, _ := bind.StatusFilter(q.Status); ok {
+		db = db.Where("status = ?", status)
 	}
 	var total int64
 	if err := db.Count(&total).Error; err != nil {

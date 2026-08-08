@@ -79,11 +79,11 @@
               <el-button link type="primary">更多<el-icon><ArrowDown /></el-icon></el-button>
               <template #dropdown>
                 <el-dropdown-menu>
-                  <el-dropdown-item v-if="userStore.hasPerm('system:user:update')" command="status">
+                  <el-dropdown-item v-if="userStore.hasPerm('system:user:update')" command="status" :disabled="row.is_builtin">
                     {{ row.status === 1 ? '停用' : '启用' }}
                   </el-dropdown-item>
-                  <el-dropdown-item v-if="userStore.hasPerm('system:user:delete')" command="delete">
-                    <span class="danger-text">删除</span>
+                  <el-dropdown-item v-if="userStore.hasPerm('system:user:delete')" command="delete" :disabled="row.is_builtin">
+                    <span class="danger-text">删除{{ row.is_builtin ? '（内置账号）' : '' }}</span>
                   </el-dropdown-item>
                 </el-dropdown-menu>
               </template>

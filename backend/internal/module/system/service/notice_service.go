@@ -1,6 +1,7 @@
 package service
 
 import (
+	"strconv"
 	"time"
 
 	"gorm.io/gorm"
@@ -24,7 +25,7 @@ func NewNoticeService(db *gorm.DB) *NoticeService { return &NoticeService{db: db
 type NoticeListQuery struct {
 	response.PageQuery
 	Title  string `form:"title"`
-	Status *int   `form:"status"`
+	Status string `form:"status"`
 }
 
 // NoticeSaveReq 公告新增/修改请求（status：0 草稿 / 1 发布 / 2 下线）。
@@ -40,8 +41,12 @@ func (s *NoticeService) List(q *NoticeListQuery) (*response.Page, *errs.Error) {
 	if q.Title != "" {
 		db = db.Where("title LIKE ?", "%"+q.Title+"%")
 	}
-	if q.Status != nil {
-		db = db.Where("status = ?", *q.Status)
+	if q.Status != "" {
+		st, err := strconv.Atoi(q.Status)
+		if err != nil || st < 0 || st > 2 {
+			return nil, errs.ErrParam.WithMsg("status 取值应为 0/1/2")
+		}
+		db = db.Where("status = ?", st)
 	}
 	var total int64
 	if err := db.Count(&total).Error; err != nil {
@@ -122,8 +127,6 @@ func (s *NoticeService) Delete(id string) *errs.Error {
 func (s *NoticeService) Published(page, pageSize int) (*response.Page, *errs.Error) {
 	q := &NoticeListQuery{}
 	q.Page, q.PageSize = page, pageSize
-	status := 1
-	q.Status = &status
 	db := s.db.Model(&model.SysNotice{}).Where("status = 1")
 	var total int64
 	if err := db.Count(&total).Error; err != nil {

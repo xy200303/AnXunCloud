@@ -62,3 +62,30 @@ func validationMsg(err error) string {
 		return fmt.Sprintf("%s 校验未通过（%s）", field, fe.Tag())
 	}
 }
+
+// StatusFilter 状态筛选归一化：空串视为未筛选（前端下拉未选择时传空串）。
+// 返回 (状态字符串, 是否启用筛选, 错误)。
+func StatusFilter(s string) (string, bool, *errs.Error) {
+	switch strings.TrimSpace(s) {
+	case "":
+		return "", false, nil
+	case "1":
+		return "enabled", true, nil
+	case "0":
+		return "disabled", true, nil
+	}
+	return "", false, errs.ErrParam.WithMsg("status 取值应为 1（启用）/ 0（停用）")
+}
+
+// BoolFilter 布尔筛选归一化：空串视为未筛选；1/true→true，0/false→false。
+func BoolFilter(s string) (bool, bool, *errs.Error) {
+	switch strings.TrimSpace(s) {
+	case "":
+		return false, false, nil
+	case "1", "true":
+		return true, true, nil
+	case "0", "false":
+		return false, true, nil
+	}
+	return false, false, errs.ErrParam.WithMsg("布尔筛选参数取值应为 1/0")
+}

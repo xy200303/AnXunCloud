@@ -13,6 +13,7 @@ import (
 	"anxuncloud/internal/module/inspection/dto"
 	"anxuncloud/internal/module/inspection/model"
 	sysmodel "anxuncloud/internal/module/system/model"
+	"anxuncloud/internal/pkg/bind"
 	"anxuncloud/internal/pkg/errs"
 	"anxuncloud/internal/pkg/response"
 	"anxuncloud/internal/pkg/timefmt"
@@ -43,8 +44,8 @@ func (s *PlanService) List(c *gin.Context, q *dto.PlanListQuery) (*response.Page
 	if q.CycleType != "" {
 		db = db.Where("cycle_type = ?", q.CycleType)
 	}
-	if q.Status != nil {
-		db = db.Where("status = ?", sysmodel.StatusStr(*q.Status))
+	if status, ok, _ := bind.StatusFilter(q.Status); ok {
+		db = db.Where("status = ?", status)
 	}
 	db = middleware.ApplyCommunityFilter(db, c, "community_id")
 	var total int64

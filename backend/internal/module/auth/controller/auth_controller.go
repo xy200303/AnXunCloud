@@ -36,6 +36,25 @@ func (ctl *AuthController) Login(c *gin.Context) {
 	response.OK(c, resp)
 }
 
+// RegisterConfig GET /auth/register-config（免登录）
+func (ctl *AuthController) RegisterConfig(c *gin.Context) {
+	response.OK(c, ctl.svc.RegisterConfig())
+}
+
+// Register POST /auth/register（免登录，操作日志记操作人为匿名注册者）
+func (ctl *AuthController) Register(c *gin.Context) {
+	var req dto.RegisterReq
+	if be := bind.JSON(c, &req); be != nil {
+		response.Fail(c, be)
+		return
+	}
+	if be := ctl.svc.Register(c.Request.Context(), &req, c.ClientIP()); be != nil {
+		response.Fail(c, be)
+		return
+	}
+	response.OK(c, nil)
+}
+
 // Refresh POST /auth/refresh
 func (ctl *AuthController) Refresh(c *gin.Context) {
 	var req dto.RefreshReq

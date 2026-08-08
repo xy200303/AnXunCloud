@@ -19,6 +19,7 @@ import (
 	sysmodel "anxuncloud/internal/module/system/model"
 	womodel "anxuncloud/internal/module/workorder/model"
 	wosvc "anxuncloud/internal/module/workorder/service"
+	"anxuncloud/internal/pkg/bind"
 	"anxuncloud/internal/pkg/errs"
 	"anxuncloud/internal/pkg/jwtutil"
 	"anxuncloud/internal/pkg/response"
@@ -417,8 +418,8 @@ func (s *MPService) Messages(userID string, q *dto.MessageQuery) (gin.H, *errs.E
 	if q.Type != "" {
 		db = db.Where("type = ?", q.Type)
 	}
-	if q.IsRead != nil {
-		db = db.Where("is_read = ?", *q.IsRead)
+	if v, ok, _ := bind.BoolFilter(q.IsRead); ok {
+		db = db.Where("is_read = ?", v)
 	}
 	var unread int64
 	s.db.Model(&sysmodel.SysMessage{}).Where("user_id = ? AND is_read = false", userID).Count(&unread)

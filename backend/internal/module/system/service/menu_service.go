@@ -5,6 +5,7 @@ import (
 
 	"anxuncloud/internal/module/system/dto"
 	"anxuncloud/internal/module/system/model"
+	"anxuncloud/internal/pkg/bind"
 	"anxuncloud/internal/pkg/errs"
 )
 
@@ -31,8 +32,8 @@ func (s *MenuService) Tree(q *dto.MenuListQuery) ([]dto.MenuNode, *errs.Error) {
 		db = db.Where("title LIKE ?", "%"+q.Title+"%")
 		filtered = true
 	}
-	if q.Status != nil {
-		db = db.Where("status = ?", model.StatusStr(*q.Status))
+	if status, ok, _ := bind.StatusFilter(q.Status); ok {
+		db = db.Where("status = ?", status)
 		filtered = true
 	}
 	var menus []model.SysMenu

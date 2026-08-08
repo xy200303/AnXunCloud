@@ -27,6 +27,10 @@
           </el-button>
         </el-form-item>
       </el-form>
+      <!-- 注册入口：仅当后端开关开启时显示 -->
+      <div v-if="registerEnabled" class="to-register">
+        没有账号？<router-link to="/register">注册</router-link>
+      </div>
     </div>
 
     <p class="login-footer">账号由管理员统一开通，如有问题请联系系统管理员</p>
@@ -34,11 +38,12 @@
 </template>
 
 <script setup lang="ts">
-import { reactive, ref } from 'vue'
+import { onMounted, reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, type FormInstance, type FormRules } from 'element-plus'
 import { User, Lock } from '@element-plus/icons-vue'
 import { useUserStore } from '@/store/user'
+import { getRegisterConfig } from '@/api/auth'
 
 const route = useRoute()
 const router = useRouter()
@@ -46,10 +51,21 @@ const userStore = useUserStore()
 
 const formRef = ref<FormInstance>()
 const loading = ref(false)
+const registerEnabled = ref(false)
 
 const form = reactive({
   username: '',
   password: ''
+})
+
+onMounted(async () => {
+  // 注册成功跳转回填账号
+  if (route.query.username) {
+    form.username = String(route.query.username)
+  }
+  // 注册开关：接口不可用（后端并行开发中）时按关闭处理
+  const cfg = await getRegisterConfig()
+  registerEnabled.value = !!cfg.enabled
 })
 
 const rules: FormRules = {
@@ -63,8 +79,8 @@ async function handleLogin() {
   try {
     await userStore.login(form)
     ElMessage.success('登录成功')
-    // 失败时拦截器已提示具体原因，且不清空账号
-    const redirect = (route.query.redirect as string) || '/dashboard'
+    // 失败时拦截器已提示具体原因，且不清空账号；默认落 '/' 由布局重定向到首个可用菜单
+    const redirect = (route.query.redirect as string) || '/'
     router.push(redirect)
   } finally {
     loading.value = false
@@ -114,6 +130,12 @@ async function handleLogin() {
 
   .login-btn {
     width: 100%;
+  }
+
+  .to-register {
+    text-align: center;
+    font-size: $font-size-aux;
+    color: $color-text-secondary;
   }
 }
 

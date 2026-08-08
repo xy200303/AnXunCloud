@@ -33,5 +33,13 @@ func ValidPassword(pwd string) bool {
 // ValidUsername 校验登录名：4–32 位字母数字下划线。
 func ValidUsername(name string) bool { return usernameRe.MatchString(name) }
 
+// ValidUsernameRange 校验登录名：字母数字下划线，长度 [min,max]（开放注册用 4–20）。
+func ValidUsernameRange(name string, min, max int) bool {
+	if len(name) < min || len(name) > max {
+		return false
+	}
+	return usernameRe.MatchString(name + "____") // 补足到 4 位下限，复用同一正则
+}
+
 // ValidPhone 校验手机号：1 开头 11 位数字。
 func ValidPhone(phone string) bool { return phoneRe.MatchString(phone) }

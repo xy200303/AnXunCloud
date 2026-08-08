@@ -11,6 +11,7 @@ import (
 	"anxuncloud/internal/module/inspection/model"
 	sysmodel "anxuncloud/internal/module/system/model"
 	womodel "anxuncloud/internal/module/workorder/model"
+	"anxuncloud/internal/pkg/bind"
 	"anxuncloud/internal/pkg/errs"
 	"anxuncloud/internal/pkg/response"
 	"anxuncloud/internal/pkg/timefmt"
@@ -258,8 +259,8 @@ func (s *TaskService) CheckinList(c *gin.Context, q *dto.CheckinListQuery) (*res
 	if q.CheckinType != "" {
 		db = db.Where("checkin_type = ?", q.CheckinType)
 	}
-	if q.IsSuspect != nil {
-		db = db.Where("is_suspect = ?", *q.IsSuspect)
+	if v, ok, _ := bind.BoolFilter(q.IsSuspect); ok {
+		db = db.Where("is_suspect = ?", v)
 	}
 	var be *errs.Error
 	if db, be = timeRangeOn(db, "checkin_time", q.StartTime, q.EndTime); be != nil {

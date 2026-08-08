@@ -43,8 +43,9 @@ var (
 
 // 403xx 权限
 var (
-	ErrNoPerm      = New(40301, http.StatusForbidden, "无该接口/按钮权限")
-	ErrDataScope   = New(40302, http.StatusForbidden, "数据权限不足（超出所辖小区范围）")
+	ErrNoPerm           = New(40301, http.StatusForbidden, "无该接口/按钮权限")
+	ErrDataScope        = New(40302, http.StatusForbidden, "数据权限不足（超出所辖小区范围）")
+	ErrRegisterDisabled = New(40303, http.StatusForbidden, "注册功能未开放")
 )
 
 // 410xx 系统管理
@@ -62,6 +63,7 @@ var (
 	ErrImportFileType   = New(41011, http.StatusBadRequest, "导入文件格式错误（仅支持 .xlsx）")
 	ErrImportEmpty      = New(41012, http.StatusBadRequest, "导入文件为空或无有效数据行")
 	ErrImportTooMany    = New(41013, http.StatusBadRequest, "超过单次导入上限（500 行）")
+	ErrBuiltinAccount   = New(41014, http.StatusConflict, "内置账号禁止该操作")
 )
 
 // 42xxx 小区与楼栋

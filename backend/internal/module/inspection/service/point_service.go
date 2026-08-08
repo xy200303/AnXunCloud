@@ -18,6 +18,7 @@ import (
 	"anxuncloud/internal/module/inspection/dto"
 	"anxuncloud/internal/module/inspection/model"
 	sysmodel "anxuncloud/internal/module/system/model"
+	"anxuncloud/internal/pkg/bind"
 	"anxuncloud/internal/pkg/errs"
 	"anxuncloud/internal/pkg/response"
 	"anxuncloud/internal/pkg/storage"
@@ -55,8 +56,8 @@ func (s *PointService) List(c *gin.Context, q *dto.PointListQuery) (*response.Pa
 	if q.CheckinMode != "" {
 		db = db.Where("checkin_mode = ?", q.CheckinMode)
 	}
-	if q.Status != nil {
-		db = db.Where("status = ?", sysmodel.StatusStr(*q.Status))
+	if status, ok, _ := bind.StatusFilter(q.Status); ok {
+		db = db.Where("status = ?", status)
 	}
 	db = middleware.ApplyCommunityFilter(db, c, "community_id")
 	var total int64

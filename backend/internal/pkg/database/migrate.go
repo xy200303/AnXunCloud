@@ -46,6 +46,21 @@ COMMENT ON TABLE casbin_rule IS 'Casbin 策略表（p：角色→权限点；g�
 -- 策略模型调整为三元组（sub, dom, obj=完整权限点字符串）：casbin_rule 为派生数据，清空后由启动 SyncAll 重建
 DELETE FROM casbin_rule;
 `},
+	{Version: 7, Name: "config_register_enabled", SQL: `
+-- 开放注册开关（存量库幂等补充；id 内联生成，见 v4 说明）
+INSERT INTO sys_config (id, key, name, value, remark)
+SELECT gen_random_uuid(), 'auth.register_enabled', '是否开放注册', 'false', '开启后允许通过 /api/admin/auth/register 自助注册后台账号'
+WHERE NOT EXISTS (SELECT 1 FROM sys_config WHERE key = 'auth.register_enabled');
+`},
+	{Version: 8, Name: "sys_user_is_builtin", SQL: `
+-- 内置账号标记：唯一超级管理员 admin 不可删除/停用/移除超管角色
+ALTER TABLE sys_user ADD COLUMN IF NOT EXISTS is_builtin boolean NOT NULL DEFAULT false;
+COMMENT ON COLUMN sys_user.is_builtin IS '内置账号（admin）：禁止删除/停用/移除 super_admin 角色（错误码 41014）';
+-- 存量库：admin 账号或持有 super_admin 角色的账号标记为内置
+UPDATE sys_user SET is_builtin = true
+WHERE username = 'admin'
+   OR role_ids @> ('["' || (SELECT id FROM sys_role WHERE code = 'super_admin' AND deleted_at IS NULL LIMIT 1) || '"]')::jsonb;
+`},
 }
 
 // Migrate 执行未应用过的迁移，并确保当月与下月分区存在。

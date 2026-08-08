@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/redis/go-redis/v9"
+	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 
 	"anxuncloud/internal/middleware"
@@ -67,6 +68,68 @@ func (s *AuthService) Login(ctx context.Context, req *dto.LoginReq, ip, ua strin
 	s.db.Model(&model.SysUser{}).Where("id = ?", user.ID).Update("last_login_at", now)
 	s.writeLoginLog(&user.ID, req.Username, ip, ua, "success", "登录成功")
 	return resp, nil
+}
+
+// RegisterConfig 开放注册开关状态（免登录）。
+func (s *AuthService) RegisterConfig() gin.H {
+	enabled := false
+	if s.getCfg != nil {
+		if v, ok := s.getCfg("auth.register_enabled"); ok {
+			enabled = v == "true"
+		}
+	}
+	return gin.H{"enabled": enabled}
+}
+
+// Register 开放注册（免登录，受 auth.register_enabled 开关控制）。
+// 注册成功的用户不绑定任何角色（登录后无菜单，仅可访问登录即可的接口）。
+func (s *AuthService) Register(ctx context.Context, req *dto.RegisterReq, ip string) *errs.Error {
+	if be := s.checkLoginLimit(ctx, ip); be != nil {
+		return be
+	}
+	if !s.RegisterConfig()["enabled"].(bool) {
+		return errs.ErrRegisterDisabled
+	}
+	if !password.ValidUsernameRange(req.Username, 4, 20) {
+		s.incrLoginFail(ctx, ip)
+		return errs.ErrParam.WithMsg("username 须为 4–20 位字母数字下划线")
+	}
+	if !password.ValidPassword(req.Password) {
+		s.incrLoginFail(ctx, ip)
+		return errs.ErrParam.WithMsg("password 须为 8–32 位且含字母与数字")
+	}
+	if !password.ValidPhone(req.Phone) {
+		s.incrLoginFail(ctx, ip)
+		return errs.ErrParam.WithMsg("phone 手机号格式错误")
+	}
+	var count int64
+	s.db.Model(&model.SysUser{}).Where("username = ?", req.Username).Count(&count)
+	if count > 0 {
+		s.incrLoginFail(ctx, ip)
+		return errs.ErrUsernameExists
+	}
+	s.db.Model(&model.SysUser{}).Where("phone = ?", req.Phone).Count(&count)
+	if count > 0 {
+		s.incrLoginFail(ctx, ip)
+		return errs.ErrPhoneExists
+	}
+	hash, err := password.Hash(req.Password)
+	if err != nil {
+		return errs.ErrInternal
+	}
+	user := model.SysUser{
+		Username: req.Username,
+		Password: hash,
+		Name:     req.Name,
+		Phone:    req.Phone,
+		UserType: "admin", // 后台用户
+		Status:   model.StatusEnabled,
+		Remark:   "开放注册",
+	}
+	if err := s.db.Create(&user).Error; err != nil {
+		return errs.ErrInternal
+	}
+	return nil
 }
 
 // Refresh 用 refresh token 滚动换新双令牌。

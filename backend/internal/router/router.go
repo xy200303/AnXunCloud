@@ -86,6 +86,8 @@ func New(cfg *config.Config, db *gorm.DB, rdb *redis.Client) (*gin.Engine, *insp
 	{
 		admin.POST("/auth/login", middleware.OperLog(db, "system", "login"), authCtl.Login)
 		admin.POST("/auth/refresh", authCtl.Refresh)
+		admin.GET("/auth/register-config", authCtl.RegisterConfig)
+		admin.POST("/auth/register", middleware.OperLog(db, "system", "register"), authCtl.Register)
 	}
 
 	// 管理后台鉴权分组

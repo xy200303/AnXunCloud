@@ -6,7 +6,7 @@ import "anxuncloud/internal/pkg/response"
 type CommunityListQuery struct {
 	response.PageQuery
 	Name   string `form:"name"`
-	Status *int   `form:"status"`
+	Status string `form:"status"`
 }
 
 type CommunitySaveReq struct {

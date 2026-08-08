@@ -12,7 +12,7 @@ type PointListQuery struct {
 	Name        string `form:"name"`
 	Type        string `form:"type"`
 	CheckinMode string `form:"checkin_mode"`
-	Status      *int   `form:"status"`
+	Status      string `form:"status"`
 }
 
 type PointSaveReq struct {
@@ -42,7 +42,7 @@ type PlanListQuery struct {
 	CommunityID string `form:"community_id"`
 	Name        string `form:"name"`
 	CycleType   string `form:"cycle_type"`
-	Status      *int   `form:"status"`
+	Status      string `form:"status"`
 }
 
 type PlanSaveReq struct {
@@ -87,7 +87,7 @@ type CheckinListQuery struct {
 	TaskID      string `form:"task_id"`
 	Result      string `form:"result"`
 	CheckinType string `form:"checkin_type"`
-	IsSuspect   *bool  `form:"is_suspect"`
+	IsSuspect   string `form:"is_suspect"`
 	StartTime   string `form:"start_time"`
 	EndTime     string `form:"end_time"`
 }

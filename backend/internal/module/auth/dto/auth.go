@@ -7,6 +7,14 @@ type LoginReq struct {
 	Password string `json:"password" binding:"required"`
 }
 
+// RegisterReq 开放注册请求。
+type RegisterReq struct {
+	Username string `json:"username" binding:"required"`
+	Password string `json:"password" binding:"required"`
+	Name     string `json:"name" binding:"required"`
+	Phone    string `json:"phone" binding:"required"`
+}
+
 // RefreshReq 刷新令牌请求。
 type RefreshReq struct {
 	RefreshToken string `json:"refresh_token" binding:"required"`

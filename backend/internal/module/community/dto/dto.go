@@ -30,3 +30,17 @@ type BuildingSaveReq struct {
 	Type        string `json:"type" binding:"required,oneof=building area"`
 	Sort        int    `json:"sort"`
 }
+
+// CommunityTreeBuilding 树节点中的楼栋项。
+type CommunityTreeBuilding struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
+	Type string `json:"type"`
+}
+
+// CommunityTreeNode 小区/楼栋树（点位管理等左树一次加载）。
+type CommunityTreeNode struct {
+	ID        string                  `json:"id"`
+	Name      string                  `json:"name"`
+	Buildings []CommunityTreeBuilding `json:"buildings"`
+}

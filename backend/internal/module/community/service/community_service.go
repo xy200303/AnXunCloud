@@ -41,26 +41,92 @@ func (s *CommunityService) ListCommunities(c *gin.Context, q *dto.CommunityListQ
 	if err := db.Order("id ASC").Offset(offset).Limit(limit).Find(&rows).Error; err != nil {
 		return nil, errs.ErrInternal
 	}
+	// 楼栋/点位计数与负责人姓名：GROUP BY / IN 批量查询，替代逐行 Count（N+1）
+	ids := make([]string, 0, len(rows))
+	for _, r := range rows {
+		ids = append(ids, r.ID)
+	}
+	buildingCount, pointCount := map[string]int64{}, map[string]int64{}
+	managerName := map[string]string{}
+	if len(ids) > 0 {
+		type cntRow struct {
+			CommunityID string
+			Cnt         int64
+		}
+		var bc, pc []cntRow
+		s.db.Model(&insmodel.Building{}).Select("community_id, COUNT(*) AS cnt").
+			Where("community_id IN ?", ids).Group("community_id").Scan(&bc)
+		for _, r := range bc {
+			buildingCount[r.CommunityID] = r.Cnt
+		}
+		s.db.Model(&insmodel.InspectionPoint{}).Select("community_id, COUNT(*) AS cnt").
+			Where("community_id IN ?", ids).Group("community_id").Scan(&pc)
+		for _, r := range pc {
+			pointCount[r.CommunityID] = r.Cnt
+		}
+		managerIDs := []string{}
+		for _, r := range rows {
+			if r.ManagerID != nil {
+				managerIDs = append(managerIDs, *r.ManagerID)
+			}
+		}
+		if len(managerIDs) > 0 {
+			var users []sysmodel.SysUser
+			s.db.Select("id", "name").Where("id IN ?", managerIDs).Find(&users)
+			for _, u := range users {
+				managerName[u.ID] = u.Name
+			}
+		}
+	}
 	list := make([]gin.H, 0, len(rows))
 	for _, r := range rows {
-		var buildingCount, pointCount int64
-		s.db.Model(&insmodel.Building{}).Where("community_id = ?", r.ID).Count(&buildingCount)
-		s.db.Model(&insmodel.InspectionPoint{}).Where("community_id = ?", r.ID).Count(&pointCount)
-		managerName := ""
+		mName := ""
 		if r.ManagerID != nil {
-			var u sysmodel.SysUser
-			if s.db.Select("name").First(&u, "id = ?", *r.ManagerID).Error == nil {
-				managerName = u.Name
-			}
+			mName = managerName[*r.ManagerID]
 		}
 		list = append(list, gin.H{
 			"id": r.ID, "name": r.Name, "address": r.Address,
-			"manager_id": r.ManagerID, "manager_name": managerName,
-			"building_count": buildingCount, "point_count": pointCount,
+			"manager_id": r.ManagerID, "manager_name": mName,
+			"building_count": buildingCount[r.ID], "point_count": pointCount[r.ID],
 			"status": sysmodel.StatusInt(r.Status), "created_at": timefmt.T(r.CreatedAt),
 		})
 	}
 	return &response.Page{List: list, Total: total, Page: q.Page, PageSize: q.PageSize}, nil
+}
+
+// Tree 小区/楼栋树（启用小区 + 全部楼栋，数据权限过滤），供点位管理等左树一次加载。
+func (s *CommunityService) Tree(c *gin.Context) ([]dto.CommunityTreeNode, *errs.Error) {
+	db := s.db.Model(&sysmodel.Community{}).Where("status = ?", sysmodel.StatusEnabled)
+	db = middleware.ApplyCommunityFilter(db, c, "id")
+	var comms []sysmodel.Community
+	if err := db.Order("id ASC").Find(&comms).Error; err != nil {
+		return nil, errs.ErrInternal
+	}
+	ids := make([]string, 0, len(comms))
+	for _, cm := range comms {
+		ids = append(ids, cm.ID)
+	}
+	byCommunity := map[string][]dto.CommunityTreeBuilding{}
+	if len(ids) > 0 {
+		var buildings []insmodel.Building
+		if err := s.db.Where("community_id IN ?", ids).
+			Order("sort ASC, id ASC").Find(&buildings).Error; err != nil {
+			return nil, errs.ErrInternal
+		}
+		for _, b := range buildings {
+			byCommunity[b.CommunityID] = append(byCommunity[b.CommunityID],
+				dto.CommunityTreeBuilding{ID: b.ID, Name: b.Name, Type: b.Type})
+		}
+	}
+	nodes := make([]dto.CommunityTreeNode, 0, len(comms))
+	for _, cm := range comms {
+		bList := byCommunity[cm.ID]
+		if bList == nil {
+			bList = []dto.CommunityTreeBuilding{}
+		}
+		nodes = append(nodes, dto.CommunityTreeNode{ID: cm.ID, Name: cm.Name, Buildings: bList})
+	}
+	return nodes, nil
 }
 
 // CreateCommunity 新增小区（名称唯一）。

@@ -197,9 +197,9 @@ import { onMounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox, type FormInstance, type FormRules } from 'element-plus'
 import { Search, Refresh, Plus, RefreshRight, Grid, MapLocation, Delete } from '@element-plus/icons-vue'
 import { listPoints, createPoint, updatePoint, deletePoint, generateQrcodes, type PointQuery } from '@/api/point'
-import { listCommunities, listBuildings } from '@/api/community'
+import { listCommunityTree } from '@/api/community'
 import { listDictData } from '@/api/dict'
-import type { PointItem, CommunityItem } from '@/api/biz-types'
+import type { PointItem } from '@/api/biz-types'
 import type { DictData } from '@/api/types'
 
 // ===== 左树 =====
@@ -212,27 +212,21 @@ interface TreeNode {
 }
 
 const treeData = ref<TreeNode[]>([])
-const communities = ref<CommunityItem[]>([])
 
+// 一次请求拉取小区/楼栋树（后端 /communities/tree）
 async function fetchTree() {
-  const cData = await listCommunities({ page: 1, page_size: 100, status: 1 })
-  communities.value = cData.list
-  const nodes: TreeNode[] = []
-  for (const c of cData.list) {
-    const bData = await listBuildings({ community_id: c.id, page: 1, page_size: 100 })
-    nodes.push({
-      treeKey: `c-${c.id}`,
-      label: c.name,
+  const nodes = await listCommunityTree()
+  treeData.value = nodes.map((c) => ({
+    treeKey: `c-${c.id}`,
+    label: c.name,
+    community_id: c.id,
+    children: c.buildings.map((b) => ({
+      treeKey: `b-${b.id}`,
+      label: b.name,
       community_id: c.id,
-      children: bData.list.map((b) => ({
-        treeKey: `b-${b.id}`,
-        label: b.name,
-        community_id: c.id,
-        building_id: b.id
-      }))
-    })
-  }
-  treeData.value = nodes
+      building_id: b.id
+    }))
+  }))
 }
 
 function handleNodeClick(node: TreeNode) {

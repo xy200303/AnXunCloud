@@ -285,25 +285,30 @@ func (s *AuthService) withAncestors(menus []model.SysMenu) []model.SysMenu {
 	return menus
 }
 
-// buildRouteTree 构建菜单树。
+// buildRouteTree 按 parent_id 分组后递归组装菜单树，整体 O(n)。
 func buildRouteTree(menus []model.SysMenu, parentID string) []dto.RouteNode {
-	nodes := []dto.RouteNode{}
+	byParent := make(map[string][]model.SysMenu, len(menus))
 	for _, m := range menus {
-		if m.ParentIDStr() != parentID {
-			continue
-		}
-		nodes = append(nodes, dto.RouteNode{
-			ID:       m.ID,
-			ParentID: m.ParentIDStr(),
-			Title:    m.Title,
-			Path:     m.Path,
-			Icon:     m.Icon,
-			Type:     m.Type,
-			Sort:     m.Sort,
-			Children: buildRouteTree(menus, m.ID),
-		})
+		byParent[m.ParentIDStr()] = append(byParent[m.ParentIDStr()], m)
 	}
-	return nodes
+	var build func(pid string) []dto.RouteNode
+	build = func(pid string) []dto.RouteNode {
+		nodes := []dto.RouteNode{}
+		for _, m := range byParent[pid] {
+			nodes = append(nodes, dto.RouteNode{
+				ID:       m.ID,
+				ParentID: m.ParentIDStr(),
+				Title:    m.Title,
+				Path:     m.Path,
+				Icon:     m.Icon,
+				Type:     m.Type,
+				Sort:     m.Sort,
+				Children: build(m.ID),
+			})
+		}
+		return nodes
+	}
+	return build(parentID)
 }
 
 // issueTokens 签发双令牌并刷新会话。

@@ -26,6 +26,17 @@ export function listBuildings(params: { community_id: string; name?: string; typ
   return request<PageResult<BuildingItem>>({ url: '/buildings', method: 'get', params })
 }
 
+// 小区/楼栋树：点位管理等左树一次加载，替代逐小区请求楼栋
+export interface CommunityTreeNode {
+  id: string
+  name: string
+  buildings: { id: string; name: string; type: string }[]
+}
+
+export function listCommunityTree() {
+  return request<CommunityTreeNode[]>({ url: '/communities/tree', method: 'get' })
+}
+
 export function createBuilding(data: { community_id: string; name: string; type: string }) {
   return request<{ id: string }>({ url: '/buildings', method: 'post', data })
 }

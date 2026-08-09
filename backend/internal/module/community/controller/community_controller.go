@@ -40,6 +40,11 @@ func (ctl *CommunityController) List(c *gin.Context) {
 	write(c, page, be)
 }
 
+func (ctl *CommunityController) Tree(c *gin.Context) {
+	nodes, be := ctl.svc.Tree(c)
+	write(c, nodes, be)
+}
+
 func (ctl *CommunityController) Create(c *gin.Context) {
 	var req dto.CommunitySaveReq
 	if be := bind.JSON(c, &req); be != nil {

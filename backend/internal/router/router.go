@@ -109,6 +109,7 @@ func New(cfg *config.Config, db *gorm.DB, rdb *redis.Client) (*gin.Engine, *insp
 
 		// 小区与楼栋
 		secured.GET("/communities", middleware.RequirePerm("community:list"), communityCtl.List)
+		secured.GET("/communities/tree", middleware.RequirePerm("community:list"), communityCtl.Tree)
 		secured.POST("/communities", middleware.RequirePerm("community:create"), middleware.OperLog(db, "community", "create"), communityCtl.Create)
 		secured.GET("/communities/:id", middleware.RequirePerm("community:list"), communityCtl.Detail)
 		secured.PUT("/communities/:id", middleware.RequirePerm("community:update"), middleware.OperLog(db, "community", "update"), communityCtl.Update)

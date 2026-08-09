@@ -96,7 +96,7 @@ func seedMenus(tx *gorm.DB) (map[string]string, error) {
 				{title: "记录检索", typ: model.MenuTypeButton, perms: "inspection:checkin:list", sort: 1},
 			}},
 		}},
-		{title: "异常工单", path: "/workorders", icon: "Tools", typ: model.MenuTypeDir, sort: 30, children: []menuSeed{
+		{title: "工单管理", path: "/workorders", icon: "Tools", typ: model.MenuTypeDir, sort: 30, children: []menuSeed{
 			{title: "工单列表", path: "/workorders/list", icon: "List", typ: model.MenuTypeMenu, perms: "workorder:list", sort: 1, children: []menuSeed{
 				{title: "新建工单", typ: model.MenuTypeButton, perms: "workorder:create", sort: 1},
 				{title: "编辑工单", typ: model.MenuTypeButton, perms: "workorder:update", sort: 2},

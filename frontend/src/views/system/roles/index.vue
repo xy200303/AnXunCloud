@@ -1,117 +1,147 @@
 <template>
   <div class="app-container">
-    <div class="role-layout">
-      <!-- 左：角色列表 -->
-      <div class="role-list-card">
-        <div class="role-list-header">
-          <el-input v-model="roleKeyword" placeholder="搜索角色" clearable :prefix-icon="Search" @input="filterRoles" />
-          <el-button v-perms="'system:role:create'" type="primary" :icon="Plus" @click="openRoleForm()">新增</el-button>
-        </div>
-        <div v-loading="roleLoading" class="role-list">
-          <div
-            v-for="role in filteredRoles"
-            :key="role.id"
-            class="role-item"
-            :class="{ active: currentRole?.id === role.id }"
-            @click="selectRole(role)"
-          >
-            <div class="role-item-main">
-              <span class="role-name">{{ role.name }}</span>
-              <el-tag v-if="role.status === 0" type="info" size="small">停用</el-tag>
-            </div>
-            <div class="role-item-sub">
-              <span class="role-code">{{ role.code }}</span>
-              <span class="role-users">{{ role.user_count }} 人</span>
-            </div>
-            <div class="role-item-actions" @click.stop>
-              <el-button v-perms="'system:role:update'" link type="primary" size="small" @click="openRoleForm(role)">编辑</el-button>
-              <el-button
-                v-if="role.code !== 'super_admin'"
-                v-perms="'system:role:delete'"
-                link
-                type="danger"
-                size="small"
-                @click="handleDeleteRole(role)"
-              >删除</el-button>
-            </div>
-          </div>
-          <el-empty v-if="!roleLoading && !filteredRoles.length" description="暂无角色" :image-size="60" />
-        </div>
-      </div>
-
-      <!-- 右：权限配置区 -->
-      <div class="role-config-card" v-loading="detailLoading">
-        <template v-if="currentRole">
-          <div class="config-header">
-            <h3 class="card-title">权限配置 · {{ currentRole.name }}</h3>
-            <el-tag v-if="isReadonly" type="warning" size="small">内置角色，权限只读</el-tag>
-          </div>
-
-          <el-form label-width="88px" class="config-form">
-            <el-form-item label="角色名称">
-              <el-input :model-value="currentRole.name" disabled style="width: 240px" />
-            </el-form-item>
-            <el-form-item label="角色编码">
-              <el-input :model-value="currentRole.code" disabled style="width: 240px" />
-            </el-form-item>
-            <el-form-item label="数据范围">
-              <el-radio-group v-model="permForm.data_scope" :disabled="isReadonly">
-                <el-radio value="all">全部数据</el-radio>
-                <el-radio value="custom">按小区</el-radio>
-              </el-radio-group>
-            </el-form-item>
-            <el-form-item v-if="permForm.data_scope === 'custom'" label="小区范围">
-              <span class="text-secondary">
-                按小区过滤时，以各用户「所属小区」为准（在用户管理中维护）
-              </span>
-            </el-form-item>
-            <el-form-item label="菜单权限">
-              <div class="menu-tree-wrap">
-                <div class="menu-tree-toolbar">
-                  <el-checkbox
-                    :model-value="allChecked"
-                    :indeterminate="halfChecked"
-                    :disabled="isReadonly"
-                    @change="toggleAll"
-                  >全选</el-checkbox>
-                  <span class="text-secondary">父子联动勾选，按钮级为叶子节点</span>
-                </div>
-                <el-tree
-                  ref="menuTreeRef"
-                  :data="menuTree"
-                  node-key="id"
-                  show-checkbox
-                  default-expand-all
-                  :props="{ label: 'title', children: 'children' }"
-                  :default-checked-keys="checkedMenuIds"
-                  @check="dirty = true"
-                >
-                  <template #default="{ data }">
-                    <span class="tree-node">
-                      {{ data.title }}
-                      <el-tag v-if="data.type === 'button'" size="small" type="info" class="node-tag">按钮</el-tag>
-                      <el-tag v-else-if="data.type === 'dir'" size="small" type="warning" class="node-tag">目录</el-tag>
-                    </span>
-                  </template>
-                </el-tree>
-              </div>
-            </el-form-item>
-          </el-form>
-
-          <div class="config-footer">
-            <el-button @click="selectRole(currentRole, true)">取消</el-button>
-            <el-button type="primary" :loading="saving" :disabled="isReadonly" @click="handleSavePerms">
-              保存权限
-            </el-button>
-          </div>
-          <div class="text-secondary config-tip">保存后，被影响的用户将在下次刷新或重新登录时生效</div>
-        </template>
-
-        <el-empty v-else description="请选择左侧角色进行权限配置">
-          <el-button v-perms="'system:role:create'" type="primary" @click="openRoleForm()">新增角色</el-button>
-        </el-empty>
-      </div>
+    <!-- 搜索区 -->
+    <div class="filter-card">
+      <el-form inline @submit.prevent>
+        <el-form-item label="角色名称">
+          <el-input v-model="roleKeyword" placeholder="名称 / 编码" clearable style="width: 200px" @input="filterRoles" />
+        </el-form-item>
+      </el-form>
     </div>
+
+    <!-- 角色表格 -->
+    <div class="table-card">
+      <div class="table-toolbar">
+        <div class="table-toolbar-left">
+          <el-button v-perms="'system:role:create'" type="primary" :icon="Plus" @click="openRoleForm()">新增角色</el-button>
+        </div>
+        <el-tooltip content="刷新" placement="top">
+          <el-button :icon="RefreshRight" circle @click="fetchRoles()" />
+        </el-tooltip>
+      </div>
+
+      <el-table v-loading="roleLoading" :data="filteredRoles" style="width: 100%">
+        <el-table-column prop="name" label="角色名称" min-width="140">
+          <template #default="{ row }">
+            <span style="font-weight: 600">{{ row.name }}</span>
+            <el-tag v-if="row.code === 'super_admin'" type="warning" size="small" style="margin-left: 8px">内置</el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column prop="code" label="角色编码" min-width="140" show-overflow-tooltip />
+        <el-table-column label="数据范围" width="110" align="center">
+          <template #default="{ row }">
+            <el-tag :type="row.data_scope === 'all' ? 'success' : 'primary'" size="small">
+              {{ row.data_scope === 'all' ? '全部数据' : '按小区' }}
+            </el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column prop="user_count" label="用户数" width="90" align="center">
+          <template #default="{ row }">{{ row.user_count }} 人</template>
+        </el-table-column>
+        <el-table-column label="状态" width="90" align="center">
+          <template #default="{ row }">
+            <el-tag :type="row.status === 1 ? 'success' : 'info'" size="small">
+              {{ row.status === 1 ? '启用' : '停用' }}
+            </el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column prop="remark" label="备注" min-width="160" show-overflow-tooltip>
+          <template #default="{ row }">{{ row.remark || '--' }}</template>
+        </el-table-column>
+        <el-table-column label="操作" width="200">
+          <template #default="{ row }">
+            <el-button v-perms="'system:role:update'" link type="primary" @click="openPermDrawer(row)">配置权限</el-button>
+            <el-button v-perms="'system:role:update'" link type="primary" @click="openRoleForm(row)">编辑</el-button>
+            <el-button
+              v-if="row.code !== 'super_admin'"
+              v-perms="'system:role:delete'"
+              link
+              type="danger"
+              @click="handleDeleteRole(row)"
+            >删除</el-button>
+          </template>
+        </el-table-column>
+        <template #empty>
+          <el-empty description="暂无角色">
+            <el-button v-perms="'system:role:create'" type="primary" @click="openRoleForm()">新增角色</el-button>
+          </el-empty>
+        </template>
+      </el-table>
+    </div>
+
+    <!-- 权限配置抽屉 -->
+    <el-drawer
+      v-model="permVisible"
+      :title="`配置权限 · ${currentRole?.name ?? ''}`"
+      size="520px"
+      :before-close="handleDrawerClose"
+    >
+      <div v-loading="detailLoading" class="perm-drawer-body">
+        <el-alert
+          v-if="isReadonly"
+          title="内置角色，权限只读"
+          type="warning"
+          :closable="false"
+          show-icon
+          style="margin-bottom: 16px"
+        />
+
+        <el-form label-width="88px">
+          <el-form-item label="数据范围">
+            <el-radio-group v-model="permForm.data_scope" :disabled="isReadonly" @change="dirty = true">
+              <el-radio value="all">全部数据</el-radio>
+              <el-radio value="custom">按小区</el-radio>
+            </el-radio-group>
+          </el-form-item>
+          <el-form-item v-if="permForm.data_scope === 'custom'" label="小区范围">
+            <span class="text-secondary">
+              按小区过滤时，以各用户「所属小区」为准（在用户管理中维护）
+            </span>
+          </el-form-item>
+          <el-form-item label="菜单权限">
+            <div class="menu-tree-wrap">
+              <div class="menu-tree-toolbar">
+                <el-checkbox
+                  :model-value="allChecked"
+                  :indeterminate="halfChecked"
+                  :disabled="isReadonly"
+                  @change="toggleAll"
+                >全选</el-checkbox>
+                <span class="text-secondary">父子联动勾选，按钮级为叶子节点</span>
+              </div>
+              <el-tree
+                ref="menuTreeRef"
+                :data="menuTree"
+                node-key="id"
+                show-checkbox
+                default-expand-all
+                :props="{ label: 'title', children: 'children' }"
+                :default-checked-keys="checkedMenuIds"
+                @check="syncChecked"
+              >
+                <template #default="{ data }">
+                  <span class="tree-node">
+                    {{ data.title }}
+                    <el-tag v-if="data.type === 'button'" size="small" type="info" class="node-tag">按钮</el-tag>
+                    <el-tag v-else-if="data.type === 'dir'" size="small" type="warning" class="node-tag">目录</el-tag>
+                  </span>
+                </template>
+              </el-tree>
+            </div>
+          </el-form-item>
+        </el-form>
+      </div>
+
+      <template #footer>
+        <div class="perm-drawer-footer">
+          <span class="text-secondary">保存后，被影响的用户将在下次刷新或重新登录时生效</span>
+          <div>
+            <el-button @click="handleDrawerClose()">取消</el-button>
+            <el-button type="primary" :loading="saving" :disabled="isReadonly" @click="handleSavePerms">保存权限</el-button>
+          </div>
+        </div>
+      </template>
+    </el-drawer>
 
     <!-- 新增/编辑角色对话框 -->
     <el-dialog v-model="roleFormVisible" :title="roleForm.id ? '编辑角色' : '新增角色'" width="480px" :close-on-click-modal="false">
@@ -149,7 +179,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox, type FormInstance, type FormRules, type TreeInstance } from 'element-plus'
-import { Search, Plus } from '@element-plus/icons-vue'
+import { Plus, RefreshRight } from '@element-plus/icons-vue'
 import { listRoles, getRole, createRole, updateRole, deleteRole, assignRoleMenus } from '@/api/role'
 import { listMenus } from '@/api/menu'
 import type { RoleItem, MenuNode } from '@/api/types'
@@ -159,47 +189,41 @@ const roleLoading = ref(false)
 const roles = ref<RoleItem[]>([])
 const roleKeyword = ref('')
 const filteredRoles = ref<RoleItem[]>([])
-const currentRole = ref<RoleItem | null>(null)
-
-// 内置角色（超管）权限树只读，防误锁死；接口无 builtin 字段，按 code 判断
-const isReadonly = computed(() => currentRole.value?.code === 'super_admin')
 
 function filterRoles() {
   const kw = roleKeyword.value.trim()
   filteredRoles.value = kw ? roles.value.filter((r) => r.name.includes(kw) || r.code.includes(kw)) : roles.value
 }
 
-async function fetchRoles(keepCurrent = false) {
+async function fetchRoles() {
   roleLoading.value = true
   try {
     const data = await listRoles({ page: 1, page_size: 100 })
     roles.value = data.list
     filterRoles()
-    if (keepCurrent && currentRole.value) {
-      const still = roles.value.find((r) => r.id === currentRole.value!.id)
-      if (still) {
-        currentRole.value = still
-      }
-    }
   } finally {
     roleLoading.value = false
   }
 }
 
-onMounted(async () => {
-  await Promise.all([fetchRoles(), fetchMenuTree()])
-  if (filteredRoles.value.length) {
-    selectRole(filteredRoles.value[0])
-  }
+onMounted(() => {
+  fetchRoles()
+  fetchMenuTree()
 })
 
-// ===== 权限配置 =====
+// ===== 权限配置抽屉 =====
+const permVisible = ref(false)
 const detailLoading = ref(false)
 const saving = ref(false)
+const dirty = ref(false)
+const currentRole = ref<RoleItem | null>(null)
 const menuTree = ref<MenuNode[]>([])
 const menuTreeRef = ref<TreeInstance>()
 const checkedMenuIds = ref<string[]>([])
 const permForm = reactive({ data_scope: 'all' as 'all' | 'custom' })
+
+// 内置角色（超管）权限树只读，防误锁死；接口无 builtin 字段，按 code 判断
+const isReadonly = computed(() => currentRole.value?.code === 'super_admin')
 
 // 全选状态
 const allChecked = computed(() => {
@@ -224,18 +248,11 @@ async function fetchMenuTree() {
   menuTree.value = await listMenus()
 }
 
-// 选中角色并加载其权限（force 用于"取消"时还原）
-async function selectRole(role: RoleItem, force = false) {
-  if (!force && currentRole.value && dirty.value) {
-    const ok = await ElMessageBox.confirm('当前角色的权限修改尚未保存，切换后将丢失，确定切换吗？', '未保存的修改', {
-      confirmButtonText: '切换',
-      cancelButtonText: '继续编辑',
-      type: 'warning'
-    }).then(() => true).catch(() => false)
-    if (!ok) return
-  }
+// 打开抽屉并加载角色权限
+async function openPermDrawer(role: RoleItem) {
   currentRole.value = role
   dirty.value = false
+  permVisible.value = true
   detailLoading.value = true
   try {
     const detail = await getRole(role.id)
@@ -249,8 +266,26 @@ async function selectRole(role: RoleItem, force = false) {
   }
 }
 
-// 是否有未保存修改
-const dirty = ref(false)
+// 关闭前确认未保存修改（before-close 与取消按钮共用）
+function handleDrawerClose(done?: () => void) {
+  const close = () => {
+    permVisible.value = false
+    dirty.value = false
+  }
+  if (!dirty.value) {
+    close()
+    done?.()
+    return
+  }
+  ElMessageBox.confirm('权限修改尚未保存，关闭后将丢失，确定关闭吗？', '未保存的修改', {
+    confirmButtonText: '关闭',
+    cancelButtonText: '继续编辑',
+    type: 'warning'
+  }).then(() => {
+    close()
+    done?.()
+  }).catch(() => {})
+}
 
 function toggleAll(checked: boolean | string | number) {
   if (checked) {
@@ -280,7 +315,8 @@ async function handleSavePerms() {
     })
     ElMessage.success('权限已保存')
     dirty.value = false
-    fetchRoles(true)
+    permVisible.value = false
+    fetchRoles()
   } finally {
     saving.value = false
   }
@@ -328,7 +364,7 @@ async function handleSubmitRole() {
       ElMessage.success('角色已创建')
     }
     roleFormVisible.value = false
-    fetchRoles(true)
+    fetchRoles()
   } finally {
     roleSubmitting.value = false
   }
@@ -347,138 +383,45 @@ async function handleDeleteRole(role: RoleItem) {
   if (!ok) return
   await deleteRole(role.id)
   ElMessage.success('已删除')
-  if (currentRole.value?.id === role.id) {
-    currentRole.value = null
-  }
   fetchRoles()
 }
 </script>
 
 <style scoped lang="scss">
-.role-layout {
-  display: flex;
-  gap: $spacing-lg;
-  align-items: flex-start;
+.perm-drawer-body {
+  min-height: 200px;
 }
 
-.role-list-card {
-  width: 300px;
-  flex-shrink: 0;
-  background: $color-bg-card;
-  border-radius: $radius-card;
-  padding: $spacing-lg;
+.menu-tree-wrap {
+  width: 100%;
+  border: 1px solid $color-border;
+  border-radius: $radius-small;
+  padding: $spacing-md;
 
-  .role-list-header {
-    display: flex;
-    gap: $spacing-sm;
-    margin-bottom: $spacing-md;
-  }
-
-  .role-list {
-    max-height: calc(100vh - 260px);
-    overflow-y: auto;
-  }
-
-  .role-item {
-    position: relative;
-    padding: $spacing-md;
-    border-radius: $radius-small;
-    cursor: pointer;
-    margin-bottom: $spacing-xs;
-    border: 1px solid transparent;
-
-    &:hover {
-      background: $color-bg-page;
-
-      .role-item-actions {
-        display: flex;
-      }
-    }
-
-    &.active {
-      background: $color-primary-light;
-      border-color: $color-primary;
-    }
-
-    .role-item-main {
-      display: flex;
-      align-items: center;
-      gap: $spacing-sm;
-
-      .role-name {
-        font-weight: 600;
-        color: $color-text-primary;
-      }
-    }
-
-    .role-item-sub {
-      display: flex;
-      justify-content: space-between;
-      margin-top: $spacing-xs;
-      font-size: $font-size-aux;
-      color: $color-text-secondary;
-    }
-
-    .role-item-actions {
-      display: none;
-      position: absolute;
-      right: $spacing-sm;
-      top: $spacing-sm;
-      background: inherit;
-    }
-  }
-}
-
-.role-config-card {
-  flex: 1;
-  min-width: 0;
-  background: $color-bg-card;
-  border-radius: $radius-card;
-  padding: $spacing-lg $spacing-xl;
-
-  .config-header {
+  .menu-tree-toolbar {
     display: flex;
     align-items: center;
-    gap: $spacing-md;
-    margin-bottom: $spacing-xl;
+    gap: $spacing-lg;
+    padding-bottom: $spacing-sm;
+    border-bottom: 1px solid $color-border;
+    margin-bottom: $spacing-sm;
   }
 
-  .config-form {
-    max-width: 720px;
-  }
+  .tree-node {
+    display: inline-flex;
+    align-items: center;
+    gap: $spacing-sm;
 
-  .menu-tree-wrap {
-    width: 100%;
-    border: 1px solid $color-border;
-    border-radius: $radius-small;
-    padding: $spacing-md;
-
-    .menu-tree-toolbar {
-      display: flex;
-      align-items: center;
-      gap: $spacing-lg;
-      padding-bottom: $spacing-sm;
-      border-bottom: 1px solid $color-border;
-      margin-bottom: $spacing-sm;
-    }
-
-    .tree-node {
-      display: inline-flex;
-      align-items: center;
-      gap: $spacing-sm;
-
-      .node-tag {
-        transform: scale(0.9);
-      }
+    .node-tag {
+      transform: scale(0.9);
     }
   }
+}
 
-  .config-footer {
-    margin-top: $spacing-xl;
-  }
-
-  .config-tip {
-    margin-top: $spacing-sm;
-  }
+.perm-drawer-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: $spacing-md;
 }
 </style>

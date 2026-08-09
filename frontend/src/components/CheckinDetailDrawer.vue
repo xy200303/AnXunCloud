@@ -1,0 +1,183 @@
+<template>
+  <!-- 打卡详情抽屉：分区展示，后续扩展新内容加区块即可 -->
+  <el-drawer :model-value="modelValue" title="打卡详情" size="620px" @update:model-value="emit('update:modelValue', $event)">
+    <div v-loading="loading" class="detail-body">
+      <template v-if="detail && row">
+        <!-- 概要 -->
+        <div class="detail-header">
+          <div class="detail-point">
+            <span class="point-name">{{ row.point_name }}</span>
+            <span class="text-secondary">{{ row.community_name }}</span>
+          </div>
+          <el-tag v-if="row.is_suspect" type="warning">疑似作弊</el-tag>
+          <el-tag v-else-if="row.result === 'abnormal'" type="danger">异常</el-tag>
+          <el-tag v-else type="success">正常</el-tag>
+        </div>
+
+        <el-descriptions :column="2" border size="small">
+          <el-descriptions-item label="打卡时间">{{ row.checkin_time }}</el-descriptions-item>
+          <el-descriptions-item label="巡检员">{{ row.inspector_name }}</el-descriptions-item>
+          <el-descriptions-item label="打卡方式">{{ checkinTypeLabel(row.checkin_type) }}</el-descriptions-item>
+          <el-descriptions-item label="照片数">{{ row.photo_count }} 张</el-descriptions-item>
+        </el-descriptions>
+
+        <!-- 定位与防作弊校验 -->
+        <div class="section-title">定位与校验</div>
+        <el-descriptions :column="1" border size="small">
+          <el-descriptions-item label="坐标">
+            {{ detail.longitude.toFixed(6) }}, {{ detail.latitude.toFixed(6) }}
+          </el-descriptions-item>
+          <el-descriptions-item label="距点位">{{ detail.distance_to_point }}m</el-descriptions-item>
+          <el-descriptions-item label="服务端时间">{{ detail.checkin_time }}</el-descriptions-item>
+          <el-descriptions-item label="客户端时间">{{ detail.client_time }}</el-descriptions-item>
+          <el-descriptions-item v-if="detail.suspect_reason" label="疑似原因">
+            <span class="danger-text">{{ detail.suspect_reason }}</span>
+          </el-descriptions-item>
+          <el-descriptions-item v-if="detail.remark" label="备注">{{ detail.remark }}</el-descriptions-item>
+          <el-descriptions-item v-if="detail.work_order_no" label="关联工单">
+            <el-link type="danger" @click="emit('go-work-order', detail.work_order_no!)">
+              {{ detail.work_order_no }}
+            </el-link>
+          </el-descriptions-item>
+        </el-descriptions>
+
+        <!-- 检查项结果 -->
+        <template v-if="detail.check_items?.length">
+          <div class="section-title">检查项结果</div>
+          <el-table :data="detail.check_items" border size="small" style="width: 100%">
+            <el-table-column prop="name" label="检查项" min-width="160" show-overflow-tooltip />
+            <el-table-column label="结果" width="90" align="center">
+              <template #default="{ row: item }">
+                <el-tag :type="item.pass ? 'success' : 'danger'" size="small">
+                  {{ item.pass ? '合格' : '不合格' }}
+                </el-tag>
+              </template>
+            </el-table-column>
+            <el-table-column prop="note" label="备注" min-width="120" show-overflow-tooltip>
+              <template #default="{ row: item }">{{ item.note || '--' }}</template>
+            </el-table-column>
+          </el-table>
+        </template>
+
+        <!-- 审核信息 -->
+        <template v-if="detail.audit_status">
+          <div class="section-title">审核信息</div>
+          <el-descriptions :column="1" border size="small">
+            <el-descriptions-item label="审核状态">
+              <el-tag :type="auditStatusTag(detail.audit_status).type" size="small">
+                {{ auditStatusTag(detail.audit_status).label }}
+              </el-tag>
+            </el-descriptions-item>
+            <el-descriptions-item v-if="detail.ai_verdict" label="AI 结论">
+              <el-tag :type="aiVerdictTag(detail.ai_verdict).type" size="small">
+                {{ aiVerdictTag(detail.ai_verdict).label }}
+              </el-tag>
+              <span v-if="detail.ai_reason" class="ai-reason">{{ detail.ai_reason }}</span>
+            </el-descriptions-item>
+            <el-descriptions-item v-if="detail.audit_by" label="审核人">{{ detail.audit_by }}</el-descriptions-item>
+            <el-descriptions-item v-if="detail.audit_at" label="审核时间">{{ detail.audit_at }}</el-descriptions-item>
+            <el-descriptions-item v-if="detail.audit_remark" label="打回原因">
+              <span class="danger-text">{{ detail.audit_remark }}</span>
+            </el-descriptions-item>
+          </el-descriptions>
+        </template>
+
+        <!-- 现场照片 -->
+        <div class="section-title">现场照片（水印缩略图，点击查看原图）</div>
+        <photo-viewer :photos="detail.photos || []" :meta="photoMeta(detail)" />
+      </template>
+    </div>
+  </el-drawer>
+</template>
+
+<script setup lang="ts">
+import PhotoViewer from '@/components/PhotoViewer.vue'
+import type { CheckinItem, CheckinDetail } from '@/api/biz-types'
+
+defineProps<{
+  modelValue: boolean
+  row: CheckinItem | null
+  detail: CheckinDetail | null
+  loading: boolean
+}>()
+
+const emit = defineEmits<{
+  'update:modelValue': [value: boolean]
+  'go-work-order': [orderNo: string]
+}>()
+
+function checkinTypeLabel(t: string) {
+  return { qrcode: '扫码', fence: '围栏', offline: '离线补传', nfc: 'NFC' }[t] || t
+}
+
+// 审核状态：auto_pass 默认通过-灰 / pending 待审核-橙 / pass 人工通过-绿 / rejected 已打回-红
+function auditStatusTag(s: string): { label: string; type: 'info' | 'warning' | 'success' | 'danger' } {
+  return (
+    {
+      auto_pass: { label: '默认通过', type: 'info' },
+      pending: { label: '待审核', type: 'warning' },
+      pass: { label: '人工通过', type: 'success' },
+      rejected: { label: '已打回', type: 'danger' }
+    }[s] || { label: s, type: 'info' }
+  ) as { label: string; type: 'info' | 'warning' | 'success' | 'danger' }
+}
+
+// AI 结论：pass 大模型通过 / review 转人工 / error 审核失败
+function aiVerdictTag(v: string): { label: string; type: 'info' | 'warning' | 'success' | 'danger' } {
+  return (
+    {
+      pass: { label: '大模型通过', type: 'success' },
+      review: { label: '转人工', type: 'warning' },
+      error: { label: '审核失败', type: 'danger' }
+    }[v] || { label: v, type: 'info' }
+  ) as { label: string; type: 'info' | 'warning' | 'success' | 'danger' }
+}
+
+function photoMeta(d: CheckinDetail) {
+  return {
+    time: d.checkin_time,
+    distance: d.distance_to_point,
+    coords: `${d.longitude.toFixed(6)}, ${d.latitude.toFixed(6)}`
+  }
+}
+</script>
+
+<style scoped lang="scss">
+.detail-body {
+  min-height: 200px;
+}
+
+.detail-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: $spacing-lg;
+
+  .detail-point {
+    display: flex;
+    align-items: baseline;
+    gap: $spacing-md;
+
+    .point-name {
+      font-size: $font-size-card-title;
+      font-weight: 600;
+      color: $color-text-primary;
+    }
+  }
+}
+
+.section-title {
+  font-weight: 600;
+  color: $color-text-primary;
+  margin: $spacing-xl 0 $spacing-md;
+}
+
+.danger-text {
+  color: $color-danger;
+}
+
+.ai-reason {
+  margin-left: $spacing-sm;
+  color: $color-text-secondary;
+}
+</style>

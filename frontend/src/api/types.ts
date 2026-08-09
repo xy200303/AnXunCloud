@@ -30,6 +30,7 @@ export interface UserInfo {
   data_scope: 'all' | 'custom'
   perms: string[]
   // 个人中心扩展字段（后端并行开发中，可能缺省）
+  signature_url?: string // 手写签名图 URL（月报签字栏用，可空）
   created_at?: string
   last_login_at?: string
   last_login_ip?: string

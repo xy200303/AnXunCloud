@@ -24,6 +24,32 @@ export interface BuildingItem {
   created_at: string
 }
 
+// ===== 检查项模板 =====
+export interface TemplateCheckItem {
+  name: string
+  required: boolean
+}
+
+export interface TemplateItem {
+  id: string
+  name: string
+  point_type: string // 空表示通用（所有类型）
+  items: TemplateCheckItem[]
+  sort: number
+  status: number
+  remark: string
+  created_at: string
+}
+
+export interface TemplateForm {
+  name: string
+  point_type: string
+  items: TemplateCheckItem[]
+  sort: number
+  status: number
+  remark: string
+}
+
 // ===== 点位 =====
 export interface PointItem {
   id: string
@@ -38,8 +64,11 @@ export interface PointItem {
   longitude: number
   latitude: number
   fence_radius: number
-  checkin_mode: 'qrcode' | 'fence' | 'either' | 'both'
+  checkin_mode: 'qrcode' | 'fence' | 'either' | 'both' | 'nfc'
   required_photo_items: string[]
+  template_id: string | null
+  template_name?: string
+  nfc_id?: string
   sort: number
   status: number
   created_at: string
@@ -55,6 +84,8 @@ export interface PointForm {
   fence_radius: number
   checkin_mode: string
   required_photo_items: string[]
+  template_id: string | null
+  nfc_id: string
   sort: number
   status: number
 }
@@ -163,11 +194,25 @@ export interface CheckinItem {
   inspector_id: string
   inspector_name: string
   checkin_time: string
-  checkin_type: 'qrcode' | 'fence' | 'offline'
+  checkin_type: 'qrcode' | 'fence' | 'offline' | 'nfc'
   distance_to_point: number
   result: 'normal' | 'abnormal'
   is_suspect: boolean
   photo_count: number
+  // 记录审核（v10）
+  audit_status: 'auto_pass' | 'pending' | 'pass' | 'rejected'
+  audit_by?: string
+  audit_at?: string
+  audit_remark?: string
+  ai_verdict?: 'pass' | 'review' | 'error' | ''
+  ai_reason?: string
+  check_items?: CheckinCheckItem[]
+}
+
+export interface CheckinCheckItem {
+  name: string
+  pass: boolean
+  note: string
 }
 
 export interface CheckinDetail extends CheckinItem {

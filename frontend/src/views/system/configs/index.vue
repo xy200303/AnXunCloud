@@ -93,6 +93,7 @@
           </el-select>
         </el-form-item>
         <el-form-item label="配置值" prop="value">
+          <!-- 公章已挪至「签章管理」，配置值统一文本输入 -->
           <el-input v-model="form.value" placeholder="配置值" />
           <div v-if="rangeHint" class="text-secondary">{{ rangeHint }}</div>
         </el-form-item>
@@ -126,6 +127,7 @@ const groups = ref<string[]>([])
 // 分组中文映射；未识别的分组原样显示，保证新增分组不破版
 const GROUP_LABELS: Record<string, string> = {
   inspection: '巡检业务',
+  report: '巡检报告',
   mp: '小程序端',
   msg: '消息通知',
   security: '安全设置',
@@ -206,9 +208,9 @@ const formRules: FormRules = {
     { pattern: /^[A-Za-z0-9_]{1,50}$/, message: '仅限字母、数字、下划线，不超过 50 字符', trigger: 'change' }
   ],
   value: [
-    { required: true, message: '请输入配置值', trigger: 'blur' },
     {
       validator: (_r: any, value: string, cb: (e?: Error) => void) => {
+        if (!value) return cb(new Error('请输入配置值'))
         // 围栏默认半径做范围校验
         if (form.key === 'inspection.fence_default_radius') {
           const n = Number(value)

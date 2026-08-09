@@ -19,6 +19,12 @@
             <el-option label="异常" value="abnormal" />
           </el-select>
         </el-form-item>
+        <el-form-item label="审核">
+          <el-select v-model="query.audit_status" placeholder="全部" clearable style="width: 110px">
+            <el-option label="待审核" value="pending" />
+            <el-option label="已打回" value="rejected" />
+          </el-select>
+        </el-form-item>
         <el-form-item label="疑似作弊">
           <el-checkbox v-model="onlySuspect" label="仅看疑似" />
         </el-form-item>
@@ -67,6 +73,13 @@
             <el-tag v-else type="success" size="small">正常</el-tag>
           </template>
         </el-table-column>
+        <el-table-column label="审核" width="100" align="center">
+          <template #default="{ row }">
+            <el-tag :type="auditStatusTag(row.audit_status).type" size="small">
+              {{ auditStatusTag(row.audit_status).label }}
+            </el-tag>
+          </template>
+        </el-table-column>
         <el-table-column prop="photo_count" label="照片数" width="80" align="right" />
         <el-table-column label="操作" width="90">
           <template #default="{ row }">
@@ -90,54 +103,14 @@
       </div>
     </div>
 
-    <!-- 打卡详情抽屉：分区展示，后续扩展新内容加区块即可 -->
-    <el-drawer v-model="detailVisible" title="打卡详情" size="620px">
-      <div v-loading="detailLoading" class="detail-body">
-        <template v-if="detail && currentRow">
-          <!-- 概要 -->
-          <div class="detail-header">
-            <div class="detail-point">
-              <span class="point-name">{{ currentRow.point_name }}</span>
-              <span class="text-secondary">{{ currentRow.community_name }}</span>
-            </div>
-            <el-tag v-if="currentRow.is_suspect" type="warning">疑似作弊</el-tag>
-            <el-tag v-else-if="currentRow.result === 'abnormal'" type="danger">异常</el-tag>
-            <el-tag v-else type="success">正常</el-tag>
-          </div>
-
-          <el-descriptions :column="2" border size="small">
-            <el-descriptions-item label="打卡时间">{{ currentRow.checkin_time }}</el-descriptions-item>
-            <el-descriptions-item label="巡检员">{{ currentRow.inspector_name }}</el-descriptions-item>
-            <el-descriptions-item label="打卡方式">{{ checkinTypeLabel(currentRow.checkin_type) }}</el-descriptions-item>
-            <el-descriptions-item label="照片数">{{ currentRow.photo_count }} 张</el-descriptions-item>
-          </el-descriptions>
-
-          <!-- 定位与防作弊校验 -->
-          <div class="section-title">定位与校验</div>
-          <el-descriptions :column="1" border size="small">
-            <el-descriptions-item label="坐标">
-              {{ detail.longitude.toFixed(6) }}, {{ detail.latitude.toFixed(6) }}
-            </el-descriptions-item>
-            <el-descriptions-item label="距点位">{{ detail.distance_to_point }}m</el-descriptions-item>
-            <el-descriptions-item label="服务端时间">{{ detail.checkin_time }}</el-descriptions-item>
-            <el-descriptions-item label="客户端时间">{{ detail.client_time }}</el-descriptions-item>
-            <el-descriptions-item v-if="detail.suspect_reason" label="疑似原因">
-              <span class="danger-text">{{ detail.suspect_reason }}</span>
-            </el-descriptions-item>
-            <el-descriptions-item v-if="detail.remark" label="备注">{{ detail.remark }}</el-descriptions-item>
-            <el-descriptions-item v-if="detail.work_order_no" label="关联工单">
-              <el-link type="danger" @click="goWorkOrder(detail.work_order_no!)">
-                {{ detail.work_order_no }}
-              </el-link>
-            </el-descriptions-item>
-          </el-descriptions>
-
-          <!-- 现场照片 -->
-          <div class="section-title">现场照片（水印缩略图，点击查看原图）</div>
-          <photo-viewer :photos="detail.photos || []" :meta="photoMeta(detail)" />
-        </template>
-      </div>
-    </el-drawer>
+    <!-- 打卡详情抽屉（公共组件，含检查项结果与审核信息区块） -->
+    <checkin-detail-drawer
+      v-model="detailVisible"
+      :row="currentRow"
+      :detail="detail"
+      :loading="detailLoading"
+      @go-work-order="goWorkOrder"
+    />
   </div>
 </template>
 
@@ -148,7 +121,7 @@ import { Search, Refresh } from '@element-plus/icons-vue'
 import { listCheckins, getCheckin, type CheckinQuery } from '@/api/checkin'
 import { listCommunities } from '@/api/community'
 import { listUsers } from '@/api/user'
-import PhotoViewer from '@/components/PhotoViewer.vue'
+import CheckinDetailDrawer from '@/components/CheckinDetailDrawer.vue'
 import type { CheckinItem, CheckinDetail, CommunityItem } from '@/api/biz-types'
 import type { UserItem } from '@/api/types'
 
@@ -162,7 +135,19 @@ const inspectors = ref<UserItem[]>([])
 const onlySuspect = ref(false)
 
 function checkinTypeLabel(t: string) {
-  return { qrcode: '扫码', fence: '围栏', offline: '离线补传' }[t] || t
+  return { qrcode: '扫码', fence: '围栏', offline: '离线补传', nfc: 'NFC' }[t] || t
+}
+
+// 审核状态标签（与详情抽屉同一映射）
+function auditStatusTag(s: string): { label: string; type: 'info' | 'warning' | 'success' | 'danger' } {
+  return (
+    {
+      auto_pass: { label: '默认通过', type: 'info' },
+      pending: { label: '待审核', type: 'warning' },
+      pass: { label: '人工通过', type: 'success' },
+      rejected: { label: '已打回', type: 'danger' }
+    }[s] || { label: s || '--', type: 'info' }
+  ) as { label: string; type: 'info' | 'warning' | 'success' | 'danger' }
 }
 
 // 时间筛选默认近 7 天
@@ -175,7 +160,7 @@ function defaultRange(): [string, string] {
 }
 
 const timeRange = ref<[string, string] | null>(defaultRange())
-const query = reactive<CheckinQuery>({ page: 1, page_size: 20, community_id: undefined, inspector_id: undefined, result: '' })
+const query = reactive<CheckinQuery>({ page: 1, page_size: 20, community_id: undefined, inspector_id: undefined, result: '', audit_status: '' })
 
 async function fetchList() {
   loading.value = true
@@ -183,6 +168,7 @@ async function fetchList() {
     const data = await listCheckins({
       ...query,
       result: query.result || undefined,
+      audit_status: query.audit_status || undefined,
       is_suspect: onlySuspect.value || undefined,
       start_time: timeRange.value?.[0],
       end_time: timeRange.value?.[1]
@@ -203,6 +189,7 @@ function handleReset() {
   query.community_id = undefined
   query.inspector_id = undefined
   query.result = ''
+  query.audit_status = ''
   onlySuspect.value = false
   timeRange.value = defaultRange()
   handleSearch()
@@ -239,54 +226,11 @@ async function openDetail(row: CheckinItem) {
   }
 }
 
-function photoMeta(d: CheckinDetail) {
-  return {
-    time: d.checkin_time,
-    distance: d.distance_to_point,
-    coords: `${d.longitude.toFixed(6)}, ${d.latitude.toFixed(6)}`
-  }
-}
-
 function goWorkOrder(orderNo: string) {
   detailVisible.value = false
   router.push({ path: '/workorders/list', query: { order_no: orderNo } })
 }
 </script>
-
-<style scoped lang="scss">
-.detail-body {
-  min-height: 200px;
-}
-
-.detail-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: $spacing-lg;
-
-  .detail-point {
-    display: flex;
-    align-items: baseline;
-    gap: $spacing-md;
-
-    .point-name {
-      font-size: $font-size-card-title;
-      font-weight: 600;
-      color: $color-text-primary;
-    }
-  }
-}
-
-.section-title {
-  font-weight: 600;
-  color: $color-text-primary;
-  margin: $spacing-xl 0 $spacing-md;
-}
-
-.danger-text {
-  color: $color-danger;
-}
-</style>
 
 <style lang="scss">
 // 行可点击提示（非 scoped，作用于 el-table 生成的行）

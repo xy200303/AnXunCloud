@@ -68,6 +68,9 @@
                 {{ checkinModeLabel(row.checkin_mode) }}
               </template>
             </el-table-column>
+            <el-table-column label="模板" min-width="120" show-overflow-tooltip>
+              <template #default="{ row }">{{ row.template_name || '--' }}</template>
+            </el-table-column>
             <el-table-column prop="fence_radius" label="围栏半径" width="90" align="right">
               <template #default="{ row }">{{ row.fence_radius }}m</template>
             </el-table-column>
@@ -163,7 +166,19 @@
             <el-radio value="fence">围栏</el-radio>
             <el-radio value="either">任一（默认）</el-radio>
             <el-radio value="both">两者</el-radio>
+            <el-radio value="nfc">NFC</el-radio>
           </el-radio-group>
+        </el-form-item>
+
+        <el-form-item label="检查项模板">
+          <el-select v-model="form.template_id" placeholder="不关联模板" clearable style="width: 100%">
+            <el-option v-for="t in filteredTemplates" :key="t.id" :label="t.name" :value="t.id" />
+          </el-select>
+          <div class="text-secondary">仅显示通用模板和与所选点位类型匹配的启用模板</div>
+        </el-form-item>
+
+        <el-form-item label="NFC 卡号" prop="nfc_id">
+          <el-input v-model="form.nfc_id" placeholder="选填；打卡方式为 NFC 时必填" style="width: 260px" />
         </el-form-item>
 
         <el-form-item label="必拍项">
@@ -193,13 +208,14 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted, reactive, ref } from 'vue'
+import { onMounted, reactive, ref, computed } from 'vue'
 import { ElMessage, ElMessageBox, type FormInstance, type FormRules } from 'element-plus'
 import { Search, Refresh, Plus, RefreshRight, Grid, MapLocation, Delete } from '@element-plus/icons-vue'
 import { listPoints, createPoint, updatePoint, deletePoint, generateQrcodes, type PointQuery } from '@/api/point'
+import { listTemplates } from '@/api/template'
 import { listCommunityTree } from '@/api/community'
 import { listDictData } from '@/api/dict'
-import type { PointItem } from '@/api/biz-types'
+import type { PointItem, TemplateItem } from '@/api/biz-types'
 import type { DictData } from '@/api/types'
 
 // ===== 左树 =====
@@ -245,6 +261,12 @@ const query = reactive<PointQuery>({ page: 1, page_size: 20, name: '', type: '',
 
 const pointTypeOptions = ref<DictData[]>([])
 
+// 启用中的检查项模板（表单下拉用，按点位类型过滤）
+const templates = ref<TemplateItem[]>([])
+const filteredTemplates = computed(() =>
+  templates.value.filter((t) => !t.point_type || t.point_type === form.type)
+)
+
 async function fetchList() {
   loading.value = true
   try {
@@ -282,10 +304,14 @@ onMounted(() => {
   listDictData({ type_code: 'point_type', page: 1, page_size: 100 }).then((d) => {
     pointTypeOptions.value = d.list.filter((x) => x.status === 1)
   })
+  // 启用中的检查项模板
+  listTemplates({ page: 1, page_size: 100, status: 1 }).then((d) => {
+    templates.value = d.list
+  })
 })
 
 function checkinModeLabel(mode: string) {
-  return { qrcode: '扫码', fence: '围栏', either: '任一', both: '两者' }[mode] || mode
+  return { qrcode: '扫码', fence: '围栏', either: '任一', both: '两者', nfc: 'NFC' }[mode] || mode
 }
 
 // ===== 新增/编辑 =====
@@ -304,6 +330,8 @@ const form = reactive({
   fence_radius: 100,
   checkin_mode: 'either',
   required_photo_items: [] as string[],
+  template_id: null as string | null,
+  nfc_id: '',
   sort: 0,
   status: 1
 })
@@ -312,7 +340,14 @@ const formRules: FormRules = {
   communityBuilding: [{ required: true, type: 'array', min: 2, message: '请选择所属楼栋', trigger: 'change' }],
   name: [{ required: true, message: '请输入点位名称', trigger: 'blur' }],
   type: [{ required: true, message: '请选择点位类型', trigger: 'change' }],
-  checkin_mode: [{ required: true, message: '请选择打卡方式', trigger: 'change' }]
+  checkin_mode: [{ required: true, message: '请选择打卡方式', trigger: 'change' }],
+  nfc_id: [
+    {
+      validator: (_r, v: string, cb) =>
+        form.checkin_mode === 'nfc' && !v?.trim() ? cb(new Error('打卡方式为 NFC 时必填卡号')) : cb(),
+      trigger: 'blur'
+    }
+  ]
 }
 
 // 级联选择：小区 → 楼栋
@@ -341,6 +376,8 @@ function openForm(row?: PointItem) {
       fence_radius: row.fence_radius,
       checkin_mode: row.checkin_mode,
       required_photo_items: [...(row.required_photo_items || [])],
+      template_id: row.template_id || null,
+      nfc_id: row.nfc_id || '',
       sort: row.sort,
       status: row.status
     })
@@ -348,7 +385,7 @@ function openForm(row?: PointItem) {
     Object.assign(form, {
       id: '', qrcode_no: '', communityBuilding: [], name: '', type: '',
       longitude: null, latitude: null, fence_radius: 100, checkin_mode: 'either',
-      required_photo_items: [], sort: 0, status: 1
+      required_photo_items: [], template_id: null, nfc_id: '', sort: 0, status: 1
     })
   }
   formVisible.value = true
@@ -372,6 +409,8 @@ async function handleSubmit() {
     fence_radius: form.fence_radius,
     checkin_mode: form.checkin_mode,
     required_photo_items: items,
+    template_id: form.template_id || null,
+    nfc_id: form.nfc_id.trim(),
     sort: form.sort,
     status: form.status
   }

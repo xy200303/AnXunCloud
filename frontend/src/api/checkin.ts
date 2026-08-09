@@ -11,6 +11,7 @@ export interface CheckinQuery {
   task_id?: string
   result?: string
   checkin_type?: string
+  audit_status?: string
   is_suspect?: boolean
   start_time?: string
   end_time?: string

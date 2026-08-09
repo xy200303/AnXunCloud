@@ -25,6 +25,11 @@ export const useTagsViewStore = defineStore('tagsView', {
       if (idx >= 0 && !this.tags[idx].affix) this.tags.splice(idx, 1)
       return this.tags[idx - 1]?.path || this.tags[this.tags.length - 1]?.path || '/dashboard'
     },
+    // 详情类页面加载数据后更新标签标题（如"字典数据-通用状态"）
+    updateTagTitle(path: string, title: string) {
+      const tag = this.tags.find((t) => t.path === path)
+      if (tag) tag.title = title
+    },
     closeOthers(path: string) {
       this.tags = this.tags.filter((t) => t.affix || t.path === path)
     },

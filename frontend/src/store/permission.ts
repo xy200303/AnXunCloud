@@ -70,6 +70,12 @@ export const usePermissionStore = defineStore('permission', {
           component: viewModules['../views/workorders/detail/index.vue'],
           name: '/workorders/detail',
           meta: { title: '工单详情' }
+        },
+        {
+          path: '/system/dicts/data/:typeCode',
+          component: viewModules['../views/system/dicts/data/index.vue'],
+          name: '/system/dicts/data',
+          meta: { title: '字典数据' }
         }
       ]
       children.push(...hiddenRoutes)

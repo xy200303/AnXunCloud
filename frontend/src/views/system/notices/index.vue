@@ -47,22 +47,24 @@
             </el-tag>
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="200" fixed="right">
+        <el-table-column label="操作" width="200" fixed="right" align="center">
           <template #default="{ row }">
-            <el-button link type="primary" @click="openPreview(row)">预览</el-button>
-            <el-button v-perms="'system:notice:update'" link type="primary" @click="openForm(row)">编辑</el-button>
-            <el-dropdown v-if="userStore.hasPerm('system:notice:update') || userStore.hasPerm('system:notice:delete')" trigger="click" @command="(cmd: string) => handleRowCommand(cmd, row)">
-              <el-button link type="primary">更多<el-icon><ArrowDown /></el-icon></el-button>
-              <template #dropdown>
-                <el-dropdown-menu>
-                  <el-dropdown-item v-if="row.status !== 1 && userStore.hasPerm('system:notice:update')" command="publish">发布</el-dropdown-item>
-                  <el-dropdown-item v-if="row.status === 1 && userStore.hasPerm('system:notice:update')" command="offline">下线</el-dropdown-item>
-                  <el-dropdown-item v-if="userStore.hasPerm('system:notice:delete')" command="delete">
+            <div class="action-cell">
+              <el-button link type="primary" @click="openPreview(row)">预览</el-button>
+              <el-button v-perms="'system:notice:update'" link type="primary" @click="openForm(row)">编辑</el-button>
+              <el-dropdown v-if="userStore.hasPerm('system:notice:update') || userStore.hasPerm('system:notice:delete')" trigger="click" @command="(cmd: string) => handleRowCommand(cmd, row)">
+                <el-button link type="primary">更多<el-icon><ArrowDown /></el-icon></el-button>
+                <template #dropdown>
+                  <el-dropdown-menu>
+                    <el-dropdown-item v-if="row.status !== 1 && userStore.hasPerm('system:notice:update')" command="publish">发布</el-dropdown-item>
+                    <el-dropdown-item v-if="row.status === 1 && userStore.hasPerm('system:notice:update')" command="offline">下线</el-dropdown-item>
+                    <el-dropdown-item v-if="userStore.hasPerm('system:notice:delete')" command="delete">
                     <span class="danger-text">删除</span>
                   </el-dropdown-item>
                 </el-dropdown-menu>
               </template>
             </el-dropdown>
+            </div>
           </template>
         </el-table-column>
         <template #empty>
@@ -242,6 +244,22 @@ function openPreview(row: NoticeItem) {
 <style scoped lang="scss">
 .danger-text {
   color: $color-danger;
+}
+
+/* 操作列：链接按钮与下拉按钮纵向居中对齐 */
+.action-cell {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: $spacing-sm;
+
+  :deep(.el-button + .el-button) {
+    margin-left: 0;
+  }
+
+  :deep(.el-dropdown) {
+    line-height: 1;
+  }
 }
 
 // 模拟小程序消息页的公告卡片

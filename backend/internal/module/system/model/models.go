@@ -133,10 +133,11 @@ func (SysDictData) TableName() string { return "sys_dict_data" }
 // SysConfig 系统参数
 type SysConfig struct {
 	types.UUIDModel
-	Key       string         `gorm:"size:64" json:"key"`
-	Name      string         `gorm:"size:64" json:"name"`
-	Value     string         `gorm:"type:text" json:"value"`
-	Remark    string         `gorm:"size:255" json:"remark"`
+	Key         string         `gorm:"size:64" json:"key"`
+	Name        string         `gorm:"size:64" json:"name"`
+	Value       string         `gorm:"type:text" json:"value"`
+	ConfigGroup string         `gorm:"size:50;default:system" json:"config_group"`
+	Remark      string         `gorm:"size:255" json:"remark"`
 	CreatedAt time.Time      `json:"created_at"`
 	UpdatedAt time.Time      `json:"updated_at"`
 	DeletedAt gorm.DeletedAt `json:"-"`

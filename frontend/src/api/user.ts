@@ -1,5 +1,7 @@
 // 用户管理接口（接口文档 §2.3；profile/password 为接口文档补充的 system 子动作）
+import axios from 'axios'
 import { request, type PageResult } from '@/utils/request'
+import { getToken } from '@/utils/auth'
 import type { UserItem, UserForm, ImportResult } from './types'
 
 export interface UserQuery {
@@ -59,4 +61,23 @@ export function updateProfile(data: { name: string; phone: string; email?: strin
 
 export function updatePassword(data: { old_password: string; new_password: string }) {
   return request<null>({ url: '/system/users/password', method: 'put', data })
+}
+
+// 最近登录记录（仅本人，登录即可）
+export interface MyLoginLog {
+  ip: string
+  ua: string
+  status: number
+  msg: string
+  created_at: string
+}
+
+// 裸调：后端接口并行开发中，未上线/报错时由调用方静默降级，不弹错误提示
+export async function getMyLoginLogs(limit = 5): Promise<MyLoginLog[]> {
+  const resp = await axios.get('/api/admin/system/users/my-login-logs', {
+    params: { limit },
+    headers: { Authorization: `Bearer ${getToken()}` }
+  })
+  if (resp.data?.code !== 0) throw new Error(resp.data?.message || '获取登录记录失败')
+  return resp.data.data || []
 }

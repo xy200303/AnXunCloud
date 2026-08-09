@@ -1,10 +1,13 @@
 package controller
 
 import (
+	"strconv"
+
 	"github.com/gin-gonic/gin"
 
 	"anxuncloud/internal/module/system/dto"
 	"anxuncloud/internal/module/system/service"
+	"anxuncloud/internal/middleware"
 	"anxuncloud/internal/pkg/bind"
 	"anxuncloud/internal/pkg/response"
 )
@@ -31,6 +34,17 @@ func (ctl *LogController) Operations(c *gin.Context) {
 		return
 	}
 	response.OK(c, page)
+}
+
+// MyLoginLogs GET /system/users/my-login-logs（登录即可，仅本人记录）
+func (ctl *LogController) MyLoginLogs(c *gin.Context) {
+	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "5"))
+	list, be := ctl.svc.MyLoginLogs(middleware.CurrentUserID(c), limit)
+	if be != nil {
+		response.Fail(c, be)
+		return
+	}
+	response.OK(c, list)
 }
 
 // Logins GET /system/logs/logins

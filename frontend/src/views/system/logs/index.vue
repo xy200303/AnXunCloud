@@ -23,23 +23,21 @@ const activeTab = ref('operation')
 </script>
 
 <style scoped lang="scss">
-// 子组件自带 app-container 内边距，此处抵消避免双重留白
+// 日志管理单页：外层白卡承载 Tab，子面板内的卡片样式摊平避免嵌套白卡
 .logs-page {
-  padding: 0;
+  :deep(.log-panel) {
+    .filter-card {
+      background: transparent;
+      border-radius: 0;
+      padding: 0 0 $spacing-lg;
+      margin-bottom: $spacing-lg;
+      border-bottom: 1px solid $color-border;
+    }
 
-  :deep(.app-container) {
-    padding: 0;
-  }
-
-  :deep(.table-card) {
-    padding: 0;
-    background: transparent;
-  }
-
-  :deep(.filter-card) {
-    margin-bottom: $spacing-lg;
-    padding: $spacing-lg;
-    background: $color-bg-card;
+    .table-card {
+      background: transparent;
+      padding: 0;
+    }
   }
 }
 </style>

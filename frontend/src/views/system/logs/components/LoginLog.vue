@@ -1,5 +1,5 @@
 <template>
-  <div class="app-container">
+  <div class="log-panel">
     <!-- 搜索区 -->
     <div class="filter-card">
       <el-form :model="query" inline>

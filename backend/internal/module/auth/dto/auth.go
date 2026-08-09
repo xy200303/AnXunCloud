@@ -48,10 +48,15 @@ type InfoResp struct {
 	Name         string      `json:"name"`
 	Phone        string      `json:"phone"`
 	Avatar       string      `json:"avatar"`
+	Openid       string      `json:"openid"`
+	IsBuiltin    bool        `json:"is_builtin"`
 	Roles        []RoleBrief `json:"roles"`
 	CommunityIDs []string    `json:"community_ids"`
 	DataScope    string      `json:"data_scope"`
 	Perms        []string    `json:"perms"`
+	CreatedAt    string      `json:"created_at"`
+	LastLoginAt  string      `json:"last_login_at"`
+	LastLoginIP  string      `json:"last_login_ip"`
 }
 
 // RouteNode 动态路由菜单节点（GET /auth/routes）。

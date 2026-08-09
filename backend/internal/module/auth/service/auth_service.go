@@ -182,7 +182,7 @@ func (s *AuthService) KillUserSessions(ctx context.Context, userID string) {
 // Info 当前用户信息 + 权限点集合。
 func (s *AuthService) Info(identity *middleware.Identity) (*dto.InfoResp, *errs.Error) {
 	var user model.SysUser
-	if err := s.db.Select("id", "username", "name", "phone", "avatar", "role_ids", "community_ids").
+	if err := s.db.Select("id", "username", "name", "phone", "avatar", "openid", "is_builtin", "role_ids", "community_ids", "last_login_at", "created_at").
 		First(&user, "id = ?", identity.UserID).Error; err != nil {
 		return nil, errs.ErrUnauthorized
 	}
@@ -199,6 +199,20 @@ func (s *AuthService) Info(identity *middleware.Identity) (*dto.InfoResp, *errs.
 	}
 	if identity.DataScopeAll {
 		resp.DataScope = model.ScopeAll
+	}
+	if user.Openid != nil {
+		resp.Openid = *user.Openid
+	}
+	resp.IsBuiltin = user.IsBuiltin
+	resp.CreatedAt = user.CreatedAt.Format("2006-01-02 15:04:05")
+	if user.LastLoginAt != nil {
+		resp.LastLoginAt = user.LastLoginAt.Format("2006-01-02 15:04:05")
+	}
+	// 最近一次成功登录的 IP（个人中心安全信息展示）
+	var lastLog model.SysLoginLog
+	if err := s.db.Select("ip").Where("user_id = ? AND status = ?", user.ID, "success").
+		Order("created_at DESC").First(&lastLog).Error; err == nil {
+		resp.LastLoginIP = lastLog.IP
 	}
 	if len(user.RoleIDs) > 0 {
 		var roles []model.SysRole

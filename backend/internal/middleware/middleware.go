@@ -17,6 +17,33 @@ import (
 	"go.uber.org/zap"
 )
 
+// actionNames 操作日志动作中文名映射（key 为 action；新增操作类型在此补充，漏配回退原始 key）。
+var actionNames = map[string]string{
+	"create":          "新增",
+	"update":          "修改",
+	"delete":          "删除",
+	"update_status":   "启停用",
+	"reset_password":  "重置密码",
+	"import":          "导入",
+	"export":          "导出",
+	"assign_menus":    "分配权限",
+	"qrcode":          "生成二维码",
+	"generate":        "生成任务",
+	"assign":          "派单",
+	"finish":          "处理反馈",
+	"review":          "复核",
+	"update_profile":  "修改资料",
+	"change_password": "修改密码",
+}
+
+// ActionName 操作动作中文名（操作日志列表展示用）。
+func ActionName(action string) string {
+	if name, ok := actionNames[action]; ok {
+		return name
+	}
+	return action
+}
+
 // 敏感字段脱敏（密码类参数不落日志）
 var sensitiveRe = regexp.MustCompile(`("(?:new_)?password"\s*:\s*")[^"]*(")`)
 

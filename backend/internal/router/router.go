@@ -53,6 +53,7 @@ func New(cfg *config.Config, db *gorm.DB, rdb *redis.Client) (*gin.Engine, *insp
 	dictSvc := systemsvc.NewDictService(db)
 	logSvc := systemsvc.NewLogService(db)
 	noticeSvc := systemsvc.NewNoticeService(db)
+	messageSvc := systemsvc.NewMessageService(db)
 	communitySvc := communitysvc.NewCommunityService(db)
 	pointSvc := inspectionsvc.NewPointService(db, store, configSvc.Get)
 	planSvc := inspectionsvc.NewPlanService(db, rdb)
@@ -72,6 +73,7 @@ func New(cfg *config.Config, db *gorm.DB, rdb *redis.Client) (*gin.Engine, *insp
 	configCtl := systemctl.NewConfigController(configSvc)
 	logCtl := systemctl.NewLogController(logSvc)
 	noticeCtl := systemctl.NewNoticeController(noticeSvc)
+	messageCtl := systemctl.NewMessageController(messageSvc)
 	communityCtl := communityctl.NewCommunityController(communitySvc)
 	inspectionCtl := inspectionctl.NewInspectionController(pointSvc, planSvc, taskSvc)
 	orderCtl := workorderctl.NewOrderController(orderSvc)
@@ -84,10 +86,10 @@ func New(cfg *config.Config, db *gorm.DB, rdb *redis.Client) (*gin.Engine, *insp
 
 	admin := r.Group("/api/admin")
 	{
-		admin.POST("/auth/login", middleware.OperLog(db, "system", "login"), authCtl.Login)
+		admin.POST("/auth/login", authCtl.Login) // 登录不写操作日志，由 sys_login_log 覆盖
 		admin.POST("/auth/refresh", authCtl.Refresh)
 		admin.GET("/auth/register-config", authCtl.RegisterConfig)
-		admin.POST("/auth/register", middleware.OperLog(db, "system", "register"), authCtl.Register)
+		admin.POST("/auth/register", authCtl.Register) // 注册不写操作日志，避免匿名噪声行
 	}
 
 	// 管理后台鉴权分组
@@ -97,6 +99,10 @@ func New(cfg *config.Config, db *gorm.DB, rdb *redis.Client) (*gin.Engine, *insp
 		secured.GET("/auth/info", authCtl.Info)
 		secured.GET("/auth/routes", authCtl.Routes)
 		secured.GET("/dashboard", statsCtl.Dashboard)
+
+		// 顶栏消息（登录即可，仅本人消息）
+		secured.GET("/system/messages", messageCtl.List)
+		secured.PUT("/system/messages/:id/read", messageCtl.MarkRead)
 
 		sys := secured.Group("/system")
 		registerSystemRoutes(sys, db, userCtl, roleCtl, menuCtl, dictCtl, configCtl, logCtl, noticeCtl)
@@ -240,6 +246,7 @@ func registerSystemRoutes(sys *gin.RouterGroup, db *gorm.DB,
 		// 个人中心（登录即可，无需权限点；静态段优先于 :id 注册）
 		users.PUT("/profile", middleware.OperLog(db, "system", "update_profile"), userCtl.UpdateProfile)
 		users.PUT("/password", middleware.OperLog(db, "system", "change_password"), userCtl.ChangePassword)
+		users.GET("/my-login-logs", logCtl.MyLoginLogs)
 
 		users.GET("", middleware.RequirePerm("system:user:list"), userCtl.List)
 		users.POST("", middleware.RequirePerm("system:user:create"), middleware.OperLog(db, "system", "create"), userCtl.Create)
@@ -286,6 +293,7 @@ func registerSystemRoutes(sys *gin.RouterGroup, db *gorm.DB,
 	configs := sys.Group("/configs")
 	{
 		configs.GET("", middleware.RequirePerm("system:config:list"), configCtl.List)
+		configs.GET("/groups", middleware.RequirePerm("system:config:list"), configCtl.Groups)
 		configs.POST("", middleware.RequirePerm("system:config:create"), middleware.OperLog(db, "system", "create"), configCtl.Create)
 		configs.PUT("/:id", middleware.RequirePerm("system:config:update"), middleware.OperLog(db, "system", "update"), configCtl.Update)
 		configs.DELETE("/:id", middleware.RequirePerm("system:config:delete"), middleware.OperLog(db, "system", "delete"), configCtl.Delete)

@@ -33,6 +33,16 @@ func (ctl *ConfigController) List(c *gin.Context) {
 	response.OK(c, page)
 }
 
+// Groups GET /system/configs/groups
+func (ctl *ConfigController) Groups(c *gin.Context) {
+	groups, be := ctl.svc.Groups()
+	if be != nil {
+		response.Fail(c, be)
+		return
+	}
+	response.OK(c, groups)
+}
+
 // Create POST /system/configs
 func (ctl *ConfigController) Create(c *gin.Context) {
 	var req dto.ConfigSaveReq

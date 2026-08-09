@@ -61,6 +61,21 @@ UPDATE sys_user SET is_builtin = true
 WHERE username = 'admin'
    OR role_ids @> ('["' || (SELECT id FROM sys_role WHERE code = 'super_admin' AND deleted_at IS NULL LIMIT 1) || '"]')::jsonb;
 `},
+	{Version: 9, Name: "sys_config_group", SQL: `
+-- 参数配置改名"系统配置"并支持分组
+ALTER TABLE sys_config ADD COLUMN IF NOT EXISTS config_group varchar(50) NOT NULL DEFAULT 'system';
+COMMENT ON COLUMN sys_config.config_group IS '参数分组（按 key 前缀归组：inspection/mp/msg/security/auth，其余 system）';
+-- 存量数据按 key 前缀归组（幂等，可重复执行）
+UPDATE sys_config SET config_group = CASE
+	WHEN key LIKE 'inspection.%' THEN 'inspection'
+	WHEN key LIKE 'mp.%' THEN 'mp'
+	WHEN key LIKE 'msg.%' THEN 'msg'
+	WHEN key LIKE 'security.%' THEN 'security'
+	WHEN key LIKE 'auth.%' THEN 'auth'
+	ELSE 'system' END;
+-- 菜单"参数配置"改名"系统配置"
+UPDATE sys_menu SET title = '系统配置' WHERE perms = 'system:config:list' AND title = '参数配置';
+`},
 }
 
 // Migrate 执行未应用过的迁移，并确保当月与下月分区存在。

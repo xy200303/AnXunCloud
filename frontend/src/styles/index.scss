@@ -94,6 +94,12 @@ body {
   margin-left: $spacing-sm;
 }
 
+// 操作列下拉触发器与链接按钮纵向对齐
+.el-table .cell .el-dropdown {
+  vertical-align: middle;
+  line-height: 1;
+}
+
 // 页面标题
 .page-title {
   font-size: $font-size-page-title;

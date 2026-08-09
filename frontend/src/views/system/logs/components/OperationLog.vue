@@ -1,5 +1,5 @@
 <template>
-  <div class="app-container">
+  <div class="log-panel">
     <!-- 搜索区 -->
     <div class="filter-card">
       <el-form :model="query" inline>
@@ -12,12 +12,8 @@
           </el-select>
         </el-form-item>
         <el-form-item label="动作">
-          <el-select v-model="query.action" placeholder="全部动作" clearable style="width: 120px">
-            <el-option label="新增" value="create" />
-            <el-option label="修改" value="update" />
-            <el-option label="删除" value="delete" />
-            <el-option label="导出" value="export" />
-            <el-option label="登录" value="login" />
+          <el-select v-model="query.action" placeholder="全部动作" clearable style="width: 130px">
+            <el-option v-for="a in actionOptions" :key="a.value" :label="a.label" :value="a.value" />
           </el-select>
         </el-form-item>
         <el-form-item label="状态">
@@ -57,13 +53,17 @@
 
       <el-table v-loading="loading" :data="list" stripe style="width: 100%">
         <el-table-column prop="created_at" label="时间" width="160" />
-        <el-table-column prop="username" label="操作人" width="110" />
+        <el-table-column label="操作人" width="110">
+          <template #default="{ row }">{{ row.username && row.username !== '-' ? row.username : '--' }}</template>
+        </el-table-column>
         <el-table-column prop="module" label="模块" width="100">
           <template #default="{ row }">
             {{ moduleOptions.find((m) => m.value === row.module)?.label || row.module }}
           </template>
         </el-table-column>
-        <el-table-column prop="action" label="动作" width="90" />
+        <el-table-column label="动作" width="100" show-overflow-tooltip>
+          <template #default="{ row }">{{ row.action_name || row.action }}</template>
+        </el-table-column>
         <el-table-column prop="method" label="请求方式" width="90" align="center" />
         <el-table-column prop="path" label="路径" min-width="220" show-overflow-tooltip />
         <el-table-column prop="ip" label="IP" width="120" />
@@ -102,10 +102,10 @@
     <!-- 详情对话框：请求参数 JSON 格式化展示 -->
     <el-dialog v-model="detailVisible" title="操作详情" width="560px">
       <el-descriptions :column="2" border>
-        <el-descriptions-item label="操作人">{{ current?.username }}</el-descriptions-item>
+        <el-descriptions-item label="操作人">{{ current?.username && current.username !== '-' ? current.username : '--' }}</el-descriptions-item>
         <el-descriptions-item label="时间">{{ current?.created_at }}</el-descriptions-item>
-        <el-descriptions-item label="模块">{{ current?.module }}</el-descriptions-item>
-        <el-descriptions-item label="动作">{{ current?.action }}</el-descriptions-item>
+        <el-descriptions-item label="模块">{{ moduleOptions.find((m) => m.value === current?.module)?.label || current?.module }}</el-descriptions-item>
+        <el-descriptions-item label="动作">{{ current?.action_name || current?.action }}</el-descriptions-item>
         <el-descriptions-item label="请求">{{ current?.method }} {{ current?.path }}</el-descriptions-item>
         <el-descriptions-item label="IP">{{ current?.ip }}</el-descriptions-item>
       </el-descriptions>
@@ -122,6 +122,20 @@ import { Search, Refresh, Document, RefreshRight } from '@element-plus/icons-vue
 import { listOperationLogs, type LogQuery } from '@/api/log'
 import { downloadFile } from '@/utils/download'
 import type { OperationLog } from '@/api/types'
+
+// 动作枚举：登录类（login/logout/refresh/register）已由后端从操作日志剔除，见登录日志 Tab
+const actionOptions = [
+  { label: '新增', value: 'create' },
+  { label: '修改', value: 'update' },
+  { label: '删除', value: 'delete' },
+  { label: '导出', value: 'export' },
+  { label: '导入', value: 'import' },
+  { label: '重置密码', value: 'reset_password' },
+  { label: '修改密码', value: 'change_password' },
+  { label: '生成任务', value: 'generate' },
+  { label: '派单', value: 'assign' },
+  { label: '复核', value: 'review' }
+]
 
 const moduleOptions = [
   { label: '系统管理', value: 'system' },

@@ -29,6 +29,12 @@ export interface UserInfo {
   community_ids: string[]
   data_scope: 'all' | 'custom'
   perms: string[]
+  // 个人中心扩展字段（后端并行开发中，可能缺省）
+  created_at?: string
+  last_login_at?: string
+  last_login_ip?: string
+  openid?: string
+  is_builtin?: boolean
 }
 
 // 动态路由菜单节点（dir/menu）
@@ -125,6 +131,7 @@ export interface ConfigItem {
   name: string
   value: string
   remark: string
+  config_group: string
   builtin?: boolean
   updated_at: string
 }
@@ -135,6 +142,8 @@ export interface OperationLog {
   username: string
   module: string
   action: string
+  // 中文动作名（后端新增；未上线时缺省，前端回退显示 action 原值）
+  action_name?: string
   method: string
   path: string
   params: string

@@ -224,16 +224,18 @@ type DictDataSaveReq struct {
 // ConfigQuery 参数查询。
 type ConfigQuery struct {
 	response.PageQuery
-	Key  string `form:"key"`
-	Name string `form:"name"`
+	Key   string `form:"key"`
+	Name  string `form:"name"`
+	Group string `form:"group"`
 }
 
 // ConfigSaveReq 新增/修改参数。
 type ConfigSaveReq struct {
-	Key    string `json:"key"`
-	Name   string `json:"name" binding:"required"`
-	Value  string `json:"value"`
-	Remark string `json:"remark"`
+	Key         string `json:"key"`
+	Name        string `json:"name" binding:"required"`
+	Value       string `json:"value"`
+	ConfigGroup string `json:"config_group" binding:"required"`
+	Remark      string `json:"remark"`
 }
 
 // ========== 日志 ==========

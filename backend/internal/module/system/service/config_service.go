@@ -4,6 +4,7 @@ package service
 import (
 	"context"
 	"encoding/json"
+	"regexp"
 	"time"
 
 	"github.com/redis/go-redis/v9"
@@ -17,6 +18,9 @@ import (
 
 // configCacheKey 参数全量缓存（《数据库设计文档》§7.2：config:all）。
 const configCacheKey = "config:all"
+
+// configGroupRe 分组名校验：字母/数字/下划线，≤50。
+var configGroupRe = regexp.MustCompile(`^[A-Za-z0-9_]{1,50}$`)
 
 // ConfigService 参数配置服务。
 type ConfigService struct {
@@ -37,6 +41,9 @@ func (s *ConfigService) List(q *dto.ConfigQuery) (*response.Page, *errs.Error) {
 	if q.Name != "" {
 		db = db.Where("name LIKE ?", "%"+q.Name+"%")
 	}
+	if q.Group != "" {
+		db = db.Where("config_group = ?", q.Group)
+	}
 	var total int64
 	if err := db.Count(&total).Error; err != nil {
 		return nil, errs.ErrInternal
@@ -49,15 +56,33 @@ func (s *ConfigService) List(q *dto.ConfigQuery) (*response.Page, *errs.Error) {
 	list := make([]map[string]any, 0, len(rows))
 	for _, r := range rows {
 		list = append(list, map[string]any{
-			"id":         r.ID,
-			"key":        r.Key,
-			"name":       r.Name,
-			"value":      r.Value,
-			"remark":     r.Remark,
-			"updated_at": r.UpdatedAt.Format("2006-01-02 15:04:05"),
+			"id":           r.ID,
+			"key":          r.Key,
+			"name":         r.Name,
+			"value":        r.Value,
+			"config_group": r.ConfigGroup,
+			"remark":       r.Remark,
+			"updated_at":   r.UpdatedAt.Format("2006-01-02 15:04:05"),
 		})
 	}
 	return &response.Page{List: list, Total: total, Page: q.Page, PageSize: q.PageSize}, nil
+}
+
+// Groups 去重分组列表（供前端 Tab/筛选）。
+func (s *ConfigService) Groups() ([]string, *errs.Error) {
+	var groups []string
+	if err := s.db.Model(&model.SysConfig{}).Distinct().Order("config_group ASC").Pluck("config_group", &groups).Error; err != nil {
+		return nil, errs.ErrInternal
+	}
+	return groups, nil
+}
+
+// validateGroup 校验分组名（必填，字母数字下划线，≤50）。
+func validateGroup(group string) *errs.Error {
+	if !configGroupRe.MatchString(group) {
+		return errs.ErrParam.WithMsg("config_group 必填且仅允许字母/数字/下划线，长度 ≤ 50")
+	}
+	return nil
 }
 
 // Create 新增参数（key 唯一）。
@@ -65,12 +90,15 @@ func (s *ConfigService) Create(req *dto.ConfigSaveReq) (string, *errs.Error) {
 	if req.Key == "" {
 		return "", errs.ErrParam.WithMsg("key 为必填项")
 	}
+	if be := validateGroup(req.ConfigGroup); be != nil {
+		return "", be
+	}
 	var count int64
 	s.db.Model(&model.SysConfig{}).Where("key = ?", req.Key).Count(&count)
 	if count > 0 {
 		return "", errs.ErrConfigKeyExists
 	}
-	row := model.SysConfig{Key: req.Key, Name: req.Name, Value: req.Value, Remark: req.Remark}
+	row := model.SysConfig{Key: req.Key, Name: req.Name, Value: req.Value, ConfigGroup: req.ConfigGroup, Remark: req.Remark}
 	if err := s.db.Create(&row).Error; err != nil {
 		return "", errs.ErrInternal
 	}
@@ -84,7 +112,10 @@ func (s *ConfigService) Update(id string, req *dto.ConfigSaveReq) *errs.Error {
 	if err := s.db.First(&row, "id = ?", id).Error; err != nil {
 		return errs.ErrNotFound
 	}
-	updates := map[string]any{"name": req.Name, "value": req.Value, "remark": req.Remark}
+	if be := validateGroup(req.ConfigGroup); be != nil {
+		return be
+	}
+	updates := map[string]any{"name": req.Name, "value": req.Value, "config_group": req.ConfigGroup, "remark": req.Remark}
 	if err := s.db.Model(&row).Updates(updates).Error; err != nil {
 		return errs.ErrInternal
 	}

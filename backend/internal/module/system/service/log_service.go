@@ -1,8 +1,10 @@
 package service
 
 import (
+	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 
+	"anxuncloud/internal/middleware"
 	"anxuncloud/internal/module/system/dto"
 	"anxuncloud/internal/module/system/model"
 	"anxuncloud/internal/pkg/bind"
@@ -54,6 +56,7 @@ func (s *LogService) OperationList(q *dto.OperationLogQuery) (*response.Page, *e
 			"username":   r.Username,
 			"module":     r.Module,
 			"action":     r.Action,
+			"action_name": middleware.ActionName(r.Action),
 			"method":     r.Method,
 			"path":       r.Path,
 			"params":     r.Params,
@@ -64,6 +67,28 @@ func (s *LogService) OperationList(q *dto.OperationLogQuery) (*response.Page, *e
 		})
 	}
 	return &response.Page{List: list, Total: total, Page: q.Page, PageSize: q.PageSize}, nil
+}
+
+// MyLoginLogs 当前用户自己的登录日志（个人中心；limit 默认 5，上限 50）。
+func (s *LogService) MyLoginLogs(userID string, limit int) ([]gin.H, *errs.Error) {
+	if limit <= 0 {
+		limit = 5
+	}
+	if limit > 50 {
+		limit = 50
+	}
+	var rows []model.SysLoginLog
+	if err := s.db.Where("user_id = ?", userID).Order("created_at DESC").Limit(limit).Find(&rows).Error; err != nil {
+		return nil, errs.ErrInternal
+	}
+	list := make([]gin.H, 0, len(rows))
+	for _, r := range rows {
+		list = append(list, gin.H{
+			"ip": r.IP, "ua": r.UA, "status": logStatusInt(r.Status),
+			"msg": r.Msg, "created_at": timefmt.T(r.CreatedAt),
+		})
+	}
+	return list, nil
 }
 
 // LoginList 登录日志分页查询。

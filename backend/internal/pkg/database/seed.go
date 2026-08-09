@@ -67,6 +67,7 @@ type menuSeed struct {
 	typ      string
 	perms    string
 	sort     int
+	hidden   bool // 侧边栏不显示（路由仍注册，如个人中心从顶栏头像进入）
 	children []menuSeed
 }
 
@@ -146,7 +147,7 @@ func seedMenus(tx *gorm.DB) (map[string]string, error) {
 				{title: "编辑字典", typ: model.MenuTypeButton, perms: "system:dict:update", sort: 2},
 				{title: "删除字典", typ: model.MenuTypeButton, perms: "system:dict:delete", sort: 3},
 			}},
-			{title: "参数配置", path: "/system/configs", icon: "Operation", typ: model.MenuTypeMenu, perms: "system:config:list", sort: 5, children: []menuSeed{
+			{title: "系统配置", path: "/system/configs", icon: "Operation", typ: model.MenuTypeMenu, perms: "system:config:list", sort: 5, children: []menuSeed{
 				{title: "新增参数", typ: model.MenuTypeButton, perms: "system:config:create", sort: 1},
 				{title: "编辑参数", typ: model.MenuTypeButton, perms: "system:config:update", sort: 2},
 				{title: "删除参数", typ: model.MenuTypeButton, perms: "system:config:delete", sort: 3},
@@ -162,7 +163,7 @@ func seedMenus(tx *gorm.DB) (map[string]string, error) {
 				{title: "日志导出", typ: model.MenuTypeButton, perms: "system:log:export", sort: 3},
 			}},
 		}},
-		{title: "个人中心", path: "/profile", icon: "UserFilled", typ: model.MenuTypeMenu, perms: "profile:view", sort: 70},
+		{title: "个人中心", path: "/profile", icon: "UserFilled", typ: model.MenuTypeMenu, perms: "profile:view", sort: 70, hidden: true},
 	}
 
 	ids := make(map[string]string)
@@ -177,7 +178,7 @@ func seedMenus(tx *gorm.DB) (map[string]string, error) {
 				Type:      n.typ,
 				Perms:     n.perms,
 				Sort:      n.sort,
-				Visible:   n.typ != model.MenuTypeButton,
+				Visible:   n.typ != model.MenuTypeButton && !n.hidden,
 				Status:    model.StatusEnabled,
 				IsBuiltin: true,
 			}
@@ -301,16 +302,16 @@ func seedDicts(tx *gorm.DB) error {
 // seedConfigs 预置系统参数（《数据库设计文档》§6.4）。
 func seedConfigs(tx *gorm.DB) error {
 	configs := []model.SysConfig{
-		{Key: "inspection.fence_default_radius", Name: "围栏默认半径(米)", Value: "100", Remark: "新建点位时的默认值"},
-		{Key: "inspection.watermark_enabled", Name: "照片水印开关", Value: "true", Remark: "关闭后仅存原图（不推荐）"},
-		{Key: "inspection.suspect_distance_ratio", Name: "疑似作弊距离倍数", Value: "1.0", Remark: "距离 > fence_radius × 该值 时标记疑似作弊"},
-		{Key: "inspection.exif_deviation_seconds", Name: "EXIF 时间偏差阈值(秒)", Value: "300", Remark: "照片拍摄时间与打卡时间允许偏差"},
-		{Key: "inspection.task_generate_days", Name: "任务提前生成天数", Value: "1", Remark: "每日 00:05 生成未来 N 天任务"},
-		{Key: "inspection.overdue_check_time", Name: "逾期翻转时间", Value: "00:10", Remark: "每日该时刻将昨日未完成任务置 overdue"},
-		{Key: "mp.offline_sync_limit", Name: "离线补传单批上限", Value: "50", Remark: "单次补传最大条数"},
-		{Key: "msg.subscribe_enabled", Name: "微信订阅消息开关", Value: "true", Remark: "任务提醒/工单指派/整改驳回"},
-		{Key: "msg.wecom_webhook_enabled", Name: "企业微信工单推送开关", Value: "false", Remark: "开启需配置 webhook 地址（应用配置，不入库）"},
-		{Key: "security.login_fail_limit", Name: "登录失败锁定次数", Value: "5", Remark: "连续失败锁定 10 分钟（配合 Redis 计数）"},
+		{Key: "inspection.fence_default_radius", Name: "围栏默认半径(米)", Value: "100", ConfigGroup: "inspection", Remark: "新建点位时的默认值"},
+		{Key: "inspection.watermark_enabled", Name: "照片水印开关", Value: "true", ConfigGroup: "inspection", Remark: "关闭后仅存原图（不推荐）"},
+		{Key: "inspection.suspect_distance_ratio", Name: "疑似作弊距离倍数", Value: "1.0", ConfigGroup: "inspection", Remark: "距离 > fence_radius × 该值 时标记疑似作弊"},
+		{Key: "inspection.exif_deviation_seconds", Name: "EXIF 时间偏差阈值(秒)", Value: "300", ConfigGroup: "inspection", Remark: "照片拍摄时间与打卡时间允许偏差"},
+		{Key: "inspection.task_generate_days", Name: "任务提前生成天数", Value: "1", ConfigGroup: "inspection", Remark: "每日 00:05 生成未来 N 天任务"},
+		{Key: "inspection.overdue_check_time", Name: "逾期翻转时间", Value: "00:10", ConfigGroup: "inspection", Remark: "每日该时刻将昨日未完成任务置 overdue"},
+		{Key: "mp.offline_sync_limit", Name: "离线补传单批上限", Value: "50", ConfigGroup: "mp", Remark: "单次补传最大条数"},
+		{Key: "msg.subscribe_enabled", Name: "微信订阅消息开关", Value: "true", ConfigGroup: "msg", Remark: "任务提醒/工单指派/整改驳回"},
+		{Key: "msg.wecom_webhook_enabled", Name: "企业微信工单推送开关", Value: "false", ConfigGroup: "msg", Remark: "开启需配置 webhook 地址（应用配置，不入库）"},
+		{Key: "security.login_fail_limit", Name: "登录失败锁定次数", Value: "5", ConfigGroup: "security", Remark: "连续失败锁定 10 分钟（配合 Redis 计数）"},
 		// auth.register_enabled 由迁移 v7 统一插入（覆盖新库与存量库），seed 不再重复
 	}
 	for i := range configs {

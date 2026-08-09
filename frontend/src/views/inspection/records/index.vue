@@ -40,68 +40,39 @@
       </el-form>
     </div>
 
-    <!-- 表格（行可点击展开） -->
+    <!-- 表格（点击行或「详情」查看） -->
     <div class="table-card">
-      <el-table v-loading="loading" :data="list" stripe style="width: 100%" row-key="id" @expand-change="handleExpand">
-        <el-table-column type="expand">
-          <template #default="{ row }">
-            <div v-loading="expandLoading[row.id]" class="expand-pane">
-              <template v-if="expandCache[row.id]">
-                <div class="expand-grid">
-                  <div class="expand-photos">
-                    <div class="expand-label">照片（水印缩略图，点击查看原图）</div>
-                    <photo-viewer
-                      :photos="expandCache[row.id].photos || []"
-                      :meta="photoMeta(expandCache[row.id])"
-                    />
-                  </div>
-                  <div class="expand-info">
-                    <el-descriptions :column="1" border size="small">
-                      <el-descriptions-item label="坐标">
-                        {{ expandCache[row.id].longitude.toFixed(6) }}, {{ expandCache[row.id].latitude.toFixed(6) }}
-                      </el-descriptions-item>
-                      <el-descriptions-item label="距点位">{{ expandCache[row.id].distance_to_point }}m</el-descriptions-item>
-                      <el-descriptions-item label="服务端时间">{{ expandCache[row.id].checkin_time }}</el-descriptions-item>
-                      <el-descriptions-item label="客户端时间">{{ expandCache[row.id].client_time }}</el-descriptions-item>
-                      <el-descriptions-item v-if="expandCache[row.id].suspect_reason" label="疑似原因">
-                        <span class="danger-text">{{ expandCache[row.id].suspect_reason }}</span>
-                      </el-descriptions-item>
-                      <el-descriptions-item v-if="expandCache[row.id].remark" label="备注">
-                        {{ expandCache[row.id].remark }}
-                      </el-descriptions-item>
-                      <el-descriptions-item v-if="expandCache[row.id].work_order_no" label="关联工单">
-                        <el-link type="danger" @click="goWorkOrder(expandCache[row.id].work_order_no!)">
-                          {{ expandCache[row.id].work_order_no }}
-                        </el-link>
-                      </el-descriptions-item>
-                    </el-descriptions>
-                  </div>
-                </div>
-              </template>
-            </div>
-          </template>
-        </el-table-column>
+      <el-table
+        v-loading="loading"
+        :data="list"
+        stripe
+        style="width: 100%"
+        row-class-name="clickable-row"
+        @row-click="openDetail"
+      >
         <el-table-column prop="checkin_time" label="打卡时间" width="160" />
         <el-table-column prop="inspector_name" label="巡检员" width="100" />
         <el-table-column prop="community_name" label="小区" min-width="120" />
         <el-table-column prop="point_name" label="点位" min-width="120" show-overflow-tooltip />
         <el-table-column label="方式" width="100" align="center">
-          <template #default="{ row }">
-            {{ { qrcode: '扫码', fence: '围栏', offline: '离线补传' }[row.checkin_type as string] || row.checkin_type }}
-          </template>
+          <template #default="{ row }">{{ checkinTypeLabel(row.checkin_type) }}</template>
         </el-table-column>
         <el-table-column prop="distance_to_point" label="距点位" width="90" align="right">
           <template #default="{ row }">{{ row.distance_to_point }}m</template>
         </el-table-column>
         <el-table-column label="结果" width="110" align="center">
           <template #default="{ row }">
-            <!-- 图标+文字双编码 -->
             <el-tag v-if="row.is_suspect" type="warning" size="small">疑似作弊</el-tag>
             <el-tag v-else-if="row.result === 'abnormal'" type="danger" size="small">异常</el-tag>
             <el-tag v-else type="success" size="small">正常</el-tag>
           </template>
         </el-table-column>
         <el-table-column prop="photo_count" label="照片数" width="80" align="right" />
+        <el-table-column label="操作" width="90">
+          <template #default="{ row }">
+            <el-button link type="primary" @click.stop="openDetail(row)">详情</el-button>
+          </template>
+        </el-table-column>
         <template #empty>
           <el-empty description="该条件下暂无打卡记录，试试扩大时间范围" />
         </template>
@@ -118,6 +89,55 @@
         />
       </div>
     </div>
+
+    <!-- 打卡详情抽屉：分区展示，后续扩展新内容加区块即可 -->
+    <el-drawer v-model="detailVisible" title="打卡详情" size="620px">
+      <div v-loading="detailLoading" class="detail-body">
+        <template v-if="detail && currentRow">
+          <!-- 概要 -->
+          <div class="detail-header">
+            <div class="detail-point">
+              <span class="point-name">{{ currentRow.point_name }}</span>
+              <span class="text-secondary">{{ currentRow.community_name }}</span>
+            </div>
+            <el-tag v-if="currentRow.is_suspect" type="warning">疑似作弊</el-tag>
+            <el-tag v-else-if="currentRow.result === 'abnormal'" type="danger">异常</el-tag>
+            <el-tag v-else type="success">正常</el-tag>
+          </div>
+
+          <el-descriptions :column="2" border size="small">
+            <el-descriptions-item label="打卡时间">{{ currentRow.checkin_time }}</el-descriptions-item>
+            <el-descriptions-item label="巡检员">{{ currentRow.inspector_name }}</el-descriptions-item>
+            <el-descriptions-item label="打卡方式">{{ checkinTypeLabel(currentRow.checkin_type) }}</el-descriptions-item>
+            <el-descriptions-item label="照片数">{{ currentRow.photo_count }} 张</el-descriptions-item>
+          </el-descriptions>
+
+          <!-- 定位与防作弊校验 -->
+          <div class="section-title">定位与校验</div>
+          <el-descriptions :column="1" border size="small">
+            <el-descriptions-item label="坐标">
+              {{ detail.longitude.toFixed(6) }}, {{ detail.latitude.toFixed(6) }}
+            </el-descriptions-item>
+            <el-descriptions-item label="距点位">{{ detail.distance_to_point }}m</el-descriptions-item>
+            <el-descriptions-item label="服务端时间">{{ detail.checkin_time }}</el-descriptions-item>
+            <el-descriptions-item label="客户端时间">{{ detail.client_time }}</el-descriptions-item>
+            <el-descriptions-item v-if="detail.suspect_reason" label="疑似原因">
+              <span class="danger-text">{{ detail.suspect_reason }}</span>
+            </el-descriptions-item>
+            <el-descriptions-item v-if="detail.remark" label="备注">{{ detail.remark }}</el-descriptions-item>
+            <el-descriptions-item v-if="detail.work_order_no" label="关联工单">
+              <el-link type="danger" @click="goWorkOrder(detail.work_order_no!)">
+                {{ detail.work_order_no }}
+              </el-link>
+            </el-descriptions-item>
+          </el-descriptions>
+
+          <!-- 现场照片 -->
+          <div class="section-title">现场照片（水印缩略图，点击查看原图）</div>
+          <photo-viewer :photos="detail.photos || []" :meta="photoMeta(detail)" />
+        </template>
+      </div>
+    </el-drawer>
   </div>
 </template>
 
@@ -140,6 +160,10 @@ const total = ref(0)
 const communities = ref<CommunityItem[]>([])
 const inspectors = ref<UserItem[]>([])
 const onlySuspect = ref(false)
+
+function checkinTypeLabel(t: string) {
+  return { qrcode: '扫码', fence: '围栏', offline: '离线补传' }[t] || t
+}
 
 // 时间筛选默认近 7 天
 function defaultRange(): [string, string] {
@@ -197,17 +221,21 @@ onMounted(async () => {
   inspectors.value = uData.list
 })
 
-// ===== 行展开：按需拉取明细并缓存 =====
-const expandCache = reactive<Record<string, CheckinDetail>>({})
-const expandLoading = reactive<Record<string, boolean>>({})
+// ===== 详情抽屉 =====
+const detailVisible = ref(false)
+const detailLoading = ref(false)
+const detail = ref<CheckinDetail | null>(null)
+const currentRow = ref<CheckinItem | null>(null)
 
-async function handleExpand(row: CheckinItem, expanded: CheckinItem[]) {
-  if (!expanded.includes(row) || expandCache[row.id]) return
-  expandLoading[row.id] = true
+async function openDetail(row: CheckinItem) {
+  currentRow.value = row
+  detail.value = null
+  detailVisible.value = true
+  detailLoading.value = true
   try {
-    expandCache[row.id] = await getCheckin(row.id)
+    detail.value = await getCheckin(row.id)
   } finally {
-    expandLoading[row.id] = false
+    detailLoading.value = false
   }
 }
 
@@ -220,39 +248,49 @@ function photoMeta(d: CheckinDetail) {
 }
 
 function goWorkOrder(orderNo: string) {
+  detailVisible.value = false
   router.push({ path: '/workorders/list', query: { order_no: orderNo } })
 }
 </script>
 
 <style scoped lang="scss">
-.expand-pane {
-  padding: $spacing-md $spacing-xl;
-  min-height: 80px;
+.detail-body {
+  min-height: 200px;
 }
 
-.expand-grid {
+.detail-header {
   display: flex;
-  gap: $spacing-xl;
-  align-items: flex-start;
-}
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: $spacing-lg;
 
-.expand-photos {
-  flex: 1;
-  min-width: 0;
+  .detail-point {
+    display: flex;
+    align-items: baseline;
+    gap: $spacing-md;
 
-  .expand-label {
-    font-size: $font-size-aux;
-    color: $color-text-secondary;
-    margin-bottom: $spacing-sm;
+    .point-name {
+      font-size: $font-size-card-title;
+      font-weight: 600;
+      color: $color-text-primary;
+    }
   }
 }
 
-.expand-info {
-  width: 380px;
-  flex-shrink: 0;
+.section-title {
+  font-weight: 600;
+  color: $color-text-primary;
+  margin: $spacing-xl 0 $spacing-md;
 }
 
 .danger-text {
   color: $color-danger;
+}
+</style>
+
+<style lang="scss">
+// 行可点击提示（非 scoped，作用于 el-table 生成的行）
+.clickable-row {
+  cursor: pointer;
 }
 </style>

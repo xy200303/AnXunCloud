@@ -9,7 +9,7 @@ export const perms: Directive = {
     if (!value || (Array.isArray(value) && value.length === 0)) return
     const userStore = useUserStore()
     const required = Array.isArray(value) ? value : [value]
-    const ok = userStore.isSuperAdmin || required.some((p) => userStore.perms.includes(p))
+    const ok = required.some((p) => userStore.hasPerm(p))
     if (!ok) {
       el.parentNode?.removeChild(el)
     }

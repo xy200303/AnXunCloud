@@ -41,6 +41,7 @@
 <script setup lang="ts">
 import { onMounted, onUnmounted, reactive } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import { Close } from '@element-plus/icons-vue'
 import { useTagsViewStore } from '@/store/tagsView'
 
 const route = useRoute()

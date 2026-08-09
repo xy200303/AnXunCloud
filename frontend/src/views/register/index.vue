@@ -51,7 +51,7 @@
 import { onMounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, type FormInstance, type FormRules } from 'element-plus'
-import { User, Lock, Postcard, Iphone } from '@element-plus/icons-vue'
+import { User, Lock, Postcard, Iphone, OfficeBuilding } from '@element-plus/icons-vue'
 import { getRegisterConfig, register } from '@/api/auth'
 
 const router = useRouter()

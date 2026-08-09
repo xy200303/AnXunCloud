@@ -91,6 +91,7 @@
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessageBox } from 'element-plus'
+import { Expand, Fold, FullScreen, Bell, ArrowDown, User, Lock, SwitchButton } from '@element-plus/icons-vue'
 import { useAppStore } from '@/store/app'
 import { useUserStore } from '@/store/user'
 import { usePermissionStore } from '@/store/permission'

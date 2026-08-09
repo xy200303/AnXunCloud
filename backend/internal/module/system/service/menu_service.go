@@ -73,32 +73,37 @@ func (s *MenuService) withAncestors(menus []model.SysMenu) []model.SysMenu {
 	return menus
 }
 
-// buildMenuTree 递归构建菜单树（parentID 空串为根）。
+// buildMenuTree 按 parent_id 分组后递归组装菜单树（parentID 空串为根），整体 O(n)。
 func buildMenuTree(menus []model.SysMenu, parentID string) []dto.MenuNode {
-	nodes := []dto.MenuNode{}
+	byParent := make(map[string][]model.SysMenu, len(menus))
 	for _, m := range menus {
-		if m.ParentIDStr() != parentID {
-			continue
-		}
-		visible := 0
-		if m.Visible {
-			visible = 1
-		}
-		nodes = append(nodes, dto.MenuNode{
-			ID:       m.ID,
-			ParentID: m.ParentIDStr(),
-			Title:    m.Title,
-			Path:     m.Path,
-			Icon:     m.Icon,
-			Type:     m.Type,
-			Perms:    m.Perms,
-			Sort:     m.Sort,
-			Visible:  visible,
-			Status:   model.StatusInt(m.Status),
-			Children: buildMenuTree(menus, m.ID),
-		})
+		byParent[m.ParentIDStr()] = append(byParent[m.ParentIDStr()], m)
 	}
-	return nodes
+	var build func(pid string) []dto.MenuNode
+	build = func(pid string) []dto.MenuNode {
+		nodes := []dto.MenuNode{}
+		for _, m := range byParent[pid] {
+			visible := 0
+			if m.Visible {
+				visible = 1
+			}
+			nodes = append(nodes, dto.MenuNode{
+				ID:       m.ID,
+				ParentID: m.ParentIDStr(),
+				Title:    m.Title,
+				Path:     m.Path,
+				Icon:     m.Icon,
+				Type:     m.Type,
+				Perms:    m.Perms,
+				Sort:     m.Sort,
+				Visible:  visible,
+				Status:   model.StatusInt(m.Status),
+				Children: build(m.ID),
+			})
+		}
+		return nodes
+	}
+	return build(parentID)
 }
 
 // Create 新增菜单。

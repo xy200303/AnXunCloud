@@ -11,7 +11,9 @@ export const useUserStore = defineStore('user', {
   }),
   getters: {
     name: (state) => state.info?.name || '',
-    isSuperAdmin: (state) => state.info?.roles?.some((r) => r.code === 'super_admin') ?? false
+    isSuperAdmin: (state) => state.info?.roles?.some((r) => r.code === 'super_admin') ?? false,
+    // Set 缓存权限点，按钮级鉴权 O(1) 查找
+    permSet: (state) => new Set(state.perms)
   },
   actions: {
     async login(params: LoginParams) {
@@ -40,7 +42,7 @@ export const useUserStore = defineStore('user', {
     // 按钮级权限判断（超管放行）
     hasPerm(perm: string): boolean {
       if (this.isSuperAdmin) return true
-      return this.perms.includes(perm)
+      return this.permSet.has(perm)
     }
   }
 })

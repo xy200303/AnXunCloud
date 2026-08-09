@@ -41,7 +41,7 @@
 import { onMounted, reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, type FormInstance, type FormRules } from 'element-plus'
-import { User, Lock } from '@element-plus/icons-vue'
+import { User, Lock, OfficeBuilding } from '@element-plus/icons-vue'
 import { useUserStore } from '@/store/user'
 import { getRegisterConfig } from '@/api/auth'
 

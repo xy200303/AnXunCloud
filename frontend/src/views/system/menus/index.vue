@@ -44,7 +44,7 @@
         <el-table-column prop="title" label="标题" min-width="200" show-overflow-tooltip />
         <el-table-column prop="icon" label="图标" width="80" align="center">
           <template #default="{ row }">
-            <el-icon v-if="row.icon"><component :is="row.icon" /></el-icon>
+            <el-icon v-if="row.icon"><MenuIcon :name="row.icon" /></el-icon>
             <span v-else>--</span>
           </template>
         </el-table-column>
@@ -69,7 +69,7 @@
             </el-tag>
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="180" fixed="right">
+        <el-table-column label="操作" width="180">
           <template #default="{ row }">
             <el-button v-perms="'system:menu:update'" link type="primary" @click="openForm(row)">编辑</el-button>
             <el-button v-perms="'system:menu:create'" link type="primary" @click="openForm(undefined, row)">新增下级</el-button>
@@ -113,7 +113,13 @@
           <el-input v-model="form.path" placeholder="如 /system/user，与 views 目录约定对应" />
         </el-form-item>
         <el-form-item v-if="form.type !== 'button'" label="图标">
-          <el-input v-model="form.icon" placeholder="Element Plus 图标名，如 Setting" />
+          <el-select v-model="form.icon" placeholder="选择图标" clearable filterable style="width: 100%">
+            <el-option v-for="name in menuIconOptions" :key="name" :label="name" :value="name">
+              <span style="display: inline-flex; align-items: center; gap: 8px">
+                <el-icon><MenuIcon :name="name" /></el-icon>{{ name }}
+              </span>
+            </el-option>
+          </el-select>
         </el-form-item>
         <el-form-item v-if="form.type !== 'dir'" label="权限标识" prop="perms">
           <el-input v-model="form.perms" placeholder="如 system:user:list" />
@@ -156,6 +162,8 @@ import { ElMessage, ElMessageBox, type FormInstance, type FormRules } from 'elem
 import { Search, Refresh, Plus, Sort, RefreshRight } from '@element-plus/icons-vue'
 import { listMenus, createMenu, updateMenu, deleteMenu } from '@/api/menu'
 import type { MenuNode } from '@/api/types'
+import MenuIcon from '@/components/MenuIcon.vue'
+import { menuIconOptions } from '@/utils/menuIcons'
 
 const loading = ref(false)
 const treeData = ref<MenuNode[]>([])

@@ -48,7 +48,7 @@ func main() {
 	}
 
 	// 结构迁移 + 预置数据（幂等）
-	if err := database.Migrate(db); err != nil {
+	if err := database.Migrate(db, cfg.Upload.LocalDir); err != nil {
 		logger.L.Fatal("数据库迁移失败", zap.Error(err))
 	}
 	if cfg.Env == "prod" && cfg.Admin.Password == "Admin@123" {

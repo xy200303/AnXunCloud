@@ -104,6 +104,15 @@ var (
 	ErrExportExpired  = New(45002, http.StatusGone, "导出文件已过期")
 )
 
+// 47xxx 月度报告
+var (
+	ErrReportStatusNotAllowed    = New(47001, http.StatusConflict, "报告当前状态不允许该操作")
+	ErrReportApproved            = New(47002, http.StatusConflict, "已终审归档的报告不可重算")
+	ErrReportNotInspector        = New(47003, http.StatusForbidden, "当前用户不在应确认巡检员名单内")
+	ErrReportAlreadySigned       = New(47004, http.StatusConflict, "当前用户已确认过该报告")
+	ErrReportRejectReasonRequired = New(47005, http.StatusBadRequest, "驳回必须填写驳回原因")
+)
+
 // 46xxx 上传与 OSS
 var (
 	ErrOSSCallbackAuth = New(46001, http.StatusUnauthorized, "OSS 回调验签失败")

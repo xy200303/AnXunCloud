@@ -95,6 +95,14 @@ func seedMenus(tx *gorm.DB) (map[string]string, error) {
 			{title: "巡检记录", path: "/inspection/records", icon: "Document", typ: model.MenuTypeMenu, perms: "inspection:record:list", sort: 4, children: []menuSeed{
 				{title: "记录检索", typ: model.MenuTypeButton, perms: "inspection:checkin:list", sort: 1},
 			}},
+			{title: "检查项模板", path: "/inspection/templates", icon: "Finished", typ: model.MenuTypeMenu, perms: "inspection:template:list", sort: 5, children: []menuSeed{
+				{title: "新增模板", typ: model.MenuTypeButton, perms: "inspection:template:create", sort: 1},
+				{title: "编辑模板", typ: model.MenuTypeButton, perms: "inspection:template:update", sort: 2},
+				{title: "删除模板", typ: model.MenuTypeButton, perms: "inspection:template:delete", sort: 3},
+			}},
+			{title: "记录审核", path: "/inspection/review", icon: "Stamp", typ: model.MenuTypeMenu, perms: "inspection:checkin:review", sort: 6, children: []menuSeed{
+				{title: "发起抽查", typ: model.MenuTypeButton, perms: "inspection:checkin:spotcheck", sort: 1},
+			}},
 		}},
 		{title: "工单管理", path: "/workorders", icon: "Tools", typ: model.MenuTypeDir, sort: 30, children: []menuSeed{
 			{title: "工单列表", path: "/workorders/list", icon: "List", typ: model.MenuTypeMenu, perms: "workorder:list", sort: 1, children: []menuSeed{
@@ -112,6 +120,13 @@ func seedMenus(tx *gorm.DB) (map[string]string, error) {
 			{title: "绩效报表", path: "/stats/performance", icon: "Medal", typ: model.MenuTypeMenu, perms: "stats:performance", sort: 2},
 			{title: "报表查看", typ: model.MenuTypeButton, perms: "stats:report", sort: 3},
 			{title: "数据导出", typ: model.MenuTypeButton, perms: "stats:export", sort: 4},
+			{title: "月度报告", path: "/stats/reports", icon: "Notebook", typ: model.MenuTypeMenu, perms: "report:list", sort: 5, children: []menuSeed{
+				{title: "生成报告", typ: model.MenuTypeButton, perms: "report:generate", sort: 1},
+				{title: "巡检员确认", typ: model.MenuTypeButton, perms: "report:sign:inspector", sort: 2},
+				{title: "主管签字", typ: model.MenuTypeButton, perms: "report:sign:supervisor", sort: 3},
+				{title: "经理终审", typ: model.MenuTypeButton, perms: "report:sign:manager", sort: 4},
+				{title: "下载PDF", typ: model.MenuTypeButton, perms: "report:download", sort: 5},
+			}},
 		}},
 		{title: "小区管理", path: "/community", icon: "OfficeBuilding", typ: model.MenuTypeMenu, perms: "community:list", sort: 50, children: []menuSeed{
 			{title: "新增小区", typ: model.MenuTypeButton, perms: "community:create", sort: 1},
@@ -161,6 +176,10 @@ func seedMenus(tx *gorm.DB) (map[string]string, error) {
 				{title: "操作日志", typ: model.MenuTypeButton, perms: "system:log:operation", sort: 1},
 				{title: "登录日志", typ: model.MenuTypeButton, perms: "system:log:login", sort: 2},
 				{title: "日志导出", typ: model.MenuTypeButton, perms: "system:log:export", sort: 3},
+			}},
+			{title: "签章管理", path: "/system/sign-assets", icon: "Stamp", typ: model.MenuTypeMenu, perms: "system:signasset:list", sort: 8, children: []menuSeed{
+				{title: "新增签章", typ: model.MenuTypeButton, perms: "system:signasset:create", sort: 1},
+				{title: "作废签章", typ: model.MenuTypeButton, perms: "system:signasset:revoke", sort: 2},
 			}},
 		}},
 		{title: "个人中心", path: "/profile", icon: "UserFilled", typ: model.MenuTypeMenu, perms: "profile:view", sort: 70, hidden: true},
@@ -212,9 +231,11 @@ func seedRoleMenus(tx *gorm.DB, roleIDs, menuIDs map[string]string) error {
 		"/inspection", "inspection:point:list", "inspection:point:create", "inspection:point:update", "inspection:point:delete", "inspection:point:qrcode",
 		"inspection:plan:list", "inspection:plan:create", "inspection:plan:update", "inspection:plan:disable",
 		"inspection:task:monitor", "inspection:task:list", "inspection:record:list", "inspection:checkin:list",
+		"inspection:template:list", "inspection:checkin:review", "inspection:checkin:spotcheck",
 		"/workorders", "workorder:list", "workorder:create", "workorder:update", "workorder:delete",
 		"workorder:assign", "workorder:finish", "workorder:review", "workorder:export",
 		"/stats", "stats:inspection", "stats:performance", "stats:report", "stats:export",
+		"report:list", "report:generate", "report:sign:supervisor", "report:sign:manager", "report:download",
 		"/profile",
 	}
 	assign := func(roleID string, ids []string) error {
@@ -270,10 +291,10 @@ func seedDicts(tx *gorm.DB) error {
 		{"menu_type", "菜单类型", [][2]string{{"目录", "dir"}, {"菜单", "menu"}, {"按钮", "button"}}},
 		{"building_type", "楼栋类型", [][2]string{{"楼栋", "building"}, {"区域", "area"}}},
 		{"point_type", "点位类型", [][2]string{{"普通点位", "common"}, {"配电房", "power_room"}, {"消防控制室", "fire_control"}, {"水泵房", "pump_room"}, {"电梯机房", "elevator"}, {"地下车库", "garage"}}},
-		{"checkin_mode", "打卡方式", [][2]string{{"扫码", "qrcode"}, {"围栏", "fence"}, {"扫码或围栏", "either"}, {"扫码且围栏", "both"}}},
+		{"checkin_mode", "打卡方式", [][2]string{{"扫码", "qrcode"}, {"围栏", "fence"}, {"扫码或围栏", "either"}, {"扫码且围栏", "both"}, {"NFC", "nfc"}}},
 		{"cycle_type", "计划周期", [][2]string{{"每天", "daily"}, {"每周", "weekly"}, {"每月", "monthly"}}},
 		{"task_status", "任务状态", [][2]string{{"待开始", "pending"}, {"进行中", "doing"}, {"已完成", "done"}, {"已逾期", "overdue"}}},
-		{"checkin_type", "打卡类型", [][2]string{{"扫码", "qrcode"}, {"围栏", "fence"}, {"离线补传", "offline"}}},
+		{"checkin_type", "打卡类型", [][2]string{{"扫码", "qrcode"}, {"围栏", "fence"}, {"离线补传", "offline"}, {"NFC", "nfc"}}},
 		{"checkin_result", "打卡结果", [][2]string{{"正常", "normal"}, {"异常", "abnormal"}}},
 		{"order_priority", "工单优先级", [][2]string{{"低", "low"}, {"普通", "normal"}, {"高", "high"}, {"紧急", "urgent"}}},
 		{"work_order_status", "工单状态", [][2]string{{"待派单", "pending"}, {"已派单", "assigned"}, {"处理中", "processing"}, {"待复核", "review"}, {"已关闭", "closed"}, {"已驳回", "rejected"}}},
@@ -312,6 +333,14 @@ func seedConfigs(tx *gorm.DB) error {
 		{Key: "msg.subscribe_enabled", Name: "微信订阅消息开关", Value: "true", ConfigGroup: "msg", Remark: "任务提醒/工单指派/整改驳回"},
 		{Key: "msg.wecom_webhook_enabled", Name: "企业微信工单推送开关", Value: "false", ConfigGroup: "msg", Remark: "开启需配置 webhook 地址（应用配置，不入库）"},
 		{Key: "security.login_fail_limit", Name: "登录失败锁定次数", Value: "5", ConfigGroup: "security", Remark: "连续失败锁定 10 分钟（配合 Redis 计数）"},
+		{Key: "ai.enabled", Name: "启用大模型审核", Value: "false", ConfigGroup: "ai", Remark: "开启后打卡照片由大模型辅助审查"},
+		{Key: "ai.base_url", Name: "API 地址", Value: "https://api.openai.com/v1", ConfigGroup: "ai", Remark: "OpenAI 兼容接口地址"},
+		{Key: "ai.api_key", Name: "API Key", Value: "", ConfigGroup: "ai", Remark: "sk-...（服务端保管，不回传前端）"},
+		{Key: "ai.model", Name: "模型名称", Value: "gpt-4o-mini", ConfigGroup: "ai", Remark: "须支持图像理解（vision）"},
+		{Key: "ai.timeout_seconds", Name: "超时秒数", Value: "60", ConfigGroup: "ai", Remark: "超时/失败默认通过并记录 ai_verdict=error"},
+		{Key: "ai.prompt", Name: "审查规则", Value: "", ConfigGroup: "ai", Remark: "留空用内置规则：判断照片清晰度、与点位/检查项匹配度、有无明显异常，输出 pass/review"},
+		{Key: "report.company_name", Name: "管理单位落款", Value: "", ConfigGroup: "report", Remark: "月报封面\"管理单位\"与页尾落款单位名称；空则留白"},
+		// 公章自 v16 起由 sign_asset 签章资产表管理，不再使用 report.seal_file_key 配置项
 		// auth.register_enabled 由迁移 v7 统一插入（覆盖新库与存量库），seed 不再重复
 	}
 	for i := range configs {

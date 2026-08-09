@@ -19,6 +19,7 @@ import (
 	"anxuncloud/internal/pkg/jwtutil"
 	"anxuncloud/internal/pkg/password"
 	"anxuncloud/internal/pkg/session"
+	"anxuncloud/internal/pkg/storage"
 )
 
 // ChannelAdmin 后台会话渠道。
@@ -31,11 +32,12 @@ type AuthService struct {
 	sess   *session.Store
 	jwtm   *jwtutil.Manager
 	getCfg func(key string) (string, bool) // 读取系统参数（config:all 缓存）
+	store  *storage.Storage                // 签名图 file_key → URL
 }
 
 // NewAuthService 构造认证服务。
-func NewAuthService(db *gorm.DB, rdb *redis.Client, sess *session.Store, jwtm *jwtutil.Manager, getCfg func(string) (string, bool)) *AuthService {
-	return &AuthService{db: db, rdb: rdb, sess: sess, jwtm: jwtm, getCfg: getCfg}
+func NewAuthService(db *gorm.DB, rdb *redis.Client, sess *session.Store, jwtm *jwtutil.Manager, getCfg func(string) (string, bool), store *storage.Storage) *AuthService {
+	return &AuthService{db: db, rdb: rdb, sess: sess, jwtm: jwtm, getCfg: getCfg, store: store}
 }
 
 // Login 后台账号密码登录，签发双令牌并建立 Redis 会话。
@@ -196,6 +198,14 @@ func (s *AuthService) Info(identity *middleware.Identity) (*dto.InfoResp, *errs.
 		DataScope:    model.ScopeCustom,
 		Roles:        []dto.RoleBrief{},
 		Perms:        []string{},
+	}
+	// 签名取当前 active 签章资产（v16 起 sys_user.signature_file_key 弃用）
+	var sigAsset model.SignAsset
+	if err := s.db.Select("file_key").
+		Where("asset_type = ? AND owner_id = ? AND status = ?",
+			model.SignAssetTypeUserSignature, user.ID, model.SignAssetStatusActive).
+		First(&sigAsset).Error; err == nil && sigAsset.FileKey != "" && s.store != nil {
+		resp.SignatureURL = s.store.URL(sigAsset.FileKey)
 	}
 	if identity.DataScopeAll {
 		resp.DataScope = model.ScopeAll

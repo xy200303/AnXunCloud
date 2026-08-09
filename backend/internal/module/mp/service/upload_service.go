@@ -109,6 +109,34 @@ func (s *UploadService) SaveLocal(userID string, scene, filename string, size in
 	return gin.H{"file_key": key, "url": url}, nil
 }
 
+// SaveAdminLocal 管理端本地上传（/api/admin/system/upload）：签名/公章/头像图片。
+func (s *UploadService) SaveAdminLocal(userID string, scene, filename string, size int64, r io.Reader) (gin.H, *errs.Error) {
+	switch scene {
+	case "signature", "seal", "avatar":
+	default:
+		return nil, errs.ErrParam.WithMsg("scene 取值非法")
+	}
+	ext, be := s.store.CheckExt(filename)
+	if be != nil {
+		return nil, be
+	}
+	if size > s.store.MaxFileSize() {
+		return nil, errs.ErrUploadTooLarge
+	}
+	key, url, err := s.store.SaveLocal(scene, userID, ext, r)
+	if err != nil {
+		return nil, errs.ErrInternal
+	}
+	rec := sysmodel.UploadFile{
+		FileKey: key, Scene: scene, UserID: userID, Size: size,
+		MimeType: "image/" + ext, URL: url,
+	}
+	if err := s.db.Create(&rec).Error; err != nil {
+		return nil, errs.ErrInternal
+	}
+	return gin.H{"file_key": key, "url": url}, nil
+}
+
 // Callback OSS 上传回调：验签（oss 模式）→ 幂等写文件记录 → {"Status":"OK"}。
 func (s *UploadService) Callback(c *gin.Context, body []byte) (int, any) {
 	if s.store.IsDev() {

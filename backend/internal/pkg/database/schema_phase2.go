@@ -30,7 +30,7 @@ CREATE TABLE sys_message (
     biz_id      uuid       NULL,
     is_read     boolean      NOT NULL DEFAULT false,
     created_at  timestamptz  NOT NULL DEFAULT now(),
-    CONSTRAINT chk_sys_message_type CHECK (type IN ('task','workorder','export','system'))
+    CONSTRAINT chk_sys_message_type CHECK (type IN ('task','workorder','export','system','checkin_audit'))
 );
 COMMENT ON TABLE sys_message IS '站内消息（任务提醒/工单指派/整改驳回/导出完成）';
 CREATE INDEX idx_sys_message_user ON sys_message (user_id, is_read, created_at DESC);

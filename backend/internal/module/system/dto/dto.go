@@ -80,6 +80,9 @@ type UserDetail struct {
 	CommunityIDs []string `json:"community_ids"`
 	Status       int     `json:"status"`
 	IsBuiltin    bool    `json:"is_builtin"`
+	// 手写签名图（月报签字栏用）
+	SignatureFileKey string `json:"signature_file_key"`
+	SignatureURL     string `json:"signature_url"`
 	LastLoginAt  string  `json:"last_login_at"`
 	CreatedAt    string  `json:"created_at"`
 	UpdatedAt    string  `json:"updated_at"`
@@ -236,6 +239,49 @@ type ConfigSaveReq struct {
 	Value       string `json:"value"`
 	ConfigGroup string `json:"config_group" binding:"required"`
 	Remark      string `json:"remark"`
+}
+
+// ========== 签章资产 ==========
+
+// SignAssetQuery 签章资产列表查询。
+type SignAssetQuery struct {
+	response.PageQuery
+	AssetType string `form:"asset_type"`
+	OwnerID   string `form:"owner_id"`
+	Status    string `form:"status"`
+}
+
+// SignAssetCreateReq 新增签章资产（创建即 active，同 type+owner 原 active 自动置 replaced）。
+type SignAssetCreateReq struct {
+	AssetType string  `json:"asset_type" binding:"required,oneof=user_signature company_seal"`
+	OwnerID   *string `json:"owner_id"`
+	FileKey   string  `json:"file_key" binding:"required"`
+	Remark    string  `json:"remark"`
+}
+
+// SignAssetRevokeReq 作废签章资产。
+type SignAssetRevokeReq struct {
+	Reason string `json:"reason" binding:"required"`
+}
+
+// SignAssetItem 签章资产视图。
+type SignAssetItem struct {
+	ID            string  `json:"id"`
+	AssetType     string  `json:"asset_type"`
+	OwnerID       *string `json:"owner_id"`
+	OwnerName     string  `json:"owner_name"`
+	FileKey       string  `json:"file_key"`
+	URL           string  `json:"url"`
+	SHA256        string  `json:"sha256"`
+	SHA256Short   string  `json:"sha256_short"`
+	Version       int     `json:"version"`
+	Status        string  `json:"status"`
+	Remark        string  `json:"remark"`
+	CreatedBy     *string `json:"created_by"`
+	CreatedAt     string  `json:"created_at"`
+	UpdatedAt     string  `json:"updated_at"`
+	RevokedAt     string  `json:"revoked_at"`
+	RevokedReason string  `json:"revoked_reason"`
 }
 
 // ========== 日志 ==========

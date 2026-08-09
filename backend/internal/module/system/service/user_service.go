@@ -16,6 +16,7 @@ import (
 	"anxuncloud/internal/pkg/excel"
 	"anxuncloud/internal/pkg/password"
 	"anxuncloud/internal/pkg/response"
+	"anxuncloud/internal/pkg/storage"
 	"anxuncloud/internal/pkg/timefmt"
 	"anxuncloud/internal/pkg/types"
 )
@@ -30,10 +31,12 @@ const exportMaxRows = 10000
 type UserService struct {
 	db           *gorm.DB
 	killSessions func(ctx context.Context, userID string)
+	store        *storage.Storage   // 签名图 file_key → URL
+	signAssets   *SignAssetService  // v16 起签名走签章资产表
 }
 
-func NewUserService(db *gorm.DB, killSessions func(ctx context.Context, userID string)) *UserService {
-	return &UserService{db: db, killSessions: killSessions}
+func NewUserService(db *gorm.DB, killSessions func(ctx context.Context, userID string), store *storage.Storage, signAssets *SignAssetService) *UserService {
+	return &UserService{db: db, killSessions: killSessions, store: store, signAssets: signAssets}
 }
 
 // listQuery 组装列表/导出共用的查询条件。
@@ -180,6 +183,14 @@ func (s *UserService) Detail(id string) (*dto.UserDetail, *errs.Error) {
 		LastLoginAt:  timefmt.TP(u.LastLoginAt),
 		CreatedAt:    timefmt.T(u.CreatedAt),
 		UpdatedAt:    timefmt.T(u.UpdatedAt),
+	}
+	// 签名取当前 active 签章资产（v16 起 sys_user.signature_file_key 弃用）
+	if s.signAssets != nil {
+		key, _ := s.signAssets.ActiveSignature(id)
+		d.SignatureFileKey = key
+		if key != "" && s.store != nil {
+			d.SignatureURL = s.store.URL(key)
+		}
 	}
 	if u.Openid != nil {
 		d.Openid = *u.Openid
@@ -556,7 +567,9 @@ func uniqueStrings(ids []string) []string {
 }
 
 // UpdateProfile 修改当前用户基本资料（姓名、手机号；手机号全局唯一校验）。
-func (s *UserService) UpdateProfile(uid string, name, phone string) *errs.Error {
+// sigKey 为 nil 表示不改动签名；空串表示移除签名；其余为手写签名图 file_key。
+// v16 起签名写入签章资产表（创建/替换当前用户的 user_signature 资产），不再写 sys_user 列。
+func (s *UserService) UpdateProfile(uid string, name, phone string, sigKey *string) *errs.Error {
 	var u model.SysUser
 	if err := s.db.First(&u, "id = ?", uid).Error; err != nil {
 		return errs.ErrNotFound
@@ -573,7 +586,13 @@ func (s *UserService) UpdateProfile(uid string, name, phone string) *errs.Error 
 	if count > 0 {
 		return errs.ErrPhoneExists
 	}
-	if err := s.db.Model(&u).Updates(map[string]any{"name": name, "phone": phone}).Error; err != nil {
+	if sigKey != nil && s.signAssets != nil {
+		if be := s.signAssets.SetUserSignature(uid, strings.TrimSpace(*sigKey)); be != nil {
+			return be
+		}
+	}
+	updates := map[string]any{"name": name, "phone": phone}
+	if err := s.db.Model(&u).Updates(updates).Error; err != nil {
 		return errs.ErrInternal
 	}
 	return nil

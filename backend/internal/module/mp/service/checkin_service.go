@@ -17,6 +17,7 @@ import (
 	sysmodel "anxuncloud/internal/module/system/model"
 	womodel "anxuncloud/internal/module/workorder/model"
 	wosvc "anxuncloud/internal/module/workorder/service"
+	"anxuncloud/internal/pkg/ai"
 	"anxuncloud/internal/pkg/errs"
 	"anxuncloud/internal/pkg/geo"
 	"anxuncloud/internal/pkg/logger"
@@ -35,11 +36,15 @@ type CheckinService struct {
 	store   *storage.Storage
 	orders  *wosvc.OrderService
 	getCfg  func(key string) (string, bool)
+	aiCli   *ai.Client
 	fontOn  bool
 }
 
 func NewCheckinService(db *gorm.DB, rdb *redis.Client, store *storage.Storage, orders *wosvc.OrderService, getCfg func(string) (string, bool)) *CheckinService {
-	return &CheckinService{db: db, rdb: rdb, store: store, orders: orders, getCfg: getCfg}
+	return &CheckinService{
+		db: db, rdb: rdb, store: store, orders: orders, getCfg: getCfg,
+		aiCli: ai.NewClient(getCfg, ai.WithStorage(store)),
+	}
 }
 
 // cfgInt 读取整数型系统参数。
@@ -181,6 +186,11 @@ func (s *CheckinService) doCheckinLocked(ctx context.Context, inspectorID string
 	if be != nil {
 		return nil, nil, be
 	}
+	// 检查项模板：点位绑定模板时，模板每项都必须有提交结果（按 name 匹配）
+	checkItems, be := s.resolveCheckItems(req, &point)
+	if be != nil {
+		return nil, nil, be
+	}
 	// 异常时描述必填
 	if req.Result == insmodel.ResultAbnormal && strings.TrimSpace(req.Remark) == "" {
 		return nil, nil, errs.ErrParam.WithMsg("异常打卡必须填写异常描述")
@@ -197,8 +207,9 @@ func (s *CheckinService) doCheckinLocked(ctx context.Context, inspectorID string
 		TaskID: req.TaskID, PointID: req.PointID, InspectorID: inspectorID,
 		CommunityID: task.CommunityID, CheckinTime: now, ClientTime: &clientTime,
 		Longitude: &req.Longitude, Latitude: &req.Latitude, DistanceToPoint: &distance,
-		CheckinType: checkinType, Photos: photos, Result: req.Result, Remark: req.Remark,
+		CheckinType: checkinType, Photos: photos, CheckItems: checkItems, Result: req.Result, Remark: req.Remark,
 		IsOfflineSync: offline, IsSuspect: isSuspect, SuspectReason: suspectReason,
+		AuditStatus: insmodel.AuditAutoPass,
 	}
 	if req.ID != "" {
 		rec.ID = req.ID // 客户端 UUIDv7（BeforeCreate 不覆盖已有值）
@@ -252,6 +263,10 @@ func (s *CheckinService) doCheckinLocked(ctx context.Context, inspectorID string
 	if s.store.IsDev() && s.cfgBool("inspection.watermark_enabled", true) {
 		go s.applyWatermarks(&rec, &point, inspectorID)
 	}
+	// 大模型审核：启用时异步执行（与水印并列，不阻断打卡响应）
+	if s.aiCli.Enabled() {
+		go s.aiReview(rec.ID, &point, checkItems, req.Remark, photos)
+	}
 	// 任务进度缓存失效
 	s.rdb.Del(ctx, "cache:task:progress:"+task.ID)
 	return &rec, order, nil
@@ -273,6 +288,10 @@ func (s *CheckinService) checkMode(req *dto.CheckinReq, point *insmodel.Inspecti
 		}
 	case insmodel.ModeBoth:
 		needQR, needFence = true, true
+	case insmodel.ModeNFC:
+		if req.NFCID == "" || req.NFCID != point.NfcID {
+			return errs.ErrQRCodeMismatch.WithMsg("NFC 校验失败：卡号与点位不匹配")
+		}
 	}
 	if needQR && req.QRCodeNo != point.QRCodeNo {
 		return errs.ErrQRCodeMismatch
@@ -281,6 +300,35 @@ func (s *CheckinService) checkMode(req *dto.CheckinReq, point *insmodel.Inspecti
 		return errs.ErrOutOfFence.WithMsg(fmt.Sprintf("距点位 %dm，超出围栏半径 %dm", int(distance), point.FenceRadius))
 	}
 	return nil
+}
+
+// resolveCheckItems 检查项模板校验：点位绑定模板时，模板每项都必须有提交结果（按 name 匹配）。
+func (s *CheckinService) resolveCheckItems(req *dto.CheckinReq, point *insmodel.InspectionPoint) (types.CheckItemArray, *errs.Error) {
+	items := make(types.CheckItemArray, 0, len(req.CheckItems))
+	for _, it := range req.CheckItems {
+		items = append(items, types.CheckItemResult{Name: it.Name, Pass: it.Pass, Note: it.Note})
+	}
+	if point.TemplateID == nil || *point.TemplateID == "" {
+		return items, nil
+	}
+	var tpl insmodel.CheckTemplate
+	if err := s.db.First(&tpl, "id = ?", *point.TemplateID).Error; err != nil {
+		return nil, errs.ErrParam.WithMsg("点位绑定的检查项模板不存在")
+	}
+	got := map[string]bool{}
+	for _, it := range req.CheckItems {
+		got[it.Name] = true
+	}
+	var missing []string
+	for _, ti := range tpl.Items {
+		if !got[ti.Name] {
+			missing = append(missing, ti.Name)
+		}
+	}
+	if len(missing) > 0 {
+		return nil, errs.ErrParam.WithMsg("检查项结果缺失：" + strings.Join(missing, "、"))
+	}
+	return items, nil
 }
 
 // resolvePhotos 必拍项校验 + 照片上传确认，返回落库照片数组。
@@ -389,6 +437,88 @@ func (s *CheckinService) applyWatermarks(rec *insmodel.CheckinRecord, point *ins
 	}
 	if changed {
 		s.db.Model(&insmodel.CheckinRecord{}).Where("id = ?", rec.ID).Update("photos", rec.Photos)
+	}
+}
+
+// aiReview 异步大模型审核（goroutine 内运行，请求 ctx 已结束故用 Background）：
+// pass 仅回写结论保持 auto_pass；review 转 pending 并通知审核角色用户；失败兜底 ai_verdict=error。
+func (s *CheckinService) aiReview(recID string, point *insmodel.InspectionPoint, items types.CheckItemArray, remark string, photos types.PhotoArray) {
+	defer func() {
+		if r := recover(); r != nil {
+			logger.L.Error("AI 审核 panic", zap.String("rec_id", recID), zap.Any("panic", r))
+		}
+	}()
+	names := make([]string, 0, len(items))
+	for _, it := range items {
+		names = append(names, it.Name)
+	}
+	refs := make([]ai.PhotoRef, 0, len(photos))
+	for _, p := range photos {
+		refs = append(refs, ai.PhotoRef{URL: p.URL})
+	}
+	verdict, reason, err := s.aiCli.ReviewCheckin(context.Background(), ai.ReviewInput{
+		PointName: point.Name, PointType: point.Type, CheckItems: names, Remark: remark, Photos: refs,
+	})
+	if err != nil {
+		logger.L.Warn("AI 审核调用失败", zap.String("rec_id", recID), zap.Error(err))
+		s.db.Model(&insmodel.CheckinRecord{}).Where("id = ?", recID).
+			Updates(map[string]any{"ai_verdict": insmodel.AIVerdictError, "ai_reason": truncateStr(err.Error(), 200)})
+		return
+	}
+	if verdict == insmodel.AIVerdictPass {
+		s.db.Model(&insmodel.CheckinRecord{}).Where("id = ?", recID).
+			Updates(map[string]any{"ai_verdict": insmodel.AIVerdictPass, "ai_reason": truncateStr(reason, 500)})
+		return
+	}
+	// review → 转人工审核并通知审核角色（并发下仅 auto_pass 可翻转，避免覆盖人工结论）
+	res := s.db.Model(&insmodel.CheckinRecord{}).Where("id = ? AND audit_status = ?", recID, insmodel.AuditAutoPass).
+		Updates(map[string]any{
+			"ai_verdict": insmodel.AIVerdictReview, "ai_reason": truncateStr(reason, 500),
+			"audit_status": insmodel.AuditPending,
+		})
+	if res.Error != nil {
+		logger.L.Warn("AI 审核回写失败", zap.String("rec_id", recID), zap.Error(res.Error))
+		return
+	}
+	if res.RowsAffected > 0 {
+		s.notifyAuditors(recID, point.Name, reason)
+	}
+}
+
+// notifyAuditors AI 转人工时通知 super_admin 与 manager 角色的启用用户（逐人一条站内消息）。
+func (s *CheckinService) notifyAuditors(recID, pointName, reason string) {
+	var roleIDs []string
+	s.db.Model(&sysmodel.SysRole{}).Where("code IN ?", []string{sysmodel.SuperAdminCode, "manager"}).Pluck("id", &roleIDs)
+	if len(roleIDs) == 0 {
+		return
+	}
+	roleSet := map[string]bool{}
+	for _, id := range roleIDs {
+		roleSet[id] = true
+	}
+	// 用户量小，拉回内存按 jsonb role_ids 过滤（回避 jsonb ?| 运算符与 GORM 占位符冲突）
+	var users []sysmodel.SysUser
+	s.db.Select("id", "role_ids").Where("status = ?", sysmodel.StatusEnabled).Find(&users)
+	sent := map[string]bool{}
+	for _, u := range users {
+		if sent[u.ID] {
+			continue
+		}
+		for _, rid := range u.RoleIDs {
+			if !roleSet[rid] {
+				continue
+			}
+			sent[u.ID] = true
+			msg := sysmodel.SysMessage{
+				UserID:  u.ID,
+				Type:    "checkin_audit",
+				Title:   "AI 审核转人工：" + pointName,
+				Content: fmt.Sprintf("点位「%s」的打卡记录经大模型审核存疑，已转人工审核。理由：%s", pointName, reason),
+				BizID:   &recID,
+			}
+			s.db.Create(&msg)
+			break
+		}
 	}
 }
 

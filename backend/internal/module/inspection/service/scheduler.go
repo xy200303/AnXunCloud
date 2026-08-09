@@ -7,23 +7,26 @@ import (
 
 	"gorm.io/gorm"
 
+	reportsvc "anxuncloud/internal/module/report/service"
 	"anxuncloud/internal/pkg/database"
 	"anxuncloud/internal/pkg/logger"
 	"go.uber.org/zap"
 )
 
-// Scheduler 服务内定时任务：每日生成任务、逾期翻转、分区滚动。
+// Scheduler 服务内定时任务：每日生成任务、逾期翻转、分区滚动、月初月报。
 type Scheduler struct {
-	db      *gorm.DB
-	plans   *PlanService
-	getCfg  func(key string) (string, bool)
-	stopCh  chan struct{}
-	lastGen string // 上次任务生成日期（yyyyMMdd）
-	lastFlip string
+	db         *gorm.DB
+	plans      *PlanService
+	reports    *reportsvc.ReportService
+	getCfg     func(key string) (string, bool)
+	stopCh     chan struct{}
+	lastGen    string // 上次任务生成日期（yyyyMMdd）
+	lastFlip   string
+	lastReport string // 上次月报生成日期（yyyyMMdd）
 }
 
-func NewScheduler(db *gorm.DB, plans *PlanService, getCfg func(string) (string, bool)) *Scheduler {
-	return &Scheduler{db: db, plans: plans, getCfg: getCfg, stopCh: make(chan struct{})}
+func NewScheduler(db *gorm.DB, plans *PlanService, reports *reportsvc.ReportService, getCfg func(string) (string, bool)) *Scheduler {
+	return &Scheduler{db: db, plans: plans, reports: reports, getCfg: getCfg, stopCh: make(chan struct{})}
 }
 
 // Start 启动调度循环（每 30s 检查一次到点任务）。
@@ -94,6 +97,18 @@ func (s *Scheduler) tick() {
 		} else {
 			s.lastFlip = today
 			logger.L.Info("逾期任务翻转完成", zap.Int64("count", n))
+		}
+	}
+
+	// 每月 1 日 00:20 后为每个启用小区生成上月月报（已存在则跳过，幂等）
+	if s.reports != nil && now.Day() == 1 && today != s.lastReport && now.Format("15:04") >= "00:20" {
+		period := now.AddDate(0, -1, 0).Format("2006-01")
+		n, err := s.reports.GenerateMonthlyAll(period)
+		if err != nil {
+			logger.L.Warn("月报自动生成失败", zap.String("period", period), zap.Error(err))
+		} else {
+			s.lastReport = today
+			logger.L.Info("月报自动生成完成", zap.String("period", period), zap.Int("created", n))
 		}
 	}
 }

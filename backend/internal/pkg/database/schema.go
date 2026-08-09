@@ -238,7 +238,7 @@ CREATE TABLE inspection_point (
     created_at           timestamptz  NOT NULL DEFAULT now(),
     updated_at           timestamptz  NOT NULL DEFAULT now(),
     deleted_at           timestamptz  NULL,
-    CONSTRAINT chk_point_mode   CHECK (checkin_mode IN ('qrcode','fence','either','both')),
+    CONSTRAINT chk_point_mode   CHECK (checkin_mode IN ('qrcode','fence','either','both','nfc')),
     CONSTRAINT chk_point_status CHECK (status IN ('enabled','disabled')),
     CONSTRAINT chk_point_radius CHECK (fence_radius BETWEEN 10 AND 2000),
     CONSTRAINT chk_point_lng    CHECK (longitude BETWEEN -180 AND 180),
@@ -330,7 +330,7 @@ CREATE TABLE checkin_record (
     suspect_reason    varchar(255) NOT NULL DEFAULT '',
     created_at        timestamptz  NOT NULL DEFAULT now(),
     PRIMARY KEY (id, created_at),
-    CONSTRAINT chk_checkin_type   CHECK (checkin_type IN ('qrcode','fence','offline')),
+    CONSTRAINT chk_checkin_type   CHECK (checkin_type IN ('qrcode','fence','offline','nfc')),
     CONSTRAINT chk_checkin_result CHECK (result IN ('normal','abnormal'))
 ) PARTITION BY RANGE (created_at);
 COMMENT ON TABLE  checkin_record                  IS '打卡记录（按月分区，只增不改；不允许删除，防篡改审计要求）';

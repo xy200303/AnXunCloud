@@ -233,6 +233,10 @@ func checkinBrief(db *gorm.DB, ck *model.CheckinRecord) gin.H {
 		"longitude": ck.Longitude, "latitude": ck.Latitude,
 		"result": ck.Result, "is_suspect": ck.IsSuspect, "suspect_reason": ck.SuspectReason,
 		"remark": ck.Remark, "photos": ck.Photos, "work_order_no": orderNo,
+		"check_items": ck.CheckItems,
+		"audit_status": ck.AuditStatus, "audit_by": ck.AuditBy,
+		"audit_at": timefmt.TP(ck.AuditAt), "audit_remark": ck.AuditRemark,
+		"ai_verdict": ck.AIVerdict, "ai_reason": ck.AIReason,
 	}
 }
 
@@ -262,6 +266,9 @@ func (s *TaskService) CheckinList(c *gin.Context, q *dto.CheckinListQuery) (*res
 	if v, ok, _ := bind.BoolFilter(q.IsSuspect); ok {
 		db = db.Where("is_suspect = ?", v)
 	}
+	if q.AuditStatus != "" {
+		db = db.Where("audit_status = ?", q.AuditStatus)
+	}
 	var be *errs.Error
 	if db, be = timeRangeOn(db, "checkin_time", q.StartTime, q.EndTime); be != nil {
 		return nil, be
@@ -281,12 +288,13 @@ func (s *TaskService) CheckinList(c *gin.Context, q *dto.CheckinListQuery) (*res
 		r := &rows[i]
 		list = append(list, gin.H{
 			"id": r.ID, "task_id": r.TaskID, "point_id": r.PointID,
-			"point_name":     s.pointName(r.PointID),
-			"community_name": s.commName(r.CommunityID),
-			"inspector_id": r.InspectorID, "inspector_name": s.userName(r.InspectorID),
+			"point_name":     pointName(s.db, r.PointID),
+			"community_name": commName(s.db, r.CommunityID),
+			"inspector_id": r.InspectorID, "inspector_name": userName(s.db, r.InspectorID),
 			"checkin_time": timefmt.T(r.CheckinTime), "checkin_type": r.CheckinType,
 			"distance_to_point": distanceOrNil(r), "result": r.Result,
 			"is_suspect": r.IsSuspect, "photo_count": len(r.Photos),
+			"audit_status": r.AuditStatus,
 		})
 	}
 	return &response.Page{List: list, Total: total, Page: q.Page, PageSize: q.PageSize}, nil
@@ -325,15 +333,19 @@ func (s *TaskService) CheckinDetail(c *gin.Context, id string) (gin.H, *errs.Err
 	}
 	return gin.H{
 		"id": r.ID, "task_id": r.TaskID, "plan_name": planName,
-		"point_id": r.PointID, "point_name": s.pointName(r.PointID),
-		"community_name": s.commName(r.CommunityID),
-		"inspector_id": r.InspectorID, "inspector_name": s.userName(r.InspectorID),
+		"point_id": r.PointID, "point_name": pointName(s.db, r.PointID),
+		"community_name": commName(s.db, r.CommunityID),
+		"inspector_id": r.InspectorID, "inspector_name": userName(s.db, r.InspectorID),
 		"checkin_time": timefmt.T(r.CheckinTime), "client_time": timefmt.TP(r.ClientTime),
 		"checkin_type": r.CheckinType, "longitude": r.Longitude, "latitude": r.Latitude,
 		"distance_to_point": distanceOrNil(&r), "result": r.Result, "remark": r.Remark,
 		"is_offline_sync": r.IsOfflineSync,
 		"is_suspect": r.IsSuspect, "suspect_reason": r.SuspectReason,
-		"photos": photos, "work_order_no": orderNo, "created_at": timefmt.T(r.CreatedAt),
+		"photos": photos, "check_items": r.CheckItems, "work_order_no": orderNo,
+		"audit_status": r.AuditStatus, "audit_by": r.AuditBy,
+		"audit_at": timefmt.TP(r.AuditAt), "audit_remark": r.AuditRemark,
+		"ai_verdict": r.AIVerdict, "ai_reason": r.AIReason,
+		"created_at": timefmt.T(r.CreatedAt),
 	}, nil
 }
 
@@ -353,25 +365,25 @@ func exifCheck(r *model.CheckinRecord, p types.PhotoItem) gin.H {
 	return gin.H{"shot_at": p.ExifTime, "deviation_seconds": dev, "passed": dev <= 300}
 }
 
-func (s *TaskService) pointName(id string) string {
+func pointName(db *gorm.DB, id string) string {
 	var p model.InspectionPoint
-	if s.db.Select("name").First(&p, "id = ?", id).Error == nil {
+	if db.Select("name").First(&p, "id = ?", id).Error == nil {
 		return p.Name
 	}
 	return ""
 }
 
-func (s *TaskService) commName(id string) string {
+func commName(db *gorm.DB, id string) string {
 	var c sysmodel.Community
-	if s.db.Select("name").First(&c, "id = ?", id).Error == nil {
+	if db.Select("name").First(&c, "id = ?", id).Error == nil {
 		return c.Name
 	}
 	return ""
 }
 
-func (s *TaskService) userName(id string) string {
+func userName(db *gorm.DB, id string) string {
 	var u sysmodel.SysUser
-	if s.db.Select("name").First(&u, "id = ?", id).Error == nil {
+	if db.Select("name").First(&u, "id = ?", id).Error == nil {
 		return u.Name
 	}
 	return ""

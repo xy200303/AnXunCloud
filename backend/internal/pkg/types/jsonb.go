@@ -142,6 +142,14 @@ func (m JSONMap) Int(key string) int {
 	return 0
 }
 
+// Float 从 JSONMap 读取浮点字段。
+func (m JSONMap) Float(key string) float64 {
+	if f, ok := m[key].(float64); ok {
+		return f
+	}
+	return 0
+}
+
 // PhotoItem 通用照片元素（打卡/工单 photos JSONB）。
 type PhotoItem struct {
 	Item           string `json:"item"`
@@ -169,6 +177,99 @@ func (a *PhotoArray) Scan(src any) error {
 	}
 	if data == nil {
 		*a = PhotoArray{}
+		return nil
+	}
+	return json.Unmarshal(data, a)
+}
+
+// CheckItemResult 打卡逐项检查结果（checkin_record.check_items JSONB）。
+type CheckItemResult struct {
+	Name string `json:"name"`
+	Pass bool   `json:"pass"`
+	Note string `json:"note,omitempty"`
+}
+
+// CheckItemArray 映射 jsonb 逐项检查结果。
+type CheckItemArray []CheckItemResult
+
+func (a CheckItemArray) Value() (driver.Value, error) {
+	if a == nil {
+		return "[]", nil
+	}
+	b, err := json.Marshal(a)
+	return string(b), err
+}
+
+func (a *CheckItemArray) Scan(src any) error {
+	data, err := toBytes(src)
+	if err != nil {
+		return err
+	}
+	if data == nil {
+		*a = CheckItemArray{}
+		return nil
+	}
+	return json.Unmarshal(data, a)
+}
+
+// TemplateItem 检查项模板项（check_template.items JSONB）。
+type TemplateItem struct {
+	Name     string `json:"name"`
+	Required bool   `json:"required"`
+}
+
+// TemplateItemArray 映射 jsonb 模板项数组。
+type TemplateItemArray []TemplateItem
+
+func (a TemplateItemArray) Value() (driver.Value, error) {
+	if a == nil {
+		return "[]", nil
+	}
+	b, err := json.Marshal(a)
+	return string(b), err
+}
+
+func (a *TemplateItemArray) Scan(src any) error {
+	data, err := toBytes(src)
+	if err != nil {
+		return err
+	}
+	if data == nil {
+		*a = TemplateItemArray{}
+		return nil
+	}
+	return json.Unmarshal(data, a)
+}
+
+// SignEntry 报告签字留痕（inspection_report.inspector_signed JSONB）。
+type SignEntry struct {
+	UserID   string `json:"user_id"`
+	Name     string `json:"name"`
+	SignedAt string `json:"signed_at"`
+	// SignatureKey 签字时的手写签名图快照 file_key（空=未设置签名，PDF 回退打印姓名）
+	SignatureKey string `json:"signature_file_key,omitempty"`
+	// AssetID 签字时的签章资产 id（v16 起；可空，便于法律追溯定位版本）
+	AssetID string `json:"asset_id,omitempty"`
+}
+
+// SignArray 映射 jsonb 签字记录数组。
+type SignArray []SignEntry
+
+func (a SignArray) Value() (driver.Value, error) {
+	if a == nil {
+		return "[]", nil
+	}
+	b, err := json.Marshal(a)
+	return string(b), err
+}
+
+func (a *SignArray) Scan(src any) error {
+	data, err := toBytes(src)
+	if err != nil {
+		return err
+	}
+	if data == nil {
+		*a = SignArray{}
 		return nil
 	}
 	return json.Unmarshal(data, a)

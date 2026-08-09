@@ -48,6 +48,8 @@ type InfoResp struct {
 	Name         string      `json:"name"`
 	Phone        string      `json:"phone"`
 	Avatar       string      `json:"avatar"`
+	// 手写签名图 URL（月报签字栏用，空=未设置）
+	SignatureURL string      `json:"signature_url"`
 	Openid       string      `json:"openid"`
 	IsBuiltin    bool        `json:"is_builtin"`
 	Roles        []RoleBrief `json:"roles"`

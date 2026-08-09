@@ -3,6 +3,29 @@ package dto
 
 import "anxuncloud/internal/pkg/response"
 
+// ========== 检查项模板 ==========
+
+type TemplateListQuery struct {
+	response.PageQuery
+	Name      string `form:"name"`
+	PointType string `form:"point_type"`
+	Status    string `form:"status"`
+}
+
+type TemplateItemReq struct {
+	Name     string `json:"name" binding:"required"`
+	Required bool   `json:"required"`
+}
+
+type TemplateSaveReq struct {
+	Name      string            `json:"name" binding:"required"`
+	PointType string            `json:"point_type"` // 空为通用模板
+	Items     []TemplateItemReq `json:"items" binding:"required,min=1"`
+	Sort      int               `json:"sort"`
+	Status    *int              `json:"status"`
+	Remark    string            `json:"remark"`
+}
+
 // ========== 点位 ==========
 
 type PointListQuery struct {
@@ -24,6 +47,8 @@ type PointSaveReq struct {
 	Latitude           float64  `json:"latitude" binding:"required"`
 	FenceRadius        int      `json:"fence_radius"`
 	CheckinMode        string   `json:"checkin_mode"`
+	TemplateID         *string  `json:"template_id"`
+	NfcID              string   `json:"nfc_id"`
 	RequiredPhotoItems []string `json:"required_photo_items"`
 	Sort               int      `json:"sort"`
 	Status             *int     `json:"status"`
@@ -88,6 +113,33 @@ type CheckinListQuery struct {
 	Result      string `form:"result"`
 	CheckinType string `form:"checkin_type"`
 	IsSuspect   string `form:"is_suspect"`
+	AuditStatus string `form:"audit_status"`
 	StartTime   string `form:"start_time"`
 	EndTime     string `form:"end_time"`
+}
+
+// ========== 记录审核 ==========
+
+type ReviewListQuery struct {
+	response.PageQuery
+	AuditStatus string `form:"audit_status"`
+	CommunityID string `form:"community_id"`
+	InspectorID string `form:"inspector_id"`
+	StartTime   string `form:"start_time"`
+	EndTime     string `form:"end_time"`
+}
+
+type ReviewRejectReq struct {
+	Reason string `json:"reason" binding:"required"`
+}
+
+// SpotcheckReq 抽查请求：random 按比例随机抽取，full 范围内全量（上限 500 条）。
+type SpotcheckReq struct {
+	CommunityID string `json:"community_id"`
+	InspectorID string `json:"inspector_id"`
+	StartTime   string `json:"start_time"`
+	EndTime     string `json:"end_time"`
+	Mode        string `json:"mode" binding:"required,oneof=random full"`
+	Ratio       int    `json:"ratio" binding:"omitempty,min=1,max=100"`
+	Handler     string `json:"handler" binding:"required,oneof=manual ai"`
 }

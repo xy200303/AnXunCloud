@@ -92,11 +92,20 @@ func (s *PointService) toItem(p *model.InspectionPoint) gin.H {
 	if s.db.Select("label").Where("type_code = 'point_type' AND value = ?", p.Type).First(&dd).Error == nil {
 		typeLabel = dd.Label
 	}
+	templateName := ""
+	if p.TemplateID != nil {
+		var t model.CheckTemplate
+		if s.db.Select("name").First(&t, "id = ?", *p.TemplateID).Error == nil {
+			templateName = t.Name
+		}
+	}
 	return gin.H{
 		"id": p.ID, "community_id": p.CommunityID, "community_name": commName,
 		"building_id": p.BuildingID, "building_name": buildingName,
 		"name": p.Name, "type": p.Type, "type_label": typeLabel,
-		"qrcode_no": p.QRCodeNo, "longitude": p.Longitude, "latitude": p.Latitude,
+		"qrcode_no": p.QRCodeNo, "nfc_id": p.NfcID,
+		"template_id": p.TemplateID, "template_name": templateName,
+		"longitude": p.Longitude, "latitude": p.Latitude,
 		"fence_radius": p.FenceRadius, "checkin_mode": p.CheckinMode,
 		"required_photo_items": p.RequiredPhotoItems,
 		"sort": p.Sort, "status": sysmodel.StatusInt(p.Status), "created_at": timefmt.T(p.CreatedAt),
@@ -116,6 +125,8 @@ func (s *PointService) Create(c *gin.Context, req *dto.PointSaveReq) (string, st
 		BuildingID:         req.BuildingID,
 		Name:               req.Name,
 		Type:               req.Type,
+		TemplateID:         templatePtr(req.TemplateID),
+		NfcID:              req.NfcID,
 		Longitude:          req.Longitude,
 		Latitude:           req.Latitude,
 		FenceRadius:        s.fenceRadius(req.FenceRadius),
@@ -178,7 +189,8 @@ func (s *PointService) Update(c *gin.Context, id string, req *dto.PointSaveReq) 
 	}
 	updates := map[string]any{
 		"community_id": req.CommunityID, "building_id": req.BuildingID, "name": req.Name,
-		"type": req.Type, "longitude": req.Longitude, "latitude": req.Latitude,
+		"type": req.Type, "template_id": templatePtr(req.TemplateID), "nfc_id": req.NfcID,
+		"longitude": req.Longitude, "latitude": req.Latitude,
 		"fence_radius": s.fenceRadius(req.FenceRadius), "checkin_mode": modeOrDefault(req.CheckinMode),
 		"required_photo_items": types.StringArray(req.RequiredPhotoItems),
 		"sort": req.Sort, "remark": req.Remark,
@@ -348,12 +360,26 @@ func (s *PointService) validate(req *dto.PointSaveReq) *errs.Error {
 	if req.Longitude < -180 || req.Longitude > 180 || req.Latitude < -90 || req.Latitude > 90 {
 		return errs.ErrParam.WithMsg("经纬度取值非法")
 	}
+	if tid := templatePtr(req.TemplateID); tid != nil {
+		s.db.Model(&model.CheckTemplate{}).Where("id = ?", *tid).Count(&count)
+		if count == 0 {
+			return errs.ErrParam.WithMsg("template_id 对应的检查项模板不存在")
+		}
+	}
 	switch modeOrDefault(req.CheckinMode) {
-	case model.ModeQRCode, model.ModeFence, model.ModeEither, model.ModeBoth:
+	case model.ModeQRCode, model.ModeFence, model.ModeEither, model.ModeBoth, model.ModeNFC:
 	default:
 		return errs.ErrParam.WithMsg("checkin_mode 取值非法")
 	}
 	return nil
+}
+
+// templatePtr 空字符串模板 ID 转 NULL。
+func templatePtr(id *string) *string {
+	if id == nil || *id == "" {
+		return nil
+	}
+	return id
 }
 
 // fenceRadius 围栏半径：缺省取系统参数 inspection.fence_default_radius。

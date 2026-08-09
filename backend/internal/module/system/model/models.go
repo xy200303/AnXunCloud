@@ -23,6 +23,15 @@ const (
 
 	// SuperAdminCode 超级管理员角色编码（拥有全部权限与数据范围）
 	SuperAdminCode = "super_admin"
+
+	// 签章资产类型
+	SignAssetTypeUserSignature = "user_signature" // 用户手写签名（owner_id=用户）
+	SignAssetTypeCompanySeal   = "company_seal"   // 公章（owner_id 为 NULL，全局仅一条 active）
+
+	// 签章资产状态
+	SignAssetStatusActive   = "active"   // 当前生效
+	SignAssetStatusReplaced = "replaced" // 被新版本替换
+	SignAssetStatusRevoked  = "revoked"  // 作废（需填原因）
 )
 
 // SysUser 系统用户（后台管理员/巡检员/维修工）
@@ -34,6 +43,8 @@ type SysUser struct {
 	Phone              string        `gorm:"size:20" json:"phone"`
 	Openid             *string       `gorm:"size:64" json:"openid"`
 	Avatar             string        `gorm:"size:512" json:"avatar"`
+	// Deprecated: v16 起签名改为 sign_asset 资产表管理，本列仅保留历史数据，代码不再读写。
+	SignatureFileKey   string        `gorm:"size:255" json:"signature_file_key"`
 	RoleIDs            types.IDArray `gorm:"type:jsonb" json:"role_ids"`
 	CommunityIDs       types.IDArray `gorm:"type:jsonb" json:"community_ids"`
 	UserType           string        `gorm:"size:16" json:"user_type"`
@@ -238,6 +249,26 @@ type UploadFile struct {
 }
 
 func (UploadFile) TableName() string { return "upload_file" }
+
+// SignAsset 签章资产（迁移 v16 建表）：手写签名/公章版本链，换签名/换章不删旧记录。
+// 同 asset_type+owner_id 仅一条 active（部分唯一索引 uk_sign_asset_active 保证）。
+type SignAsset struct {
+	types.UUIDModel
+	AssetType     string     `gorm:"size:20" json:"asset_type"`
+	OwnerID       *string    `gorm:"type:uuid" json:"owner_id"`
+	FileKey       string     `gorm:"size:255" json:"file_key"`
+	SHA256        string     `gorm:"size:64" json:"sha256"`
+	Version       int        `json:"version"`
+	Status        string     `gorm:"size:20" json:"status"`
+	Remark        string     `gorm:"size:255" json:"remark"`
+	CreatedBy     *string    `gorm:"type:uuid" json:"created_by"`
+	CreatedAt     time.Time  `json:"created_at"`
+	UpdatedAt     time.Time  `json:"updated_at"`
+	RevokedAt     *time.Time `json:"revoked_at"`
+	RevokedReason string     `gorm:"size:255" json:"revoked_reason"`
+}
+
+func (SignAsset) TableName() string { return "sign_asset" }
 
 // StatusInt 状态字符串转接口约定的 1/0。
 func StatusInt(status string) int {

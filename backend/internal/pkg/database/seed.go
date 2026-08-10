@@ -254,7 +254,15 @@ func seedRoleMenus(tx *gorm.DB, roleIDs, menuIDs map[string]string) error {
 			managerMenuIDs = append(managerMenuIDs, id)
 		}
 	}
-	// 巡检员/维修工仅有小程序接口权限点，无后台菜单，不分配
+	// 巡检员无后台菜单，但需持有 report:sign:inspector 权限点：
+	// 月报三级签字的第一级"巡检员确认"要求应签巡检员本人调用（超管代签不推进状态机），
+	// 否则报告永远停在 pending_inspector。页面入口后续由小程序/移动门户提供，权限先行下放。
+	if id, ok := menuIDs["report:sign:inspector"]; ok {
+		if err := assign(roleIDs["inspector"], []string{id}); err != nil {
+			return err
+		}
+	}
+	// 维修工仅有小程序接口权限点，无后台菜单，不分配
 	return assign(roleIDs["manager"], managerMenuIDs)
 }
 

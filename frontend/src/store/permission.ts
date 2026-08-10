@@ -54,12 +54,6 @@ export const usePermissionStore = defineStore('permission', {
       // 隐藏路由：不进侧边菜单，由列表页跳转进入
       const hiddenRoutes: RouteRecordRaw[] = [
         {
-          path: '/community/building',
-          component: viewModules['../views/community/building/index.vue'],
-          name: '/community/building',
-          meta: { title: '楼栋管理' }
-        },
-        {
           path: '/inspection/tasks/detail/:id',
           component: viewModules['../views/inspection/tasks/detail/index.vue'],
           name: '/inspection/tasks/detail',

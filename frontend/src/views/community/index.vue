@@ -1,79 +1,204 @@
 <template>
   <div class="app-container">
-    <!-- 搜索区 -->
-    <div class="filter-card">
-      <el-form :model="query" inline>
-        <el-form-item label="小区名称">
-          <el-input v-model="query.name" placeholder="小区名称" clearable style="width: 180px" @keyup.enter="handleSearch" />
-        </el-form-item>
-        <el-form-item label="状态">
-          <el-select v-model="query.status" placeholder="全部状态" clearable style="width: 120px">
-            <el-option label="启用" :value="1" />
-            <el-option label="停用" :value="0" />
-          </el-select>
-        </el-form-item>
-        <el-form-item>
-          <el-button type="primary" :icon="Search" @click="handleSearch">查询</el-button>
-          <el-button :icon="Refresh" @click="handleReset">重置</el-button>
-        </el-form-item>
-      </el-form>
-    </div>
+    <div class="community-layout">
+      <!-- 左：组织树（小区 → 楼栋/区域） -->
+      <div class="tree-card">
+        <div class="tree-title">组织架构</div>
+        <el-tree
+          :data="treeData"
+          node-key="treeKey"
+          default-expand-all
+          highlight-current
+          :expand-on-click-node="false"
+          :props="{ label: 'label', children: 'children' }"
+          @node-click="handleNodeClick"
+        >
+          <template #default="{ data }">
+            <span class="tree-node">
+              <span>{{ data.label }}</span>
+              <el-tag v-if="data.kind === 'building'" :type="data.buildingType === 'building' ? 'primary' : 'warning'" size="small" class="tree-tag">
+                {{ data.buildingType === 'building' ? '楼栋' : '区域' }}
+              </el-tag>
+            </span>
+          </template>
+        </el-tree>
+      </div>
 
-    <!-- 表格 -->
-    <div class="table-card">
-      <div class="table-toolbar">
-        <div class="table-toolbar-left">
-          <el-button v-perms="'community:create'" type="primary" :icon="Plus" @click="openForm()">新增小区</el-button>
+      <!-- 右：跟随树节点切换 -->
+      <div class="community-main">
+        <!-- 当前位置 -->
+        <div class="context-bar">
+          <span class="context-path">{{ contextPath }}</span>
+          <span v-if="mode !== 'all'" class="text-secondary">{{ contextHint }}</span>
         </div>
-        <el-tooltip content="刷新" placement="top">
-          <el-button :icon="RefreshRight" circle @click="fetchList" />
-        </el-tooltip>
-      </div>
 
-      <el-table v-loading="loading" :data="list" stripe style="width: 100%">
-        <el-table-column prop="name" label="小区名称" min-width="150" show-overflow-tooltip />
-        <el-table-column prop="address" label="地址" min-width="220" show-overflow-tooltip>
-          <template #default="{ row }">{{ row.address || '--' }}</template>
-        </el-table-column>
-        <el-table-column prop="manager_name" label="负责人" width="110">
-          <template #default="{ row }">{{ row.manager_name || '--' }}</template>
-        </el-table-column>
-        <el-table-column prop="building_count" label="楼栋数" width="90" align="right" />
-        <el-table-column prop="point_count" label="点位数" width="90" align="right" />
-        <el-table-column label="状态" width="80" align="center">
-          <template #default="{ row }">
-            <el-tag :type="row.status === 1 ? 'success' : 'info'" size="small">
-              {{ row.status === 1 ? '启用' : '停用' }}
-            </el-tag>
-          </template>
-        </el-table-column>
-        <el-table-column label="操作" width="230" fixed="right">
-          <template #default="{ row }">
-            <el-button v-perms="'community:update'" link type="primary" @click="openForm(row)">编辑</el-button>
-            <el-button link type="primary" @click="goBuildings(row)">楼栋管理</el-button>
-            <el-button v-perms="'community:delete'" link type="danger" @click="handleDelete(row)">删除</el-button>
-          </template>
-        </el-table-column>
-        <template #empty>
-          <el-empty description="暂无小区">
-            <el-button v-perms="'community:create'" type="primary" @click="openForm()">新增小区</el-button>
-          </el-empty>
+        <!-- 小区列表（选中「全部小区」） -->
+        <template v-if="mode === 'all'">
+          <div class="filter-card">
+            <el-form :model="query" inline>
+              <el-form-item label="小区名称">
+                <el-input v-model="query.name" placeholder="小区名称" clearable style="width: 180px" @keyup.enter="handleSearch" />
+              </el-form-item>
+              <el-form-item label="状态">
+                <el-select v-model="query.status" placeholder="全部状态" clearable style="width: 120px">
+                  <el-option label="启用" :value="1" />
+                  <el-option label="停用" :value="0" />
+                </el-select>
+              </el-form-item>
+              <el-form-item>
+                <el-button type="primary" :icon="Search" @click="handleSearch">查询</el-button>
+                <el-button :icon="Refresh" @click="handleReset">重置</el-button>
+              </el-form-item>
+            </el-form>
+          </div>
+
+          <div class="table-card">
+            <div class="table-toolbar">
+              <div class="table-toolbar-left">
+                <el-button v-perms="'community:create'" type="primary" :icon="Plus" @click="openForm()">新增小区</el-button>
+              </div>
+              <el-tooltip content="刷新" placement="top">
+                <el-button :icon="RefreshRight" circle @click="refreshCurrent" />
+              </el-tooltip>
+            </div>
+
+            <el-table v-loading="loading" :data="list" stripe style="width: 100%">
+              <el-table-column prop="name" label="小区名称" min-width="150" show-overflow-tooltip />
+              <el-table-column prop="address" label="地址" min-width="200" show-overflow-tooltip>
+                <template #default="{ row }">{{ row.address || '--' }}</template>
+              </el-table-column>
+              <el-table-column prop="manager_name" label="负责人" width="110">
+                <template #default="{ row }">{{ row.manager_name || '--' }}</template>
+              </el-table-column>
+              <el-table-column prop="building_count" label="楼栋数" width="90" align="right" />
+              <el-table-column prop="point_count" label="点位数" width="90" align="right" />
+              <el-table-column label="状态" width="80" align="center">
+                <template #default="{ row }">
+                  <el-tag :type="row.status === 1 ? 'success' : 'info'" size="small">
+                    {{ row.status === 1 ? '启用' : '停用' }}
+                  </el-tag>
+                </template>
+              </el-table-column>
+              <el-table-column label="操作" width="150" fixed="right">
+                <template #default="{ row }">
+                  <el-button v-perms="'community:update'" link type="primary" @click="openForm(row)">编辑</el-button>
+                  <el-button v-perms="'community:delete'" link type="danger" @click="handleDelete(row)">删除</el-button>
+                </template>
+              </el-table-column>
+              <template #empty>
+                <el-empty description="暂无小区">
+                  <el-button v-perms="'community:create'" type="primary" @click="openForm()">新增小区</el-button>
+                </el-empty>
+              </template>
+            </el-table>
+
+            <div class="pagination-wrap">
+              <el-pagination
+                v-model:current-page="query.page"
+                v-model:page-size="query.page_size"
+                :total="total"
+                :page-sizes="[10, 20, 50, 100]"
+                layout="total, sizes, prev, pager, next"
+                @change="fetchList"
+              />
+            </div>
+          </div>
         </template>
-      </el-table>
 
-      <div class="pagination-wrap">
-        <el-pagination
-          v-model:current-page="query.page"
-          v-model:page-size="query.page_size"
-          :total="total"
-          :page-sizes="[10, 20, 50, 100]"
-          layout="total, sizes, prev, pager, next"
-          @change="fetchList"
-        />
+        <!-- 楼栋/区域列表（选中某小区） -->
+        <div v-else-if="mode === 'community'" class="table-card">
+          <div class="table-toolbar">
+            <div class="table-toolbar-left">
+              <el-button v-perms="'community:building:create'" type="primary" :icon="Plus" @click="openBuildingForm()">新增楼栋/区域</el-button>
+            </div>
+            <el-tooltip content="刷新" placement="top">
+              <el-button :icon="RefreshRight" circle @click="refreshCurrent" />
+            </el-tooltip>
+          </div>
+
+          <el-table v-loading="loading" :data="buildingList" stripe style="width: 100%">
+            <el-table-column prop="name" label="名称" min-width="160" />
+            <el-table-column label="类型" width="110" align="center">
+              <template #default="{ row }">
+                <el-tag :type="row.type === 'building' ? 'primary' : 'warning'" size="small">
+                  {{ row.type === 'building' ? '楼栋' : '区域' }}
+                </el-tag>
+              </template>
+            </el-table-column>
+            <el-table-column prop="point_count" label="点位数" width="90" align="right" />
+            <el-table-column prop="created_at" label="创建时间" width="160" />
+            <el-table-column label="操作" width="130" fixed="right">
+              <template #default="{ row }">
+                <el-button v-perms="'community:building:update'" link type="primary" @click="openBuildingForm(row)">编辑</el-button>
+                <el-button v-perms="'community:building:delete'" link type="danger" @click="handleBuildingDelete(row)">删除</el-button>
+              </template>
+            </el-table-column>
+            <template #empty>
+              <el-empty description="该小区暂无楼栋/区域">
+                <el-button v-perms="'community:building:create'" type="primary" @click="openBuildingForm()">新增楼栋/区域</el-button>
+              </el-empty>
+            </template>
+          </el-table>
+
+          <div class="pagination-wrap">
+            <el-pagination
+              v-model:current-page="buildingQuery.page"
+              v-model:page-size="buildingQuery.page_size"
+              :total="buildingTotal"
+              layout="total, prev, pager, next"
+              @change="fetchBuildings"
+            />
+          </div>
+        </div>
+
+        <!-- 点位列表（选中某楼栋/区域） -->
+        <div v-else class="table-card">
+          <div class="table-toolbar">
+            <div class="table-toolbar-left">
+              <el-button type="primary" :icon="MapLocation" @click="goPoints">在点位管理中维护</el-button>
+            </div>
+            <el-tooltip content="刷新" placement="top">
+              <el-button :icon="RefreshRight" circle @click="refreshCurrent" />
+            </el-tooltip>
+          </div>
+
+          <el-table v-loading="loading" :data="pointList" stripe style="width: 100%">
+            <el-table-column prop="name" label="点位名称" min-width="140" show-overflow-tooltip />
+            <el-table-column prop="type_label" label="类型" width="110">
+              <template #default="{ row }">{{ row.type_label || row.type }}</template>
+            </el-table-column>
+            <el-table-column prop="qrcode_no" label="二维码编号" width="120" />
+            <el-table-column label="打卡方式" width="110" align="center">
+              <template #default="{ row }">{{ checkinModeLabel(row) }}</template>
+            </el-table-column>
+            <el-table-column label="状态" width="80" align="center">
+              <template #default="{ row }">
+                <el-tag :type="row.status === 1 ? 'success' : 'info'" size="small">
+                  {{ row.status === 1 ? '启用' : '停用' }}
+                </el-tag>
+              </template>
+            </el-table-column>
+            <template #empty>
+              <el-empty description="该楼栋/区域暂无点位">
+                <el-button type="primary" @click="goPoints">前往点位管理新增</el-button>
+              </el-empty>
+            </template>
+          </el-table>
+
+          <div class="pagination-wrap">
+            <el-pagination
+              v-model:current-page="pointQuery.page"
+              v-model:page-size="pointQuery.page_size"
+              :total="pointTotal"
+              layout="total, prev, pager, next"
+              @change="fetchPoints"
+            />
+          </div>
+        </div>
       </div>
     </div>
 
-    <!-- 新增/编辑对话框 -->
+    <!-- 新增/编辑小区对话框 -->
     <el-dialog v-model="formVisible" :title="form.id ? '编辑小区' : '新增小区'" width="480px" :close-on-click-modal="false">
       <el-form ref="formRef" :model="form" :rules="formRules" label-width="88px">
         <el-form-item label="小区名称" prop="name">
@@ -94,18 +219,128 @@
         <el-button type="primary" :loading="submitting" @click="handleSubmit">保存</el-button>
       </template>
     </el-dialog>
+
+    <!-- 新增/编辑楼栋/区域对话框 -->
+    <el-dialog v-model="buildingFormVisible" :title="buildingForm.id ? '编辑楼栋/区域' : '新增楼栋/区域'" width="440px" :close-on-click-modal="false">
+      <el-form ref="buildingFormRef" :model="buildingForm" :rules="buildingFormRules" label-width="88px">
+        <el-form-item label="所属小区">
+          <el-input :model-value="currentName" disabled />
+        </el-form-item>
+        <el-form-item label="名称" prop="name">
+          <el-input v-model="buildingForm.name" placeholder="如：1号楼 / 地下车库A区" />
+        </el-form-item>
+        <el-form-item label="类型" prop="type">
+          <el-radio-group v-model="buildingForm.type">
+            <el-radio value="building">楼栋</el-radio>
+            <el-radio value="area">区域</el-radio>
+          </el-radio-group>
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="buildingFormVisible = false">取消</el-button>
+        <el-button type="primary" :loading="submitting" @click="handleBuildingSubmit">保存</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
 <script setup lang="ts">
-import { onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox, type FormInstance, type FormRules } from 'element-plus'
-import { Search, Refresh, Plus, RefreshRight } from '@element-plus/icons-vue'
-import { listCommunities, createCommunity, updateCommunity, deleteCommunity } from '@/api/community'
-import type { CommunityItem } from '@/api/biz-types'
+import { Search, Refresh, Plus, RefreshRight, MapLocation } from '@element-plus/icons-vue'
+import {
+  listCommunities, createCommunity, updateCommunity, deleteCommunity,
+  listCommunityTree, listBuildings, createBuilding, updateBuilding, deleteBuilding
+} from '@/api/community'
+import { listPoints } from '@/api/point'
+import type { CommunityItem, BuildingItem, PointItem } from '@/api/biz-types'
 
 const router = useRouter()
+
+// ===== 左树 =====
+interface TreeNode {
+  treeKey: string
+  label: string
+  kind: 'all' | 'community' | 'building'
+  communityId?: string
+  buildingId?: string
+  buildingType?: string
+  children?: TreeNode[]
+}
+
+const treeData = ref<TreeNode[]>([])
+
+async function fetchTree() {
+  const nodes = await listCommunityTree()
+  treeData.value = [{
+    treeKey: 'all',
+    label: '全部小区',
+    kind: 'all',
+    children: nodes.map((c) => ({
+      treeKey: `c-${c.id}`,
+      label: c.name,
+      kind: 'community' as const,
+      communityId: c.id,
+      children: c.buildings.map((b) => ({
+        treeKey: `b-${b.id}`,
+        label: b.name,
+        kind: 'building' as const,
+        communityId: c.id,
+        buildingId: b.id,
+        buildingType: b.type
+      }))
+    }))
+  }]
+}
+
+// ===== 选中节点与联动 =====
+const mode = ref<'all' | 'community' | 'building'>('all')
+const currentCommunityId = ref('')
+const currentBuildingId = ref('')
+const currentName = ref('') // 当前小区名（楼栋模式下为楼栋名）
+
+const contextPath = computed(() => {
+  if (mode.value === 'all') return '全部小区'
+  const comm = treeData.value[0]?.children?.find((c) => c.communityId === currentCommunityId.value)
+  if (mode.value === 'community') return comm?.label || ''
+  return `${comm?.label || ''} / ${currentName.value}`
+})
+
+const contextHint = computed(() =>
+  mode.value === 'community' ? '该小区下的楼栋/区域' : '该楼栋/区域下的点位（只读，维护请前往点位管理）'
+)
+
+function handleNodeClick(node: TreeNode) {
+  if (node.kind === 'all') {
+    mode.value = 'all'
+    currentCommunityId.value = ''
+    currentBuildingId.value = ''
+    fetchList()
+  } else if (node.kind === 'community') {
+    mode.value = 'community'
+    currentCommunityId.value = node.communityId!
+    currentBuildingId.value = ''
+    currentName.value = node.label
+    buildingQuery.page = 1
+    fetchBuildings()
+  } else {
+    mode.value = 'building'
+    currentCommunityId.value = node.communityId!
+    currentBuildingId.value = node.buildingId!
+    currentName.value = node.label
+    pointQuery.page = 1
+    fetchPoints()
+  }
+}
+
+function refreshCurrent() {
+  if (mode.value === 'all') fetchList()
+  else if (mode.value === 'community') fetchBuildings()
+  else fetchPoints()
+}
+
+// ===== 小区列表 =====
 const loading = ref(false)
 const list = ref<CommunityItem[]>([])
 const total = ref(0)
@@ -137,9 +372,12 @@ function handleReset() {
   handleSearch()
 }
 
-onMounted(fetchList)
+onMounted(() => {
+  fetchTree()
+  fetchList()
+})
 
-// ===== 新增/编辑 =====
+// ===== 小区新增/编辑 =====
 const formVisible = ref(false)
 const submitting = ref(false)
 const formRef = ref<FormInstance>()
@@ -169,7 +407,8 @@ async function handleSubmit() {
       ElMessage.success('小区已创建')
     }
     formVisible.value = false
-    fetchList()
+    fetchTree()
+    if (mode.value === 'all') fetchList()
   } finally {
     submitting.value = false
   }
@@ -187,11 +426,151 @@ async function handleDelete(row: CommunityItem) {
   if (!ok) return
   await deleteCommunity(row.id)
   ElMessage.success('已删除')
+  fetchTree()
   fetchList()
 }
 
-// 跳转楼栋管理并带小区过滤
-function goBuildings(row: CommunityItem) {
-  router.push({ path: '/community/building', query: { community_id: row.id } })
+// ===== 楼栋/区域列表 =====
+const buildingList = ref<BuildingItem[]>([])
+const buildingTotal = ref(0)
+const buildingQuery = reactive({ page: 1, page_size: 20 })
+
+async function fetchBuildings() {
+  loading.value = true
+  try {
+    const data = await listBuildings({ community_id: currentCommunityId.value, ...buildingQuery })
+    buildingList.value = data.list
+    buildingTotal.value = data.total
+  } finally {
+    loading.value = false
+  }
+}
+
+// ===== 楼栋/区域新增/编辑 =====
+const buildingFormVisible = ref(false)
+const buildingFormRef = ref<FormInstance>()
+const buildingForm = reactive({ id: '', name: '', type: 'building' })
+
+const buildingFormRules: FormRules = {
+  name: [{ required: true, message: '请输入名称', trigger: 'blur' }],
+  type: [{ required: true, message: '请选择类型', trigger: 'change' }]
+}
+
+function openBuildingForm(row?: BuildingItem) {
+  buildingFormRef.value?.clearValidate()
+  Object.assign(buildingForm, row
+    ? { id: row.id, name: row.name, type: row.type }
+    : { id: '', name: '', type: 'building' })
+  buildingFormVisible.value = true
+}
+
+async function handleBuildingSubmit() {
+  await buildingFormRef.value?.validate()
+  submitting.value = true
+  try {
+    if (buildingForm.id) {
+      await updateBuilding(buildingForm.id, { name: buildingForm.name, type: buildingForm.type })
+      ElMessage.success('已更新')
+    } else {
+      await createBuilding({ community_id: currentCommunityId.value, name: buildingForm.name, type: buildingForm.type })
+      ElMessage.success('已创建')
+    }
+    buildingFormVisible.value = false
+    fetchTree()
+    fetchBuildings()
+  } finally {
+    submitting.value = false
+  }
+}
+
+// 删除：存在点位时后端拒删（42003），错误信息由拦截器展示
+async function handleBuildingDelete(row: BuildingItem) {
+  const ok = await ElMessageBox.confirm(`删除后不可恢复，确定删除「${row.name}」吗？`, '删除确认', {
+    confirmButtonText: '删除',
+    cancelButtonText: '取消',
+    type: 'error'
+  }).then(() => true).catch(() => false)
+  if (!ok) return
+  await deleteBuilding(row.id)
+  ElMessage.success('已删除')
+  fetchTree()
+  fetchBuildings()
+}
+
+// ===== 楼栋下点位列表（只读预览） =====
+const pointList = ref<PointItem[]>([])
+const pointTotal = ref(0)
+const pointQuery = reactive({ page: 1, page_size: 20 })
+
+async function fetchPoints() {
+  loading.value = true
+  try {
+    const data = await listPoints({ building_id: currentBuildingId.value, ...pointQuery })
+    pointList.value = data.list
+    pointTotal.value = data.total
+  } finally {
+    loading.value = false
+  }
+}
+
+// 打卡方式展示：凭证 + 围栏两个维度组合成一句话
+function checkinModeLabel(p: { credential: string; require_fence: boolean }) {
+  const cred = { qrcode: '扫码', nfc: 'NFC', none: '' }[p.credential] ?? p.credential
+  if (p.credential === 'none') return p.require_fence ? '围栏' : '--'
+  return p.require_fence ? `${cred}+围栏` : cred
+}
+
+function goPoints() {
+  router.push('/inspection/points')
 }
 </script>
+
+<style scoped lang="scss">
+.community-layout {
+  display: flex;
+  gap: $spacing-lg;
+  align-items: flex-start;
+}
+
+.tree-card {
+  width: 240px;
+  flex-shrink: 0;
+  background: $color-bg-card;
+  border-radius: $radius-card;
+  padding: $spacing-lg;
+
+  .tree-title {
+    font-weight: 600;
+    margin-bottom: $spacing-md;
+    color: $color-text-primary;
+  }
+
+  .tree-node {
+    display: flex;
+    align-items: center;
+    gap: $spacing-sm;
+  }
+
+  .tree-tag {
+    transform: scale(0.85);
+  }
+}
+
+.community-main {
+  flex: 1;
+  min-width: 0;
+}
+
+.context-bar {
+  display: flex;
+  align-items: baseline;
+  gap: $spacing-md;
+  margin-bottom: $spacing-md;
+  padding: 0 $spacing-xs;
+
+  .context-path {
+    font-weight: 600;
+    color: $color-text-primary;
+  }
+}
+</style>

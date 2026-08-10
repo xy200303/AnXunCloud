@@ -12,23 +12,12 @@ type TemplateListQuery struct {
 	Status    string `form:"status"`
 }
 
-type TemplateItemReq struct {
-	Name     string `json:"name" binding:"required"`
-	Required bool   `json:"required"`
-	// Requirement 检查标准要求文本（可选）
-	Requirement string `json:"requirement"`
-	// PhotoRequired 拍照要求：none/optional/required（空串视同 none）
-	PhotoRequired string `json:"photo_required"`
-}
-
 type TemplateSaveReq struct {
-	Name      string            `json:"name" binding:"required"`
-	PointType string            `json:"point_type"` // 空为通用模板
-	// Items 检查项整表替换载荷；nil 表示不动检查项（项级接口单独维护），非空时至少 1 项
-	Items  []TemplateItemReq `json:"items" binding:"omitempty,min=1"`
-	Sort   int               `json:"sort"`
-	Status *int              `json:"status"`
-	Remark string            `json:"remark"`
+	Name      string `json:"name" binding:"required"`
+	PointType string `json:"point_type"` // 空为通用模板
+	Sort      int    `json:"sort"`
+	Status    *int   `json:"status"`
+	Remark    string `json:"remark"`
 }
 
 // TemplateItemSaveReq 项级粒度新增/修改单个检查项。

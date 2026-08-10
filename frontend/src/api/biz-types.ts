@@ -50,8 +50,6 @@ export interface TemplateItem {
 export interface TemplateForm {
   name: string
   point_type: string
-  // 缺省表示不动检查项（由项级接口单独维护）；提交时整表替换
-  items?: TemplateCheckItem[]
   sort: number
   status: number
   remark: string

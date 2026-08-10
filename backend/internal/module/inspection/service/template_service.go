@@ -98,9 +98,6 @@ func templateItemViews(items []model.CheckTemplateItem) []gin.H {
 
 // Create 新增模板（模板 + 项行同事务写入）。
 func (s *TemplateService) Create(req *dto.TemplateSaveReq) (string, *errs.Error) {
-	if be := validateTemplate(req); be != nil {
-		return "", be
-	}
 	t := model.CheckTemplate{
 		Name:      strings.TrimSpace(req.Name),
 		PointType: req.PointType,
@@ -111,16 +108,7 @@ func (s *TemplateService) Create(req *dto.TemplateSaveReq) (string, *errs.Error)
 	if req.Status != nil {
 		t.Status = sysmodel.StatusStr(*req.Status)
 	}
-	err := s.db.Transaction(func(tx *gorm.DB) error {
-		if err := tx.Create(&t).Error; err != nil {
-			return err
-		}
-		if req.Items == nil {
-			return nil
-		}
-		return tx.Create(toItemRows(t.ID, req.Items)).Error
-	})
-	if err != nil {
+	if err := s.db.Create(&t).Error; err != nil {
 		return "", errs.ErrInternal
 	}
 	return t.ID, nil
@@ -135,14 +123,11 @@ func (s *TemplateService) Detail(id string) (gin.H, *errs.Error) {
 	return templateItem(&t, s.loadItems([]string{id})[id]), nil
 }
 
-// Update 修改模板（事务内更新模板字段 + 整表替换项行）。
+// Update 修改模板自身字段（检查项由项级接口单独维护）。
 func (s *TemplateService) Update(id string, req *dto.TemplateSaveReq) *errs.Error {
 	var t model.CheckTemplate
 	if err := s.db.First(&t, "id = ?", id).Error; err != nil {
 		return errs.ErrNotFound
-	}
-	if be := validateTemplate(req); be != nil {
-		return be
 	}
 	updates := map[string]any{
 		"name": strings.TrimSpace(req.Name), "point_type": req.PointType,
@@ -151,19 +136,7 @@ func (s *TemplateService) Update(id string, req *dto.TemplateSaveReq) *errs.Erro
 	if req.Status != nil {
 		updates["status"] = sysmodel.StatusStr(*req.Status)
 	}
-	err := s.db.Transaction(func(tx *gorm.DB) error {
-		if err := tx.Model(&t).Updates(updates).Error; err != nil {
-			return err
-		}
-		if req.Items == nil {
-			return nil
-		}
-		if err := tx.Where("template_id = ?", id).Delete(&model.CheckTemplateItem{}).Error; err != nil {
-			return err
-		}
-		return tx.Create(toItemRows(id, req.Items)).Error
-	})
-	if err != nil {
+	if err := s.db.Model(&t).Updates(updates).Error; err != nil {
 		return errs.ErrInternal
 	}
 	return nil
@@ -189,16 +162,6 @@ func (s *TemplateService) Delete(id string) *errs.Error {
 	})
 	if err != nil {
 		return errs.ErrInternal
-	}
-	return nil
-}
-
-// validateTemplate 模板整表替换校验：每项名称非空，photo_required 枚举合法（items 为 nil 时不校验，由项级接口维护）。
-func validateTemplate(req *dto.TemplateSaveReq) *errs.Error {
-	for _, it := range req.Items {
-		if be := validateItem(it.Name, it.PhotoRequired); be != nil {
-			return be
-		}
 	}
 	return nil
 }
@@ -327,24 +290,4 @@ func (s *TemplateService) DeleteItem(templateID, itemID string) *errs.Error {
 		return errs.ErrInternal
 	}
 	return nil
-}
-
-// toItemRows 请求项 → 模板项行（sort 按提交顺序）。
-func toItemRows(templateID string, items []dto.TemplateItemReq) []model.CheckTemplateItem {
-	out := make([]model.CheckTemplateItem, 0, len(items))
-	for i, it := range items {
-		pr := it.PhotoRequired
-		if pr == "" {
-			pr = types.PhotoReqNone
-		}
-		row := model.CheckTemplateItem{
-			TemplateID: templateID, Name: strings.TrimSpace(it.Name),
-			Required: it.Required, PhotoRequired: pr, Sort: i,
-		}
-		if r := strings.TrimSpace(it.Requirement); r != "" {
-			row.Requirement = &r
-		}
-		out = append(out, row)
-	}
-	return out
 }

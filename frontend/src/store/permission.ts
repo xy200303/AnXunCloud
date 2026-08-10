@@ -66,6 +66,12 @@ export const usePermissionStore = defineStore('permission', {
           meta: { title: '任务明细' }
         },
         {
+          path: '/inspection/templates/:id/items',
+          component: viewModules['../views/inspection/templates/items/index.vue'],
+          name: '/inspection/templates/items',
+          meta: { title: '检查项配置' }
+        },
+        {
           path: '/workorders/detail/:id',
           component: viewModules['../views/workorders/detail/index.vue'],
           name: '/workorders/detail',

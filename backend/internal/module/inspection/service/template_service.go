@@ -115,6 +115,9 @@ func (s *TemplateService) Create(req *dto.TemplateSaveReq) (string, *errs.Error)
 		if err := tx.Create(&t).Error; err != nil {
 			return err
 		}
+		if req.Items == nil {
+			return nil
+		}
 		return tx.Create(toItemRows(t.ID, req.Items)).Error
 	})
 	if err != nil {
@@ -152,6 +155,9 @@ func (s *TemplateService) Update(id string, req *dto.TemplateSaveReq) *errs.Erro
 		if err := tx.Model(&t).Updates(updates).Error; err != nil {
 			return err
 		}
+		if req.Items == nil {
+			return nil
+		}
 		if err := tx.Where("template_id = ?", id).Delete(&model.CheckTemplateItem{}).Error; err != nil {
 			return err
 		}
@@ -187,17 +193,138 @@ func (s *TemplateService) Delete(id string) *errs.Error {
 	return nil
 }
 
-// validateTemplate 模板项校验：至少 1 项且每项名称非空，photo_required 枚举合法。
+// validateTemplate 模板整表替换校验：每项名称非空，photo_required 枚举合法（items 为 nil 时不校验，由项级接口维护）。
 func validateTemplate(req *dto.TemplateSaveReq) *errs.Error {
 	for _, it := range req.Items {
-		if strings.TrimSpace(it.Name) == "" {
-			return errs.ErrParam.WithMsg("检查项名称不能为空")
+		if be := validateItem(it.Name, it.PhotoRequired); be != nil {
+			return be
 		}
-		switch it.PhotoRequired {
-		case "", types.PhotoReqNone, types.PhotoReqOptional, types.PhotoReqRequired:
-		default:
-			return errs.ErrParam.WithMsg("检查项「" + it.Name + "」photo_required 取值应为 none/optional/required")
-		}
+	}
+	return nil
+}
+
+// validateItem 单个检查项校验：名称非空，photo_required 枚举合法。
+func validateItem(name, photoRequired string) *errs.Error {
+	if strings.TrimSpace(name) == "" {
+		return errs.ErrParam.WithMsg("检查项名称不能为空")
+	}
+	switch photoRequired {
+	case "", types.PhotoReqNone, types.PhotoReqOptional, types.PhotoReqRequired:
+	default:
+		return errs.ErrParam.WithMsg("检查项「" + name + "」photo_required 取值应为 none/optional/required")
+	}
+	return nil
+}
+
+// ========== 项级粒度接口 ==========
+
+// itemRowView 项级接口视图：含 id/sort/created_at（区别于模板内嵌 items 快照视图）。
+func itemRowView(it *model.CheckTemplateItem) gin.H {
+	return gin.H{
+		"id": it.ID, "name": it.Name, "requirement": it.Requirement,
+		"required": it.Required, "photo_required": it.PhotoRequired,
+		"sort": it.Sort, "created_at": timefmt.T(it.CreatedAt),
+	}
+}
+
+// Items 模板检查项列表（按 sort 升序）。
+func (s *TemplateService) Items(templateID string) ([]gin.H, *errs.Error) {
+	var t model.CheckTemplate
+	if err := s.db.First(&t, "id = ?", templateID).Error; err != nil {
+		return nil, errs.ErrNotFound
+	}
+	var rows []model.CheckTemplateItem
+	if err := s.db.Where("template_id = ?", templateID).Order("sort ASC, id ASC").Find(&rows).Error; err != nil {
+		return nil, errs.ErrInternal
+	}
+	out := make([]gin.H, 0, len(rows))
+	for i := range rows {
+		out = append(out, itemRowView(&rows[i]))
+	}
+	return out, nil
+}
+
+// AddItem 新增一个检查项；sort 缺省时追加到末尾。
+func (s *TemplateService) AddItem(templateID string, req *dto.TemplateItemSaveReq) (string, *errs.Error) {
+	var t model.CheckTemplate
+	if err := s.db.First(&t, "id = ?", templateID).Error; err != nil {
+		return "", errs.ErrNotFound
+	}
+	if be := validateItem(req.Name, req.PhotoRequired); be != nil {
+		return "", be
+	}
+	sort := 0
+	if req.Sort != nil {
+		sort = *req.Sort
+	} else {
+		var maxSort int
+		s.db.Model(&model.CheckTemplateItem{}).Where("template_id = ?", templateID).
+			Select("COALESCE(MAX(sort), -1)").Scan(&maxSort)
+		sort = maxSort + 1
+	}
+	row := model.CheckTemplateItem{
+		TemplateID: templateID, Name: strings.TrimSpace(req.Name),
+		Required: req.Required, PhotoRequired: req.PhotoRequired, Sort: sort,
+	}
+	if row.PhotoRequired == "" {
+		row.PhotoRequired = types.PhotoReqNone
+	}
+	if r := strings.TrimSpace(req.Requirement); r != "" {
+		row.Requirement = &r
+	}
+	if err := s.db.Create(&row).Error; err != nil {
+		return "", errs.ErrInternal
+	}
+	return row.ID, nil
+}
+
+// findItem 按模板 + 项 id 定位项行。
+func (s *TemplateService) findItem(templateID, itemID string) (*model.CheckTemplateItem, *errs.Error) {
+	var row model.CheckTemplateItem
+	if err := s.db.First(&row, "id = ? AND template_id = ?", itemID, templateID).Error; err != nil {
+		return nil, errs.ErrNotFound
+	}
+	return &row, nil
+}
+
+// UpdateItem 修改一个检查项；sort 缺省保持不变。
+func (s *TemplateService) UpdateItem(templateID, itemID string, req *dto.TemplateItemSaveReq) *errs.Error {
+	row, be := s.findItem(templateID, itemID)
+	if be != nil {
+		return be
+	}
+	if be := validateItem(req.Name, req.PhotoRequired); be != nil {
+		return be
+	}
+	pr := req.PhotoRequired
+	if pr == "" {
+		pr = types.PhotoReqNone
+	}
+	updates := map[string]any{
+		"name": strings.TrimSpace(req.Name), "required": req.Required, "photo_required": pr,
+	}
+	if r := strings.TrimSpace(req.Requirement); r != "" {
+		updates["requirement"] = r
+	} else {
+		updates["requirement"] = nil
+	}
+	if req.Sort != nil {
+		updates["sort"] = *req.Sort
+	}
+	if err := s.db.Model(row).Updates(updates).Error; err != nil {
+		return errs.ErrInternal
+	}
+	return nil
+}
+
+// DeleteItem 删除一个检查项（历史打卡记录已快照进 checkin_record_item，不受影响）。
+func (s *TemplateService) DeleteItem(templateID, itemID string) *errs.Error {
+	row, be := s.findItem(templateID, itemID)
+	if be != nil {
+		return be
+	}
+	if err := s.db.Delete(row).Error; err != nil {
+		return errs.ErrInternal
 	}
 	return nil
 }

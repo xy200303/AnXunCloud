@@ -167,6 +167,11 @@ func New(cfg *config.Config, db *gorm.DB, rdb *redis.Client) (*gin.Engine, *insp
 			templates.GET("/:id", middleware.RequirePerm("inspection:template:list"), templateCtl.Detail)
 			templates.PUT("/:id", middleware.RequirePerm("inspection:template:update"), middleware.OperLog(db, "inspection", "update"), templateCtl.Update)
 			templates.DELETE("/:id", middleware.RequirePerm("inspection:template:delete"), middleware.OperLog(db, "inspection", "delete"), templateCtl.Delete)
+			// 项级粒度：检查项按行增删改（模板 PUT 的整表替换保留兼容）
+			templates.GET("/:id/items", middleware.RequirePerm("inspection:template:list"), templateCtl.ListItems)
+			templates.POST("/:id/items", middleware.RequirePerm("inspection:template:update"), middleware.OperLog(db, "inspection", "update"), templateCtl.CreateItem)
+			templates.PUT("/:id/items/:itemId", middleware.RequirePerm("inspection:template:update"), middleware.OperLog(db, "inspection", "update"), templateCtl.UpdateItem)
+			templates.DELETE("/:id/items/:itemId", middleware.RequirePerm("inspection:template:update"), middleware.OperLog(db, "inspection", "update"), templateCtl.DeleteItem)
 		}
 		// 打卡记录审核与抽查
 		review := secured.Group("/inspection/review")

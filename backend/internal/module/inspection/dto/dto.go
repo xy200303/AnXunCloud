@@ -24,10 +24,21 @@ type TemplateItemReq struct {
 type TemplateSaveReq struct {
 	Name      string            `json:"name" binding:"required"`
 	PointType string            `json:"point_type"` // 空为通用模板
-	Items     []TemplateItemReq `json:"items" binding:"required,min=1"`
-	Sort      int               `json:"sort"`
-	Status    *int              `json:"status"`
-	Remark    string            `json:"remark"`
+	// Items 检查项整表替换载荷；nil 表示不动检查项（项级接口单独维护），非空时至少 1 项
+	Items  []TemplateItemReq `json:"items" binding:"omitempty,min=1"`
+	Sort   int               `json:"sort"`
+	Status *int              `json:"status"`
+	Remark string            `json:"remark"`
+}
+
+// TemplateItemSaveReq 项级粒度新增/修改单个检查项。
+type TemplateItemSaveReq struct {
+	Name         string `json:"name" binding:"required"`
+	Required     bool   `json:"required"`
+	Requirement  string `json:"requirement"`
+	PhotoRequired string `json:"photo_required"`
+	// Sort 排序号；新增时缺省（nil）追加到末尾，修改时缺省保持不变
+	Sort *int `json:"sort"`
 }
 
 // ========== 点位 ==========

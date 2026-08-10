@@ -130,11 +130,16 @@ func (s *TemplateService) Delete(id string) *errs.Error {
 	return nil
 }
 
-// validateTemplate 模板项校验：至少 1 项且每项名称非空。
+// validateTemplate 模板项校验：至少 1 项且每项名称非空，photo_required 枚举合法。
 func validateTemplate(req *dto.TemplateSaveReq) *errs.Error {
 	for _, it := range req.Items {
 		if strings.TrimSpace(it.Name) == "" {
 			return errs.ErrParam.WithMsg("检查项名称不能为空")
+		}
+		switch it.PhotoRequired {
+		case "", types.PhotoReqNone, types.PhotoReqOptional, types.PhotoReqRequired:
+		default:
+			return errs.ErrParam.WithMsg("检查项「" + it.Name + "」photo_required 取值应为 none/optional/required")
 		}
 	}
 	return nil
@@ -143,7 +148,11 @@ func validateTemplate(req *dto.TemplateSaveReq) *errs.Error {
 func toTemplateItems(items []dto.TemplateItemReq) types.TemplateItemArray {
 	out := make(types.TemplateItemArray, 0, len(items))
 	for _, it := range items {
-		out = append(out, types.TemplateItem{Name: strings.TrimSpace(it.Name), Required: it.Required})
+		pr := it.PhotoRequired
+		if pr == "" {
+			pr = types.PhotoReqNone
+		}
+		out = append(out, types.TemplateItem{Name: strings.TrimSpace(it.Name), Required: it.Required, PhotoRequired: pr})
 	}
 	return out
 }

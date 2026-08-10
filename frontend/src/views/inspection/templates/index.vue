@@ -78,7 +78,7 @@
     </div>
 
     <!-- 新增/编辑对话框 -->
-    <el-dialog v-model="formVisible" :title="form.id ? '编辑模板' : '新增模板'" width="640px" :close-on-click-modal="false">
+    <el-dialog v-model="formVisible" :title="form.id ? '编辑模板' : '新增模板'" width="720px" :close-on-click-modal="false">
       <el-form ref="formRef" :model="form" :rules="formRules" label-width="88px">
         <el-form-item label="模板名称" prop="name">
           <el-input v-model="form.name" placeholder="如：消防设施日检" maxlength="50" show-word-limit />
@@ -96,10 +96,15 @@
             <div v-for="(item, i) in form.items" :key="i" class="check-item">
               <el-input v-model="item.name" placeholder="检查项名称，如：灭火器压力正常" style="flex: 1" />
               <el-switch v-model="item.required" inline-prompt active-text="必检" inactive-text="选检" />
+              <el-select v-model="item.photo_required" style="width: 96px">
+                <el-option label="无需拍照" value="none" />
+                <el-option label="选拍" value="optional" />
+                <el-option label="必拍" value="required" />
+              </el-select>
               <el-button link type="danger" :icon="Delete" :disabled="form.items.length <= 1" @click="form.items.splice(i, 1)" />
             </div>
-            <el-button :icon="Plus" size="small" @click="form.items.push({ name: '', required: true })">添加一项</el-button>
-            <div class="text-secondary">至少 1 项；打卡时巡检员逐项确认是否合格</div>
+            <el-button :icon="Plus" size="small" @click="form.items.push({ name: '', required: true, photo_required: 'none' })">添加一项</el-button>
+            <div class="text-secondary">至少 1 项；打卡时巡检员逐项确认是否合格，按拍照要求逐项拍照</div>
           </div>
         </el-form-item>
 
@@ -189,7 +194,7 @@ const form = reactive({
   id: '',
   name: '',
   point_type: '',
-  items: [{ name: '', required: true }] as TemplateCheckItem[],
+  items: [{ name: '', required: true, photo_required: 'none' }] as TemplateCheckItem[],
   sort: 0,
   status: 1,
   remark: ''
@@ -216,14 +221,16 @@ function openForm(row?: TemplateItem) {
       id: row.id,
       name: row.name,
       point_type: row.point_type || '',
-      items: row.items?.length ? row.items.map((x) => ({ ...x })) : [{ name: '', required: true }],
+      items: row.items?.length
+        ? row.items.map((x) => ({ ...x, photo_required: x.photo_required || 'none' }))
+        : [{ name: '', required: true, photo_required: 'none' }],
       sort: row.sort,
       status: row.status,
       remark: row.remark || ''
     })
   } else {
     Object.assign(form, {
-      id: '', name: '', point_type: '', items: [{ name: '', required: true }],
+      id: '', name: '', point_type: '', items: [{ name: '', required: true, photo_required: 'none' }],
       sort: 0, status: 1, remark: ''
     })
   }
@@ -235,7 +242,7 @@ async function handleSubmit() {
   const payload = {
     name: form.name.trim(),
     point_type: form.point_type,
-    items: form.items.map((x) => ({ name: x.name.trim(), required: x.required })),
+    items: form.items.map((x) => ({ name: x.name.trim(), required: x.required, photo_required: x.photo_required || 'none' })),
     sort: form.sort,
     status: form.status,
     remark: form.remark

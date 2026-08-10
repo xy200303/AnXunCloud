@@ -315,6 +315,27 @@ WHERE r.code = 'super_admin' AND r.deleted_at IS NULL AND m.deleted_at IS NULL
   AND m.perms IN ('system:signasset:list','system:signasset:create','system:signasset:revoke')
 ON CONFLICT DO NOTHING;
 `},
+	{Version: 17, Name: "item_photos", SQL: `
+-- ===== 检查项逐项拍照 + 工单不合格项快照（整改前后对比）=====
+-- 工单不合格项快照：items=[{name,remark,before_photos[],after_photos[]}]，photos 存 file_key
+ALTER TABLE work_order ADD COLUMN IF NOT EXISTS items jsonb NOT NULL DEFAULT '[]';
+COMMENT ON COLUMN work_order.items IS '不合格项快照：[{name,remark,before_photos[],after_photos[]}]（photos 存 file_key；before=整改前/打卡时，after=整改后/回传）';
+
+-- 模板项拍照要求 photo_required（none/optional/required，缺省 none）：
+-- 存量数据补齐缺省值；灭火器演示模板"压力表指针在绿区"置 required，其余 optional
+UPDATE check_template t SET items = (
+    SELECT jsonb_agg(
+        elem || jsonb_build_object('photo_required',
+            CASE
+                WHEN t.name LIKE '灭火器%' AND elem->>'name' = '压力表指针在绿区' THEN 'required'
+                WHEN t.name LIKE '灭火器%' THEN 'optional'
+                ELSE COALESCE(NULLIF(elem->>'photo_required', ''), 'none')
+            END)
+    )
+    FROM jsonb_array_elements(t.items) elem
+);
+COMMENT ON TABLE check_template IS '检查项模板：items=[{name,required,photo_required}]，photo_required=none/optional/required（缺省 none），point_type 空为通用';
+`},
 }
 
 // Migrate 执行未应用过的迁移，并确保当月与下月分区存在。

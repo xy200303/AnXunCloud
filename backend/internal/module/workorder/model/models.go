@@ -44,6 +44,8 @@ type WorkOrder struct {
 	AssigneeID   *string          `gorm:"type:uuid" json:"assignee_id"`
 	Priority     string           `gorm:"size:16" json:"priority"`
 	Status       string           `gorm:"size:16" json:"status"`
+	// Items 不合格项快照（v17 起）：整改前后对比，photos 存 file_key
+	Items        types.OrderItemArray `gorm:"type:jsonb" json:"items"`
 	FixPhotos    types.PhotoArray `gorm:"type:jsonb" json:"fix_photos"`
 	FixRemark    string           `gorm:"size:512" json:"fix_remark"`
 	FinishedAt   *time.Time       `json:"finished_at"`

@@ -245,7 +245,7 @@ func (s *CheckinService) doCheckinLocked(ctx context.Context, inspectorID string
 				return err
 			}
 			title := fmt.Sprintf("%s异常：%s", point.Name, truncateStr(req.Remark, 40))
-			wo, err := wosvc.CreateFromCheckin(tx, orderNo, rec.ID, task.CommunityID, &point.ID, title, req.Remark, photos, inspectorID)
+			wo, err := wosvc.CreateFromCheckin(tx, orderNo, rec.ID, task.CommunityID, &point.ID, title, req.Remark, photos, failedItemSnapshot(checkItems), inspectorID)
 			if err != nil {
 				return err
 			}
@@ -302,33 +302,59 @@ func (s *CheckinService) checkMode(req *dto.CheckinReq, point *insmodel.Inspecti
 	return nil
 }
 
-// resolveCheckItems 检查项模板校验：点位绑定模板时，模板每项都必须有提交结果（按 name 匹配）。
+// resolveCheckItems 检查项模板校验：点位绑定模板时，模板每项都必须有提交结果（按 name 匹配）；
+// 逐项照片硬约束：不合格项（pass=false）与模板 photo_required=required 的项均须 ≥1 张该项照片。
 func (s *CheckinService) resolveCheckItems(req *dto.CheckinReq, point *insmodel.InspectionPoint) (types.CheckItemArray, *errs.Error) {
-	items := make(types.CheckItemArray, 0, len(req.CheckItems))
-	for _, it := range req.CheckItems {
-		items = append(items, types.CheckItemResult{Name: it.Name, Pass: it.Pass, Note: it.Note})
-	}
-	if point.TemplateID == nil || *point.TemplateID == "" {
-		return items, nil
-	}
-	var tpl insmodel.CheckTemplate
-	if err := s.db.First(&tpl, "id = ?", *point.TemplateID).Error; err != nil {
-		return nil, errs.ErrParam.WithMsg("点位绑定的检查项模板不存在")
-	}
-	got := map[string]bool{}
-	for _, it := range req.CheckItems {
-		got[it.Name] = true
-	}
-	var missing []string
-	for _, ti := range tpl.Items {
-		if !got[ti.Name] {
-			missing = append(missing, ti.Name)
+	// 模板拍照要求（name → photo_required），无模板时仅执行不合格项必拍约束
+	photoReq := map[string]string{}
+	if point.TemplateID != nil && *point.TemplateID != "" {
+		var tpl insmodel.CheckTemplate
+		if err := s.db.First(&tpl, "id = ?", *point.TemplateID).Error; err != nil {
+			return nil, errs.ErrParam.WithMsg("点位绑定的检查项模板不存在")
+		}
+		got := map[string]bool{}
+		for _, it := range req.CheckItems {
+			got[it.Name] = true
+		}
+		var missing []string
+		for _, ti := range tpl.Items {
+			if !got[ti.Name] {
+				missing = append(missing, ti.Name)
+			}
+			photoReq[ti.Name] = ti.PhotoRequired
+		}
+		if len(missing) > 0 {
+			return nil, errs.ErrParam.WithMsg("检查项结果缺失：" + strings.Join(missing, "、"))
 		}
 	}
-	if len(missing) > 0 {
-		return nil, errs.ErrParam.WithMsg("检查项结果缺失：" + strings.Join(missing, "、"))
+	items := make(types.CheckItemArray, 0, len(req.CheckItems))
+	for _, it := range req.CheckItems {
+		if be := s.checkItemPhotos(it, photoReq[it.Name]); be != nil {
+			return nil, be
+		}
+		items = append(items, types.CheckItemResult{
+			Name: it.Name, Pass: it.Pass, Note: it.Note, Photos: types.StringArray(it.Photos),
+		})
 	}
 	return items, nil
+}
+
+// checkItemPhotos 逐项照片硬约束与 file_key 上传确认（43104 / 43106）。
+func (s *CheckinService) checkItemPhotos(it dto.CheckinItemReq, photoRequired string) *errs.Error {
+	if !it.Pass && len(it.Photos) == 0 {
+		return errs.ErrPhotoMissing.WithMsg("检查项「" + it.Name + "」不合格，须至少上传 1 张该项照片")
+	}
+	if photoRequired == types.PhotoReqRequired && len(it.Photos) == 0 {
+		return errs.ErrPhotoMissing.WithMsg("检查项「" + it.Name + "」要求必拍，须至少上传 1 张该项照片")
+	}
+	for _, key := range it.Photos {
+		var count int64
+		s.db.Model(&sysmodel.UploadFile{}).Where("file_key = ?", key).Count(&count)
+		if count == 0 {
+			return errs.ErrPhotoNotUploaded
+		}
+	}
+	return nil
 }
 
 // resolvePhotos 必拍项校验 + 照片上传确认，返回落库照片数组。
@@ -458,6 +484,7 @@ func (s *CheckinService) aiReview(recID string, point *insmodel.InspectionPoint,
 	}
 	verdict, reason, err := s.aiCli.ReviewCheckin(context.Background(), ai.ReviewInput{
 		PointName: point.Name, PointType: point.Type, CheckItems: names, Remark: remark, Photos: refs,
+		ItemPhotos: s.itemPhotoRefs(items),
 	})
 	if err != nil {
 		logger.L.Warn("AI 审核调用失败", zap.String("rec_id", recID), zap.Error(err))
@@ -483,6 +510,22 @@ func (s *CheckinService) aiReview(recID string, point *insmodel.InspectionPoint,
 	if res.RowsAffected > 0 {
 		s.notifyAuditors(recID, point.Name, reason)
 	}
+}
+
+// itemPhotoRefs 逐项照片（file_key → 可访问 URL），供大模型逐项核对；无逐项照片返回 nil（回退整组照片逻辑）。
+func (s *CheckinService) itemPhotoRefs(items types.CheckItemArray) []ai.ItemPhoto {
+	var out []ai.ItemPhoto
+	for _, it := range items {
+		if len(it.Photos) == 0 {
+			continue
+		}
+		refs := make([]ai.PhotoRef, 0, len(it.Photos))
+		for _, key := range it.Photos {
+			refs = append(refs, ai.PhotoRef{URL: s.store.URL(key)})
+		}
+		out = append(out, ai.ItemPhoto{Name: it.Name, Photos: refs})
+	}
+	return out
 }
 
 // notifyAuditors AI 转人工时通知 super_admin 与 manager 角色的启用用户（逐人一条站内消息）。
@@ -539,6 +582,18 @@ func (s *CheckinService) resultView(rec *insmodel.CheckinRecord, order gin.H) gi
 			"total_points": task.TotalPoints, "done_points": task.DonePoints,
 			"progress": progress, "task_status": task.Status,
 		},
+	}
+	return out
+}
+
+// failedItemSnapshot 异常打卡的不合格项快照（name+note+该项照片 file_key → 工单 before_photos）。
+func failedItemSnapshot(items types.CheckItemArray) types.OrderItemArray {
+	out := make(types.OrderItemArray, 0, len(items))
+	for _, it := range items {
+		if it.Pass {
+			continue
+		}
+		out = append(out, types.OrderItem{Name: it.Name, Remark: it.Note, BeforePhotos: it.Photos})
 	}
 	return out
 }

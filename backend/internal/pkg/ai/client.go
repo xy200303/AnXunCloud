@@ -38,7 +38,8 @@ const (
 const builtinRules = `你是物业巡检打卡审核助手。请根据打卡上下文与照片，判断本次打卡是否合规：
 1. 照片是否清晰可辨（排除黑屏/白屏/严重模糊/与现场无关的图片）；
 2. 照片内容与打卡点位、点位类型、检查项是否匹配；
-3. 照片中是否存在明显的安全异常（设备损坏、漏水、明火、杂物阻塞消防通道等）。
+3. 照片中是否存在明显的安全异常（设备损坏、漏水、明火、杂物阻塞消防通道等）；
+4. 若照片按检查项分组给出（带检查项名称标注），逐项核对该项照片内容与该项检查要求是否一致。
 只输出 JSON：{"verdict":"pass"|"review","reason":"简要中文理由"}，不要输出任何其他内容。
 有任何一项拿不准或存疑时，verdict 一律输出 "review"，理由需说明疑点。`
 
@@ -50,13 +51,20 @@ type PhotoRef struct {
 	URL string
 }
 
+// ItemPhoto 检查项逐项照片（项名 + 该项照片），供大模型逐项核对。
+type ItemPhoto struct {
+	Name   string
+	Photos []PhotoRef
+}
+
 // ReviewInput 打卡审核上下文。
 type ReviewInput struct {
-	PointName  string     // 点位名称
-	PointType  string     // 点位类型
-	CheckItems []string   // 检查项名称列表
-	Remark     string     // 异常描述（可空）
-	Photos     []PhotoRef // 打卡照片
+	PointName  string      // 点位名称
+	PointType  string      // 点位类型
+	CheckItems []string    // 检查项名称列表
+	Remark     string      // 异常描述（可空）
+	Photos     []PhotoRef  // 打卡照片（记录级/全景）
+	ItemPhotos []ItemPhoto // 逐项照片（可空；空则回退仅按整组照片审核）
 }
 
 // Client OpenAI 兼容视觉审核客户端。
@@ -188,11 +196,44 @@ func (c *Client) buildMessages(input ReviewInput) []map[string]any {
 	sb.WriteString("请审核以上打卡上下文及以下照片。")
 
 	content := []map[string]any{{"type": "text", "text": sb.String()}}
-	for _, img := range c.resolveImages(input.Photos) {
-		content = append(content, map[string]any{
-			"type":      "image_url",
-			"image_url": map[string]any{"url": img},
-		})
+	budget := maxPhotos
+	if len(input.ItemPhotos) > 0 {
+		// 逐项照片：每项一段文字标注后跟该项照片，让模型逐项核对
+		for _, ip := range input.ItemPhotos {
+			imgs := c.resolveImages(ip.Photos)
+			if len(imgs) == 0 || budget <= 0 {
+				continue
+			}
+			content = append(content, map[string]any{"type": "text", "text": "以下是检查项「" + ip.Name + "」的对应照片，请核对该项现场状态："})
+			for _, img := range imgs {
+				if budget <= 0 {
+					break
+				}
+				content = append(content, map[string]any{
+					"type":      "image_url",
+					"image_url": map[string]any{"url": img},
+				})
+				budget--
+			}
+		}
+	}
+	if len(input.ItemPhotos) == 0 || budget > 0 {
+		imgs := c.resolveImages(input.Photos)
+		if len(imgs) > 0 {
+			if len(input.ItemPhotos) > 0 {
+				content = append(content, map[string]any{"type": "text", "text": "以下是本次打卡的全景/记录级照片："})
+			}
+			for _, img := range imgs {
+				if budget <= 0 {
+					break
+				}
+				content = append(content, map[string]any{
+					"type":      "image_url",
+					"image_url": map[string]any{"url": img},
+				})
+				budget--
+			}
+		}
 	}
 	return []map[string]any{
 		{"role": "system", "content": rules},

@@ -14,16 +14,20 @@ import (
 	"anxuncloud/internal/pkg/bind"
 	"anxuncloud/internal/pkg/errs"
 	"anxuncloud/internal/pkg/response"
+	"anxuncloud/internal/pkg/storage"
 	"anxuncloud/internal/pkg/timefmt"
 	"anxuncloud/internal/pkg/types"
 )
 
 // TaskService 任务监控与打卡记录检索服务（管理后台）。
 type TaskService struct {
-	db *gorm.DB
+	db    *gorm.DB
+	store *storage.Storage
 }
 
-func NewTaskService(db *gorm.DB) *TaskService { return &TaskService{db: db} }
+func NewTaskService(db *gorm.DB, store *storage.Storage) *TaskService {
+	return &TaskService{db: db, store: store}
+}
 
 // taskCounters 任务异常/疑似计数。
 type taskCounters struct {
@@ -331,6 +335,18 @@ func (s *TaskService) CheckinDetail(c *gin.Context, id string) (gin.H, *errs.Err
 			"exif_check": exifCheck(&r, p),
 		})
 	}
+	// 逐项结果带照片 URL（photos 存 file_key）
+	checkItems := make([]gin.H, 0, len(r.CheckItems))
+	for _, ci := range r.CheckItems {
+		urls := make([]string, 0, len(ci.Photos))
+		for _, key := range ci.Photos {
+			urls = append(urls, s.store.URL(key))
+		}
+		checkItems = append(checkItems, gin.H{
+			"name": ci.Name, "pass": ci.Pass, "note": ci.Note,
+			"photos": ci.Photos, "photo_urls": urls,
+		})
+	}
 	return gin.H{
 		"id": r.ID, "task_id": r.TaskID, "plan_name": planName,
 		"point_id": r.PointID, "point_name": pointName(s.db, r.PointID),
@@ -341,7 +357,7 @@ func (s *TaskService) CheckinDetail(c *gin.Context, id string) (gin.H, *errs.Err
 		"distance_to_point": distanceOrNil(&r), "result": r.Result, "remark": r.Remark,
 		"is_offline_sync": r.IsOfflineSync,
 		"is_suspect": r.IsSuspect, "suspect_reason": r.SuspectReason,
-		"photos": photos, "check_items": r.CheckItems, "work_order_no": orderNo,
+		"photos": photos, "check_items": checkItems, "work_order_no": orderNo,
 		"audit_status": r.AuditStatus, "audit_by": r.AuditBy,
 		"audit_at": timefmt.TP(r.AuditAt), "audit_remark": r.AuditRemark,
 		"ai_verdict": r.AIVerdict, "ai_reason": r.AIReason,

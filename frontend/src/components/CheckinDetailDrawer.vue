@@ -45,15 +45,32 @@
         <template v-if="detail.check_items?.length">
           <div class="section-title">检查项结果</div>
           <el-table :data="detail.check_items" border size="small" style="width: 100%">
-            <el-table-column prop="name" label="检查项" min-width="160" show-overflow-tooltip />
-            <el-table-column label="结果" width="90" align="center">
+            <el-table-column prop="name" label="检查项" min-width="140" show-overflow-tooltip />
+            <el-table-column label="结果" width="80" align="center">
               <template #default="{ row: item }">
                 <el-tag :type="item.pass ? 'success' : 'danger'" size="small">
                   {{ item.pass ? '合格' : '不合格' }}
                 </el-tag>
               </template>
             </el-table-column>
-            <el-table-column prop="note" label="备注" min-width="120" show-overflow-tooltip>
+            <el-table-column label="照片" min-width="110">
+              <template #default="{ row: item }">
+                <div v-if="item.photo_urls?.length" class="item-photos">
+                  <el-image
+                    v-for="(url, i) in item.photo_urls"
+                    :key="i"
+                    :src="url"
+                    :preview-src-list="item.photo_urls"
+                    :initial-index="i"
+                    fit="cover"
+                    preview-teleported
+                    class="item-photo-thumb"
+                  />
+                </div>
+                <span v-else class="text-secondary">--</span>
+              </template>
+            </el-table-column>
+            <el-table-column prop="note" label="备注" min-width="100" show-overflow-tooltip>
               <template #default="{ row: item }">{{ item.note || '--' }}</template>
             </el-table-column>
           </el-table>
@@ -82,8 +99,8 @@
           </el-descriptions>
         </template>
 
-        <!-- 现场照片 -->
-        <div class="section-title">现场照片（水印缩略图，点击查看原图）</div>
+        <!-- 全景照片（记录级） -->
+        <div class="section-title">全景照片（水印缩略图，点击查看原图）</div>
         <photo-viewer :photos="detail.photos || []" :meta="photoMeta(detail)" />
       </template>
     </div>
@@ -179,5 +196,19 @@ function photoMeta(d: CheckinDetail) {
 .ai-reason {
   margin-left: $spacing-sm;
   color: $color-text-secondary;
+}
+
+.item-photos {
+  display: flex;
+  flex-wrap: wrap;
+  gap: $spacing-xs;
+
+  .item-photo-thumb {
+    width: 48px;
+    height: 48px;
+    border-radius: $radius-small;
+    border: 1px solid $color-border;
+    cursor: pointer;
+  }
 }
 </style>

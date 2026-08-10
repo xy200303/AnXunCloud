@@ -19,14 +19,22 @@ type PhotoRef struct {
 	FileKey string `json:"file_key" binding:"required"`
 }
 
+// OrderItemReq 手工建单不合格项入参（before_photos 为 file_key 数组）。
+type OrderItemReq struct {
+	Name         string   `json:"name" binding:"required"`
+	Remark       string   `json:"remark"`
+	BeforePhotos []string `json:"before_photos"`
+}
+
 type OrderCreateReq struct {
-	CommunityID string     `json:"community_id" binding:"required"`
-	PointID     *string    `json:"point_id"`
-	Title       string     `json:"title" binding:"required"`
-	Description string     `json:"description" binding:"required"`
-	Photos      []PhotoRef `json:"photos"`
-	Priority    string     `json:"priority"`
-	AssigneeID  *string    `json:"assignee_id"`
+	CommunityID string         `json:"community_id" binding:"required"`
+	PointID     *string        `json:"point_id"`
+	Title       string         `json:"title" binding:"required"`
+	Description string         `json:"description" binding:"required"`
+	Photos      []PhotoRef     `json:"photos"`
+	Items       []OrderItemReq `json:"items"` // 不合格项快照（可选）
+	Priority    string         `json:"priority"`
+	AssigneeID  *string        `json:"assignee_id"`
 }
 
 type OrderUpdateReq struct {
@@ -41,8 +49,10 @@ type AssignReq struct {
 }
 
 type FinishReq struct {
-	FixRemark string     `json:"fix_remark" binding:"required"`
+	FixRemark string `json:"fix_remark" binding:"required"`
 	FixPhotos []PhotoRef `json:"fix_photos"`
+	// AfterPhotos 逐项整改后照片：检查项名 → file_key 数组，按 name 合并进工单 items 快照（可选）
+	AfterPhotos map[string][]string `json:"after_photos"`
 }
 
 type ReviewReq struct {

@@ -68,7 +68,7 @@ func (s *ReportService) pdfData(r *model.InspectionReport) pdf.MonthlyReportData
 
 	// ===== 当期打卡记录 =====
 	var recs []insmodel.CheckinRecord
-	s.db.Select("point_id", "inspector_id", "checkin_time", "result", "remark", "check_items").
+	s.db.Select("point_id", "inspector_id", "checkin_time", "result", "remark", "check_items", "photos").
 		Where("community_id = ? AND checkin_time >= ? AND checkin_time < ?", r.CommunityID, start, end).
 		Order("checkin_time ASC").Find(&recs)
 	recsByPoint := map[string][]insmodel.CheckinRecord{}
@@ -210,7 +210,32 @@ func (s *ReportService) pdfData(r *model.InspectionReport) pdf.MonthlyReportData
 		d.Details = append(d.Details, dt)
 	}
 
-	// ===== 5.隐患问题清单及整改台账 =====
+	// ===== 5.现场照片（按打卡记录分组：逐项照片带项名标注，记录级照片标"全景"）=====
+	for _, rec := range recs {
+		title := rec.CheckinTime.Format("2006-01-02 15:04")
+		if pt, ok := pointByID[rec.PointID]; ok {
+			title = pt.Name + " · " + title
+		}
+		group := pdf.PhotoGroup{Title: title}
+		for _, ci := range rec.CheckItems {
+			for _, key := range ci.Photos {
+				group.Cells = append(group.Cells, pdf.PhotoCell{Label: ci.Name, Key: key})
+			}
+		}
+		for _, ph := range rec.Photos {
+			if k := photoFileKey(ph.URL); k != "" {
+				group.Cells = append(group.Cells, pdf.PhotoCell{Label: "全景", Key: k})
+			}
+		}
+		if len(group.Cells) > photoGroupMaxCells {
+			group.Cells = group.Cells[:photoGroupMaxCells]
+		}
+		if len(group.Cells) > 0 {
+			d.PhotoGroups = append(d.PhotoGroups, group)
+		}
+	}
+
+	// ===== 6.隐患问题清单及整改台账 =====
 	for _, o := range orders {
 		row := pdf.LedgerRow{
 			Problem:  orderProblem(o),
@@ -238,7 +263,7 @@ func (s *ReportService) pdfData(r *model.InspectionReport) pdf.MonthlyReportData
 		d.Ledger = append(d.Ledger, row)
 	}
 
-	// ===== 6.本月典型整改事项（已闭环工单前 5 条） =====
+	// ===== 7.本月典型整改事项（已闭环工单前 5 条） =====
 	for _, o := range orders {
 		if o.Status != womodel.OrderClosed {
 			continue
@@ -253,7 +278,7 @@ func (s *ReportService) pdfData(r *model.InspectionReport) pdf.MonthlyReportData
 		}
 	}
 
-	// ===== 8.三级签字栏（含签名图快照） =====
+	// ===== 9.三级签字栏（含签名图快照） =====
 	signedBy := map[string]string{}
 	sigBy := map[string]string{}
 	for _, e := range r.InspectorSigned {
@@ -288,6 +313,9 @@ func (s *ReportService) pdfData(r *model.InspectionReport) pdf.MonthlyReportData
 	}
 	return d
 }
+
+// photoGroupMaxCells 单条打卡记录照片上限（防单组撑爆版面）。
+const photoGroupMaxCells = 12
 
 // pointTypeNames 点位类型中文名表（按字典 point_type 排序；字典外类型置后用原 code）。
 type pointTypeNames struct {

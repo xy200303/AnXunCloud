@@ -23,6 +23,8 @@ type CheckinItemReq struct {
 	Name string `json:"name" binding:"required"`
 	Pass bool   `json:"pass"`
 	Note string `json:"note"`
+	// Photos 该项照片 file_key 数组（不合格项与模板 required 项强制 ≥1 张）
+	Photos []string `json:"photos"`
 }
 
 // CheckinReq 打卡提交（离线补传单条结构相同）。

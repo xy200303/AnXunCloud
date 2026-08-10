@@ -47,8 +47,8 @@ export function assignWorkOrder(id: string, data: { assignee_id: string; remark?
   return request<{ status: string }>({ url: `/workorders/${id}/assign`, method: 'post', data })
 }
 
-// 处理反馈（后台代录）
-export function finishWorkOrder(id: string, data: { fix_remark: string }) {
+// 处理反馈（后台代录）；after_photos 按检查项 name 合并到工单 items 的 after_photo_urls（可空）
+export function finishWorkOrder(id: string, data: { fix_remark: string; after_photos?: Record<string, string[]> }) {
   return request<{ status: string }>({ url: `/workorders/${id}/finish`, method: 'post', data })
 }
 

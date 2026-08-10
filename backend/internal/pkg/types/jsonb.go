@@ -187,6 +187,8 @@ type CheckItemResult struct {
 	Name string `json:"name"`
 	Pass bool   `json:"pass"`
 	Note string `json:"note,omitempty"`
+	// Photos 该项照片 file_key 数组（v17 起；不合格项与模板 required 项强制 ≥1 张）
+	Photos StringArray `json:"photos,omitempty"`
 }
 
 // CheckItemArray 映射 jsonb 逐项检查结果。
@@ -212,10 +214,19 @@ func (a *CheckItemArray) Scan(src any) error {
 	return json.Unmarshal(data, a)
 }
 
+// 模板项拍照要求取值（TemplateItem.PhotoRequired）。
+const (
+	PhotoReqNone     = "none"     // 不要求拍照（缺省/旧数据兼容）
+	PhotoReqOptional = "optional" // 可拍可不拍
+	PhotoReqRequired = "required" // 必拍（合格也须 ≥1 张该项照片）
+)
+
 // TemplateItem 检查项模板项（check_template.items JSONB）。
 type TemplateItem struct {
 	Name     string `json:"name"`
 	Required bool   `json:"required"`
+	// PhotoRequired 拍照要求：none/optional/required（v17 起；空串视同 none 兼容旧数据）
+	PhotoRequired string `json:"photo_required,omitempty"`
 }
 
 // TemplateItemArray 映射 jsonb 模板项数组。
@@ -236,6 +247,38 @@ func (a *TemplateItemArray) Scan(src any) error {
 	}
 	if data == nil {
 		*a = TemplateItemArray{}
+		return nil
+	}
+	return json.Unmarshal(data, a)
+}
+
+// OrderItem 工单不合格项快照（work_order.items JSONB，v17 起）。
+// photos 存 file_key；before=打卡时该项照片，after=整改回传该项照片（按 name 合并）。
+type OrderItem struct {
+	Name         string      `json:"name"`
+	Remark       string      `json:"remark,omitempty"`
+	BeforePhotos StringArray `json:"before_photos,omitempty"`
+	AfterPhotos  StringArray `json:"after_photos,omitempty"`
+}
+
+// OrderItemArray 映射 jsonb 工单不合格项快照数组。
+type OrderItemArray []OrderItem
+
+func (a OrderItemArray) Value() (driver.Value, error) {
+	if a == nil {
+		return "[]", nil
+	}
+	b, err := json.Marshal(a)
+	return string(b), err
+}
+
+func (a *OrderItemArray) Scan(src any) error {
+	data, err := toBytes(src)
+	if err != nil {
+		return err
+	}
+	if data == nil {
+		*a = OrderItemArray{}
 		return nil
 	}
 	return json.Unmarshal(data, a)

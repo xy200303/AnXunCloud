@@ -24,6 +24,55 @@
           <div class="section-label">异常照片</div>
           <photo-viewer :photos="detail.photos || []" />
 
+          <!-- 不合格项快照（旧工单无 items 时不展示） -->
+          <template v-if="detail.items?.length">
+            <div class="section-label">不合格项</div>
+            <div v-for="(item, i) in detail.items" :key="i" class="wo-item">
+              <div class="wo-item-head">
+                <span class="wo-item-name">{{ item.name }}</span>
+                <span v-if="item.remark" class="text-secondary">{{ item.remark }}</span>
+              </div>
+              <div class="wo-item-photos">
+                <div class="wo-photo-group">
+                  <div class="wo-photo-label">整改前</div>
+                  <div class="thumb-row">
+                    <template v-if="item.before_photo_urls?.length">
+                      <el-image
+                        v-for="(url, j) in item.before_photo_urls"
+                        :key="j"
+                        :src="url"
+                        :preview-src-list="item.before_photo_urls"
+                        :initial-index="j"
+                        fit="cover"
+                        preview-teleported
+                        class="thumb-img"
+                      />
+                    </template>
+                    <span v-else class="text-secondary">无照片</span>
+                  </div>
+                </div>
+                <div v-if="hasAfterPhotos(item)" class="wo-photo-group">
+                  <div class="wo-photo-label">整改后</div>
+                  <div class="thumb-row">
+                    <template v-if="item.after_photo_urls?.length">
+                      <el-image
+                        v-for="(url, j) in item.after_photo_urls"
+                        :key="j"
+                        :src="url"
+                        :preview-src-list="item.after_photo_urls"
+                        :initial-index="j"
+                        fit="cover"
+                        preview-teleported
+                        class="thumb-img"
+                      />
+                    </template>
+                    <span v-else class="text-secondary">未回传</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </template>
+
           <template v-if="detail.fix_remark || detail.fix_photos?.length">
             <div class="section-label">处理反馈</div>
             <el-descriptions :column="1" border>
@@ -110,11 +159,31 @@
     </el-dialog>
 
     <!-- 处理反馈对话框（后台代录） -->
-    <el-dialog v-model="finishVisible" title="代录处理反馈" width="440px" :close-on-click-modal="false">
+    <el-dialog v-model="finishVisible" title="代录处理反馈" width="560px" :close-on-click-modal="false">
       <el-form ref="finishFormRef" :model="finishForm" :rules="finishRules" label-width="88px">
         <el-form-item label="处理说明" prop="fix_remark">
           <el-input v-model="finishForm.fix_remark" type="textarea" :rows="3" placeholder="处理结果说明" />
         </el-form-item>
+        <!-- 不合格项逐项补传整改后照片（有 items 快照时展示） -->
+        <template v-if="detail?.items?.length">
+          <el-form-item v-for="(item, i) in detail.items" :key="i" :label="item.name">
+            <div class="after-upload">
+              <div v-if="finishForm.after_photos[item.name]?.length" class="thumb-row">
+                <span v-for="(p, j) in finishForm.after_photos[item.name]" :key="j" class="thumb-wrap">
+                  <el-image :src="p.url" fit="cover" class="thumb-img" />
+                  <el-icon class="thumb-del" @click="finishForm.after_photos[item.name].splice(j, 1)"><Close /></el-icon>
+                </span>
+              </div>
+              <el-upload
+                :show-file-list="false"
+                accept="image/*"
+                :http-request="(opt: UploadRequestOptions) => handleAfterUpload(opt, item.name)"
+              >
+                <el-button size="small" :loading="afterUploading[item.name]">上传整改后照片</el-button>
+              </el-upload>
+            </div>
+          </el-form-item>
+        </template>
       </el-form>
       <template #footer>
         <el-button @click="finishVisible = false">取消</el-button>
@@ -140,14 +209,16 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue'
 import { useRoute } from 'vue-router'
-import { ElMessage, ElMessageBox, type FormInstance, type FormRules } from 'element-plus'
+import { ElMessage, ElMessageBox, type FormInstance, type FormRules, type UploadRequestOptions } from 'element-plus'
+import { Close } from '@element-plus/icons-vue'
 import {
   getWorkOrder, assignWorkOrder, finishWorkOrder, reviewWorkOrder
 } from '@/api/workorder'
 import { listUsers } from '@/api/user'
+import { uploadImage, fileUrl } from '@/api/upload'
 import { useUserStore } from '@/store/user'
 import PhotoViewer from '@/components/PhotoViewer.vue'
-import type { WorkOrderDetail } from '@/api/biz-types'
+import type { WorkOrderDetail, WorkOrderCheckItem } from '@/api/biz-types'
 import type { UserItem } from '@/api/types'
 
 const route = useRoute()
@@ -211,6 +282,11 @@ const nextStepText = computed(() => {
   } as Record<string, string>)[s || ''] || ''
 })
 
+// 是否展示"整改后"列：已有整改回传（处理反馈已提交或该项已有整改后照片）
+function hasAfterPhotos(item: WorkOrderCheckItem) {
+  return !!item.after_photo_urls?.length || !!detail.value?.finished_at || ['review', 'closed'].includes(detail.value?.status || '')
+}
+
 // ===== 派单 =====
 const assignVisible = ref(false)
 const assigning = ref(false)
@@ -238,20 +314,46 @@ async function handleAssign() {
 const finishVisible = ref(false)
 const finishing = ref(false)
 const finishFormRef = ref<FormInstance>()
-const finishForm = reactive({ fix_remark: '' })
+// after_photos 本地存 {file_key,url} 对象（预览用 url），提交时转为 file_key 数组
+const finishForm = reactive({ fix_remark: '', after_photos: {} as Record<string, { file_key: string; url: string }[]> })
+const afterUploading = reactive<Record<string, boolean>>({})
 
 const finishRules: FormRules = {
   fix_remark: [{ required: true, message: '请填写处理说明', trigger: 'blur' }]
+}
+
+// 整改后照片上传：scene 用 workorder（与小程序端一致）
+async function handleAfterUpload(opt: UploadRequestOptions, itemName: string) {
+  afterUploading[itemName] = true
+  try {
+    const { file_key, url } = await uploadImage(opt.file as File, 'workorder')
+    if (!finishForm.after_photos[itemName]) finishForm.after_photos[itemName] = []
+    finishForm.after_photos[itemName].push({ file_key, url: url || fileUrl(file_key) })
+  } catch {
+    ElMessage.warning('照片上传失败，请重试')
+  } finally {
+    afterUploading[itemName] = false
+  }
 }
 
 async function handleFinish() {
   await finishFormRef.value?.validate()
   finishing.value = true
   try {
-    await finishWorkOrder(detail.value!.id, { fix_remark: finishForm.fix_remark })
+    // after_photos 按检查项 name 提交 file_key 数组，仅提交有照片的项
+    const after_photos = Object.fromEntries(
+      Object.entries(finishForm.after_photos)
+        .map(([name, photos]) => [name, photos.map(p => p.file_key)])
+        .filter(([, keys]) => (keys as string[]).length)
+    )
+    await finishWorkOrder(detail.value!.id, {
+      fix_remark: finishForm.fix_remark,
+      ...(Object.keys(after_photos).length ? { after_photos } : {})
+    })
     ElMessage.success('处理反馈已提交，工单进入待复核')
     finishVisible.value = false
     finishForm.fix_remark = ''
+    finishForm.after_photos = {}
     fetchDetail()
   } finally {
     finishing.value = false
@@ -335,6 +437,36 @@ async function handleReviewReject() {
   .fix-photos {
     margin-top: $spacing-sm;
   }
+
+  .wo-item {
+    border: 1px solid $color-border;
+    border-radius: $radius-small;
+    padding: $spacing-sm $spacing-md;
+    margin-bottom: $spacing-sm;
+
+    .wo-item-head {
+      display: flex;
+      align-items: baseline;
+      gap: $spacing-md;
+
+      .wo-item-name {
+        font-weight: 600;
+        color: $color-text-primary;
+      }
+    }
+
+    .wo-item-photos {
+      display: flex;
+      gap: $spacing-xl;
+      margin-top: $spacing-sm;
+
+      .wo-photo-label {
+        font-size: $font-size-aux;
+        color: $color-text-secondary;
+        margin-bottom: $spacing-xs;
+      }
+    }
+  }
 }
 
 .wo-right {
@@ -375,5 +507,45 @@ async function handleReviewReject() {
 .error-result {
   background: $color-bg-card;
   border-radius: $radius-card;
+}
+
+// 整改前/后照片缩略图（区块与代录弹窗共用）
+.thumb-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: $spacing-xs;
+}
+
+.thumb-img {
+  width: 64px;
+  height: 64px;
+  border-radius: $radius-small;
+  border: 1px solid $color-border;
+  cursor: pointer;
+  display: block;
+}
+
+.thumb-wrap {
+  position: relative;
+  display: inline-block;
+
+  .thumb-del {
+    position: absolute;
+    top: -6px;
+    right: -6px;
+    background: $color-danger;
+    color: #fff;
+    border-radius: 50%;
+    padding: 1px;
+    cursor: pointer;
+    font-size: 10px;
+  }
+}
+
+.after-upload {
+  display: flex;
+  flex-direction: column;
+  gap: $spacing-xs;
+  align-items: flex-start;
 }
 </style>

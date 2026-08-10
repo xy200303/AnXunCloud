@@ -4,6 +4,7 @@ package service
 import (
 	"context"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -17,18 +18,20 @@ import (
 	"anxuncloud/internal/module/workorder/model"
 	"anxuncloud/internal/pkg/errs"
 	"anxuncloud/internal/pkg/response"
+	"anxuncloud/internal/pkg/storage"
 	"anxuncloud/internal/pkg/timefmt"
 	"anxuncloud/internal/pkg/types"
 )
 
 // OrderService 工单服务。
 type OrderService struct {
-	db  *gorm.DB
-	rdb *redis.Client
+	db    *gorm.DB
+	rdb   *redis.Client
+	store *storage.Storage
 }
 
-func NewOrderService(db *gorm.DB, rdb *redis.Client) *OrderService {
-	return &OrderService{db: db, rdb: rdb}
+func NewOrderService(db *gorm.DB, rdb *redis.Client, store *storage.Storage) *OrderService {
+	return &OrderService{db: db, rdb: rdb, store: store}
 }
 
 // GenOrderNo 生成工单号：WX+yyyyMMdd+3位日内序号（Redis INCR，唯一索引兜底）。
@@ -151,6 +154,10 @@ func (s *OrderService) Create(ctx context.Context, c *gin.Context, req *dto.Orde
 	if be != nil {
 		return nil, be
 	}
+	items, be := s.resolveCreateItems(req.Items)
+	if be != nil {
+		return nil, be
+	}
 	orderNo, err := s.GenOrderNo(ctx)
 	if err != nil {
 		return nil, errs.ErrInternal
@@ -162,7 +169,7 @@ func (s *OrderService) Create(ctx context.Context, c *gin.Context, req *dto.Orde
 	}
 	order := model.WorkOrder{
 		OrderNo: orderNo, CommunityID: req.CommunityID, PointID: req.PointID,
-		Title: req.Title, Description: req.Description, Photos: photos,
+		Title: req.Title, Description: req.Description, Photos: photos, Items: items,
 		ReporterID: identity.UserID, AssigneeID: req.AssigneeID,
 		Priority: priority, Status: status,
 	}
@@ -213,6 +220,7 @@ func (s *OrderService) detailOf(o *model.WorkOrder) gin.H {
 		"title": o.Title, "community_id": o.CommunityID, "community_name": s.commName(o.CommunityID),
 		"point_id": o.PointID, "point_name": s.pointName(o.PointID),
 		"description": o.Description, "photos": o.Photos,
+		"items": s.itemViews(o.Items),
 		"reporter_id": o.ReporterID, "reporter_name": s.userName(o.ReporterID),
 		"assignee_id": o.AssigneeID, "assignee_name": s.userNamePtr(o.AssigneeID),
 		"priority": o.Priority, "status": o.Status,
@@ -221,6 +229,28 @@ func (s *OrderService) detailOf(o *model.WorkOrder) gin.H {
 		"reviewed_by": o.ReviewedBy, "review_remark": nullableStr(o.ReviewRemark),
 		"created_at": timefmt.T(o.CreatedAt), "logs": logItems,
 	}
+}
+
+// itemViews 不合格项快照视图：file_key 转可访问 URL（整改前后对比）。
+func (s *OrderService) itemViews(items types.OrderItemArray) []gin.H {
+	out := make([]gin.H, 0, len(items))
+	for _, it := range items {
+		out = append(out, gin.H{
+			"name": it.Name, "remark": it.Remark,
+			"before_photo_urls": s.photoURLs(it.BeforePhotos),
+			"after_photo_urls":  s.photoURLs(it.AfterPhotos),
+		})
+	}
+	return out
+}
+
+// photoURLs file_key 数组转可访问 URL 数组。
+func (s *OrderService) photoURLs(keys types.StringArray) []string {
+	out := make([]string, 0, len(keys))
+	for _, k := range keys {
+		out = append(out, s.store.URL(k))
+	}
+	return out
 }
 
 // Update 修改工单（仅 pending 可改）。
@@ -308,11 +338,15 @@ func (s *OrderService) Finish(operatorID string, o *model.WorkOrder, req *dto.Fi
 	if be != nil {
 		return be
 	}
+	items, be := s.mergeFinishItems(o, req.AfterPhotos)
+	if be != nil {
+		return be
+	}
 	now := time.Now()
 	err := s.db.Transaction(func(tx *gorm.DB) error {
 		if err := tx.Model(o).Updates(map[string]any{
 			"status": model.OrderReview, "fix_remark": req.FixRemark,
-			"fix_photos": photos, "finished_at": now,
+			"fix_photos": photos, "items": items, "finished_at": now,
 		}).Error; err != nil {
 			return err
 		}
@@ -362,6 +396,72 @@ func (s *OrderService) Review(c *gin.Context, id string, req *dto.ReviewReq) (st
 		s.Notify(*o.AssigneeID, "workorder", "工单复核驳回", fmt.Sprintf("工单 %s 复核驳回：%s，请重新处理", o.OrderNo, req.ReviewRemark), &o.ID)
 	}
 	return newStatus, nil
+}
+
+// resolveCreateItems 手工建单不合格项入参校验与转换（before_photos file_key 须已上传）。
+func (s *OrderService) resolveCreateItems(reqs []dto.OrderItemReq) (types.OrderItemArray, *errs.Error) {
+	items := make(types.OrderItemArray, 0, len(reqs))
+	for _, it := range reqs {
+		if strings.TrimSpace(it.Name) == "" {
+			return nil, errs.ErrParam.WithMsg("不合格项名称不能为空")
+		}
+		for _, key := range it.BeforePhotos {
+			if !s.fileExists(key) {
+				return nil, errs.ErrPhotoNotUploaded
+			}
+		}
+		items = append(items, types.OrderItem{
+			Name: strings.TrimSpace(it.Name), Remark: it.Remark,
+			BeforePhotos: types.StringArray(it.BeforePhotos),
+		})
+	}
+	return items, nil
+}
+
+// fileExists file_key 是否已上传确认。
+func (s *OrderService) fileExists(key string) bool {
+	var count int64
+	s.db.Model(&sysmodel.UploadFile{}).Where("file_key = ?", key).Count(&count)
+	return count > 0
+}
+
+// mergeFinishItems 整改回传逐项补图：after_photos（检查项名 → file_key 数组）按 name 合并进
+// items 快照；未知项追加为新条目。map 遍历前先排序键，保证日志与存储顺序稳定。
+func (s *OrderService) mergeFinishItems(o *model.WorkOrder, afterPhotos map[string][]string) (types.OrderItemArray, *errs.Error) {
+	items := o.Items
+	if items == nil {
+		items = types.OrderItemArray{}
+	}
+	names := make([]string, 0, len(afterPhotos))
+	for name := range afterPhotos {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	for _, name := range names {
+		rawKeys := afterPhotos[name]
+		if name == "" || len(rawKeys) == 0 {
+			return nil, errs.ErrParam.WithMsg("整改后照片须按检查项名提供")
+		}
+		keys := make(types.StringArray, 0, len(rawKeys))
+		for _, k := range rawKeys {
+			if !s.fileExists(k) {
+				return nil, errs.ErrPhotoNotUploaded
+			}
+			keys = append(keys, k)
+		}
+		merged := false
+		for i := range items {
+			if items[i].Name == name {
+				items[i].AfterPhotos = append(items[i].AfterPhotos, keys...)
+				merged = true
+				break
+			}
+		}
+		if !merged {
+			items = append(items, types.OrderItem{Name: name, AfterPhotos: keys})
+		}
+	}
+	return items, nil
 }
 
 // woTimeRange 创建时间范围过滤。
@@ -431,11 +531,11 @@ func (s *OrderService) Accept(id, userID string) *errs.Error {
 	return nil
 }
 
-// CreateFromCheckin 异常打卡自动生成工单（在打卡事务内调用）。
-func CreateFromCheckin(tx *gorm.DB, orderNo string, checkinID, communityID string, pointID *string, title, description string, photos types.PhotoArray, reporterID string) (*model.WorkOrder, error) {
+// CreateFromCheckin 异常打卡自动生成工单（在打卡事务内调用）；items 为不合格项快照（before_photos=打卡时该项照片）。
+func CreateFromCheckin(tx *gorm.DB, orderNo string, checkinID, communityID string, pointID *string, title, description string, photos types.PhotoArray, items types.OrderItemArray, reporterID string) (*model.WorkOrder, error) {
 	order := model.WorkOrder{
 		OrderNo: orderNo, CheckinID: &checkinID, CommunityID: communityID, PointID: pointID,
-		Title: title, Description: description, Photos: photos,
+		Title: title, Description: description, Photos: photos, Items: items,
 		ReporterID: reporterID, Priority: "normal", Status: model.OrderPending,
 	}
 	if err := tx.Create(&order).Error; err != nil {

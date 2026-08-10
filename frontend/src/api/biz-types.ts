@@ -25,9 +25,13 @@ export interface BuildingItem {
 }
 
 // ===== 检查项模板 =====
+export type PhotoRequired = 'none' | 'optional' | 'required'
+
 export interface TemplateCheckItem {
   name: string
   required: boolean
+  // 拍照要求：none 无需 / optional 选拍 / required 必拍（缺省 none）
+  photo_required?: PhotoRequired
 }
 
 export interface TemplateItem {
@@ -213,6 +217,8 @@ export interface CheckinCheckItem {
   name: string
   pass: boolean
   note: string
+  // 该项照片 URL 列表（可空，后端并行开发中）
+  photo_urls?: string[]
 }
 
 export interface CheckinDetail extends CheckinItem {
@@ -252,6 +258,14 @@ export interface WorkOrderLog {
   created_at: string
 }
 
+// 工单不合格项快照（建单时从不合格检查项生成，整改回传按 name 合并 after_photo_urls）
+export interface WorkOrderCheckItem {
+  name: string
+  remark: string
+  before_photo_urls: string[]
+  after_photo_urls: string[]
+}
+
 export interface WorkOrderDetail extends WorkOrderItem {
   checkin_id: string | null
   description: string
@@ -262,6 +276,8 @@ export interface WorkOrderDetail extends WorkOrderItem {
   reviewed_by: string | null
   review_remark: string | null
   logs: WorkOrderLog[]
+  // 不合格项快照（可空，旧工单无此字段）
+  items?: WorkOrderCheckItem[]
 }
 
 export interface WorkOrderListResult {

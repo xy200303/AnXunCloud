@@ -20,6 +20,7 @@ import (
 	"anxuncloud/internal/pkg/response"
 	"anxuncloud/internal/pkg/storage"
 	"anxuncloud/internal/pkg/timefmt"
+	"anxuncloud/internal/pkg/types"
 )
 
 // spotcheckLimit 单次抽查抽取上限（防呆）。
@@ -32,6 +33,7 @@ const spotcheckAILimit = 50
 type ReviewService struct {
 	db    *gorm.DB
 	aiCli *ai.Client
+	store *storage.Storage // 可空；逐项照片 file_key 转 URL 用
 }
 
 func NewReviewService(db *gorm.DB) *ReviewService {
@@ -45,10 +47,12 @@ func NewReviewService(db *gorm.DB) *ReviewService {
 		return cfg.Value, true
 	}
 	var opts []ai.Option
+	var store *storage.Storage
 	if cfg, err := config.Load(); err == nil {
-		opts = append(opts, ai.WithStorage(storage.New(cfg.Upload, cfg.OSS, cfg.App.BaseURL)))
+		store = storage.New(cfg.Upload, cfg.OSS, cfg.App.BaseURL)
+		opts = append(opts, ai.WithStorage(store))
 	}
-	return &ReviewService{db: db, aiCli: ai.NewClient(getCfg, opts...)}
+	return &ReviewService{db: db, aiCli: ai.NewClient(getCfg, opts...), store: store}
 }
 
 // List 审核记录分页列表（数据权限按小区过滤）。
@@ -102,7 +106,7 @@ func (s *ReviewService) reviewItem(r *model.CheckinRecord) gin.H {
 		"checkin_time": timefmt.T(r.CheckinTime), "checkin_type": r.CheckinType,
 		"distance_to_point": distanceOrNil(r), "result": r.Result, "remark": r.Remark,
 		"is_suspect": r.IsSuspect, "suspect_reason": r.SuspectReason,
-		"photos": r.Photos, "check_items": r.CheckItems,
+		"photos": r.Photos, "check_items": s.checkItemViews(r.CheckItems),
 		"audit_status": r.AuditStatus, "audit_by": r.AuditBy,
 		"audit_at": timefmt.TP(r.AuditAt), "audit_remark": r.AuditRemark,
 		"ai_verdict": r.AIVerdict, "ai_reason": r.AIReason,
@@ -266,6 +270,24 @@ func (s *ReviewService) spotcheckAI(c *gin.Context, req *dto.SpotcheckReq) (gin.
 	return gin.H{"picked": picked, "to_review": toReview, "passed": passed, "failed": failed}, nil
 }
 
+// checkItemViews 逐项结果视图：附带该项照片可访问 URL（photos 存 file_key）。
+func (s *ReviewService) checkItemViews(items types.CheckItemArray) []gin.H {
+	out := make([]gin.H, 0, len(items))
+	for _, ci := range items {
+		urls := make([]string, 0, len(ci.Photos))
+		if s.store != nil {
+			for _, key := range ci.Photos {
+				urls = append(urls, s.store.URL(key))
+			}
+		}
+		out = append(out, gin.H{
+			"name": ci.Name, "pass": ci.Pass, "note": ci.Note,
+			"photos": ci.Photos, "photo_urls": urls,
+		})
+	}
+	return out
+}
+
 // reviewInputOf 由打卡记录组装大模型审核上下文。
 func (s *ReviewService) reviewInputOf(r *model.CheckinRecord) ai.ReviewInput {
 	var point model.InspectionPoint
@@ -278,8 +300,22 @@ func (s *ReviewService) reviewInputOf(r *model.CheckinRecord) ai.ReviewInput {
 	for _, p := range r.Photos {
 		refs = append(refs, ai.PhotoRef{URL: p.URL})
 	}
+	var itemPhotos []ai.ItemPhoto
+	if s.store != nil {
+		for _, it := range r.CheckItems {
+			if len(it.Photos) == 0 {
+				continue
+			}
+			irefs := make([]ai.PhotoRef, 0, len(it.Photos))
+			for _, key := range it.Photos {
+				irefs = append(irefs, ai.PhotoRef{URL: s.store.URL(key)})
+			}
+			itemPhotos = append(itemPhotos, ai.ItemPhoto{Name: it.Name, Photos: irefs})
+		}
+	}
 	return ai.ReviewInput{
-		PointName: point.Name, PointType: point.Type, CheckItems: names, Remark: r.Remark, Photos: refs,
+		PointName: point.Name, PointType: point.Type, CheckItems: names, Remark: r.Remark,
+		Photos: refs, ItemPhotos: itemPhotos,
 	}
 }
 

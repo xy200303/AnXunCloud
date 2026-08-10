@@ -1,40 +1,53 @@
 <template>
   <div class="app-container" v-loading="loading">
     <template v-if="detail">
-      <!-- 工单头 -->
+      <!-- 工单头：标题行 + 元信息行 -->
       <div class="table-card wo-head">
-        <h2 class="page-title wo-title">{{ detail.order_no }} · {{ detail.title }}</h2>
-        <el-tag :type="statusType(detail.status)">{{ statusLabel(detail.status) }}</el-tag>
-        <el-tag :type="priorityType(detail.priority)" effect="plain">{{ priorityLabel(detail.priority) }}</el-tag>
+        <div class="wo-head-main">
+          <div class="wo-title-row">
+            <h2 class="page-title wo-title">{{ detail.order_no }} · {{ detail.title }}</h2>
+            <el-tag :type="statusType(detail.status)">{{ statusLabel(detail.status) }}</el-tag>
+            <el-tag :type="priorityType(detail.priority)" effect="plain">{{ priorityLabel(detail.priority) }}</el-tag>
+          </div>
+          <div class="wo-meta">
+            <span>{{ detail.community_name }}<template v-if="detail.point_name"> · {{ detail.point_name }}</template></span>
+            <span class="wo-meta-sep" />
+            <span>上报：{{ detail.reporter_name }} {{ detail.created_at }}</span>
+            <span class="wo-meta-sep" />
+            <span>处理人：{{ detail.assignee_name || '待派单' }}</span>
+            <template v-if="detail.finished_at">
+              <span class="wo-meta-sep" />
+              <span>完成：{{ detail.finished_at }}</span>
+            </template>
+          </div>
+        </div>
+        <el-button class="wo-back" @click="$router.push('/workorders/list')">返回列表</el-button>
       </div>
 
       <div class="wo-layout">
         <!-- 左：异常信息 -->
         <div class="table-card wo-left">
-          <h3 class="card-title">异常信息</h3>
-          <el-descriptions :column="1" border class="wo-desc">
-            <el-descriptions-item label="点位">
-              {{ detail.community_name }}<template v-if="detail.point_name"> · {{ detail.point_name }}</template>
-            </el-descriptions-item>
-            <el-descriptions-item label="上报人">{{ detail.reporter_name }} · {{ detail.created_at.slice(5, 16) }}</el-descriptions-item>
-            <el-descriptions-item label="处理人">{{ detail.assignee_name || '—' }}</el-descriptions-item>
-            <el-descriptions-item label="描述">{{ detail.description }}</el-descriptions-item>
-          </el-descriptions>
+          <div class="wo-section">
+            <h3 class="card-title">异常描述</h3>
+            <p class="wo-desc-text">{{ detail.description }}</p>
+          </div>
 
-          <div class="section-label">异常照片</div>
-          <photo-viewer :photos="detail.photos || []" />
+          <div class="wo-section">
+            <h3 class="card-title">现场照片</h3>
+            <photo-viewer :photos="detail.photos || []" />
+          </div>
 
-          <!-- 不合格项快照（旧工单无 items 时不展示） -->
-          <template v-if="detail.items?.length">
-            <div class="section-label">不合格项</div>
+          <!-- 不合格项快照：整改前后双列对比（旧工单无 items 时不展示） -->
+          <div v-if="detail.items?.length" class="wo-section">
+            <h3 class="card-title">不合格项整改对比</h3>
             <div v-for="(item, i) in detail.items" :key="i" class="wo-item">
               <div class="wo-item-head">
                 <span class="wo-item-name">{{ item.name }}</span>
                 <span v-if="item.remark" class="text-secondary">{{ item.remark }}</span>
               </div>
-              <div class="wo-item-photos">
-                <div class="wo-photo-group">
-                  <div class="wo-photo-label">整改前</div>
+              <div class="compare-grid">
+                <div class="compare-col">
+                  <div class="compare-col-head">整改前</div>
                   <div class="thumb-row">
                     <template v-if="item.before_photo_urls?.length">
                       <el-image
@@ -48,11 +61,11 @@
                         class="thumb-img"
                       />
                     </template>
-                    <span v-else class="text-secondary">无照片</span>
+                    <div v-else class="thumb-empty">无照片</div>
                   </div>
                 </div>
-                <div v-if="hasAfterPhotos(item)" class="wo-photo-group">
-                  <div class="wo-photo-label">整改后</div>
+                <div v-if="hasAfterPhotos(item)" class="compare-col">
+                  <div class="compare-col-head">整改后</div>
                   <div class="thumb-row">
                     <template v-if="item.after_photo_urls?.length">
                       <el-image
@@ -66,15 +79,15 @@
                         class="thumb-img"
                       />
                     </template>
-                    <span v-else class="text-secondary">未回传</span>
+                    <div v-else class="thumb-empty">未回传</div>
                   </div>
                 </div>
               </div>
             </div>
-          </template>
+          </div>
 
-          <template v-if="detail.fix_remark || detail.fix_photos?.length">
-            <div class="section-label">处理反馈</div>
+          <div v-if="detail.fix_remark || detail.fix_photos?.length" class="wo-section">
+            <h3 class="card-title">处理反馈</h3>
             <el-descriptions :column="1" border>
               <el-descriptions-item label="处理说明">{{ detail.fix_remark }}</el-descriptions-item>
               <el-descriptions-item v-if="detail.finished_at" label="完成时间">{{ detail.finished_at }}</el-descriptions-item>
@@ -82,12 +95,12 @@
             <div class="fix-photos">
               <photo-viewer :photos="detail.fix_photos || []" />
             </div>
-          </template>
+          </div>
 
-          <template v-if="detail.review_remark">
-            <div class="section-label">复核意见</div>
+          <div v-if="detail.review_remark" class="wo-section wo-section-last">
+            <h3 class="card-title">复核意见</h3>
             <el-alert :title="detail.review_remark" :type="detail.status === 'closed' ? 'success' : 'error'" :closable="false" show-icon />
-          </template>
+          </div>
         </div>
 
         <!-- 右：流转时间线 + 操作 -->
@@ -112,7 +125,7 @@
           </el-timeline>
 
           <!-- 操作按钮按状态渲染 -->
-          <div class="wo-actions">
+          <div v-if="hasActions" class="wo-actions">
             <el-button
               v-if="(detail.status === 'pending' || detail.status === 'rejected') && userStore.hasPerm('workorder:assign')"
               type="primary"
@@ -127,7 +140,6 @@
               <el-button type="success" :loading="reviewing" @click="handleReviewPass">复核通过</el-button>
               <el-button type="danger" @click="rejectVisible = true">驳回</el-button>
             </template>
-            <el-button @click="$router.push('/workorders/list')">返回列表</el-button>
           </div>
         </div>
       </div>
@@ -282,6 +294,16 @@ const nextStepText = computed(() => {
   } as Record<string, string>)[s || ''] || ''
 })
 
+// 当前状态下是否有可执行操作（无则隐藏操作区，避免空框）
+const hasActions = computed(() => {
+  const s = detail.value?.status
+  return (
+    ((s === 'pending' || s === 'rejected') && userStore.hasPerm('workorder:assign')) ||
+    ((s === 'assigned' || s === 'processing') && userStore.hasPerm('workorder:finish')) ||
+    (s === 'review' && userStore.hasPerm('workorder:review'))
+  )
+})
+
 // 是否展示"整改后"列：已有整改回传（处理反馈已提交或该项已有整改后照片）
 function hasAfterPhotos(item: WorkOrderCheckItem) {
   return !!item.after_photo_urls?.length || !!detail.value?.finished_at || ['review', 'closed'].includes(detail.value?.status || '')
@@ -405,12 +427,44 @@ async function handleReviewReject() {
 <style scoped lang="scss">
 .wo-head {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
+  justify-content: space-between;
   gap: $spacing-md;
   margin-bottom: $spacing-lg;
 
-  .wo-title {
-    margin: 0;
+  .wo-head-main {
+    min-width: 0;
+  }
+
+  .wo-title-row {
+    display: flex;
+    align-items: center;
+    gap: $spacing-md;
+    flex-wrap: wrap;
+
+    .wo-title {
+      margin: 0;
+    }
+  }
+
+  .wo-meta {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: $spacing-sm;
+    margin-top: $spacing-sm;
+    font-size: $font-size-aux;
+    color: $color-text-secondary;
+
+    .wo-meta-sep {
+      width: 1px;
+      height: 12px;
+      background: $color-border;
+    }
+  }
+
+  .wo-back {
+    flex-shrink: 0;
   }
 }
 
@@ -424,47 +478,69 @@ async function handleReviewReject() {
   flex: 3;
   min-width: 0;
 
-  .wo-desc {
-    margin-top: $spacing-md;
+  // 统一区块：标题 + 内容，区块间分隔线
+  .wo-section {
+    padding-bottom: $spacing-lg;
+    margin-bottom: $spacing-lg;
+    border-bottom: 1px solid $color-border;
+
+    &:last-child,
+    &.wo-section-last {
+      padding-bottom: 0;
+      margin-bottom: 0;
+      border-bottom: none;
+    }
+
+    .card-title {
+      margin-bottom: $spacing-md;
+    }
   }
 
-  .section-label {
-    font-weight: 600;
-    margin: $spacing-lg 0 $spacing-sm;
+  .wo-desc-text {
+    margin: 0;
+    line-height: 1.7;
     color: $color-text-primary;
   }
 
   .fix-photos {
-    margin-top: $spacing-sm;
+    margin-top: $spacing-md;
   }
 
   .wo-item {
     border: 1px solid $color-border;
     border-radius: $radius-small;
-    padding: $spacing-sm $spacing-md;
-    margin-bottom: $spacing-sm;
+    padding: $spacing-md;
+    margin-bottom: $spacing-md;
+
+    &:last-child {
+      margin-bottom: 0;
+    }
 
     .wo-item-head {
       display: flex;
       align-items: baseline;
       gap: $spacing-md;
+      margin-bottom: $spacing-sm;
 
       .wo-item-name {
         font-weight: 600;
         color: $color-text-primary;
       }
     }
+  }
 
-    .wo-item-photos {
-      display: flex;
-      gap: $spacing-xl;
-      margin-top: $spacing-sm;
+  // 整改前后等宽双列对比
+  .compare-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: $spacing-md;
 
-      .wo-photo-label {
-        font-size: $font-size-aux;
-        color: $color-text-secondary;
-        margin-bottom: $spacing-xs;
-      }
+    .compare-col-head {
+      font-size: $font-size-aux;
+      color: $color-text-secondary;
+      padding-bottom: $spacing-xs;
+      margin-bottom: $spacing-sm;
+      border-bottom: 1px dashed $color-border;
     }
   }
 }
@@ -513,16 +589,29 @@ async function handleReviewReject() {
 .thumb-row {
   display: flex;
   flex-wrap: wrap;
-  gap: $spacing-xs;
+  gap: $spacing-sm;
 }
 
 .thumb-img {
-  width: 64px;
-  height: 64px;
+  width: 96px;
+  height: 96px;
   border-radius: $radius-small;
   border: 1px solid $color-border;
   cursor: pointer;
   display: block;
+}
+
+// 无照片/未回传占位（与缩略图同尺寸，保证双列对齐）
+.thumb-empty {
+  width: 96px;
+  height: 96px;
+  border: 1px dashed $color-border;
+  border-radius: $radius-small;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: $font-size-aux;
+  color: $color-text-secondary;
 }
 
 .thumb-wrap {

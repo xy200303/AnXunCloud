@@ -99,7 +99,10 @@ function open(i: number) {
     font-size: $font-size-aux;
     color: $color-text-secondary;
     text-align: center;
-    padding: 2px 0;
+    padding: 2px 4px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
 }
 

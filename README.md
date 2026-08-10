@@ -85,6 +85,16 @@ docker compose --env-file .env.dev -f docker-compose.dev.yml up -d --build
 - frontend：vite dev server + HMR，`/api`、`/uploads` 代理到 backend 容器
 - 首次启动自动完成建表迁移 + seed（超管/角色/菜单/字典/参数）
 
+### 数据库迁移（goose）
+
+结构迁移使用 [goose v3](https://github.com/pressly/goose)（库模式 + embed 内嵌），启动时自动执行，无需单独跑 CLI：
+
+- 迁移文件：`backend/internal/pkg/database/migrations/` 下编号 SQL 文件（`-- +goose Up/Down` 注解）
+- 多副本同时启动由 PG advisory lock 串行化，失败即终止启动，不会带错误结构对外服务
+- 新增迁移：新建下一个编号文件（如 `00002_xxx.sql`），`-- +goose Up` 写变更、`-- +goose Down` 写回滚，重启即生效
+- `checkin_record` / `sys_operation_log` 是按月分区表，月份分区由 `EnsurePartitions` 在启动时和每日调度中滚动创建（不属于 goose 迁移）
+- 排查版本：容器内 `psql -c "SELECT * FROM goose_db_version"`，或用 goose CLI `goose -dir backend/internal/pkg/database/migrations postgres "<dsn>" status`
+
 ### 生产环境（单端口 SPA）
 
 ```bash
@@ -159,7 +169,7 @@ docker compose --env-file .env.prod -f docker-compose.prod.yml down
 - **请求/策略**：三元组 `r = sub, dom, obj` / `p = sub, dom, obj`，匹配 `g(r.sub,p.sub,r.dom) && r.dom==p.dom && (p.obj=="*" || keyMatch2(r.obj,p.obj))`；
 - **domain（多租户预留）**：`dom` 当前统一为 `default`；未来多租户（物业公司级隔离）扩展时，按租户生成子域（如 `tenant:<id>`），策略与 g 规则挂在对应域下即可，业务代码无需改动。小区级数据权限不属于 casbin 域，仍由 `ApplyCommunityFilter`/`CheckCommunity` 在查询层过滤；
 - **资源标识**：obj 直接为完整权限点字符串（如 `system:user:list`，不做路径拆分）；通配支持两种形式——`*` 全量（超管策略）与 `system:user:*` 模块级前缀（keyMatch2，为"某角色开放整个模块"预留）；
-- **策略规则**：`p` 规则为 `role:<code> | default | <权限点>`（super_admin 角色为通配策略 `*`，天然覆盖后续新增权限点）；`g` 规则为 `user:<uuid> → role:<code>`（默认域）；策略持久化在 PG `casbin_rule` 表（迁移 v5 建表、v6 按新格式重建）；
+- **策略规则**：`p` 规则为 `role:<code> | default | <权限点>`（super_admin 角色为通配策略 `*`，天然覆盖后续新增权限点）；`g` 规则为 `user:<uuid> → role:<code>`（默认域）；策略持久化在 PG `casbin_rule` 表（基线迁移 00001 建表）；
 - **策略同步时机**：`sys_role`/`sys_menu`/`sys_role_menu` 仍是后台管理的数据源（界面与 API 不变）。在以下时机由 `authz.SyncAll` 全量重建策略（ClearPolicy + SavePolicy，无脏策略）：角色分配菜单（2.4.6）、角色增删改、用户创建/改角色/停用/删除、服务启动 seed 后；
 - **中间件**：路由上的 `RequirePerm("system:user:list")` 用法不变，内部为 `enforcer.Enforce(user:<uuid>, default, "system:user:list")`；登录态（JWT 双令牌 + Redis 会话）不受影响。
 

@@ -233,6 +233,7 @@ export interface CheckinDetail extends CheckinItem {
   suspect_reason: string
   photos: CheckinPhoto[]
   work_order_no?: string | null
+  audit_by_name?: string
   created_at: string
 }
 

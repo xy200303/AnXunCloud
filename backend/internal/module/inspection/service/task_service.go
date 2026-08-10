@@ -411,7 +411,7 @@ func (s *TaskService) CheckinDetail(c *gin.Context, id string) (gin.H, *errs.Err
 		"is_offline_sync": r.IsOfflineSync,
 		"is_suspect": r.IsSuspect, "suspect_reason": r.SuspectReason,
 		"photos": photos, "check_items": checkItems, "work_order_no": orderNo,
-		"audit_status": r.AuditStatus, "audit_by": r.AuditBy,
+		"audit_status": r.AuditStatus, "audit_by": r.AuditBy, "audit_by_name": userNamePtr(s.db, r.AuditBy),
 		"audit_at": timefmt.TP(r.AuditAt), "audit_remark": r.AuditRemark,
 		"ai_verdict": r.AIVerdict, "ai_reason": r.AIReason,
 		"created_at": timefmt.T(r.CreatedAt),
@@ -456,6 +456,14 @@ func userName(db *gorm.DB, id string) string {
 		return u.Name
 	}
 	return ""
+}
+
+// userNamePtr 可空 ID 转用户名（nil 或查不到返回空串）。
+func userNamePtr(db *gorm.DB, id *string) string {
+	if id == nil || *id == "" {
+		return ""
+	}
+	return userName(db, *id)
 }
 
 func distanceOrNil(r *model.CheckinRecord) any {

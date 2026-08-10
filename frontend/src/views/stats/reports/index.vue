@@ -682,9 +682,14 @@ async function submitGenerate() {
   margin-bottom: $spacing-md;
 }
 
+// 区块标题：上分隔线对齐工单/打卡详情的区块语言（区块间视觉分隔）
 .section-title {
-  margin: $spacing-md 0 $spacing-sm;
+  margin: 0 0 $spacing-md;
+  padding-top: $spacing-lg;
+  border-top: 1px solid $color-border;
+  font-size: $font-size-body;
   font-weight: 600;
+  color: $color-text-primary;
 }
 
 .record-photo {

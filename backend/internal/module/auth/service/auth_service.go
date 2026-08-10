@@ -199,7 +199,7 @@ func (s *AuthService) Info(identity *middleware.Identity) (*dto.InfoResp, *errs.
 		Roles:        []dto.RoleBrief{},
 		Perms:        []string{},
 	}
-	// 签名取当前 active 签章资产（v16 起 sys_user.signature_file_key 弃用）
+	// 签名取当前 active 签章资产（sign_asset 表）
 	var sigAsset model.SignAsset
 	if err := s.db.Select("file_key").
 		Where("asset_type = ? AND owner_id = ? AND status = ?",

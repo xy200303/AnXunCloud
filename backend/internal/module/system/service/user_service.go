@@ -184,7 +184,7 @@ func (s *UserService) Detail(id string) (*dto.UserDetail, *errs.Error) {
 		CreatedAt:    timefmt.T(u.CreatedAt),
 		UpdatedAt:    timefmt.T(u.UpdatedAt),
 	}
-	// 签名取当前 active 签章资产（v16 起 sys_user.signature_file_key 弃用）
+	// 签名取当前 active 签章资产（sign_asset 表）
 	if s.signAssets != nil {
 		key, _ := s.signAssets.ActiveSignature(id)
 		d.SignatureFileKey = key

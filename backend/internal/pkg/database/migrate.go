@@ -382,11 +382,16 @@ COMMENT ON COLUMN checkin_record_item.photos IS '该项照片 file_key 数组';
 CREATE INDEX IF NOT EXISTS idx_rec_item_rec ON checkin_record_item (record_id, sort);
 CREATE INDEX IF NOT EXISTS idx_rec_item_tplitem ON checkin_record_item (template_item_id);
 `},
+	{Version: 19, Name: "drop_deprecated_jsonb_columns", SQL: `
+-- ===== 清理废弃列（v19）：v16/v18 数据搬迁已完成，删除旧 JSONB/标量列 =====
+ALTER TABLE check_template DROP COLUMN IF EXISTS items;
+ALTER TABLE checkin_record DROP COLUMN IF EXISTS check_items;
+ALTER TABLE sys_user DROP COLUMN IF EXISTS signature_file_key;
+`},
 }
 
 // Migrate 执行未应用过的迁移，并确保当月与下月分区存在。
-// uploadDir 为本地上传根目录（v16 存量签名/公章迁移需读文件计算 sha256）。
-func Migrate(db *gorm.DB, uploadDir string) error {
+func Migrate(db *gorm.DB) error {
 	// 迁移记录表
 	if err := db.Exec(`CREATE TABLE IF NOT EXISTS schema_migrations (
 		version    int PRIMARY KEY,
@@ -412,16 +417,6 @@ func Migrate(db *gorm.DB, uploadDir string) error {
 		}); err != nil {
 			return err
 		}
-	}
-
-	// v16 存量数据迁移（幂等，随每次启动重复执行；须在读得到旧配置值之后再删配置行）
-	if err := migrateSignAssetData(db, uploadDir); err != nil {
-		return fmt.Errorf("签章资产数据迁移失败: %w", err)
-	}
-
-	// v18 检查项 JSONB → 独立表数据搬迁（幂等，随每次启动重复执行）
-	if err := migrateCheckItemData(db); err != nil {
-		return fmt.Errorf("检查项数据搬迁失败: %w", err)
 	}
 
 	// 按月分区表：确保当月与下月分区已创建（月度滚动由运维脚本兜底，这里保证启动即可写）

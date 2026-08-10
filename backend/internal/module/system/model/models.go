@@ -43,8 +43,6 @@ type SysUser struct {
 	Phone              string        `gorm:"size:20" json:"phone"`
 	Openid             *string       `gorm:"size:64" json:"openid"`
 	Avatar             string        `gorm:"size:512" json:"avatar"`
-	// Deprecated: v16 起签名改为 sign_asset 资产表管理，本列仅保留历史数据，代码不再读写。
-	SignatureFileKey   string        `gorm:"size:255" json:"signature_file_key"`
 	RoleIDs            types.IDArray `gorm:"type:jsonb" json:"role_ids"`
 	CommunityIDs       types.IDArray `gorm:"type:jsonb" json:"community_ids"`
 	UserType           string        `gorm:"size:16" json:"user_type"`

@@ -47,18 +47,16 @@ const (
 	AIVerdictError  = "error"
 )
 
-// CheckTemplate 检查项模板（point_type 空为通用）。
+// CheckTemplate 检查项模板（point_type 空为通用；检查项见 check_template_item 独立表）。
 type CheckTemplate struct {
 	types.UUIDModel
 	Name      string `gorm:"size:128" json:"name"`
 	PointType string `gorm:"size:32" json:"point_type"`
-	// Items 已废弃（v18 起检查项拆分为 check_template_item 独立表；列保留不删，仅存量数据搬迁读取）
-	Items     types.TemplateItemArray `gorm:"type:jsonb" json:"items"`
-	Sort      int                     `json:"sort"`
-	Status    string                  `gorm:"size:16" json:"status"`
-	Remark    string                  `gorm:"size:255" json:"remark"`
-	CreatedAt time.Time               `json:"created_at"`
-	UpdatedAt time.Time               `json:"updated_at"`
+	Sort      int    `json:"sort"`
+	Status    string `gorm:"size:16" json:"status"`
+	Remark    string `gorm:"size:255" json:"remark"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
 	DeletedAt gorm.DeletedAt          `json:"-"`
 }
 
@@ -173,8 +171,6 @@ type CheckinRecord struct {
 	DistanceToPoint *float64            `gorm:"type:numeric(10,2)" json:"distance_to_point"`
 	CheckinType     string              `gorm:"size:16" json:"checkin_type"`
 	Photos          types.PhotoArray    `gorm:"type:jsonb" json:"photos"`
-	// CheckItems 已废弃（v18 起逐项结果拆分为 checkin_record_item 独立表；列保留不删，仅存量数据搬迁读取）
-	CheckItems      types.CheckItemArray `gorm:"type:jsonb" json:"check_items"`
 	Result          string              `gorm:"size:16" json:"result"`
 	Remark          string              `gorm:"size:512" json:"remark"`
 	IsOfflineSync   bool                `json:"is_offline_sync"`

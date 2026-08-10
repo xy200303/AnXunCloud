@@ -233,6 +233,17 @@ func (ctl *InspectionController) ListCheckins(c *gin.Context) {
 	write(c, page, be)
 }
 
+// CheckinAuditCounts 各审核状态计数（列表页 tab 徽章）。
+func (ctl *InspectionController) CheckinAuditCounts(c *gin.Context) {
+	var q dto.CheckinListQuery
+	if be := bind.Query(c, &q); be != nil {
+		response.Fail(c, be)
+		return
+	}
+	data, be := ctl.tasks.CheckinAuditCounts(c, &q)
+	write(c, data, be)
+}
+
 func (ctl *InspectionController) CheckinDetail(c *gin.Context) {
 	id, be := pathID(c)
 	if be != nil {

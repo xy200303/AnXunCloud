@@ -1,11 +1,21 @@
 <template>
   <div class="app-container">
-    <!-- 顶部 Tab：全部记录 / 待审核 / 已审核 -->
+    <!-- 顶部 Tab：按审核状态分（徽章数量跟随筛选条件联动） -->
     <div class="table-card records-tabs-card">
       <el-tabs v-model="activeTab" @tab-change="handleTabChange">
         <el-tab-pane label="全部记录" name="all" />
-        <el-tab-pane v-perms="'inspection:checkin:review'" label="待审核" name="pending" />
-        <el-tab-pane v-perms="'inspection:checkin:review'" label="已审核" name="reviewed" />
+        <el-tab-pane v-perms="'inspection:checkin:review'" name="pending">
+          <template #label>
+            待审核
+            <el-badge v-if="counts.pending > 0" :value="counts.pending" :max="99" type="warning" class="tab-badge" />
+          </template>
+        </el-tab-pane>
+        <el-tab-pane v-perms="'inspection:checkin:review'" name="reviewed">
+          <template #label>
+            已审核
+            <el-badge v-if="counts.pass + counts.rejected > 0" :value="counts.pass + counts.rejected" :max="99" type="info" class="tab-badge" />
+          </template>
+        </el-tab-pane>
       </el-tabs>
     </div>
 
@@ -26,14 +36,6 @@
           <el-select v-model="query.result" placeholder="全部" clearable style="width: 110px">
             <el-option label="正常" value="normal" />
             <el-option label="异常" value="abnormal" />
-          </el-select>
-        </el-form-item>
-        <el-form-item v-if="activeTab === 'all'" label="审核">
-          <el-select v-model="query.audit_status" placeholder="全部" clearable style="width: 110px">
-            <el-option label="待审核" value="pending" />
-            <el-option label="默认通过" value="auto_pass" />
-            <el-option label="人工通过" value="pass" />
-            <el-option label="已打回" value="rejected" />
           </el-select>
         </el-form-item>
         <el-form-item v-if="activeTab === 'reviewed'" label="审核结果">
@@ -228,7 +230,7 @@ import { computed, onMounted, reactive, ref } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { Search, Refresh, Aim } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox, type FormInstance, type FormRules, type TableInstance } from 'element-plus'
-import { listCheckins, getCheckin, type CheckinQuery } from '@/api/checkin'
+import { listCheckins, getCheckin, getCheckinAuditCounts, type CheckinQuery, type AuditCounts } from '@/api/checkin'
 import { passReview, rejectReview, reopenReview, batchPassReview, spotcheck, type SpotcheckBody } from '@/api/review'
 import { listCommunities } from '@/api/community'
 import { listUsers } from '@/api/user'
@@ -292,13 +294,33 @@ function defaultRange(): [string, string] {
 }
 
 const timeRange = ref<[string, string] | null>(defaultRange())
-const query = reactive<CheckinQuery>({ page: 1, page_size: 20, community_id: undefined, inspector_id: undefined, result: '', audit_status: '' })
+const query = reactive<CheckinQuery>({ page: 1, page_size: 20, community_id: undefined, inspector_id: undefined, result: '' })
+
+// tab 徽章计数（与列表过滤条件联动，不含审核状态本身）
+const counts = reactive<AuditCounts>({ auto_pass: 0, pending: 0, pass: 0, rejected: 0 })
 
 // 当前 tab 对应的审核状态过滤（已审核-全部 = pass,rejected 多值）
 function currentAuditStatus(): string | undefined {
   if (activeTab.value === 'pending') return 'pending'
   if (activeTab.value === 'reviewed') return reviewedStatus.value === 'all' ? 'pass,rejected' : reviewedStatus.value
-  return query.audit_status || undefined
+  return undefined
+}
+
+// 列表与计数共用的过滤参数
+function filterParams() {
+  return {
+    community_id: query.community_id,
+    inspector_id: query.inspector_id,
+    result: query.result || undefined,
+    is_suspect: onlySuspect.value || undefined,
+    start_time: timeRange.value?.[0],
+    end_time: timeRange.value?.[1]
+  }
+}
+
+async function fetchCounts() {
+  const data = await getCheckinAuditCounts(filterParams())
+  Object.assign(counts, data)
 }
 
 async function fetchList() {
@@ -306,17 +328,15 @@ async function fetchList() {
   try {
     const data = await listCheckins({
       ...query,
-      result: query.result || undefined,
-      audit_status: currentAuditStatus(),
-      is_suspect: onlySuspect.value || undefined,
-      start_time: timeRange.value?.[0],
-      end_time: timeRange.value?.[1]
+      ...filterParams(),
+      audit_status: currentAuditStatus()
     })
     list.value = data.list
     total.value = data.total
   } finally {
     loading.value = false
   }
+  fetchCounts()
 }
 
 function handleSearch() {
@@ -328,7 +348,6 @@ function handleReset() {
   query.community_id = undefined
   query.inspector_id = undefined
   query.result = ''
-  query.audit_status = ''
   reviewedStatus.value = 'all'
   onlySuspect.value = false
   timeRange.value = defaultRange()
@@ -530,6 +549,11 @@ async function submitSpotcheck() {
   margin-left: $spacing-sm;
   font-size: 13px;
   color: $color-text-secondary;
+}
+
+.tab-badge {
+  margin-left: $spacing-xs;
+  transform: translateY(-2px);
 }
 
 .form-tip {

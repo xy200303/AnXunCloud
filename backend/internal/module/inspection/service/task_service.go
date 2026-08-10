@@ -261,8 +261,8 @@ func briefItemViews(db *gorm.DB, recordID string) []gin.H {
 
 // ========== 打卡记录检索（管理后台） ==========
 
-// CheckinList 打卡记录分页检索。
-func (s *TaskService) CheckinList(c *gin.Context, q *dto.CheckinListQuery) (*response.Page, *errs.Error) {
+// applyCheckinFilters 打卡记录检索的公共过滤条件（含小区数据权限，不含审核状态）。
+func (s *TaskService) applyCheckinFilters(c *gin.Context, q *dto.CheckinListQuery) (*gorm.DB, *errs.Error) {
 	db := s.db.Model(&model.CheckinRecord{})
 	if q.CommunityID != "" {
 		db = db.Where("community_id = ?", q.CommunityID)
@@ -285,6 +285,40 @@ func (s *TaskService) CheckinList(c *gin.Context, q *dto.CheckinListQuery) (*res
 	if v, ok, _ := bind.BoolFilter(q.IsSuspect); ok {
 		db = db.Where("is_suspect = ?", v)
 	}
+	var be *errs.Error
+	if db, be = timeRangeOn(db, "checkin_time", q.StartTime, q.EndTime); be != nil {
+		return nil, be
+	}
+	return middleware.ApplyCommunityFilter(db, c, "checkin_record.community_id"), nil
+}
+
+// CheckinAuditCounts 各审核状态计数（列表页 tab 徽章；与列表共用过滤条件，不含 audit_status 本身）。
+func (s *TaskService) CheckinAuditCounts(c *gin.Context, q *dto.CheckinListQuery) (gin.H, *errs.Error) {
+	db, be := s.applyCheckinFilters(c, q)
+	if be != nil {
+		return nil, be
+	}
+	var rows []struct {
+		Status string
+		Cnt    int64
+	}
+	if err := db.Session(&gorm.Session{}).Select("audit_status AS status, count(*) AS cnt").
+		Group("audit_status").Scan(&rows).Error; err != nil {
+		return nil, errs.ErrInternal
+	}
+	out := gin.H{"auto_pass": int64(0), "pending": int64(0), "pass": int64(0), "rejected": int64(0)}
+	for _, r := range rows {
+		out[r.Status] = r.Cnt
+	}
+	return out, nil
+}
+
+// CheckinList 打卡记录分页检索。
+func (s *TaskService) CheckinList(c *gin.Context, q *dto.CheckinListQuery) (*response.Page, *errs.Error) {
+	db, be := s.applyCheckinFilters(c, q)
+	if be != nil {
+		return nil, be
+	}
 	if q.AuditStatus != "" {
 		// 支持逗号多值（如 pass,rejected 查"已审核"合集）
 		if statuses := strings.Split(q.AuditStatus, ","); len(statuses) > 1 {
@@ -293,11 +327,6 @@ func (s *TaskService) CheckinList(c *gin.Context, q *dto.CheckinListQuery) (*res
 			db = db.Where("audit_status = ?", q.AuditStatus)
 		}
 	}
-	var be *errs.Error
-	if db, be = timeRangeOn(db, "checkin_time", q.StartTime, q.EndTime); be != nil {
-		return nil, be
-	}
-	db = middleware.ApplyCommunityFilter(db, c, "checkin_record.community_id")
 	var total int64
 	if err := db.Count(&total).Error; err != nil {
 		return nil, errs.ErrInternal

@@ -24,3 +24,15 @@ export function listCheckins(params: CheckinQuery) {
 export function getCheckin(id: string) {
   return request<CheckinDetail>({ url: `/inspection/checkins/${id}`, method: 'get' })
 }
+
+export interface AuditCounts {
+  auto_pass: number
+  pending: number
+  pass: number
+  rejected: number
+}
+
+// 各审核状态计数（tab 徽章，与列表共用过滤条件，不含 audit_status）
+export function getCheckinAuditCounts(params: CheckinQuery) {
+  return request<AuditCounts>({ url: '/inspection/checkins/audit-counts', method: 'get', params })
+}

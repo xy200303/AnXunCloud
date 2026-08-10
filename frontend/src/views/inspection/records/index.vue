@@ -130,13 +130,22 @@
           </template>
         </el-table-column>
         <el-table-column prop="photo_count" label="照片数" width="80" align="right" />
-        <el-table-column label="操作" :width="activeTab === 'pending' ? 170 : 90">
+        <el-table-column label="操作" :width="activeTab === 'all' ? 90 : 170">
           <template #default="{ row }">
             <el-button link type="primary" @click.stop="openDetail(row)">详情</el-button>
             <template v-if="activeTab === 'pending'">
               <el-button v-perms="'inspection:checkin:review'" link type="success" @click="handlePass(row)">通过</el-button>
               <el-button v-perms="'inspection:checkin:review'" link type="danger" @click="handleReject(row)">打回</el-button>
             </template>
+            <el-button
+              v-if="activeTab === 'reviewed'"
+              v-perms="'inspection:checkin:review'"
+              link
+              type="warning"
+              @click="handleReopen(row)"
+            >
+              撤销审核
+            </el-button>
           </template>
         </el-table-column>
         <template #empty>
@@ -220,7 +229,7 @@ import { useRouter, useRoute } from 'vue-router'
 import { Search, Refresh, Aim } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox, type FormInstance, type FormRules, type TableInstance } from 'element-plus'
 import { listCheckins, getCheckin, type CheckinQuery } from '@/api/checkin'
-import { passReview, rejectReview, batchPassReview, spotcheck, type SpotcheckBody } from '@/api/review'
+import { passReview, rejectReview, reopenReview, batchPassReview, spotcheck, type SpotcheckBody } from '@/api/review'
 import { listCommunities } from '@/api/community'
 import { listUsers } from '@/api/user'
 import CheckinDetailDrawer from '@/components/CheckinDetailDrawer.vue'
@@ -379,6 +388,22 @@ async function handleReject(row: CheckinItem) {
   }
   await rejectReview(row.id, reason)
   ElMessage.success('已打回')
+  fetchList()
+}
+
+// ===== 撤销审核（已审核 → 退回待审核） =====
+async function handleReopen(row: CheckinItem) {
+  try {
+    await ElMessageBox.confirm(
+      `确认撤销「${row.point_name}」打卡记录的审核结果？记录将退回待审核队列重新审核。`,
+      '撤销审核',
+      { type: 'warning' }
+    )
+  } catch {
+    return
+  }
+  await reopenReview(row.id)
+  ElMessage.success('已退回待审核')
   fetchList()
 }
 

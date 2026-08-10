@@ -9,6 +9,11 @@ export function rejectReview(id: string, reason: string) {
   return request<null>({ url: `/inspection/review/${id}/reject`, method: 'post', data: { reason } })
 }
 
+// 撤销审核：pass/rejected → pending，记录退回待审核队列重新审核
+export function reopenReview(id: string) {
+  return request<null>({ url: `/inspection/review/${id}/reopen`, method: 'post' })
+}
+
 // 批量通过：仅 pending 记录被更新，skipped 为状态已变化被跳过的数量
 export function batchPassReview(ids: string[]) {
   return request<{ passed: number; skipped: number }>({ url: '/inspection/review/batch-pass', method: 'post', data: { ids } })

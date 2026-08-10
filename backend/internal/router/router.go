@@ -181,6 +181,7 @@ func New(cfg *config.Config, db *gorm.DB, rdb *redis.Client) (*gin.Engine, *insp
 			review.POST("/batch-pass", middleware.RequirePerm("inspection:checkin:review"), middleware.OperLog(db, "inspection", "review_batch_pass"), reviewCtl.BatchPass)
 			review.POST("/:id/pass", middleware.RequirePerm("inspection:checkin:review"), middleware.OperLog(db, "inspection", "review_pass"), reviewCtl.Pass)
 			review.POST("/:id/reject", middleware.RequirePerm("inspection:checkin:review"), middleware.OperLog(db, "inspection", "review_reject"), reviewCtl.Reject)
+			review.POST("/:id/reopen", middleware.RequirePerm("inspection:checkin:review"), middleware.OperLog(db, "inspection", "review_reopen"), reviewCtl.Reopen)
 		}
 
 		// 异常工单

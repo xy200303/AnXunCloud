@@ -61,6 +61,15 @@ func (ctl *ReviewController) BatchPass(c *gin.Context) {
 	write(c, result, be)
 }
 
+func (ctl *ReviewController) Reopen(c *gin.Context) {
+	id, be := pathID(c)
+	if be != nil {
+		response.Fail(c, be)
+		return
+	}
+	write(c, nil, ctl.review.Reopen(c, id))
+}
+
 func (ctl *ReviewController) Spotcheck(c *gin.Context) {
 	var req dto.SpotcheckReq
 	if be := bind.JSON(c, &req); be != nil {

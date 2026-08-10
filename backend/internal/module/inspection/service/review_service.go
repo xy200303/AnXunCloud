@@ -149,6 +149,33 @@ func (s *ReviewService) BatchPass(c *gin.Context, ids []string) (gin.H, *errs.Er
 	return gin.H{"passed": passed, "skipped": len(ids) - passed}, nil
 }
 
+// Reopen 撤销审核（pass/rejected → pending）：审核误操作的后悔药。
+// 退回后记录重新进入待审核队列，可再次通过/打回；清空原审核人与意见（操作日志已留痕）。
+func (s *ReviewService) Reopen(c *gin.Context, id string) *errs.Error {
+	var r model.CheckinRecord
+	if err := s.db.Where("id = ?", id).First(&r).Error; err != nil {
+		return errs.ErrNotFound
+	}
+	if be := middleware.CheckCommunity(c, r.CommunityID); be != nil {
+		return be
+	}
+	res := s.db.Model(&model.CheckinRecord{}).
+		Where("id = ? AND audit_status IN ?", r.ID, []string{model.AuditPass, model.AuditRejected}).
+		Updates(map[string]any{
+			"audit_status": model.AuditPending,
+			"audit_by":     nil,
+			"audit_at":     nil,
+			"audit_remark": "",
+		})
+	if res.Error != nil {
+		return errs.ErrInternal
+	}
+	if res.RowsAffected == 0 {
+		return errs.ErrConflict.WithMsg("仅已审核（pass/rejected）记录可撤销审核")
+	}
+	return nil
+}
+
 // Reject 审核打回（仅 pending 可审），并站内通知巡检员。
 func (s *ReviewService) Reject(c *gin.Context, id, reason string) *errs.Error {
 	r, be := s.loadPending(c, id)

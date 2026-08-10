@@ -1,6 +1,7 @@
 package service
 
 import (
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -285,7 +286,12 @@ func (s *TaskService) CheckinList(c *gin.Context, q *dto.CheckinListQuery) (*res
 		db = db.Where("is_suspect = ?", v)
 	}
 	if q.AuditStatus != "" {
-		db = db.Where("audit_status = ?", q.AuditStatus)
+		// 支持逗号多值（如 pass,rejected 查"已审核"合集）
+		if statuses := strings.Split(q.AuditStatus, ","); len(statuses) > 1 {
+			db = db.Where("audit_status IN ?", statuses)
+		} else {
+			db = db.Where("audit_status = ?", q.AuditStatus)
+		}
 	}
 	var be *errs.Error
 	if db, be = timeRangeOn(db, "checkin_time", q.StartTime, q.EndTime); be != nil {
@@ -313,6 +319,7 @@ func (s *TaskService) CheckinList(c *gin.Context, q *dto.CheckinListQuery) (*res
 			"distance_to_point": distanceOrNil(r), "result": r.Result,
 			"is_suspect": r.IsSuspect, "photo_count": len(r.Photos),
 			"audit_status": r.AuditStatus,
+			"ai_verdict":   r.AIVerdict, "ai_reason": r.AIReason,
 		})
 	}
 	return &response.Page{List: list, Total: total, Page: q.Page, PageSize: q.PageSize}, nil

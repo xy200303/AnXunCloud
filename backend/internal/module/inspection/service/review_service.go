@@ -129,6 +129,26 @@ func (s *ReviewService) Pass(c *gin.Context, id string) *errs.Error {
 	return nil
 }
 
+// BatchPass 批量审核通过：仅 pending 记录被更新（并发下不覆盖人工已处理的），
+// 小区数据权限通过 ApplyCommunityFilter 收敛；返回 passed/skipped 计数。
+func (s *ReviewService) BatchPass(c *gin.Context, ids []string) (gin.H, *errs.Error) {
+	now := time.Now()
+	db := s.db.Model(&model.CheckinRecord{}).
+		Where("id IN ? AND audit_status = ?", ids, model.AuditPending)
+	db = middleware.ApplyCommunityFilter(db, c, "checkin_record.community_id")
+	res := db.Updates(map[string]any{
+		"audit_status": model.AuditPass,
+		"audit_by":     middleware.CurrentUserID(c),
+		"audit_at":     now,
+		"audit_remark": "",
+	})
+	if res.Error != nil {
+		return nil, errs.ErrInternal
+	}
+	passed := int(res.RowsAffected)
+	return gin.H{"passed": passed, "skipped": len(ids) - passed}, nil
+}
+
 // Reject 审核打回（仅 pending 可审），并站内通知巡检员。
 func (s *ReviewService) Reject(c *gin.Context, id, reason string) *errs.Error {
 	r, be := s.loadPending(c, id)

@@ -1,20 +1,5 @@
-// 记录审核接口（接口文档 §2.15）
-import { request, type PageResult } from '@/utils/request'
-import type { CheckinItem } from './biz-types'
-
-export interface ReviewQuery {
-  page?: number
-  page_size?: number
-  audit_status?: string // pending / pass,rejected / pass / rejected
-  community_id?: string
-  inspector_id?: string
-  start_time?: string
-  end_time?: string
-}
-
-export function listReviewRecords(params: ReviewQuery) {
-  return request<PageResult<CheckinItem>>({ url: '/inspection/review/records', method: 'get', params })
-}
+// 记录审核接口（接口文档 §2.15）：页面已并入巡检记录（v20），列表走 checkins 检索接口
+import { request } from '@/utils/request'
 
 export function passReview(id: string) {
   return request<null>({ url: `/inspection/review/${id}/pass`, method: 'post' })
@@ -22,6 +7,11 @@ export function passReview(id: string) {
 
 export function rejectReview(id: string, reason: string) {
   return request<null>({ url: `/inspection/review/${id}/reject`, method: 'post', data: { reason } })
+}
+
+// 批量通过：仅 pending 记录被更新，skipped 为状态已变化被跳过的数量
+export function batchPassReview(ids: string[]) {
+  return request<{ passed: number; skipped: number }>({ url: '/inspection/review/batch-pass', method: 'post', data: { ids } })
 }
 
 export interface SpotcheckBody {

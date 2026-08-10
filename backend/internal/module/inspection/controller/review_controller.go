@@ -51,6 +51,16 @@ func (ctl *ReviewController) Reject(c *gin.Context) {
 	write(c, nil, ctl.review.Reject(c, id, req.Reason))
 }
 
+func (ctl *ReviewController) BatchPass(c *gin.Context) {
+	var req dto.BatchPassReq
+	if be := bind.JSON(c, &req); be != nil {
+		response.Fail(c, be)
+		return
+	}
+	result, be := ctl.review.BatchPass(c, req.IDs)
+	write(c, result, be)
+}
+
 func (ctl *ReviewController) Spotcheck(c *gin.Context) {
 	var req dto.SpotcheckReq
 	if be := bind.JSON(c, &req); be != nil {

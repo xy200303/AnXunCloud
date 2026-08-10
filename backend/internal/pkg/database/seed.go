@@ -94,14 +94,13 @@ func seedMenus(tx *gorm.DB) (map[string]string, error) {
 			}},
 			{title: "巡检记录", path: "/inspection/records", icon: "Document", typ: model.MenuTypeMenu, perms: "inspection:record:list", sort: 4, children: []menuSeed{
 				{title: "记录检索", typ: model.MenuTypeButton, perms: "inspection:checkin:list", sort: 1},
+				{title: "记录审核", typ: model.MenuTypeButton, perms: "inspection:checkin:review", sort: 2},
+				{title: "发起抽查", typ: model.MenuTypeButton, perms: "inspection:checkin:spotcheck", sort: 3},
 			}},
 			{title: "检查项模板", path: "/inspection/templates", icon: "Finished", typ: model.MenuTypeMenu, perms: "inspection:template:list", sort: 5, children: []menuSeed{
 				{title: "新增模板", typ: model.MenuTypeButton, perms: "inspection:template:create", sort: 1},
 				{title: "编辑模板", typ: model.MenuTypeButton, perms: "inspection:template:update", sort: 2},
 				{title: "删除模板", typ: model.MenuTypeButton, perms: "inspection:template:delete", sort: 3},
-			}},
-			{title: "记录审核", path: "/inspection/review", icon: "Stamp", typ: model.MenuTypeMenu, perms: "inspection:checkin:review", sort: 6, children: []menuSeed{
-				{title: "发起抽查", typ: model.MenuTypeButton, perms: "inspection:checkin:spotcheck", sort: 1},
 			}},
 		}},
 		{title: "工单管理", path: "/workorders", icon: "Tools", typ: model.MenuTypeDir, sort: 30, children: []menuSeed{

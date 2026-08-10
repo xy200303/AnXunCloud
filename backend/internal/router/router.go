@@ -178,6 +178,7 @@ func New(cfg *config.Config, db *gorm.DB, rdb *redis.Client) (*gin.Engine, *insp
 		{
 			review.GET("/records", middleware.RequirePerm("inspection:checkin:review"), reviewCtl.Records)
 			review.POST("/spotcheck", middleware.RequirePerm("inspection:checkin:spotcheck"), middleware.OperLog(db, "inspection", "spotcheck"), reviewCtl.Spotcheck)
+			review.POST("/batch-pass", middleware.RequirePerm("inspection:checkin:review"), middleware.OperLog(db, "inspection", "review_batch_pass"), reviewCtl.BatchPass)
 			review.POST("/:id/pass", middleware.RequirePerm("inspection:checkin:review"), middleware.OperLog(db, "inspection", "review_pass"), reviewCtl.Pass)
 			review.POST("/:id/reject", middleware.RequirePerm("inspection:checkin:review"), middleware.OperLog(db, "inspection", "review_reject"), reviewCtl.Reject)
 		}

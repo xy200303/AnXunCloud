@@ -137,6 +137,11 @@ type ReviewRejectReq struct {
 	Reason string `json:"reason" binding:"required"`
 }
 
+// BatchPassReq 批量通过：仅 pending 记录会被置为 pass，其余计入 skipped。
+type BatchPassReq struct {
+	IDs []string `json:"ids" binding:"required,min=1,max=200,dive,uuid"`
+}
+
 // SpotcheckReq 抽查请求：random 按比例随机抽取，full 范围内全量（上限 500 条）。
 type SpotcheckReq struct {
 	CommunityID string `json:"community_id"`

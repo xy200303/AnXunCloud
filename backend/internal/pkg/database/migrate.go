@@ -388,6 +388,20 @@ ALTER TABLE check_template DROP COLUMN IF EXISTS items;
 ALTER TABLE checkin_record DROP COLUMN IF EXISTS check_items;
 ALTER TABLE sys_user DROP COLUMN IF EXISTS signature_file_key;
 `},
+	{Version: 20, Name: "merge_review_into_records_menu", SQL: `
+-- ===== 记录审核并入巡检记录（v20）=====
+-- 原「记录审核」菜单（/inspection/review）降级为「巡检记录」下的按钮权限，
+-- 路由由菜单驱动，type menu→button 后前端不再生成 /inspection/review 页面。
+-- 权限标识 inspection:checkin:review / spotcheck 不变，sys_role_menu 引用保持有效。
+UPDATE sys_menu m SET parent_id = r.id, type = 'button', path = '', icon = '', visible = false, sort = 2
+FROM sys_menu r
+WHERE m.perms = 'inspection:checkin:review' AND m.type = 'menu' AND m.deleted_at IS NULL
+  AND r.perms = 'inspection:record:list' AND r.deleted_at IS NULL;
+UPDATE sys_menu m SET parent_id = r.id, sort = 3
+FROM sys_menu r
+WHERE m.perms = 'inspection:checkin:spotcheck' AND m.deleted_at IS NULL
+  AND r.perms = 'inspection:record:list' AND r.deleted_at IS NULL;
+`},
 }
 
 // Migrate 执行未应用过的迁移，并确保当月与下月分区存在。

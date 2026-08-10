@@ -124,8 +124,12 @@ func (s *TaskService) loadCounters(tasks []model.InspectionTask) map[string]task
 func (s *TaskService) toItem(t *model.InspectionTask, cnt taskCounters) gin.H {
 	var plan model.InspectionPlan
 	planName, timeWindow := "", ""
-	if s.db.Select("name", "time_window").First(&plan, "id = ?", t.PlanID).Error == nil {
+	// Unscoped：计划已删除时仍需展示其名称（历史任务可追溯），标注「已删除」
+	if s.db.Unscoped().Select("name", "time_window", "deleted_at").First(&plan, "id = ?", t.PlanID).Error == nil {
 		planName, timeWindow = plan.Name, plan.TimeWindow
+		if plan.DeletedAt.Valid {
+			planName += "（已删除）"
+		}
 	}
 	commName, inspectorName := "", ""
 	var comm sysmodel.Community
@@ -161,9 +165,14 @@ func (s *TaskService) Detail(c *gin.Context, id string) (gin.H, *errs.Error) {
 	if be := middleware.CheckCommunity(c, t.CommunityID); be != nil {
 		return nil, be
 	}
+	// 计划可能已删除（删计划只级联清理未开始任务）：Unscoped 读取保留名称与路线，保证历史任务可查
 	var plan model.InspectionPlan
-	if err := s.db.First(&plan, "id = ?", t.PlanID).Error; err != nil {
+	if err := s.db.Unscoped().First(&plan, "id = ?", t.PlanID).Error; err != nil {
 		return nil, errs.ErrNotFound
+	}
+	planName := plan.Name
+	if plan.DeletedAt.Valid {
+		planName += "（已删除）"
 	}
 	// 任务下全部打卡记录，按点位归集
 	var checkins []model.CheckinRecord
@@ -187,7 +196,7 @@ func (s *TaskService) Detail(c *gin.Context, id string) (gin.H, *errs.Error) {
 		}
 		entry := gin.H{
 			"point_id": pt.ID, "point_name": pt.Name, "building_name": buildingName,
-			"sort": i + 1, "checkin_mode": pt.CheckinMode,
+			"sort": i + 1, "credential": pt.Credential, "require_fence": pt.RequireFence,
 			"status": "pending", "checkin": nil,
 		}
 		if ck, ok := byPoint[pid]; ok {
@@ -211,7 +220,7 @@ func (s *TaskService) Detail(c *gin.Context, id string) (gin.H, *errs.Error) {
 	}
 	return gin.H{
 		"task": gin.H{
-			"id": t.ID, "plan_name": plan.Name, "community_name": commName,
+			"id": t.ID, "plan_name": planName, "community_name": commName,
 			"inspector_id": t.InspectorID, "inspector_name": inspectorName,
 			"task_date": t.TaskDate.Format("2006-01-02"), "time_window": plan.TimeWindow,
 			"status": t.Status, "total_points": t.TotalPoints, "done_points": t.DonePoints,

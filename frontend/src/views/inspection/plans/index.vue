@@ -348,6 +348,8 @@ async function handleGenerate() {
     const res = await generateTasks()
     if (res.created > 0) {
       ElMessage.success(`已生成 ${res.created} 个任务（${res.date}）`)
+    } else if (res.eligible_plans === 0) {
+      ElMessage.warning(`${res.date} 没有需要执行的启用计划，请先在上方新增计划`)
     } else {
       ElMessage.info(`${res.date} 任务已存在，无需重复生成`)
     }

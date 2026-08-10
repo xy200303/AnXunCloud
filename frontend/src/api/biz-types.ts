@@ -69,7 +69,8 @@ export interface PointItem {
   longitude: number
   latitude: number
   fence_radius: number
-  checkin_mode: 'qrcode' | 'fence' | 'either' | 'both' | 'nfc'
+  credential: 'qrcode' | 'nfc' | 'none'
+  require_fence: boolean
   required_photo_items: string[]
   template_id: string | null
   template_name?: string
@@ -87,7 +88,8 @@ export interface PointForm {
   longitude: number | null
   latitude: number | null
   fence_radius: number
-  checkin_mode: string
+  credential: string
+  require_fence: boolean
   required_photo_items: string[]
   template_id: string | null
   nfc_id: string
@@ -165,7 +167,8 @@ export interface TaskPointDetail {
   point_name: string
   building_name: string
   sort: number
-  checkin_mode: string
+  credential: 'qrcode' | 'nfc' | 'none'
+  require_fence: boolean
   status: 'done' | 'pending'
   checkin: {
     id: string

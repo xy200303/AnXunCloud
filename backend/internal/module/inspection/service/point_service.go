@@ -8,6 +8,9 @@ import (
 	"image"
 	"image/draw"
 	"image/png"
+	"io"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -20,6 +23,7 @@ import (
 	sysmodel "anxuncloud/internal/module/system/model"
 	"anxuncloud/internal/pkg/bind"
 	"anxuncloud/internal/pkg/errs"
+	"anxuncloud/internal/pkg/excel"
 	"anxuncloud/internal/pkg/response"
 	"anxuncloud/internal/pkg/storage"
 	"anxuncloud/internal/pkg/timefmt"
@@ -53,8 +57,8 @@ func (s *PointService) List(c *gin.Context, q *dto.PointListQuery) (*response.Pa
 	if q.Type != "" {
 		db = db.Where("type = ?", q.Type)
 	}
-	if q.CheckinMode != "" {
-		db = db.Where("checkin_mode = ?", q.CheckinMode)
+	if q.Credential != "" {
+		db = db.Where("credential = ?", q.Credential)
 	}
 	if status, ok, _ := bind.StatusFilter(q.Status); ok {
 		db = db.Where("status = ?", status)
@@ -106,7 +110,7 @@ func (s *PointService) toItem(p *model.InspectionPoint) gin.H {
 		"qrcode_no": p.QRCodeNo, "nfc_id": p.NfcID,
 		"template_id": p.TemplateID, "template_name": templateName,
 		"longitude": p.Longitude, "latitude": p.Latitude,
-		"fence_radius": p.FenceRadius, "checkin_mode": p.CheckinMode,
+		"fence_radius": p.FenceRadius, "credential": p.Credential, "require_fence": p.RequireFence,
 		"required_photo_items": p.RequiredPhotoItems,
 		"sort": p.Sort, "status": sysmodel.StatusInt(p.Status), "created_at": timefmt.T(p.CreatedAt),
 	}
@@ -130,7 +134,8 @@ func (s *PointService) Create(c *gin.Context, req *dto.PointSaveReq) (string, st
 		Longitude:          req.Longitude,
 		Latitude:           req.Latitude,
 		FenceRadius:        s.fenceRadius(req.FenceRadius),
-		CheckinMode:        modeOrDefault(req.CheckinMode),
+		Credential:         credentialOrDefault(req.Credential),
+		RequireFence:       req.RequireFence,
 		RequiredPhotoItems: req.RequiredPhotoItems,
 		Sort:               req.Sort,
 		Status:             sysmodel.StatusEnabled,
@@ -143,15 +148,24 @@ func (s *PointService) Create(c *gin.Context, req *dto.PointSaveReq) (string, st
 		p.RequiredPhotoItems = types.StringArray{}
 	}
 	// 二维码编号：P-+6 位序列（序号源为 PG 序列 qrcode_no_seq，业务编号与 UUID 主键解耦）
-	var seq int64
-	if err := s.db.Raw("SELECT nextval('qrcode_no_seq')").Scan(&seq).Error; err != nil {
-		return "", "", errs.ErrInternal
+	no, be := s.nextQRCodeNo()
+	if be != nil {
+		return "", "", be
 	}
-	p.QRCodeNo = fmt.Sprintf("P-%06d", seq)
+	p.QRCodeNo = no
 	if err := s.db.Create(&p).Error; err != nil {
 		return "", "", errs.ErrInternal
 	}
 	return p.ID, p.QRCodeNo, nil
+}
+
+// nextQRCodeNo 取下一个二维码编号（P+6 位序列，如 P000018；无分隔符，肉眼报号与扫码解析都最简单）。
+func (s *PointService) nextQRCodeNo() (string, *errs.Error) {
+	var seq int64
+	if err := s.db.Raw("SELECT nextval('qrcode_no_seq')").Scan(&seq).Error; err != nil {
+		return "", errs.ErrInternal
+	}
+	return fmt.Sprintf("P%06d", seq), nil
 }
 
 // Detail 点位详情（含引用中的启用计划）。
@@ -191,7 +205,7 @@ func (s *PointService) Update(c *gin.Context, id string, req *dto.PointSaveReq) 
 		"community_id": req.CommunityID, "building_id": req.BuildingID, "name": req.Name,
 		"type": req.Type, "template_id": templatePtr(req.TemplateID), "nfc_id": req.NfcID,
 		"longitude": req.Longitude, "latitude": req.Latitude,
-		"fence_radius": s.fenceRadius(req.FenceRadius), "checkin_mode": modeOrDefault(req.CheckinMode),
+		"fence_radius": s.fenceRadius(req.FenceRadius), "credential": credentialOrDefault(req.Credential), "require_fence": req.RequireFence,
 		"required_photo_items": types.StringArray(req.RequiredPhotoItems),
 		"sort": req.Sort, "remark": req.Remark,
 	}
@@ -249,14 +263,14 @@ func (s *PointService) MapPoints(c *gin.Context, communityID string) ([]gin.H, *
 		list = append(list, gin.H{
 			"id": p.ID, "name": p.Name, "building_name": buildingName,
 			"longitude": p.Longitude, "latitude": p.Latitude,
-			"fence_radius": p.FenceRadius, "checkin_mode": p.CheckinMode,
+			"fence_radius": p.FenceRadius, "credential": p.Credential, "require_fence": p.RequireFence,
 			"status": sysmodel.StatusInt(p.Status),
 		})
 	}
 	return list, nil
 }
 
-// QRCodeBatch 批量生成二维码并打包 zip 下载（码内容 inspection://checkin?no=<qrcode_no>）。
+// QRCodeBatch 批量生成二维码并打包 zip 下载（码内容即点位编号本身，如 P000018，最短内容保证识别率）。
 func (s *PointService) QRCodeBatch(c *gin.Context, req *dto.QRCodeBatchReq) (gin.H, *errs.Error) {
 	if len(req.PointIDs) > 200 {
 		return nil, errs.ErrParam.WithMsg("单次最多生成 200 个点位二维码")
@@ -277,20 +291,41 @@ func (s *PointService) QRCodeBatch(c *gin.Context, req *dto.QRCodeBatchReq) (gin
 	if req.WithTitle != nil {
 		withTitle = *req.WithTitle
 	}
+	// 预载小区/楼栋名称（标题行「小区·楼栋」用）
+	commNames := map[string]string{}
+	{
+		var comms []sysmodel.Community
+		s.db.Select("id", "name").Find(&comms)
+		for _, cm := range comms {
+			commNames[cm.ID] = cm.Name
+		}
+	}
+	buildingNames := map[string]string{}
+	{
+		var bs []model.Building
+		s.db.Select("id", "name").Find(&bs)
+		for _, b := range bs {
+			buildingNames[b.ID] = b.Name
+		}
+	}
 	var buf bytes.Buffer
 	zw := zip.NewWriter(&buf)
 	for _, p := range points {
-		content := fmt.Sprintf("inspection://checkin?no=%s", p.QRCodeNo)
+		content := p.QRCodeNo
 		img, err := qrcode.New(content, qrcode.Medium)
 		if err != nil {
 			return nil, errs.ErrInternal
 		}
-		pngBytes, err := img.PNG(400)
+		pngBytes, err := img.PNG(600)
 		if err != nil {
 			return nil, errs.ErrInternal
 		}
 		if withTitle {
-			pngBytes = appendTitle(pngBytes, p.Name, p.QRCodeNo)
+			location := commNames[p.CommunityID]
+			if p.BuildingID != nil {
+				location += "·" + buildingNames[*p.BuildingID]
+			}
+			pngBytes = appendTitle(pngBytes, p.Name, location, p.QRCodeNo)
 		}
 		w, err := zw.Create(fmt.Sprintf("%s_%s.png", p.QRCodeNo, p.Name))
 		if err != nil {
@@ -322,18 +357,22 @@ func (s *PointService) QRCodeBatch(c *gin.Context, req *dto.QRCodeBatchReq) (gin
 	}, nil
 }
 
-// appendTitle 在二维码图下方拼接点位名称与编号（白底）。
-func appendTitle(pngBytes []byte, name, no string) []byte {
+// appendTitle 在二维码图下方拼接标牌区（LOGO + 三行居中文字：点位名称 / 小区·楼栋 / 编号），方便打印张贴时对号。
+// 字号随 600px 图宽设计：名称 42、其余 34，全量 hinting 保证打印清晰。
+func appendTitle(pngBytes []byte, name, location, no string) []byte {
 	src, err := png.Decode(bytes.NewReader(pngBytes))
 	if err != nil {
 		return pngBytes
 	}
-	h := 80
+	h := 276 // 上边距 14 + LOGO(88) + 三行文字 + 下边距
 	dst := image.NewRGBA(image.Rect(0, 0, src.Bounds().Dx(), src.Bounds().Dy()+h))
 	draw.Draw(dst, dst.Bounds(), image.White, image.Point{}, draw.Src)
 	draw.Draw(dst, src.Bounds(), src, image.Point{}, draw.Src)
-	watermark.TextRGBA(dst, 12, src.Bounds().Dy()+32, name)
-	watermark.TextRGBA(dst, 12, src.Bounds().Dy()+64, no)
+	y := src.Bounds().Dy() + 14
+	y += watermark.DrawLogoCentered(dst, y, 260, 88) // 无 LOGO 时返回 0，文字自然上移
+	watermark.TextCenterRGBA(dst, y+52, name, 42)
+	watermark.TextCenterRGBA(dst, y+106, location, 34)
+	watermark.TextCenterRGBA(dst, y+154, no, 34)
 	var out bytes.Buffer
 	if png.Encode(&out, dst) != nil {
 		return pngBytes
@@ -366,10 +405,17 @@ func (s *PointService) validate(req *dto.PointSaveReq) *errs.Error {
 			return errs.ErrParam.WithMsg("template_id 对应的检查项模板不存在")
 		}
 	}
-	switch modeOrDefault(req.CheckinMode) {
-	case model.ModeQRCode, model.ModeFence, model.ModeEither, model.ModeBoth, model.ModeNFC:
+	switch credentialOrDefault(req.Credential) {
+	case model.CredentialQRCode, model.CredentialNFC, model.CredentialNone:
 	default:
-		return errs.ErrParam.WithMsg("checkin_mode 取值非法")
+		return errs.ErrParam.WithMsg("credential 取值非法（qrcode/nfc/none）")
+	}
+	// 凭证与围栏至少启用一项
+	if credentialOrDefault(req.Credential) == model.CredentialNone && !req.RequireFence {
+		return errs.ErrParam.WithMsg("点位凭证与围栏校验至少启用一项")
+	}
+	if credentialOrDefault(req.Credential) == model.CredentialNFC && strings.TrimSpace(req.NfcID) == "" {
+		return errs.ErrParam.WithMsg("凭证方式为 NFC 时须填写 NFC 卡号")
 	}
 	return nil
 }
@@ -398,9 +444,236 @@ func (s *PointService) fenceRadius(v int) int {
 	return 100
 }
 
-func modeOrDefault(mode string) string {
-	if mode == "" {
-		return model.ModeEither
+// credentialOrDefault 凭证方式缺省为扫码。
+func credentialOrDefault(c string) string {
+	if c == "" {
+		return model.CredentialQRCode
 	}
-	return mode
+	return c
+}
+
+// pointImportMaxRows 点位单次导入数据行上限。
+const pointImportMaxRows = 500
+
+// importModeMap 导入模板「打卡方式」中文 → (凭证, 是否围栏校验)。
+var importModeMap = map[string][2]any{
+	"扫码":    {model.CredentialQRCode, false},
+	"NFC":   {model.CredentialNFC, false},
+	"围栏":    {model.CredentialNone, true},
+	"扫码+围栏": {model.CredentialQRCode, true},
+	"NFC+围栏": {model.CredentialNFC, true},
+}
+
+// Import 逐行校验导入点位（跳过失败行，成功行落库；二维码编号照常自动发号）。
+func (s *PointService) Import(c *gin.Context, r io.Reader) (*dto.PointImportResult, string, *errs.Error) {
+	rows, err := excel.ParsePointImport(r)
+	if err != nil {
+		return nil, "", errs.ErrImportFileType
+	}
+	dataRows := make([][]string, 0, len(rows))
+	rowNums := make([]int, 0, len(rows))
+	for i, row := range rows {
+		if isEmptyRow(row) {
+			continue
+		}
+		dataRows = append(dataRows, row)
+		rowNums = append(rowNums, i+3) // Excel 实际行号（1 表头 + 1 示例）
+	}
+	if len(dataRows) == 0 {
+		return nil, "", errs.ErrImportEmpty
+	}
+	if len(dataRows) > pointImportMaxRows {
+		return nil, "", errs.ErrImportTooMany
+	}
+
+	// 预载名称映射：小区、楼栋、点位类型字典、启用模板、已有点位（防重复）
+	commByName := map[string]string{}
+	{
+		var comms []sysmodel.Community
+		s.db.Select("id", "name").Find(&comms)
+		for _, cm := range comms {
+			commByName[cm.Name] = cm.ID
+		}
+	}
+	buildingByKey := map[string]string{} // commID|楼栋名 → id
+	{
+		var bs []model.Building
+		s.db.Select("id", "community_id", "name").Find(&bs)
+		for _, b := range bs {
+			buildingByKey[b.CommunityID+"|"+b.Name] = b.ID
+		}
+	}
+	typeByText := map[string]string{} // 字典 label 与 value 均可匹配
+	{
+		var dds []sysmodel.SysDictData
+		s.db.Select("label", "value").Where("type_code = 'point_type'").Find(&dds)
+		for _, dd := range dds {
+			typeByText[dd.Label] = dd.Value
+			typeByText[dd.Value] = dd.Value
+		}
+	}
+	templateByName := map[string]string{}
+	{
+		var ts []model.CheckTemplate
+		s.db.Select("id", "name").Where("status = ?", sysmodel.StatusEnabled).Find(&ts)
+		for _, t := range ts {
+			templateByName[t.Name] = t.ID
+		}
+	}
+	existingNames := map[string]bool{} // commID|buildingID|名称（楼栋空归为 ""）
+	{
+		var ps []model.InspectionPoint
+		s.db.Select("community_id", "building_id", "name").Find(&ps)
+		for _, p := range ps {
+			bid := ""
+			if p.BuildingID != nil {
+				bid = *p.BuildingID
+			}
+			existingNames[p.CommunityID+"|"+bid+"|"+p.Name] = true
+		}
+	}
+
+	result := &dto.PointImportResult{Total: len(dataRows), FailDetails: []dto.PointImportFail{}}
+	seen := map[string]bool{}
+	for i, row := range dataRows {
+		cell := func(idx int) string {
+			if idx < len(row) {
+				return strings.TrimSpace(row[idx])
+			}
+			return ""
+		}
+		commText, buildingText, name := cell(0), cell(1), cell(2)
+		typeText, tplText, nfcID := cell(3), cell(4), cell(5)
+		lonText, latText, radiusText, modeText := cell(6), cell(7), cell(8), cell(9)
+		photoText, statusText, remark := cell(10), cell(11), cell(12)
+
+		fail := func(reason string) {
+			result.FailDetails = append(result.FailDetails, dto.PointImportFail{Row: rowNums[i], Name: name, Reason: reason})
+		}
+		// 1. 必填：小区/点位名称/点位类型/经纬度
+		if commText == "" || name == "" || typeText == "" || lonText == "" || latText == "" {
+			fail("小区/点位名称/点位类型/经度/纬度均为必填")
+			continue
+		}
+		// 2. 小区存在性与数据权限
+		commID, ok := commByName[commText]
+		if !ok {
+			fail("小区「" + commText + "」不存在")
+			continue
+		}
+		if be := middleware.CheckCommunity(c, commID); be != nil {
+			fail("无小区「" + commText + "」的数据权限")
+			continue
+		}
+		// 3. 楼栋（可空；填写则须属于该小区）
+		var buildingID *string
+		if buildingText != "" {
+			bid, ok := buildingByKey[commID+"|"+buildingText]
+			if !ok {
+				fail("楼栋「" + buildingText + "」不存在或不属于该小区")
+				continue
+			}
+			buildingID = &bid
+		}
+		// 4. 点位类型（字典 label/value 均可）
+		pointType, ok := typeByText[typeText]
+		if !ok {
+			fail("点位类型「" + typeText + "」不在字典 point_type 中")
+			continue
+		}
+		// 5. 检查项模板（可空，须为启用模板）
+		var templateID *string
+		if tplText != "" {
+			tid, ok := templateByName[tplText]
+			if !ok {
+				fail("检查项模板「" + tplText + "」不存在或已停用")
+				continue
+			}
+			templateID = &tid
+		}
+		// 6. 经纬度与围栏半径
+		lon, errLon := strconv.ParseFloat(lonText, 64)
+		lat, errLat := strconv.ParseFloat(latText, 64)
+		if errLon != nil || errLat != nil || lon < -180 || lon > 180 || lat < -90 || lat > 90 {
+			fail("经纬度格式或取值非法")
+			continue
+		}
+		radius := 0
+		if radiusText != "" {
+			n, err := strconv.Atoi(radiusText)
+			if err != nil || n < 10 || n > 2000 {
+				fail("围栏半径须为 10–2000 的整数")
+				continue
+			}
+			radius = n
+		}
+		// 7. 打卡方式（默认扫码+围栏）；NFC 凭证必须填卡号
+		credential, requireFence := model.CredentialQRCode, true
+		if modeText != "" {
+			m, ok := importModeMap[modeText]
+			if !ok {
+				fail("打卡方式「" + modeText + "」非法（扫码/NFC/围栏/扫码+围栏/NFC+围栏）")
+				continue
+			}
+			credential, _ = m[0].(string)
+			requireFence, _ = m[1].(bool)
+		}
+		if credential == model.CredentialNFC && nfcID == "" {
+			fail("打卡方式含 NFC 时 NFC卡号 必填")
+			continue
+		}
+		// 8. 必拍项（英文逗号分隔，可空）
+		photoItems := types.StringArray{}
+		if photoText != "" {
+			for _, item := range strings.Split(photoText, ",") {
+				if item = strings.TrimSpace(item); item != "" {
+					photoItems = append(photoItems, item)
+				}
+			}
+		}
+		// 9. 同楼栋下名称防重（库中或本批次）
+		bid := ""
+		if buildingID != nil {
+			bid = *buildingID
+		}
+		dupKey := commID + "|" + bid + "|" + name
+		if existingNames[dupKey] || seen[dupKey] {
+			fail("同楼栋下已存在同名点位")
+			continue
+		}
+		status := sysmodel.StatusEnabled
+		if statusText == "停用" {
+			status = sysmodel.StatusDisabled
+		}
+		no, be := s.nextQRCodeNo()
+		if be != nil {
+			return nil, "", be
+		}
+		p := model.InspectionPoint{
+			CommunityID: commID, BuildingID: buildingID, Name: name, Type: pointType,
+			TemplateID: templateID, NfcID: nfcID, QRCodeNo: no,
+			Longitude: lon, Latitude: lat, FenceRadius: s.fenceRadius(radius),
+			Credential: credential, RequireFence: requireFence, RequiredPhotoItems: photoItems,
+			Status: status, Remark: remark,
+		}
+		if err := s.db.Create(&p).Error; err != nil {
+			fail("写入失败：" + err.Error())
+			continue
+		}
+		seen[dupKey] = true
+		result.SuccessCount++
+	}
+	result.FailCount = len(result.FailDetails)
+	msg := fmt.Sprintf("导入完成：成功 %d 条，失败 %d 条", result.SuccessCount, result.FailCount)
+	return result, msg, nil
+}
+
+// isEmptyRow 判断整行为空。
+func isEmptyRow(row []string) bool {
+	for _, c := range row {
+		if strings.TrimSpace(c) != "" {
+			return false
+		}
+	}
+	return true
 }

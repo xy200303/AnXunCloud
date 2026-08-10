@@ -2,6 +2,10 @@
 package controller
 
 import (
+	"bytes"
+	"fmt"
+	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -11,6 +15,7 @@ import (
 	"anxuncloud/internal/module/inspection/service"
 	"anxuncloud/internal/pkg/bind"
 	"anxuncloud/internal/pkg/errs"
+	"anxuncloud/internal/pkg/excel"
 	"anxuncloud/internal/pkg/response"
 )
 
@@ -61,6 +66,61 @@ func (ctl *InspectionController) CreatePoint(c *gin.Context) {
 	}
 	id, no, be := ctl.points.Create(c, &req)
 	write(c, gin.H{"id": id, "qrcode_no": no}, be)
+}
+
+// pointImportMaxFileSize 导入文件大小上限 5MB。
+const pointImportMaxFileSize = 5 << 20
+
+// PointImportTemplate GET /inspection/points/import-template（直接返回 Excel 文件流）
+func (ctl *InspectionController) PointImportTemplate(c *gin.Context) {
+	f, err := excel.PointImportTemplate()
+	if err != nil {
+		response.Fail(c, errs.ErrInternal)
+		return
+	}
+	defer f.Close()
+	var buf bytes.Buffer
+	if err := f.Write(&buf); err != nil {
+		response.Fail(c, errs.ErrInternal)
+		return
+	}
+	writeExcel(c, "point_import_template.xlsx", buf.Bytes())
+}
+
+// ImportPoints POST /inspection/points/import（multipart 上传 .xlsx）
+func (ctl *InspectionController) ImportPoints(c *gin.Context) {
+	fileHeader, err := c.FormFile("file")
+	if err != nil {
+		response.Fail(c, errs.ErrParam.WithMsg("缺少上传文件 file"))
+		return
+	}
+	if !strings.EqualFold(filepath.Ext(fileHeader.Filename), ".xlsx") {
+		response.Fail(c, errs.ErrImportFileType)
+		return
+	}
+	if fileHeader.Size > pointImportMaxFileSize {
+		response.Fail(c, errs.ErrParam.WithMsg("导入文件不能超过 5MB"))
+		return
+	}
+	f, err := fileHeader.Open()
+	if err != nil {
+		response.Fail(c, errs.ErrInternal)
+		return
+	}
+	defer f.Close()
+	result, msg, be := ctl.points.Import(c, f)
+	if be != nil {
+		response.Fail(c, be)
+		return
+	}
+	response.OKMsg(c, msg, result)
+}
+
+// writeExcel 输出 Excel 文件流（非统一 JSON 结构）。
+func writeExcel(c *gin.Context, filename string, data []byte) {
+	c.Header("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+	c.Header("Content-Disposition", fmt.Sprintf(`attachment; filename="%s"`, filename))
+	c.Data(200, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", data)
 }
 
 func (ctl *InspectionController) PointDetail(c *gin.Context) {
@@ -217,8 +277,8 @@ func (ctl *InspectionController) GenerateTasks(c *gin.Context) {
 		}
 		date = t
 	}
-	created, be := ctl.plans.GenerateForDate(c.Request.Context(), date)
-	write(c, gin.H{"date": date.Format("2006-01-02"), "created": created}, be)
+	created, eligible, be := ctl.plans.GenerateForDate(c.Request.Context(), date)
+	write(c, gin.H{"date": date.Format("2006-01-02"), "created": created, "eligible_plans": eligible}, be)
 }
 
 // ========== 打卡记录 ==========

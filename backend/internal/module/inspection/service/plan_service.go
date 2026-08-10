@@ -339,28 +339,29 @@ func dateOnly(t time.Time) time.Time {
 	return time.Date(t.Year(), t.Month(), t.Day(), 0, 0, 0, 0, time.Local)
 }
 
-// GenerateForDate 为指定日期生成任务（Redis 锁 + 查重，幂等），返回新建任务数。
-func (s *PlanService) GenerateForDate(ctx context.Context, date time.Time) (int, *errs.Error) {
+// GenerateForDate 为指定日期生成任务（Redis 锁 + 查重，幂等），返回新建任务数与当日应执行的启用计划数（前端据此区分「无计划」与「已生成过」）。
+func (s *PlanService) GenerateForDate(ctx context.Context, date time.Time) (int, int, *errs.Error) {
 	dateStr := date.Format("20060102")
 	lockKey := "lock:plan:gen:" + dateStr
 	ok, err := s.rdb.SetNX(ctx, lockKey, "1", 10*time.Minute).Result()
 	if err != nil {
-		return 0, errs.ErrInternal
+		return 0, 0, errs.ErrInternal
 	}
 	if !ok {
-		return 0, nil // 其他实例/请求正在生成，直接返回（幂等）
+		return 0, 0, nil // 其他实例/请求正在生成，直接返回（幂等）
 	}
 	// 生成是短临界区（查重 + 唯一索引兜底），完成后立即释放，避免阻塞后续补充生成
 	defer s.rdb.Del(ctx, lockKey)
 	var plans []model.InspectionPlan
 	if err := s.db.Where("status = ?", sysmodel.StatusEnabled).Find(&plans).Error; err != nil {
-		return 0, errs.ErrInternal
+		return 0, 0, errs.ErrInternal
 	}
-	created := 0
+	created, eligible := 0, 0
 	for i := range plans {
-		if !ShouldRunOn(&plans[i], date) {
+		if !ShouldRunOn(&plans[i], date) || len(plans[i].InspectorIDs) == 0 {
 			continue
 		}
+		eligible++
 		for _, inspectorID := range plans[i].InspectorIDs {
 			var cnt int64
 			s.db.Model(&model.InspectionTask{}).
@@ -383,7 +384,7 @@ func (s *PlanService) GenerateForDate(ctx context.Context, date time.Time) (int,
 			created++
 		}
 	}
-	return created, nil
+	return created, eligible, nil
 }
 
 // FlipOverdue 将昨日及以前仍未完成的任务置为 overdue。

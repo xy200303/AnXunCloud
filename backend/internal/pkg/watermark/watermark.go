@@ -4,6 +4,7 @@ package watermark
 import (
 	"image"
 	"image/color"
+	"image/draw"
 	"os"
 	"sync"
 
@@ -17,17 +18,56 @@ import (
 )
 
 var (
-	fontOnce sync.Once
-	fontFace font.Face
-	fontErr  error
-	cfgPath  string
+	fontOnce   sync.Once
+	parsedFont *opentype.Font
+	fontErr    error
+	cfgPath    string
+
+	logoOnce    sync.Once
+	logoImg     image.Image
+	cfgLogoPath string
 )
 
-// Init 设置水印字体路径（启动时调用一次）。
-func Init(fontPath string) { cfgPath = fontPath }
+// Init 设置水印字体与二维码标牌 LOGO 路径（启动时调用一次）。
+func Init(fontPath, logoPath string) { cfgPath = fontPath; cfgLogoPath = logoPath }
 
-// loadFont 加载中文字体（只加载一次）。
-func loadFont(fontPath string) (font.Face, error) {
+// loadLogo 加载标牌 LOGO（只加载一次；文件缺失或解码失败返回 nil，调用方跳过 LOGO）。
+func loadLogo() image.Image {
+	logoOnce.Do(func() {
+		if cfgLogoPath == "" {
+			return
+		}
+		f, err := os.Open(cfgLogoPath)
+		if err != nil {
+			logger.L.Warn("标牌 LOGO 不可用，跳过", zap.String("path", cfgLogoPath), zap.Error(err))
+			return
+		}
+		defer f.Close()
+		img, _, err := image.Decode(f)
+		if err != nil {
+			logger.L.Warn("标牌 LOGO 解码失败，跳过", zap.String("path", cfgLogoPath), zap.Error(err))
+			return
+		}
+		logoImg = img
+	})
+	return logoImg
+}
+
+// DrawLogoCentered 在指定顶部 y 处水平居中绘制 LOGO（限制最大宽高，保持比例），返回占用高度；无 LOGO 返回 0。
+func DrawLogoCentered(dst *image.RGBA, topY, maxW, maxH int) int {
+	logo := loadLogo()
+	if logo == nil {
+		return 0
+	}
+	scaled := imaging.Fit(logo, maxW, maxH, imaging.Lanczos)
+	x := (dst.Bounds().Dx() - scaled.Bounds().Dx()) / 2
+	draw.Draw(dst, image.Rect(x, topY, x+scaled.Bounds().Dx(), topY+scaled.Bounds().Dy()),
+		scaled, image.Point{}, draw.Over)
+	return scaled.Bounds().Dy()
+}
+
+// loadParsed 加载并解析中文字体文件（只解析一次）。
+func loadParsed(fontPath string) (*opentype.Font, error) {
 	if fontPath == "" {
 		fontPath = cfgPath
 	}
@@ -37,14 +77,26 @@ func loadFont(fontPath string) (font.Face, error) {
 			fontErr = err
 			return
 		}
-		f, err := opentype.Parse(data)
-		if err != nil {
-			fontErr = err
-			return
-		}
-		fontFace, fontErr = opentype.NewFace(f, &opentype.FaceOptions{Size: 22, DPI: 72})
+		parsedFont, fontErr = opentype.Parse(data)
 	})
-	return fontFace, fontErr
+	return parsedFont, fontErr
+}
+
+// faceFor 按字号生成 Face（全量 hinting，标牌打印更清晰）。
+func faceFor(size float64) (font.Face, error) {
+	f, err := loadParsed(cfgPath)
+	if err != nil {
+		return nil, err
+	}
+	return opentype.NewFace(f, &opentype.FaceOptions{Size: size, DPI: 72, Hinting: font.HintingFull})
+}
+
+// loadFont 默认字号（22）Face，照片水印用。
+func loadFont(fontPath string) (font.Face, error) {
+	if _, err := loadParsed(fontPath); err != nil {
+		return nil, err
+	}
+	return faceFor(22)
 }
 
 // DrawToFile 在图片左下角叠加多行水印文字（半透明黑底白字），输出为新文件。
@@ -96,6 +148,26 @@ func TextRGBA(dst *image.RGBA, x, y int, text string) {
 	face, err := loadFont(cfgPath)
 	if err != nil {
 		return
+	}
+	d := &font.Drawer{
+		Dst:  dst,
+		Src:  image.NewUniform(color.NRGBA{30, 30, 30, 255}),
+		Face: face,
+		Dot:  fixed.P(x, y),
+	}
+	d.DrawString(text)
+}
+
+// TextCenterRGBA 在图像水平居中绘制一行深色文字（二维码标题用），size 为字号。
+func TextCenterRGBA(dst *image.RGBA, y int, text string, size float64) {
+	face, err := faceFor(size)
+	if err != nil {
+		return
+	}
+	w := font.MeasureString(face, text).Ceil()
+	x := (dst.Bounds().Dx() - w) / 2
+	if x < 4 {
+		x = 4
 	}
 	d := &font.Drawer{
 		Dst:  dst,

@@ -9,7 +9,7 @@ export interface PointQuery {
   building_id?: string
   name?: string
   type?: string
-  checkin_mode?: string
+  credential?: string
   status?: number | ''
 }
 
@@ -42,6 +42,26 @@ export function generateQrcodes(pointIds: string[], withTitle = true) {
     url: '/inspection/points/qrcodes',
     method: 'post',
     data: { point_ids: pointIds, with_title: withTitle },
+    timeout: 60000
+  })
+}
+
+// 点位批量导入结果
+export interface PointImportResult {
+  total: number
+  success_count: number
+  fail_count: number
+  fail_details: { row: number; name: string; reason: string }[]
+}
+
+export function importPoints(file: File) {
+  const form = new FormData()
+  form.append('file', file)
+  return request<PointImportResult>({
+    url: '/inspection/points/import',
+    method: 'post',
+    data: form,
+    headers: { 'Content-Type': 'multipart/form-data' },
     timeout: 60000
   })
 }

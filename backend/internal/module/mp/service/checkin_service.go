@@ -281,34 +281,28 @@ func (s *CheckinService) doCheckinLocked(ctx context.Context, inspectorID string
 	return &rec, order, nil
 }
 
-// checkMode 按点位 checkin_mode 校验码值与围栏距离。
+// checkMode 凭证与围栏校验：credential 决定凭证比对（qrcode 码值 / nfc 卡号 / none 免凭证），
+// require_fence 决定 GPS 距离硬校验；两者独立，同时启用则都须通过。
 func (s *CheckinService) checkMode(req *dto.CheckinReq, point *insmodel.InspectionPoint, distance float64) *errs.Error {
-	needQR, needFence := false, false
-	switch point.CheckinMode {
-	case insmodel.ModeQRCode:
-		needQR = true
-	case insmodel.ModeFence:
-		needFence = true
-	case insmodel.ModeEither:
-		if req.CheckinType == "qrcode" {
-			needQR = true
-		} else {
-			needFence = true
+	switch point.Credential {
+	case insmodel.CredentialQRCode:
+		if normalizeQRCode(req.QRCodeNo) != point.QRCodeNo {
+			return errs.ErrQRCodeMismatch
 		}
-	case insmodel.ModeBoth:
-		needQR, needFence = true, true
-	case insmodel.ModeNFC:
+	case insmodel.CredentialNFC:
 		if req.NFCID == "" || req.NFCID != point.NfcID {
 			return errs.ErrQRCodeMismatch.WithMsg("NFC 校验失败：卡号与点位不匹配")
 		}
 	}
-	if needQR && req.QRCodeNo != point.QRCodeNo {
-		return errs.ErrQRCodeMismatch
-	}
-	if needFence && distance > float64(point.FenceRadius) {
+	if point.RequireFence && distance > float64(point.FenceRadius) {
 		return errs.ErrOutOfFence.WithMsg(fmt.Sprintf("距点位 %dm，超出围栏半径 %dm", int(distance), point.FenceRadius))
 	}
 	return nil
+}
+
+// normalizeQRCode 扫码内容归一化：兼容早期带 scheme 前缀的贴纸（inspection://checkin?no=XXX），返回裸编号。
+func normalizeQRCode(v string) string {
+	return strings.TrimPrefix(strings.TrimSpace(v), "inspection://checkin?no=")
 }
 
 // resolveCheckItems 检查项模板校验：点位绑定模板时，模板每项都必须有提交结果（按 name 匹配）；

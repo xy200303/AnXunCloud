@@ -49,6 +49,7 @@
                 :loading="qrcodeLoading"
                 @click="handleBatchQrcode"
               >批量生成二维码</el-button>
+              <el-button v-perms="'inspection:point:import'" :icon="Upload" @click="openImport">批量导入</el-button>
             </div>
             <el-tooltip content="刷新" placement="top">
               <el-button :icon="RefreshRight" circle @click="fetchList" />
@@ -63,9 +64,9 @@
               <template #default="{ row }">{{ row.type_label || row.type }}</template>
             </el-table-column>
             <el-table-column prop="qrcode_no" label="二维码编号" width="120" />
-            <el-table-column label="打卡方式" width="100" align="center">
+            <el-table-column label="打卡方式" width="110" align="center">
               <template #default="{ row }">
-                {{ checkinModeLabel(row.checkin_mode) }}
+                {{ checkinModeLabel(row) }}
               </template>
             </el-table-column>
             <el-table-column label="模板" min-width="120" show-overflow-tooltip>
@@ -156,18 +157,27 @@
           <div class="text-secondary">GCJ-02 坐标系；地图选点待腾讯地图 key 配置后开放</div>
         </el-form-item>
 
-        <el-form-item label="围栏半径">
-          <el-slider v-model="form.fence_radius" :min="50" :max="500" :step="10" show-input />
+        <el-form-item label="围栏校验">
+          <el-switch
+            v-model="form.require_fence"
+            active-text="必须在围栏内"
+            inactive-text="不校验"
+            @change="formRef?.validateField('credential')"
+          />
+          <span class="text-secondary fence-hint">开启后打卡时 GPS 距点位超过半径将被拒绝</span>
         </el-form-item>
 
-        <el-form-item label="打卡方式" prop="checkin_mode">
-          <el-radio-group v-model="form.checkin_mode">
+        <el-form-item label="围栏半径">
+          <el-slider v-model="form.fence_radius" :min="50" :max="500" :step="10" :disabled="!form.require_fence" show-input />
+        </el-form-item>
+
+        <el-form-item label="点位凭证" prop="credential">
+          <el-radio-group v-model="form.credential">
             <el-radio value="qrcode">扫码</el-radio>
-            <el-radio value="fence">围栏</el-radio>
-            <el-radio value="either">任一（默认）</el-radio>
-            <el-radio value="both">两者</el-radio>
             <el-radio value="nfc">NFC</el-radio>
+            <el-radio value="none">不需要</el-radio>
           </el-radio-group>
+          <div class="text-secondary">凭证用于确认「到的是这个点位」；凭证与围栏至少启用一项</div>
         </el-form-item>
 
         <el-form-item label="检查项模板">
@@ -178,7 +188,7 @@
         </el-form-item>
 
         <el-form-item label="NFC 卡号" prop="nfc_id">
-          <el-input v-model="form.nfc_id" placeholder="选填；打卡方式为 NFC 时必填" style="width: 260px" />
+          <el-input v-model="form.nfc_id" placeholder="选填；点位凭证为 NFC 时必填" style="width: 260px" />
         </el-form-item>
 
         <el-form-item label="必拍项">
@@ -204,17 +214,99 @@
         <el-button type="primary" :loading="submitting" @click="handleSubmit">保存</el-button>
       </template>
     </el-dialog>
+
+    <!-- 批量导入：三步向导对话框 -->
+    <el-dialog v-model="importVisible" title="批量导入点位" width="640px" :close-on-click-modal="false" @closed="resetImport">
+      <el-steps :active="importStep" align-center finish-status="success" class="import-steps">
+        <el-step title="模板说明" />
+        <el-step title="上传文件" />
+        <el-step title="导入结果" />
+      </el-steps>
+
+      <!-- 第一步：模板说明 -->
+      <div v-show="importStep === 0" class="import-pane">
+        <el-button :icon="Download" @click="handleDownloadTemplate">下载导入模板 point_import_template.xlsx</el-button>
+        <el-table :data="templateFields" border size="small" class="import-fields">
+          <el-table-column prop="field" label="字段" width="110" />
+          <el-table-column prop="required" label="必填" width="70" align="center" />
+          <el-table-column prop="rule" label="填写规则" />
+        </el-table>
+      </div>
+
+      <!-- 第二步：上传文件 -->
+      <div v-show="importStep === 1" class="import-pane">
+        <el-upload
+          ref="uploadRef"
+          drag
+          :auto-upload="false"
+          :limit="1"
+          accept=".xlsx"
+          :on-change="handleFileChange"
+          :on-remove="() => (importFile = null)"
+          :on-exceed="handleFileExceed"
+        >
+          <el-icon :size="40" class="upload-icon"><UploadFilled /></el-icon>
+          <div class="el-upload__text">拖拽文件到此处，或 <em>点击选择文件</em></div>
+          <template #tip>
+            <div class="text-secondary">仅支持 .xlsx，单次最多 500 行，文件 ≤ 5MB</div>
+          </template>
+        </el-upload>
+        <div v-if="importError" class="import-error">{{ importError }}</div>
+      </div>
+
+      <!-- 第三步：结果反馈 -->
+      <div v-show="importStep === 2" class="import-pane">
+        <el-alert
+          v-if="importResult"
+          :title="`导入完成：成功 ${importResult.success_count} 条，失败 ${importResult.fail_count} 条`"
+          :type="importResult.fail_count > 0 ? 'warning' : 'success'"
+          :closable="false"
+          show-icon
+        />
+        <template v-if="importResult && importResult.fail_details.length">
+          <div class="fail-header">
+            <span class="card-title">失败明细</span>
+            <el-button size="small" :icon="Download" @click="downloadFailDetails">下载失败明细</el-button>
+          </div>
+          <el-table :data="importResult.fail_details" border size="small" max-height="260">
+            <el-table-column prop="row" label="行号" width="80" align="center" />
+            <el-table-column prop="name" label="点位名称" width="180" show-overflow-tooltip />
+            <el-table-column prop="reason" label="失败原因" />
+          </el-table>
+          <div class="text-secondary fail-tip">修正失败行后可重新上传，同楼栋下同名点位不会重复创建</div>
+        </template>
+      </div>
+
+      <template #footer>
+        <template v-if="importStep === 0">
+          <el-button type="primary" @click="importStep = 1">下一步</el-button>
+        </template>
+        <template v-else-if="importStep === 1">
+          <el-button @click="importStep = 0">上一步</el-button>
+          <el-button type="primary" :loading="importing" :disabled="!importFile" @click="handleImport">
+            开始导入
+          </el-button>
+        </template>
+        <template v-else>
+          <el-button type="primary" @click="importVisible = false">完成</el-button>
+        </template>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
 <script setup lang="ts">
 import { onMounted, reactive, ref, computed } from 'vue'
-import { ElMessage, ElMessageBox, type FormInstance, type FormRules } from 'element-plus'
-import { Search, Refresh, Plus, RefreshRight, Grid, MapLocation, Delete } from '@element-plus/icons-vue'
-import { listPoints, createPoint, updatePoint, deletePoint, generateQrcodes, type PointQuery } from '@/api/point'
+import {
+  ElMessage, ElMessageBox,
+  type FormInstance, type FormRules, type UploadFile, type UploadInstance, type UploadRawFile
+} from 'element-plus'
+import { Search, Refresh, Plus, RefreshRight, Grid, MapLocation, Delete, Upload, Download, UploadFilled } from '@element-plus/icons-vue'
+import { listPoints, createPoint, updatePoint, deletePoint, generateQrcodes, importPoints, type PointQuery, type PointImportResult } from '@/api/point'
 import { listTemplates } from '@/api/template'
 import { listCommunityTree } from '@/api/community'
 import { listDictData } from '@/api/dict'
+import { downloadFile } from '@/utils/download'
 import type { PointItem, TemplateItem } from '@/api/biz-types'
 import type { DictData } from '@/api/types'
 
@@ -310,8 +402,11 @@ onMounted(() => {
   })
 })
 
-function checkinModeLabel(mode: string) {
-  return { qrcode: '扫码', fence: '围栏', either: '任一', both: '两者', nfc: 'NFC' }[mode] || mode
+// 打卡方式展示：凭证 + 围栏两个维度组合成一句话
+function checkinModeLabel(p: { credential: string; require_fence: boolean }) {
+  const cred = { qrcode: '扫码', nfc: 'NFC', none: '' }[p.credential] ?? p.credential
+  if (p.credential === 'none') return p.require_fence ? '围栏' : '--'
+  return p.require_fence ? `${cred}+围栏` : cred
 }
 
 // ===== 新增/编辑 =====
@@ -328,7 +423,8 @@ const form = reactive({
   longitude: null as number | null,
   latitude: null as number | null,
   fence_radius: 100,
-  checkin_mode: 'either',
+  credential: 'qrcode',
+  require_fence: true,
   required_photo_items: [] as string[],
   template_id: null as string | null,
   nfc_id: '',
@@ -340,11 +436,17 @@ const formRules: FormRules = {
   communityBuilding: [{ required: true, type: 'array', min: 2, message: '请选择所属楼栋', trigger: 'change' }],
   name: [{ required: true, message: '请输入点位名称', trigger: 'blur' }],
   type: [{ required: true, message: '请选择点位类型', trigger: 'change' }],
-  checkin_mode: [{ required: true, message: '请选择打卡方式', trigger: 'change' }],
+  credential: [
+    {
+      validator: (_r, v: string, cb) =>
+        v === 'none' && !form.require_fence ? cb(new Error('点位凭证与围栏校验至少启用一项')) : cb(),
+      trigger: 'change'
+    }
+  ],
   nfc_id: [
     {
       validator: (_r, v: string, cb) =>
-        form.checkin_mode === 'nfc' && !v?.trim() ? cb(new Error('打卡方式为 NFC 时必填卡号')) : cb(),
+        form.credential === 'nfc' && !v?.trim() ? cb(new Error('点位凭证为 NFC 时必填卡号')) : cb(),
       trigger: 'blur'
     }
   ]
@@ -374,7 +476,8 @@ function openForm(row?: PointItem) {
       longitude: row.longitude,
       latitude: row.latitude,
       fence_radius: row.fence_radius,
-      checkin_mode: row.checkin_mode,
+      credential: row.credential,
+      require_fence: row.require_fence,
       required_photo_items: [...(row.required_photo_items || [])],
       template_id: row.template_id || null,
       nfc_id: row.nfc_id || '',
@@ -384,7 +487,7 @@ function openForm(row?: PointItem) {
   } else {
     Object.assign(form, {
       id: '', qrcode_no: '', communityBuilding: [], name: '', type: '',
-      longitude: null, latitude: null, fence_radius: 100, checkin_mode: 'either',
+      longitude: null, latitude: null, fence_radius: 100, credential: 'qrcode', require_fence: true,
       required_photo_items: [], template_id: null, nfc_id: '', sort: 0, status: 1
     })
   }
@@ -407,7 +510,8 @@ async function handleSubmit() {
     longitude: form.longitude,
     latitude: form.latitude,
     fence_radius: form.fence_radius,
-    checkin_mode: form.checkin_mode,
+    credential: form.credential,
+    require_fence: form.require_fence,
     required_photo_items: items,
     template_id: form.template_id || null,
     nfc_id: form.nfc_id.trim(),
@@ -469,6 +573,111 @@ async function handleBatchQrcode() {
     qrcodeLoading.value = false
   }
 }
+
+// ===== 批量导入：三步向导 =====
+const importVisible = ref(false)
+const importStep = ref(0)
+const importFile = ref<File | null>(null)
+const importError = ref('')
+const importing = ref(false)
+const importResult = ref<PointImportResult | null>(null)
+const uploadRef = ref<UploadInstance>()
+
+const templateFields = [
+  { field: '小区', required: '*', rule: '须为已存在的小区名称' },
+  { field: '楼栋', required: '—', rule: '选填；填写时须为该小区下已存在的楼栋，留空为小区级点位' },
+  { field: '点位名称', required: '*', rule: '同楼栋下不可重名' },
+  { field: '点位类型', required: '*', rule: '须为字典 point_type 中的类型（标签或值均可）' },
+  { field: '检查项模板', required: '—', rule: '选填，须为启用中的模板名称' },
+  { field: 'NFC卡号', required: '—', rule: '选填；打卡方式为 NFC 时必填' },
+  { field: '经度/纬度', required: '*', rule: 'GCJ-02 坐标系，如 120.212001 / 30.208112' },
+  { field: '围栏半径(米)', required: '—', rule: '选填，10–2000 整数，默认取系统参数' },
+  { field: '打卡方式', required: '—', rule: '扫码 / NFC / 围栏 / 扫码+围栏 / NFC+围栏，默认扫码+围栏' },
+  { field: '必拍项', required: '—', rule: '选填，多个用英文逗号分隔，如：器材全景,铭牌' },
+  { field: '状态', required: '—', rule: '启用 / 停用，默认启用' }
+]
+
+function openImport() {
+  importStep.value = 0
+  importFile.value = null
+  importError.value = ''
+  importResult.value = null
+  importVisible.value = true
+}
+
+function resetImport() {
+  importFile.value = null
+  importError.value = ''
+  importResult.value = null
+  uploadRef.value?.clearFiles()
+}
+
+function handleDownloadTemplate() {
+  downloadFile('/inspection/points/import-template', undefined, 'point_import_template.xlsx')
+}
+
+// 前置校验：非 .xlsx 或超限直接红字拒绝，不发起请求
+function validateFile(file: File): boolean {
+  if (!file.name.endsWith('.xlsx')) {
+    importError.value = '文件格式错误：仅支持 .xlsx 文件'
+    return false
+  }
+  if (file.size > 5 * 1024 * 1024) {
+    importError.value = '文件大小超限：请控制在 5MB 以内（约 500 行）'
+    return false
+  }
+  importError.value = ''
+  return true
+}
+
+function handleFileChange(uploadFile: UploadFile) {
+  const raw = uploadFile.raw
+  if (!raw) return
+  if (!validateFile(raw)) {
+    uploadRef.value?.clearFiles()
+    importFile.value = null
+    return
+  }
+  importFile.value = raw
+}
+
+function handleFileExceed(files: File[]) {
+  uploadRef.value?.clearFiles()
+  const raw = files[0] as UploadRawFile
+  if (validateFile(raw)) {
+    uploadRef.value?.handleStart(raw)
+    importFile.value = raw
+  }
+}
+
+async function handleImport() {
+  if (!importFile.value) return
+  importing.value = true
+  try {
+    importResult.value = await importPoints(importFile.value)
+    importStep.value = 2
+    if (importResult.value.success_count > 0) fetchList()
+  } catch {
+    // 拦截器已提示；文件级错误（格式/空文件/超 500 行）停留在当前步可重新选择
+  } finally {
+    importing.value = false
+  }
+}
+
+// 失败明细本地导出为 CSV，供修正后重新导入
+function downloadFailDetails() {
+  if (!importResult.value) return
+  const rows = importResult.value.fail_details
+    .map((d) => `${d.row},${d.name},${d.reason}`)
+    .join('\n')
+  const blob = new Blob([`﻿行号,点位名称,失败原因\n${rows}`], { type: 'text/csv;charset=utf-8' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = '点位导入失败明细.csv'
+  a.click()
+  URL.revokeObjectURL(url)
+}
 </script>
 
 <style scoped lang="scss">
@@ -503,6 +712,10 @@ async function handleBatchQrcode() {
   align-items: center;
 }
 
+.fence-hint {
+  margin-left: $spacing-md;
+}
+
 .photo-items {
   width: 100%;
 
@@ -512,5 +725,38 @@ async function handleBatchQrcode() {
     gap: $spacing-sm;
     margin-bottom: $spacing-sm;
   }
+}
+
+.import-steps {
+  margin-bottom: $spacing-xl;
+}
+
+.import-pane {
+  min-height: 280px;
+}
+
+.import-fields {
+  margin-top: $spacing-lg;
+}
+
+.upload-icon {
+  color: $color-text-secondary;
+}
+
+.import-error {
+  margin-top: $spacing-sm;
+  color: $color-danger;
+  font-size: $font-size-aux;
+}
+
+.fail-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin: $spacing-lg 0 $spacing-sm;
+}
+
+.fail-tip {
+  margin-top: $spacing-sm;
 }
 </style>

@@ -25,7 +25,7 @@ export function getTaskDetail(id: string) {
 
 // 手动触发任务生成（缺省为今天，幂等）
 export function generateTasks(date?: string) {
-  return request<{ date: string; created: number }>({
+  return request<{ date: string; created: number; eligible_plans: number }>({
     url: '/inspection/tasks/generate',
     method: 'post',
     data: date ? { date } : {}

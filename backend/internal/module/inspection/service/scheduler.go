@@ -66,7 +66,7 @@ func (s *Scheduler) tick() {
 		}
 		total := 0
 		for i := 0; i <= days; i++ {
-			n, be := s.plans.GenerateForDate(ctx, now.AddDate(0, 0, i))
+			n, _, be := s.plans.GenerateForDate(ctx, now.AddDate(0, 0, i))
 			if be != nil {
 				logger.L.Warn("任务生成失败", zap.Error(be))
 				continue

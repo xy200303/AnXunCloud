@@ -81,6 +81,7 @@ func seedMenus(tx *gorm.DB) (map[string]string, error) {
 				{title: "编辑点位", typ: model.MenuTypeButton, perms: "inspection:point:update", sort: 2},
 				{title: "删除点位", typ: model.MenuTypeButton, perms: "inspection:point:delete", sort: 3},
 				{title: "批量生成二维码", typ: model.MenuTypeButton, perms: "inspection:point:qrcode", sort: 4},
+				{title: "批量导入", typ: model.MenuTypeButton, perms: "inspection:point:import", sort: 5},
 			}},
 			{title: "巡检计划", path: "/inspection/plans", icon: "Calendar", typ: model.MenuTypeMenu, perms: "inspection:plan:list", sort: 2, children: []menuSeed{
 				{title: "新增计划", typ: model.MenuTypeButton, perms: "inspection:plan:create", sort: 1},
@@ -227,7 +228,7 @@ func seedRoleMenus(tx *gorm.DB, roleIDs, menuIDs map[string]string) error {
 	// 主管可见的权限点（目录按 path 收录，保证侧边栏结构完整）
 	managerPerms := []string{
 		"/dashboard",
-		"/inspection", "inspection:point:list", "inspection:point:create", "inspection:point:update", "inspection:point:delete", "inspection:point:qrcode",
+		"/inspection", "inspection:point:list", "inspection:point:create", "inspection:point:update", "inspection:point:delete", "inspection:point:qrcode", "inspection:point:import",
 		"inspection:plan:list", "inspection:plan:create", "inspection:plan:update", "inspection:plan:disable",
 		"inspection:task:monitor", "inspection:task:list", "inspection:record:list", "inspection:checkin:list",
 		"inspection:template:list", "inspection:checkin:review", "inspection:checkin:spotcheck",
@@ -298,7 +299,6 @@ func seedDicts(tx *gorm.DB) error {
 		{"menu_type", "菜单类型", [][2]string{{"目录", "dir"}, {"菜单", "menu"}, {"按钮", "button"}}},
 		{"building_type", "楼栋类型", [][2]string{{"楼栋", "building"}, {"区域", "area"}}},
 		{"point_type", "点位类型", [][2]string{{"普通点位", "common"}, {"配电房", "power_room"}, {"消防控制室", "fire_control"}, {"水泵房", "pump_room"}, {"电梯机房", "elevator"}, {"地下车库", "garage"}}},
-		{"checkin_mode", "打卡方式", [][2]string{{"扫码", "qrcode"}, {"围栏", "fence"}, {"扫码或围栏", "either"}, {"扫码且围栏", "both"}, {"NFC", "nfc"}}},
 		{"cycle_type", "计划周期", [][2]string{{"每天", "daily"}, {"每周", "weekly"}, {"每月", "monthly"}}},
 		{"task_status", "任务状态", [][2]string{{"待开始", "pending"}, {"进行中", "doing"}, {"已完成", "done"}, {"已逾期", "overdue"}}},
 		{"checkin_type", "打卡类型", [][2]string{{"扫码", "qrcode"}, {"围栏", "fence"}, {"离线补传", "offline"}, {"NFC", "nfc"}}},

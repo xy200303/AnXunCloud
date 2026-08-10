@@ -45,7 +45,7 @@ func New(cfg *config.Config, db *gorm.DB, rdb *redis.Client) (*gin.Engine, *insp
 	jwtm := jwtutil.NewManager(cfg.JWT.Secret, cfg.JWT.AccessTTL, cfg.JWT.RefreshTTL)
 	sess := session.NewStore(rdb)
 	store := storage.New(cfg.Upload, cfg.OSS, cfg.App.BaseURL)
-	watermark.Init(cfg.Watermark.FontPath)
+	watermark.Init(cfg.Watermark.FontPath, cfg.Watermark.LogoPath)
 
 	configSvc := systemsvc.NewConfigService(db, rdb)
 	authSvc := authsvc.NewAuthService(db, rdb, sess, jwtm, configSvc.Get, store)
@@ -138,6 +138,8 @@ func New(cfg *config.Config, db *gorm.DB, rdb *redis.Client) (*gin.Engine, *insp
 			points.POST("", middleware.RequirePerm("inspection:point:create"), middleware.OperLog(db, "inspection", "create"), inspectionCtl.CreatePoint)
 			points.GET("/map", middleware.RequirePerm("inspection:point:list"), inspectionCtl.MapPoints)
 			points.POST("/qrcodes", middleware.RequirePerm("inspection:point:qrcode"), middleware.OperLog(db, "inspection", "qrcode"), inspectionCtl.QRCodes)
+			points.GET("/import-template", middleware.RequirePerm("inspection:point:import"), inspectionCtl.PointImportTemplate)
+			points.POST("/import", middleware.RequirePerm("inspection:point:import"), middleware.OperLog(db, "inspection", "import"), inspectionCtl.ImportPoints)
 			points.GET("/:id", middleware.RequirePerm("inspection:point:list"), inspectionCtl.PointDetail)
 			points.PUT("/:id", middleware.RequirePerm("inspection:point:update"), middleware.OperLog(db, "inspection", "update"), inspectionCtl.UpdatePoint)
 			points.DELETE("/:id", middleware.RequirePerm("inspection:point:delete"), middleware.OperLog(db, "inspection", "delete"), inspectionCtl.DeletePoint)

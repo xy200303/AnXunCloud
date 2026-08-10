@@ -43,10 +43,10 @@ RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -o /out/server ./cmd/server
 FROM alpine:3.20 AS prod
 RUN apk add --no-cache ca-certificates tzdata curl
 ENV TZ=Asia/Shanghai
-# 水印中文字体（Noto Sans SC，构建期下载；下载失败不阻断构建，水印功能自动降级并记录日志）
-RUN mkdir -p /app/fonts \
-    && (curl -fsSL -o /app/fonts/NotoSansSC.ttf \
-        "https://github.com/google/fonts/raw/main/ofl/notosanssc/NotoSansSC%5Bwght%5D.ttf" || true)
+# 水印中文字体（Noto Sans SC，随仓库 backend/fonts 提供，构建阶段一并复制）
+COPY --from=be /be/fonts /app/fonts
+# 二维码标牌 LOGO（随仓库 backend/assets 提供，可替换为公司 LOGO）
+COPY --from=be /be/assets /app/assets
 WORKDIR /app
 COPY --from=be /out/server /app/server
 COPY --from=fe /fe/dist /app/dist

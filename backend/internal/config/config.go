@@ -99,6 +99,8 @@ type OSSConfig struct {
 
 type WatermarkConfig struct {
 	FontPath string `mapstructure:"font_path"`
+	// LogoPath 二维码标牌 LOGO（可空；缺文件时自动跳过 LOGO，不影响生成）
+	LogoPath string `mapstructure:"logo_path"`
 }
 
 // AdminConfig 初始超管账号（seed 时读取，不存在才创建）。
@@ -176,6 +178,7 @@ func registerDefaults(v *viper.Viper) {
 		"oss.endpoint":           "",
 		"oss.expire_seconds":     3600,
 		"watermark.font_path":    "",
+		"watermark.logo_path":    "",
 		"admin.username":         "admin",
 		"admin.password":         "Admin@123",
 		"admin.name":             "系统管理员",

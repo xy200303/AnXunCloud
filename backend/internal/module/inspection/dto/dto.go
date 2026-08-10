@@ -38,7 +38,7 @@ type PointListQuery struct {
 	BuildingID  string `form:"building_id"`
 	Name        string `form:"name"`
 	Type        string `form:"type"`
-	CheckinMode string `form:"checkin_mode"`
+	Credential  string `form:"credential"`
 	Status      string `form:"status"`
 }
 
@@ -50,7 +50,8 @@ type PointSaveReq struct {
 	Longitude          float64  `json:"longitude" binding:"required"`
 	Latitude           float64  `json:"latitude" binding:"required"`
 	FenceRadius        int      `json:"fence_radius"`
-	CheckinMode        string   `json:"checkin_mode"`
+	Credential         string   `json:"credential"`
+	RequireFence       bool     `json:"require_fence"`
 	TemplateID         *string  `json:"template_id"`
 	NfcID              string   `json:"nfc_id"`
 	RequiredPhotoItems []string `json:"required_photo_items"`
@@ -61,7 +62,22 @@ type PointSaveReq struct {
 
 type QRCodeBatchReq struct {
 	PointIDs  []string `json:"point_ids" binding:"required,min=1"`
-	WithTitle *bool   `json:"with_title"`
+	WithTitle *bool    `json:"with_title"`
+}
+
+// PointImportResult 点位导入结果。
+type PointImportResult struct {
+	Total        int               `json:"total"`
+	SuccessCount int               `json:"success_count"`
+	FailCount    int               `json:"fail_count"`
+	FailDetails  []PointImportFail `json:"fail_details"`
+}
+
+// PointImportFail 点位导入失败明细。
+type PointImportFail struct {
+	Row    int    `json:"row"`
+	Name   string `json:"name"`
+	Reason string `json:"reason"`
 }
 
 // ========== 计划 ==========

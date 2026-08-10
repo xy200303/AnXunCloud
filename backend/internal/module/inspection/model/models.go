@@ -9,13 +9,11 @@ import (
 	"anxuncloud/internal/pkg/types"
 )
 
-// 点位打卡方式
+// 点位凭证方式（与 require_fence 组合决定打卡校验：凭证解决「到的是不是这个点位」，围栏解决「人在不在现场」）
 const (
-	ModeQRCode = "qrcode"
-	ModeFence  = "fence"
-	ModeEither = "either"
-	ModeBoth   = "both"
-	ModeNFC    = "nfc"
+	CredentialQRCode = "qrcode"
+	CredentialNFC    = "nfc"
+	CredentialNone   = "none"
 )
 
 // 任务状态
@@ -105,7 +103,8 @@ type InspectionPoint struct {
 	Longitude          float64           `gorm:"type:numeric(10,7)" json:"longitude"`
 	Latitude           float64           `gorm:"type:numeric(10,7)" json:"latitude"`
 	FenceRadius        int               `json:"fence_radius"`
-	CheckinMode        string            `gorm:"size:16" json:"checkin_mode"`
+	Credential         string            `gorm:"size:16" json:"credential"` // qrcode/nfc/none
+	RequireFence       bool              `json:"require_fence"`
 	RequiredPhotoItems types.StringArray `gorm:"type:jsonb" json:"required_photo_items"`
 	Sort               int               `json:"sort"`
 	Status             string            `gorm:"size:16" json:"status"`

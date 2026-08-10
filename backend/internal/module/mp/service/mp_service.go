@@ -291,8 +291,11 @@ func (s *MPService) TodayTasks(inspectorID string) (gin.H, *errs.Error) {
 		donePts += t.DonePoints
 		var plan insmodel.InspectionPlan
 		planName, timeWindow := "", ""
-		if s.db.Select("name", "time_window").First(&plan, "id = ?", t.PlanID).Error == nil {
+		if s.db.Unscoped().Select("name", "time_window", "deleted_at").First(&plan, "id = ?", t.PlanID).Error == nil {
 			planName, timeWindow = plan.Name, plan.TimeWindow
+			if plan.DeletedAt.Valid {
+				planName += "（已删除）"
+			}
 		}
 		items = append(items, gin.H{
 			"id": t.ID, "plan_name": planName, "community_name": s.commName(t.CommunityID),
@@ -317,8 +320,9 @@ func (s *MPService) TaskDetail(inspectorID, taskID string) (gin.H, *errs.Error) 
 	if task.InspectorID != inspectorID {
 		return nil, errs.ErrTaskNotOwned
 	}
+	// Unscoped：计划已删除时执行中的任务仍应可读可打卡（删计划只级联清理未开始任务）
 	var plan insmodel.InspectionPlan
-	if err := s.db.First(&plan, "id = ?", task.PlanID).Error; err != nil {
+	if err := s.db.Unscoped().First(&plan, "id = ?", task.PlanID).Error; err != nil {
 		return nil, errs.ErrNotFound
 	}
 	var checkins []insmodel.CheckinRecord
@@ -354,7 +358,7 @@ func (s *MPService) TaskDetail(inspectorID, taskID string) (gin.H, *errs.Error) 
 		}
 		points = append(points, gin.H{
 			"point_id": pt.ID, "point_name": pt.Name, "building_name": buildingName,
-			"sort": i + 1, "checkin_mode": pt.CheckinMode, "qrcode_no": pt.QRCodeNo,
+			"sort": i + 1, "credential": pt.Credential, "require_fence": pt.RequireFence, "qrcode_no": pt.QRCodeNo,
 			"longitude": pt.Longitude, "latitude": pt.Latitude, "fence_radius": pt.FenceRadius,
 			"required_photo_items": pt.RequiredPhotoItems, "my_checkin": myCheckin,
 		})

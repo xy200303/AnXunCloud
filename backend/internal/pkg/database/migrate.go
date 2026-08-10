@@ -336,6 +336,52 @@ UPDATE check_template t SET items = (
 );
 COMMENT ON TABLE check_template IS '检查项模板：items=[{name,required,photo_required}]，photo_required=none/optional/required（缺省 none），point_type 空为通用';
 `},
+	{Version: 18, Name: "check_item_tables", SQL: `
+-- ===== 检查项拆分为独立表（v18）：模板项 + 打卡逐项结果快照 =====
+-- 旧 JSONB 列 check_template.items / checkin_record.check_items 保留不删（代码不再读写，仅存量搬迁读取）。
+-- 存量数据搬迁见 migrateCheckItemData（Go 侧，幂等，随每次启动重复执行）。
+
+-- 模板检查项（更新模板=事务内整表替换项行）
+CREATE TABLE IF NOT EXISTS check_template_item (
+    id             uuid PRIMARY KEY,
+    template_id    uuid         NOT NULL REFERENCES check_template (id) ON DELETE CASCADE,
+    name           varchar(128) NOT NULL,
+    requirement    text         NULL,
+    required       boolean      NOT NULL DEFAULT false,
+    photo_required varchar(16)  NOT NULL DEFAULT 'none',
+    sort           int          NOT NULL DEFAULT 0,
+    created_at     timestamptz  NOT NULL DEFAULT now(),
+    CONSTRAINT chk_tpl_item_photo_req CHECK (photo_required IN ('none','optional','required'))
+);
+COMMENT ON TABLE check_template_item IS '模板检查项（v18 起替代 check_template.items JSONB）；requirement=检查标准要求文本（可空）';
+CREATE INDEX IF NOT EXISTS idx_tpl_item_tpl ON check_template_item (template_id, sort);
+
+-- 打卡逐项结果快照：打卡当时从模板项复制 name/requirement/photo_required，
+-- template_item_id 仅作可空血缘字段（统计用），历史记录内容绝不依赖 join 模板表。
+-- record_id 不加 FK：checkin_record 为按月分区表（主键 id+created_at），FK 须包含分区键，
+-- 故仅建普通索引，由打卡事务同时写入保证一致性。
+CREATE TABLE IF NOT EXISTS checkin_record_item (
+    id               uuid PRIMARY KEY,
+    record_id        uuid         NOT NULL,
+    template_item_id uuid         NULL,
+    name             varchar(128) NOT NULL,
+    requirement      text         NULL,
+    photo_required   varchar(16)  NOT NULL DEFAULT 'none',
+    pass             boolean      NOT NULL DEFAULT false,
+    note             varchar(512) NOT NULL DEFAULT '',
+    photos           jsonb        NOT NULL DEFAULT '[]',
+    ai_verdict       varchar(16)  NULL,
+    ai_reason        varchar(512) NULL,
+    sort             int          NOT NULL DEFAULT 0,
+    created_at       timestamptz  NOT NULL DEFAULT now(),
+    CONSTRAINT chk_rec_item_photo_req CHECK (photo_required IN ('none','optional','required'))
+);
+COMMENT ON TABLE checkin_record_item IS '打卡逐项结果快照（v18 起替代 checkin_record.check_items JSONB）；ai_verdict/ai_reason 为逐项大模型结论（预留）';
+COMMENT ON COLUMN checkin_record_item.record_id IS '打卡记录 id（无 FK：checkin_record 为分区表，主键含分区键）';
+COMMENT ON COLUMN checkin_record_item.photos IS '该项照片 file_key 数组';
+CREATE INDEX IF NOT EXISTS idx_rec_item_rec ON checkin_record_item (record_id, sort);
+CREATE INDEX IF NOT EXISTS idx_rec_item_tplitem ON checkin_record_item (template_item_id);
+`},
 }
 
 // Migrate 执行未应用过的迁移，并确保当月与下月分区存在。
@@ -371,6 +417,11 @@ func Migrate(db *gorm.DB, uploadDir string) error {
 	// v16 存量数据迁移（幂等，随每次启动重复执行；须在读得到旧配置值之后再删配置行）
 	if err := migrateSignAssetData(db, uploadDir); err != nil {
 		return fmt.Errorf("签章资产数据迁移失败: %w", err)
+	}
+
+	// v18 检查项 JSONB → 独立表数据搬迁（幂等，随每次启动重复执行）
+	if err := migrateCheckItemData(db); err != nil {
+		return fmt.Errorf("检查项数据搬迁失败: %w", err)
 	}
 
 	// 按月分区表：确保当月与下月分区已创建（月度滚动由运维脚本兜底，这里保证启动即可写）

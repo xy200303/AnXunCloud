@@ -186,7 +186,7 @@ func (s *CheckinService) doCheckinLocked(ctx context.Context, inspectorID string
 	if be != nil {
 		return nil, nil, be
 	}
-	// 检查项模板：点位绑定模板时，模板每项都必须有提交结果（按 name 匹配）
+	// 检查项模板：点位绑定模板时，模板每项都必须有提交结果（按 name 匹配），并生成逐项快照行
 	checkItems, be := s.resolveCheckItems(req, &point)
 	if be != nil {
 		return nil, nil, be
@@ -207,7 +207,7 @@ func (s *CheckinService) doCheckinLocked(ctx context.Context, inspectorID string
 		TaskID: req.TaskID, PointID: req.PointID, InspectorID: inspectorID,
 		CommunityID: task.CommunityID, CheckinTime: now, ClientTime: &clientTime,
 		Longitude: &req.Longitude, Latitude: &req.Latitude, DistanceToPoint: &distance,
-		CheckinType: checkinType, Photos: photos, CheckItems: checkItems, Result: req.Result, Remark: req.Remark,
+		CheckinType: checkinType, Photos: photos, Result: req.Result, Remark: req.Remark,
 		IsOfflineSync: offline, IsSuspect: isSuspect, SuspectReason: suspectReason,
 		AuditStatus: insmodel.AuditAutoPass,
 	}
@@ -221,6 +221,15 @@ func (s *CheckinService) doCheckinLocked(ctx context.Context, inspectorID string
 				return errs.ErrDuplicateCheckin
 			}
 			return err
+		}
+		// 逐项结果快照行（v18 起独立表；与记录同事务写入）
+		for i := range checkItems {
+			checkItems[i].RecordID = rec.ID
+		}
+		if len(checkItems) > 0 {
+			if err := tx.Create(&checkItems).Error; err != nil {
+				return err
+			}
 		}
 		// 任务进度原子推进
 		updates := map[string]any{"done_points": gorm.Expr("done_points + 1")}
@@ -304,37 +313,54 @@ func (s *CheckinService) checkMode(req *dto.CheckinReq, point *insmodel.Inspecti
 
 // resolveCheckItems 检查项模板校验：点位绑定模板时，模板每项都必须有提交结果（按 name 匹配）；
 // 逐项照片硬约束：不合格项（pass=false）与模板 photo_required=required 的项均须 ≥1 张该项照片。
-func (s *CheckinService) resolveCheckItems(req *dto.CheckinReq, point *insmodel.InspectionPoint) (types.CheckItemArray, *errs.Error) {
-	// 模板拍照要求（name → photo_required），无模板时仅执行不合格项必拍约束
-	photoReq := map[string]string{}
+// 返回逐项快照行（v18 起写 checkin_record_item）：name/requirement/photo_required 打卡当时从模板项复制，
+// template_item_id 仅作可空血缘字段（快照语义：历史内容不依赖模板表）。
+func (s *CheckinService) resolveCheckItems(req *dto.CheckinReq, point *insmodel.InspectionPoint) ([]insmodel.CheckinRecordItem, *errs.Error) {
+	tplByName := map[string]*insmodel.CheckTemplateItem{}
 	if point.TemplateID != nil && *point.TemplateID != "" {
-		var tpl insmodel.CheckTemplate
-		if err := s.db.First(&tpl, "id = ?", *point.TemplateID).Error; err != nil {
+		var tplCount int64
+		s.db.Model(&insmodel.CheckTemplate{}).Where("id = ?", *point.TemplateID).Count(&tplCount)
+		if tplCount == 0 {
 			return nil, errs.ErrParam.WithMsg("点位绑定的检查项模板不存在")
 		}
+		var tplItems []insmodel.CheckTemplateItem
+		s.db.Where("template_id = ?", *point.TemplateID).Order("sort ASC").Find(&tplItems)
 		got := map[string]bool{}
 		for _, it := range req.CheckItems {
 			got[it.Name] = true
 		}
 		var missing []string
-		for _, ti := range tpl.Items {
+		for i := range tplItems {
+			ti := &tplItems[i]
 			if !got[ti.Name] {
 				missing = append(missing, ti.Name)
 			}
-			photoReq[ti.Name] = ti.PhotoRequired
+			tplByName[ti.Name] = ti
 		}
 		if len(missing) > 0 {
 			return nil, errs.ErrParam.WithMsg("检查项结果缺失：" + strings.Join(missing, "、"))
 		}
 	}
-	items := make(types.CheckItemArray, 0, len(req.CheckItems))
-	for _, it := range req.CheckItems {
-		if be := s.checkItemPhotos(it, photoReq[it.Name]); be != nil {
+	items := make([]insmodel.CheckinRecordItem, 0, len(req.CheckItems))
+	for i, it := range req.CheckItems {
+		ti := tplByName[it.Name]
+		photoReq := ""
+		if ti != nil {
+			photoReq = ti.PhotoRequired
+		}
+		if be := s.checkItemPhotos(it, photoReq); be != nil {
 			return nil, be
 		}
-		items = append(items, types.CheckItemResult{
-			Name: it.Name, Pass: it.Pass, Note: it.Note, Photos: types.StringArray(it.Photos),
-		})
+		row := insmodel.CheckinRecordItem{
+			Name: it.Name, Pass: it.Pass, Note: it.Note,
+			Photos: types.StringArray(it.Photos), PhotoRequired: types.PhotoReqNone, Sort: i,
+		}
+		if ti != nil {
+			row.TemplateItemID = &ti.ID
+			row.Requirement = ti.Requirement
+			row.PhotoRequired = ti.PhotoRequired
+		}
+		items = append(items, row)
 	}
 	return items, nil
 }
@@ -468,7 +494,8 @@ func (s *CheckinService) applyWatermarks(rec *insmodel.CheckinRecord, point *ins
 
 // aiReview 异步大模型审核（goroutine 内运行，请求 ctx 已结束故用 Background）：
 // pass 仅回写结论保持 auto_pass；review 转 pending 并通知审核角色用户；失败兜底 ai_verdict=error。
-func (s *CheckinService) aiReview(recID string, point *insmodel.InspectionPoint, items types.CheckItemArray, remark string, photos types.PhotoArray) {
+// 逐项结论（模型返回时）落到 checkin_record_item.ai_verdict/ai_reason。
+func (s *CheckinService) aiReview(recID string, point *insmodel.InspectionPoint, items []insmodel.CheckinRecordItem, remark string, photos types.PhotoArray) {
 	defer func() {
 		if r := recover(); r != nil {
 			logger.L.Error("AI 审核 panic", zap.String("rec_id", recID), zap.Any("panic", r))
@@ -482,7 +509,7 @@ func (s *CheckinService) aiReview(recID string, point *insmodel.InspectionPoint,
 	for _, p := range photos {
 		refs = append(refs, ai.PhotoRef{URL: p.URL})
 	}
-	verdict, reason, err := s.aiCli.ReviewCheckin(context.Background(), ai.ReviewInput{
+	res, err := s.aiCli.ReviewCheckin(context.Background(), ai.ReviewInput{
 		PointName: point.Name, PointType: point.Type, CheckItems: names, Remark: remark, Photos: refs,
 		ItemPhotos: s.itemPhotoRefs(items),
 	})
@@ -492,28 +519,41 @@ func (s *CheckinService) aiReview(recID string, point *insmodel.InspectionPoint,
 			Updates(map[string]any{"ai_verdict": insmodel.AIVerdictError, "ai_reason": truncateStr(err.Error(), 200)})
 		return
 	}
-	if verdict == insmodel.AIVerdictPass {
+	writeItemVerdicts(s.db, recID, res.Items)
+	if res.Verdict == insmodel.AIVerdictPass {
 		s.db.Model(&insmodel.CheckinRecord{}).Where("id = ?", recID).
-			Updates(map[string]any{"ai_verdict": insmodel.AIVerdictPass, "ai_reason": truncateStr(reason, 500)})
+			Updates(map[string]any{"ai_verdict": insmodel.AIVerdictPass, "ai_reason": truncateStr(res.Reason, 500)})
 		return
 	}
 	// review → 转人工审核并通知审核角色（并发下仅 auto_pass 可翻转，避免覆盖人工结论）
-	res := s.db.Model(&insmodel.CheckinRecord{}).Where("id = ? AND audit_status = ?", recID, insmodel.AuditAutoPass).
+	res2 := s.db.Model(&insmodel.CheckinRecord{}).Where("id = ? AND audit_status = ?", recID, insmodel.AuditAutoPass).
 		Updates(map[string]any{
-			"ai_verdict": insmodel.AIVerdictReview, "ai_reason": truncateStr(reason, 500),
+			"ai_verdict": insmodel.AIVerdictReview, "ai_reason": truncateStr(res.Reason, 500),
 			"audit_status": insmodel.AuditPending,
 		})
-	if res.Error != nil {
-		logger.L.Warn("AI 审核回写失败", zap.String("rec_id", recID), zap.Error(res.Error))
+	if res2.Error != nil {
+		logger.L.Warn("AI 审核回写失败", zap.String("rec_id", recID), zap.Error(res2.Error))
 		return
 	}
-	if res.RowsAffected > 0 {
-		s.notifyAuditors(recID, point.Name, reason)
+	if res2.RowsAffected > 0 {
+		s.notifyAuditors(recID, point.Name, res.Reason)
+	}
+}
+
+// writeItemVerdicts 逐项 AI 结论落库（按 record_id+name 匹配快照行；模型未返回逐项结论时为空不做事）。
+func writeItemVerdicts(db *gorm.DB, recID string, items []ai.ItemVerdict) {
+	for _, iv := range items {
+		v, r := iv.Verdict, truncateStr(iv.Reason, 500)
+		if err := db.Model(&insmodel.CheckinRecordItem{}).
+			Where("record_id = ? AND name = ?", recID, iv.Name).
+			Updates(map[string]any{"ai_verdict": v, "ai_reason": r}).Error; err != nil {
+			logger.L.Warn("逐项 AI 结论回写失败", zap.String("rec_id", recID), zap.String("item", iv.Name), zap.Error(err))
+		}
 	}
 }
 
 // itemPhotoRefs 逐项照片（file_key → 可访问 URL），供大模型逐项核对；无逐项照片返回 nil（回退整组照片逻辑）。
-func (s *CheckinService) itemPhotoRefs(items types.CheckItemArray) []ai.ItemPhoto {
+func (s *CheckinService) itemPhotoRefs(items []insmodel.CheckinRecordItem) []ai.ItemPhoto {
 	var out []ai.ItemPhoto
 	for _, it := range items {
 		if len(it.Photos) == 0 {
@@ -587,7 +627,7 @@ func (s *CheckinService) resultView(rec *insmodel.CheckinRecord, order gin.H) gi
 }
 
 // failedItemSnapshot 异常打卡的不合格项快照（name+note+该项照片 file_key → 工单 before_photos）。
-func failedItemSnapshot(items types.CheckItemArray) types.OrderItemArray {
+func failedItemSnapshot(items []insmodel.CheckinRecordItem) types.OrderItemArray {
 	out := make(types.OrderItemArray, 0, len(items))
 	for _, it := range items {
 		if it.Pass {

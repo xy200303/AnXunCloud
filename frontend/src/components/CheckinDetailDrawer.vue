@@ -45,7 +45,12 @@
         <template v-if="detail.check_items?.length">
           <div class="section-title">检查项结果</div>
           <el-table :data="detail.check_items" border size="small" style="width: 100%">
-            <el-table-column prop="name" label="检查项" min-width="140" show-overflow-tooltip />
+            <el-table-column label="检查项" min-width="140">
+              <template #default="{ row: item }">
+                <div>{{ item.name }}</div>
+                <div v-if="item.requirement" class="item-requirement">{{ item.requirement }}</div>
+              </template>
+            </el-table-column>
             <el-table-column label="结果" width="80" align="center">
               <template #default="{ row: item }">
                 <el-tag :type="item.pass ? 'success' : 'danger'" size="small">
@@ -195,6 +200,12 @@ function photoMeta(d: CheckinDetail) {
 
 .ai-reason {
   margin-left: $spacing-sm;
+  color: $color-text-secondary;
+}
+
+.item-requirement {
+  font-size: 12px;
+  line-height: 1.4;
   color: $color-text-secondary;
 }
 

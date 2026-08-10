@@ -20,7 +20,6 @@ import (
 	"anxuncloud/internal/pkg/response"
 	"anxuncloud/internal/pkg/storage"
 	"anxuncloud/internal/pkg/timefmt"
-	"anxuncloud/internal/pkg/types"
 )
 
 // spotcheckLimit 单次抽查抽取上限（防呆）。
@@ -106,7 +105,7 @@ func (s *ReviewService) reviewItem(r *model.CheckinRecord) gin.H {
 		"checkin_time": timefmt.T(r.CheckinTime), "checkin_type": r.CheckinType,
 		"distance_to_point": distanceOrNil(r), "result": r.Result, "remark": r.Remark,
 		"is_suspect": r.IsSuspect, "suspect_reason": r.SuspectReason,
-		"photos": r.Photos, "check_items": s.checkItemViews(r.CheckItems),
+		"photos": r.Photos, "check_items": s.checkItemViews(r.ID),
 		"audit_status": r.AuditStatus, "audit_by": r.AuditBy,
 		"audit_at": timefmt.TP(r.AuditAt), "audit_remark": r.AuditRemark,
 		"ai_verdict": r.AIVerdict, "ai_reason": r.AIReason,
@@ -242,20 +241,24 @@ func (s *ReviewService) spotcheckAI(c *gin.Context, req *dto.SpotcheckReq) (gin.
 			continue
 		}
 		picked++
-		verdict, reason, err := s.aiCli.ReviewCheckin(c.Request.Context(), s.reviewInputOf(&r))
-		updates := map[string]any{"ai_reason": truncateRunes(reason, 500)}
+		res, err := s.aiCli.ReviewCheckin(c.Request.Context(), s.reviewInputOf(&r))
+		updates := map[string]any{}
 		switch {
 		case err != nil:
 			updates["ai_verdict"] = model.AIVerdictError
 			updates["ai_reason"] = truncateRunes(err.Error(), 200)
 			failed++
-		case verdict == model.AIVerdictPass:
-			updates["ai_verdict"] = model.AIVerdictPass
-			passed++
 		default:
-			updates["ai_verdict"] = model.AIVerdictReview
-			updates["audit_status"] = model.AuditPending
-			toReview++
+			updates["ai_reason"] = truncateRunes(res.Reason, 500)
+			writeItemVerdicts(s.db, r.ID, res.Items)
+			if res.Verdict == model.AIVerdictPass {
+				updates["ai_verdict"] = model.AIVerdictPass
+				passed++
+			} else {
+				updates["ai_verdict"] = model.AIVerdictReview
+				updates["audit_status"] = model.AuditPending
+				toReview++
+			}
 		}
 		// 并发下不覆盖人工已审核的记录
 		if uerr := s.db.Model(&model.CheckinRecord{}).
@@ -270,8 +273,10 @@ func (s *ReviewService) spotcheckAI(c *gin.Context, req *dto.SpotcheckReq) (gin.
 	return gin.H{"picked": picked, "to_review": toReview, "passed": passed, "failed": failed}, nil
 }
 
-// checkItemViews 逐项结果视图：附带该项照片可访问 URL（photos 存 file_key）。
-func (s *ReviewService) checkItemViews(items types.CheckItemArray) []gin.H {
+// checkItemViews 逐项结果视图（v18 起读 checkin_record_item 快照表）：附带该项照片可访问 URL（photos 存 file_key）。
+func (s *ReviewService) checkItemViews(recordID string) []gin.H {
+	var items []model.CheckinRecordItem
+	s.db.Where("record_id = ?", recordID).Order("sort ASC").Find(&items)
 	out := make([]gin.H, 0, len(items))
 	for _, ci := range items {
 		urls := make([]string, 0, len(ci.Photos))
@@ -283,6 +288,7 @@ func (s *ReviewService) checkItemViews(items types.CheckItemArray) []gin.H {
 		out = append(out, gin.H{
 			"name": ci.Name, "pass": ci.Pass, "note": ci.Note,
 			"photos": ci.Photos, "photo_urls": urls,
+			"requirement": ci.Requirement, "ai_verdict": ci.AIVerdict, "ai_reason": ci.AIReason,
 		})
 	}
 	return out
@@ -292,8 +298,10 @@ func (s *ReviewService) checkItemViews(items types.CheckItemArray) []gin.H {
 func (s *ReviewService) reviewInputOf(r *model.CheckinRecord) ai.ReviewInput {
 	var point model.InspectionPoint
 	s.db.Select("name", "type").First(&point, "id = ?", r.PointID)
-	names := make([]string, 0, len(r.CheckItems))
-	for _, it := range r.CheckItems {
+	var recItems []model.CheckinRecordItem
+	s.db.Where("record_id = ?", r.ID).Order("sort ASC").Find(&recItems)
+	names := make([]string, 0, len(recItems))
+	for _, it := range recItems {
 		names = append(names, it.Name)
 	}
 	refs := make([]ai.PhotoRef, 0, len(r.Photos))
@@ -302,7 +310,7 @@ func (s *ReviewService) reviewInputOf(r *model.CheckinRecord) ai.ReviewInput {
 	}
 	var itemPhotos []ai.ItemPhoto
 	if s.store != nil {
-		for _, it := range r.CheckItems {
+		for _, it := range recItems {
 			if len(it.Photos) == 0 {
 				continue
 			}
@@ -325,4 +333,16 @@ func truncateRunes(s string, n int) string {
 		return string(r[:n])
 	}
 	return s
+}
+
+// writeItemVerdicts 逐项 AI 结论落库（按 record_id+name 匹配快照行；模型未返回逐项结论时为空不做事）。
+func writeItemVerdicts(db *gorm.DB, recID string, items []ai.ItemVerdict) {
+	for _, iv := range items {
+		v, r := iv.Verdict, truncateRunes(iv.Reason, 500)
+		if err := db.Model(&model.CheckinRecordItem{}).
+			Where("record_id = ? AND name = ?", recID, iv.Name).
+			Updates(map[string]any{"ai_verdict": v, "ai_reason": r}).Error; err != nil {
+			logger.L.Warn("逐项 AI 结论回写失败", zap.String("rec_id", recID), zap.String("item", iv.Name), zap.Error(err))
+		}
+	}
 }

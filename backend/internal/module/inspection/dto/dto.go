@@ -15,6 +15,8 @@ type TemplateListQuery struct {
 type TemplateItemReq struct {
 	Name     string `json:"name" binding:"required"`
 	Required bool   `json:"required"`
+	// Requirement 检查标准要求文本（可选）
+	Requirement string `json:"requirement"`
 	// PhotoRequired 拍照要求：none/optional/required（空串视同 none）
 	PhotoRequired string `json:"photo_required"`
 }

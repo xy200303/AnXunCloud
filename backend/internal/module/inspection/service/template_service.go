@@ -18,6 +18,7 @@ import (
 )
 
 // TemplateService 检查项模板服务（模板全局共享，不做小区数据权限）。
+// v18 起检查项存 check_template_item 独立表；对外 items JSON 结构不变（新增 requirement 字段）。
 type TemplateService struct {
 	db *gorm.DB
 }
@@ -45,22 +46,57 @@ func (s *TemplateService) List(q *dto.TemplateListQuery) (*response.Page, *errs.
 	if err := db.Order("sort ASC, id ASC").Offset(offset).Limit(limit).Find(&rows).Error; err != nil {
 		return nil, errs.ErrInternal
 	}
+	itemsByTpl := s.loadItems(templateIDs(rows))
 	list := make([]gin.H, 0, len(rows))
 	for i := range rows {
-		list = append(list, templateItem(&rows[i]))
+		list = append(list, templateItem(&rows[i], itemsByTpl[rows[i].ID]))
 	}
 	return &response.Page{List: list, Total: total, Page: q.Page, PageSize: q.PageSize}, nil
 }
 
-func templateItem(t *model.CheckTemplate) gin.H {
+func templateIDs(rows []model.CheckTemplate) []string {
+	ids := make([]string, 0, len(rows))
+	for i := range rows {
+		ids = append(ids, rows[i].ID)
+	}
+	return ids
+}
+
+// loadItems 批量加载模板检查项（按 sort 升序），key 为 template_id。
+func (s *TemplateService) loadItems(tplIDs []string) map[string][]model.CheckTemplateItem {
+	out := map[string][]model.CheckTemplateItem{}
+	if len(tplIDs) == 0 {
+		return out
+	}
+	var items []model.CheckTemplateItem
+	s.db.Where("template_id IN ?", tplIDs).Order("template_id ASC, sort ASC").Find(&items)
+	for _, it := range items {
+		out[it.TemplateID] = append(out[it.TemplateID], it)
+	}
+	return out
+}
+
+func templateItem(t *model.CheckTemplate, items []model.CheckTemplateItem) gin.H {
 	return gin.H{
-		"id": t.ID, "name": t.Name, "point_type": t.PointType, "items": t.Items,
+		"id": t.ID, "name": t.Name, "point_type": t.PointType, "items": templateItemViews(items),
 		"sort": t.Sort, "status": sysmodel.StatusInt(t.Status), "remark": t.Remark,
 		"created_at": timefmt.T(t.CreatedAt), "updated_at": timefmt.T(t.UpdatedAt),
 	}
 }
 
-// Create 新增模板。
+// templateItemViews 模板项视图：name/required/photo_required 结构不变，新增 requirement（空=null）。
+func templateItemViews(items []model.CheckTemplateItem) []gin.H {
+	out := make([]gin.H, 0, len(items))
+	for _, it := range items {
+		out = append(out, gin.H{
+			"name": it.Name, "required": it.Required,
+			"photo_required": it.PhotoRequired, "requirement": it.Requirement,
+		})
+	}
+	return out
+}
+
+// Create 新增模板（模板 + 项行同事务写入）。
 func (s *TemplateService) Create(req *dto.TemplateSaveReq) (string, *errs.Error) {
 	if be := validateTemplate(req); be != nil {
 		return "", be
@@ -68,7 +104,6 @@ func (s *TemplateService) Create(req *dto.TemplateSaveReq) (string, *errs.Error)
 	t := model.CheckTemplate{
 		Name:      strings.TrimSpace(req.Name),
 		PointType: req.PointType,
-		Items:     toTemplateItems(req.Items),
 		Sort:      req.Sort,
 		Status:    sysmodel.StatusEnabled,
 		Remark:    req.Remark,
@@ -76,7 +111,13 @@ func (s *TemplateService) Create(req *dto.TemplateSaveReq) (string, *errs.Error)
 	if req.Status != nil {
 		t.Status = sysmodel.StatusStr(*req.Status)
 	}
-	if err := s.db.Create(&t).Error; err != nil {
+	err := s.db.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Create(&t).Error; err != nil {
+			return err
+		}
+		return tx.Create(toItemRows(t.ID, req.Items)).Error
+	})
+	if err != nil {
 		return "", errs.ErrInternal
 	}
 	return t.ID, nil
@@ -88,10 +129,10 @@ func (s *TemplateService) Detail(id string) (gin.H, *errs.Error) {
 	if err := s.db.First(&t, "id = ?", id).Error; err != nil {
 		return nil, errs.ErrNotFound
 	}
-	return templateItem(&t), nil
+	return templateItem(&t, s.loadItems([]string{id})[id]), nil
 }
 
-// Update 修改模板。
+// Update 修改模板（事务内更新模板字段 + 整表替换项行）。
 func (s *TemplateService) Update(id string, req *dto.TemplateSaveReq) *errs.Error {
 	var t model.CheckTemplate
 	if err := s.db.First(&t, "id = ?", id).Error; err != nil {
@@ -102,12 +143,21 @@ func (s *TemplateService) Update(id string, req *dto.TemplateSaveReq) *errs.Erro
 	}
 	updates := map[string]any{
 		"name": strings.TrimSpace(req.Name), "point_type": req.PointType,
-		"items": toTemplateItems(req.Items), "sort": req.Sort, "remark": req.Remark,
+		"sort": req.Sort, "remark": req.Remark,
 	}
 	if req.Status != nil {
 		updates["status"] = sysmodel.StatusStr(*req.Status)
 	}
-	if err := s.db.Model(&t).Updates(updates).Error; err != nil {
+	err := s.db.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Model(&t).Updates(updates).Error; err != nil {
+			return err
+		}
+		if err := tx.Where("template_id = ?", id).Delete(&model.CheckTemplateItem{}).Error; err != nil {
+			return err
+		}
+		return tx.Create(toItemRows(id, req.Items)).Error
+	})
+	if err != nil {
 		return errs.ErrInternal
 	}
 	return nil
@@ -124,7 +174,14 @@ func (s *TemplateService) Delete(id string) *errs.Error {
 	if count > 0 {
 		return errs.ErrParam.WithMsg(fmt.Sprintf("模板已被 %d 个点位引用，不可删除", count))
 	}
-	if err := s.db.Delete(&t).Error; err != nil {
+	err := s.db.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Delete(&t).Error; err != nil {
+			return err
+		}
+		// 模板软删，级联删除不触发，项行显式清除（checkin_record_item.template_item_id 血缘不受影响）
+		return tx.Where("template_id = ?", id).Delete(&model.CheckTemplateItem{}).Error
+	})
+	if err != nil {
 		return errs.ErrInternal
 	}
 	return nil
@@ -145,14 +202,22 @@ func validateTemplate(req *dto.TemplateSaveReq) *errs.Error {
 	return nil
 }
 
-func toTemplateItems(items []dto.TemplateItemReq) types.TemplateItemArray {
-	out := make(types.TemplateItemArray, 0, len(items))
-	for _, it := range items {
+// toItemRows 请求项 → 模板项行（sort 按提交顺序）。
+func toItemRows(templateID string, items []dto.TemplateItemReq) []model.CheckTemplateItem {
+	out := make([]model.CheckTemplateItem, 0, len(items))
+	for i, it := range items {
 		pr := it.PhotoRequired
 		if pr == "" {
 			pr = types.PhotoReqNone
 		}
-		out = append(out, types.TemplateItem{Name: strings.TrimSpace(it.Name), Required: it.Required, PhotoRequired: pr})
+		row := model.CheckTemplateItem{
+			TemplateID: templateID, Name: strings.TrimSpace(it.Name),
+			Required: it.Required, PhotoRequired: pr, Sort: i,
+		}
+		if r := strings.TrimSpace(it.Requirement); r != "" {
+			row.Requirement = &r
+		}
+		out = append(out, row)
 	}
 	return out
 }

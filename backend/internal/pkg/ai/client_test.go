@@ -5,6 +5,55 @@ import (
 	"testing"
 )
 
+// TestParseReviewWithItems 逐项结论：整体 + 逐项均解析；非法逐项跳过不报错。
+func TestParseReviewWithItems(t *testing.T) {
+	res, err := parseReview(`{"verdict":"review","reason":"保险销疑似脱落","items":[
+		{"name":"压力表指针在绿区","verdict":"pass","reason":"指针在绿区"},
+		{"name":"保险销完好","verdict":"review","reason":"保险销缺失"},
+		{"name":"","verdict":"pass","reason":"无名项跳过"},
+		{"name":"喷管无龟裂","verdict":"maybe","reason":"非法结论跳过"}
+	]}`)
+	if err != nil {
+		t.Fatalf("解析失败: %v", err)
+	}
+	if res.Verdict != VerdictReview || res.Reason != "保险销疑似脱落" {
+		t.Errorf("整体结论异常: %+v", res)
+	}
+	if len(res.Items) != 2 {
+		t.Fatalf("逐项结论数=%d，期望 2（非法项跳过）", len(res.Items))
+	}
+	if res.Items[0].Name != "压力表指针在绿区" || res.Items[0].Verdict != VerdictPass {
+		t.Errorf("逐项[0]异常: %+v", res.Items[0])
+	}
+	if res.Items[1].Name != "保险销完好" || res.Items[1].Verdict != VerdictReview || res.Items[1].Reason != "保险销缺失" {
+		t.Errorf("逐项[1]异常: %+v", res.Items[1])
+	}
+}
+
+// TestParseReviewWithoutItems 模型未返回逐项结论：Items 为空，不报错（旧输出格式兼容）。
+func TestParseReviewWithoutItems(t *testing.T) {
+	res, err := parseReview("前置杂文本```json\n{\"verdict\":\"pass\",\"reason\":\"照片清晰，无异常\"}\n```")
+	if err != nil {
+		t.Fatalf("解析失败: %v", err)
+	}
+	if res.Verdict != VerdictPass {
+		t.Errorf("verdict=%q，期望 pass", res.Verdict)
+	}
+	if len(res.Items) != 0 {
+		t.Errorf("逐项结论应为空: %+v", res.Items)
+	}
+}
+
+// TestParseReviewInvalidVerdict 整体 verdict 非法仍报错。
+func TestParseReviewInvalidVerdict(t *testing.T) {
+	if _, err := parseReview(`{"verdict":"unknown","reason":"x"}`); err == nil {
+		t.Fatal("非法 verdict 应报错")
+	}
+	if _, err := parseReview("没有 JSON 的输出"); err == nil {
+		t.Fatal("无 JSON 应报错")
+	}
+}
+
 // TestBuildMessagesWithItemPhotos 逐项照片：prompt 中按检查项分组标注，模型可逐项核对。
 func TestBuildMessagesWithItemPhotos(t *testing.T) {
 	c := NewClient(func(string) (string, bool) { return "", false })

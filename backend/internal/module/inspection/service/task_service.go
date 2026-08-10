@@ -237,11 +237,25 @@ func checkinBrief(db *gorm.DB, ck *model.CheckinRecord) gin.H {
 		"longitude": ck.Longitude, "latitude": ck.Latitude,
 		"result": ck.Result, "is_suspect": ck.IsSuspect, "suspect_reason": ck.SuspectReason,
 		"remark": ck.Remark, "photos": ck.Photos, "work_order_no": orderNo,
-		"check_items": ck.CheckItems,
+		"check_items": briefItemViews(db, ck.ID),
 		"audit_status": ck.AuditStatus, "audit_by": ck.AuditBy,
 		"audit_at": timefmt.TP(ck.AuditAt), "audit_remark": ck.AuditRemark,
 		"ai_verdict": ck.AIVerdict, "ai_reason": ck.AIReason,
 	}
+}
+
+// briefItemViews 任务明细内嵌的逐项结果（photos 为 file_key，结构同旧 JSONB 快照；requirement 可空）。
+func briefItemViews(db *gorm.DB, recordID string) []gin.H {
+	var items []model.CheckinRecordItem
+	db.Where("record_id = ?", recordID).Order("sort ASC").Find(&items)
+	out := make([]gin.H, 0, len(items))
+	for _, it := range items {
+		out = append(out, gin.H{
+			"name": it.Name, "pass": it.Pass, "note": it.Note,
+			"photos": it.Photos, "requirement": it.Requirement,
+		})
+	}
+	return out
 }
 
 // ========== 打卡记录检索（管理后台） ==========
@@ -335,9 +349,11 @@ func (s *TaskService) CheckinDetail(c *gin.Context, id string) (gin.H, *errs.Err
 			"exif_check": exifCheck(&r, p),
 		})
 	}
-	// 逐项结果带照片 URL（photos 存 file_key）
-	checkItems := make([]gin.H, 0, len(r.CheckItems))
-	for _, ci := range r.CheckItems {
+	// 逐项结果带照片 URL（photos 存 file_key）；v18 起读 checkin_record_item 快照表
+	var recItems []model.CheckinRecordItem
+	s.db.Where("record_id = ?", r.ID).Order("sort ASC").Find(&recItems)
+	checkItems := make([]gin.H, 0, len(recItems))
+	for _, ci := range recItems {
 		urls := make([]string, 0, len(ci.Photos))
 		for _, key := range ci.Photos {
 			urls = append(urls, s.store.URL(key))
@@ -345,6 +361,7 @@ func (s *TaskService) CheckinDetail(c *gin.Context, id string) (gin.H, *errs.Err
 		checkItems = append(checkItems, gin.H{
 			"name": ci.Name, "pass": ci.Pass, "note": ci.Note,
 			"photos": ci.Photos, "photo_urls": urls,
+			"requirement": ci.Requirement, "ai_verdict": ci.AIVerdict, "ai_reason": ci.AIReason,
 		})
 	}
 	return gin.H{

@@ -68,14 +68,25 @@ func (s *ReportService) pdfData(r *model.InspectionReport) pdf.MonthlyReportData
 
 	// ===== 当期打卡记录 =====
 	var recs []insmodel.CheckinRecord
-	s.db.Select("point_id", "inspector_id", "checkin_time", "result", "remark", "check_items", "photos").
+	s.db.Select("id", "point_id", "inspector_id", "checkin_time", "result", "remark", "photos").
 		Where("community_id = ? AND checkin_time >= ? AND checkin_time < ?", r.CommunityID, start, end).
 		Order("checkin_time ASC").Find(&recs)
 	recsByPoint := map[string][]insmodel.CheckinRecord{}
 	inspectorIDSet := map[string]bool{}
+	recIDs := make([]string, 0, len(recs))
 	for i := range recs {
 		recsByPoint[recs[i].PointID] = append(recsByPoint[recs[i].PointID], recs[i])
 		inspectorIDSet[recs[i].InspectorID] = true
+		recIDs = append(recIDs, recs[i].ID)
+	}
+	// 逐项结果快照（v18 起独立表；record_id → 按 sort 升序的项行）
+	itemsByRec := map[string][]insmodel.CheckinRecordItem{}
+	if len(recIDs) > 0 {
+		var recItems []insmodel.CheckinRecordItem
+		s.db.Where("record_id IN ?", recIDs).Order("sort ASC").Find(&recItems)
+		for _, it := range recItems {
+			itemsByRec[it.RecordID] = append(itemsByRec[it.RecordID], it)
+		}
 	}
 
 	// ===== 当期异常工单 =====
@@ -177,7 +188,7 @@ func (s *ReportService) pdfData(r *model.InspectionReport) pdf.MonthlyReportData
 			}
 			marks := make([]string, len(items))
 			var failed []string
-			for _, ci := range rec.CheckItems {
+			for _, ci := range itemsByRec[rec.ID] {
 				for j, name := range items {
 					if ci.Name == name {
 						if ci.Pass {
@@ -217,7 +228,7 @@ func (s *ReportService) pdfData(r *model.InspectionReport) pdf.MonthlyReportData
 			title = pt.Name + " · " + title
 		}
 		group := pdf.PhotoGroup{Title: title}
-		for _, ci := range rec.CheckItems {
+		for _, ci := range itemsByRec[rec.ID] {
 			for _, key := range ci.Photos {
 				group.Cells = append(group.Cells, pdf.PhotoCell{Label: ci.Name, Key: key})
 			}
@@ -357,7 +368,7 @@ func (s *ReportService) pointTypeNames(present map[string]bool) pointTypeNames {
 	return out
 }
 
-// templateItems 取该类型点位的检查项模板项名（首个配置了模板的点位）。
+// templateItems 取该类型点位的检查项模板项名（首个配置了模板的点位；v18 起读 check_template_item）。
 func (s *ReportService) templateItems(pts []*insmodel.InspectionPoint, cache map[string][]string) []string {
 	for _, pt := range pts {
 		if pt.TemplateID == nil {
@@ -366,12 +377,13 @@ func (s *ReportService) templateItems(pts []*insmodel.InspectionPoint, cache map
 		if items, ok := cache[*pt.TemplateID]; ok {
 			return items
 		}
-		var tpl insmodel.CheckTemplate
-		if s.db.Select("items").First(&tpl, "id = ?", *pt.TemplateID).Error != nil {
+		var rows []insmodel.CheckTemplateItem
+		s.db.Select("name").Where("template_id = ?", *pt.TemplateID).Order("sort ASC").Find(&rows)
+		if len(rows) == 0 {
 			continue
 		}
-		items := make([]string, 0, len(tpl.Items))
-		for _, it := range tpl.Items {
+		items := make([]string, 0, len(rows))
+		for _, it := range rows {
 			items = append(items, it.Name)
 		}
 		cache[*pt.TemplateID] = items

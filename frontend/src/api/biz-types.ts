@@ -30,6 +30,8 @@ export type PhotoRequired = 'none' | 'optional' | 'required'
 export interface TemplateCheckItem {
   name: string
   required: boolean
+  // 检查标准要求文本（可选）
+  requirement?: string
   // 拍照要求：none 无需 / optional 选拍 / required 必拍（缺省 none）
   photo_required?: PhotoRequired
 }
@@ -217,6 +219,8 @@ export interface CheckinCheckItem {
   name: string
   pass: boolean
   note: string
+  // 打卡当时的检查标准快照（可选，后端 v18 起返回）
+  requirement?: string
   // 该项照片 URL 列表（可空，后端并行开发中）
   photo_urls?: string[]
 }

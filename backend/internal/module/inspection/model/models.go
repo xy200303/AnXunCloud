@@ -50,8 +50,9 @@ const (
 // CheckTemplate 检查项模板（point_type 空为通用）。
 type CheckTemplate struct {
 	types.UUIDModel
-	Name      string                  `gorm:"size:128" json:"name"`
-	PointType string                  `gorm:"size:32" json:"point_type"`
+	Name      string `gorm:"size:128" json:"name"`
+	PointType string `gorm:"size:32" json:"point_type"`
+	// Items 已废弃（v18 起检查项拆分为 check_template_item 独立表；列保留不删，仅存量数据搬迁读取）
 	Items     types.TemplateItemArray `gorm:"type:jsonb" json:"items"`
 	Sort      int                     `json:"sort"`
 	Status    string                  `gorm:"size:16" json:"status"`
@@ -62,6 +63,21 @@ type CheckTemplate struct {
 }
 
 func (CheckTemplate) TableName() string { return "check_template" }
+
+// CheckTemplateItem 模板检查项（v18 起独立表；更新模板=事务内整表替换项行）。
+type CheckTemplateItem struct {
+	types.UUIDModel
+	TemplateID string `gorm:"type:uuid" json:"template_id"`
+	Name       string `gorm:"size:128" json:"name"`
+	// Requirement 检查标准要求文本（可空）
+	Requirement   *string   `gorm:"type:text" json:"requirement"`
+	Required      bool      `json:"required"`
+	PhotoRequired string    `gorm:"size:16" json:"photo_required"` // none/optional/required
+	Sort          int       `json:"sort"`
+	CreatedAt     time.Time `json:"created_at"`
+}
+
+func (CheckTemplateItem) TableName() string { return "check_template_item" }
 
 // Building 楼栋/区域
 type Building struct {
@@ -157,6 +173,7 @@ type CheckinRecord struct {
 	DistanceToPoint *float64            `gorm:"type:numeric(10,2)" json:"distance_to_point"`
 	CheckinType     string              `gorm:"size:16" json:"checkin_type"`
 	Photos          types.PhotoArray    `gorm:"type:jsonb" json:"photos"`
+	// CheckItems 已废弃（v18 起逐项结果拆分为 checkin_record_item 独立表；列保留不删，仅存量数据搬迁读取）
 	CheckItems      types.CheckItemArray `gorm:"type:jsonb" json:"check_items"`
 	Result          string              `gorm:"size:16" json:"result"`
 	Remark          string              `gorm:"size:512" json:"remark"`
@@ -173,3 +190,27 @@ type CheckinRecord struct {
 }
 
 func (CheckinRecord) TableName() string { return "checkin_record" }
+
+// CheckinRecordItem 打卡逐项结果快照（v18 起独立表）。
+// 快照语义：name/requirement/photo_required 在打卡当时从模板项复制，历史记录内容绝不依赖 join 模板表；
+// template_item_id 仅作可空血缘字段（统计用）。record_id 不加 FK（checkin_record 为按月分区表，
+// 其主键含分区键 created_at，FK 无法仅引用 id），以普通索引 + 应用层同事务写入保证一致。
+type CheckinRecordItem struct {
+	types.UUIDModel
+	RecordID       string  `gorm:"type:uuid" json:"record_id"`
+	TemplateItemID *string `gorm:"type:uuid" json:"template_item_id"`
+	Name           string  `gorm:"size:128" json:"name"`
+	Requirement    *string `gorm:"type:text" json:"requirement"`
+	PhotoRequired  string  `gorm:"size:16" json:"photo_required"` // none/optional/required
+	Pass           bool    `json:"pass"`
+	Note           string  `gorm:"size:512" json:"note"`
+	// Photos 该项照片 file_key 数组（JSONB，不再拆表）
+	Photos types.StringArray `gorm:"type:jsonb" json:"photos"`
+	// AIVerdict/AIReason 逐项大模型结论（预留；模型未返回逐项结论时为空）
+	AIVerdict *string   `gorm:"size:16" json:"ai_verdict"`
+	AIReason  *string   `gorm:"size:512" json:"ai_reason"`
+	Sort      int       `json:"sort"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
+func (CheckinRecordItem) TableName() string { return "checkin_record_item" }

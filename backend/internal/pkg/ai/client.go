@@ -40,11 +40,12 @@ const builtinRules = `你是物业巡检打卡审核助手。请根据打卡上�
 2. 照片内容与打卡点位、点位类型、检查项是否匹配；
 3. 照片中是否存在明显的安全异常（设备损坏、漏水、明火、杂物阻塞消防通道等）；
 4. 若照片按检查项分组给出（带检查项名称标注），逐项核对该项照片内容与该项检查要求是否一致。
-只输出 JSON：{"verdict":"pass"|"review","reason":"简要中文理由"}，不要输出任何其他内容。
-有任何一项拿不准或存疑时，verdict 一律输出 "review"，理由需说明疑点。`
+只输出 JSON：{"verdict":"pass"|"review","reason":"简要中文理由","items":[{"name":"检查项名","verdict":"pass"|"review","reason":"该项简要理由"}]}，不要输出任何其他内容。
+items 为逐项结论（与给出的检查项一一对应）；无法逐项判断时 items 可省略或为空数组。
+有任何一项拿不准或存疑时，整体 verdict 一律输出 "review"，理由需说明疑点。`
 
 // outputFormatHint 自定义 prompt 时仍强制要求的输出格式说明。
-const outputFormatHint = "\n\n无论以上规则如何，你只输出 JSON：{\"verdict\":\"pass\"|\"review\",\"reason\":\"简要中文理由\"}，不要输出任何其他内容；拿不准一律 review。"
+const outputFormatHint = "\n\n无论以上规则如何，你只输出 JSON：{\"verdict\":\"pass\"|\"review\",\"reason\":\"简要中文理由\",\"items\":[{\"name\":\"检查项名\",\"verdict\":\"pass\"|\"review\",\"reason\":\"该项简要理由\"}]}，不要输出任何其他内容；items 逐项结论无法判断时可省略；拿不准一律 review。"
 
 // PhotoRef 待审核照片引用。
 type PhotoRef struct {
@@ -55,6 +56,20 @@ type PhotoRef struct {
 type ItemPhoto struct {
 	Name   string
 	Photos []PhotoRef
+}
+
+// ItemVerdict 逐项大模型结论（检查项名 + 结论 + 理由）。
+type ItemVerdict struct {
+	Name    string
+	Verdict string // pass / review
+	Reason  string
+}
+
+// ReviewResult 大模型审核结果：整体结论 + 逐项结论（Items 可空，模型未返回时为空）。
+type ReviewResult struct {
+	Verdict string
+	Reason  string
+	Items   []ItemVerdict
 }
 
 // ReviewInput 打卡审核上下文。
@@ -116,47 +131,48 @@ func (c *Client) Enabled() bool {
 	return strings.TrimSpace(key) != ""
 }
 
-// ReviewCheckin 调用大模型审核打卡记录，返回 verdict（pass/review）与理由。
+// ReviewCheckin 调用大模型审核打卡记录，返回整体 verdict（pass/review）、理由与逐项结论。
 // 任何 HTTP/解析失败都返回 err，由调用方兜底（ai_verdict=error，不阻断业务）。
-func (c *Client) ReviewCheckin(ctx context.Context, input ReviewInput) (string, string, error) {
+// 模型未返回逐项结论时 Items 为空，不视为错误。
+func (c *Client) ReviewCheckin(ctx context.Context, input ReviewInput) (*ReviewResult, error) {
 	baseURL, _ := c.cfg("ai.base_url")
 	baseURL = strings.TrimRight(strings.TrimSpace(baseURL), "/")
 	if baseURL == "" {
-		return "", "", fmt.Errorf("ai.base_url 未配置")
+		return nil, fmt.Errorf("ai.base_url 未配置")
 	}
 	apiKey, _ := c.cfg("ai.api_key")
 	model, ok := c.cfg("ai.model")
 	if !ok || strings.TrimSpace(model) == "" {
-		return "", "", fmt.Errorf("ai.model 未配置")
+		return nil, fmt.Errorf("ai.model 未配置")
 	}
 
 	messages := c.buildMessages(input)
 	payload := map[string]any{
 		"model":      model,
 		"messages":   messages,
-		"max_tokens": 512,
+		"max_tokens": 1024,
 	}
 	body, err := json.Marshal(payload)
 	if err != nil {
-		return "", "", err
+		return nil, err
 	}
 
 	httpc := &http.Client{Timeout: time.Duration(c.cfgInt("ai.timeout_seconds", defaultTimeoutSecs)) * time.Second}
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, baseURL+"/chat/completions", bytes.NewReader(body))
 	if err != nil {
-		return "", "", err
+		return nil, err
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+strings.TrimSpace(apiKey))
 
 	resp, err := httpc.Do(req)
 	if err != nil {
-		return "", "", fmt.Errorf("大模型请求失败: %w", err)
+		return nil, fmt.Errorf("大模型请求失败: %w", err)
 	}
 	defer resp.Body.Close()
 	respBody, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	if resp.StatusCode != http.StatusOK {
-		return "", "", fmt.Errorf("大模型返回 %d: %s", resp.StatusCode, truncate(string(respBody), 200))
+		return nil, fmt.Errorf("大模型返回 %d: %s", resp.StatusCode, truncate(string(respBody), 200))
 	}
 
 	var out struct {
@@ -167,12 +183,12 @@ func (c *Client) ReviewCheckin(ctx context.Context, input ReviewInput) (string, 
 		} `json:"choices"`
 	}
 	if err := json.Unmarshal(respBody, &out); err != nil {
-		return "", "", fmt.Errorf("响应解析失败: %w", err)
+		return nil, fmt.Errorf("响应解析失败: %w", err)
 	}
 	if len(out.Choices) == 0 || strings.TrimSpace(out.Choices[0].Message.Content) == "" {
-		return "", "", fmt.Errorf("响应无有效内容")
+		return nil, fmt.Errorf("响应无有效内容")
 	}
-	return parseVerdict(out.Choices[0].Message.Content)
+	return parseReview(out.Choices[0].Message.Content)
 }
 
 // buildMessages 组装 vision messages：system 审核规则 + user 文本上下文与图片。
@@ -281,23 +297,37 @@ func (c *Client) resolveImages(photos []PhotoRef) []string {
 // jsonRe 从模型输出中提取首个 JSON 对象（容错 Markdown 代码块/前后杂文本）。
 var jsonRe = regexp.MustCompile(`\{[\s\S]*\}`)
 
-// parseVerdict 解析模型输出；verdict 非 pass/review 视为 error。
-func parseVerdict(content string) (string, string, error) {
+// parseReview 解析模型输出；整体 verdict 非 pass/review 视为 error；
+// items 逐项结论容错解析（缺失/非法项跳过，不影响整体结论）。
+func parseReview(content string) (*ReviewResult, error) {
 	m := jsonRe.FindString(content)
 	if m == "" {
-		return "", "", fmt.Errorf("输出中未找到 JSON: %s", truncate(content, 200))
+		return nil, fmt.Errorf("输出中未找到 JSON: %s", truncate(content, 200))
 	}
 	var v struct {
 		Verdict string `json:"verdict"`
 		Reason  string `json:"reason"`
+		Items   []struct {
+			Name    string `json:"name"`
+			Verdict string `json:"verdict"`
+			Reason  string `json:"reason"`
+		} `json:"items"`
 	}
 	if err := json.Unmarshal([]byte(m), &v); err != nil {
-		return "", "", fmt.Errorf("JSON 解析失败: %w", err)
+		return nil, fmt.Errorf("JSON 解析失败: %w", err)
 	}
 	if v.Verdict != VerdictPass && v.Verdict != VerdictReview {
-		return "", "", fmt.Errorf("非法 verdict: %q", v.Verdict)
+		return nil, fmt.Errorf("非法 verdict: %q", v.Verdict)
 	}
-	return v.Verdict, v.Reason, nil
+	res := &ReviewResult{Verdict: v.Verdict, Reason: v.Reason}
+	for _, it := range v.Items {
+		name := strings.TrimSpace(it.Name)
+		if name == "" || (it.Verdict != VerdictPass && it.Verdict != VerdictReview) {
+			continue // 非法逐项结论跳过，不报错
+		}
+		res.Items = append(res.Items, ItemVerdict{Name: name, Verdict: it.Verdict, Reason: it.Reason})
+	}
+	return res, nil
 }
 
 func truncate(s string, n int) string {

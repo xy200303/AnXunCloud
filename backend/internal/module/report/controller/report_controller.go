@@ -74,14 +74,27 @@ func (ctl *ReportController) Generate(c *gin.Context) {
 	write(c, data, be)
 }
 
-// SignInspector POST /reports/:id/sign-inspector（电子确认，无请求体）
+// SignCandidates GET /reports/sign-candidates?community_id=（生成报告时的可选签字人）
+func (ctl *ReportController) SignCandidates(c *gin.Context) {
+	communityID := c.Query("community_id")
+	if _, err := uuid.Parse(communityID); err != nil {
+		response.Fail(c, errs.ErrParam.WithMsg("community_id 须为 UUID"))
+		return
+	}
+	data, be := ctl.svc.SignCandidates(c, communityID)
+	write(c, data, be)
+}
+
+// SignInspector POST /reports/:id/sign-inspector（电子确认；body 带 proxy_for+reason 为代签）
 func (ctl *ReportController) SignInspector(c *gin.Context) {
 	id, be := pathID(c)
 	if be != nil {
 		response.Fail(c, be)
 		return
 	}
-	data, be := ctl.svc.SignInspector(c, id)
+	var req dto.InspectorSignReq
+	_ = c.ShouldBindJSON(&req) // 本人确认为空 body，容错解析
+	data, be := ctl.svc.SignInspector(c, id, &req)
 	write(c, data, be)
 }
 

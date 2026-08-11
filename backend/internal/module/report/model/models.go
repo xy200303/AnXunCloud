@@ -27,6 +27,9 @@ type InspectionReport struct {
 	Stats           types.JSONMap   `gorm:"type:jsonb" json:"stats"`
 	InspectorIDs    types.IDArray   `gorm:"type:jsonb" json:"inspector_ids"`
 	InspectorSigned types.SignArray `gorm:"type:jsonb" json:"inspector_signed"`
+	// 指定签字人名单（v17；生成时圈定，空=该级无人可签自动跳过，PDF 签字栏留空）
+	SupervisorIDs   types.IDArray   `gorm:"type:jsonb" json:"supervisor_ids"`
+	ManagerIDs      types.IDArray   `gorm:"type:jsonb" json:"manager_ids"`
 	SupervisorBy    *string         `gorm:"type:uuid" json:"supervisor_by"`
 	SupervisorAt    *time.Time      `json:"supervisor_at"`
 	SupervisorRemark string         `gorm:"size:512" json:"supervisor_remark"`

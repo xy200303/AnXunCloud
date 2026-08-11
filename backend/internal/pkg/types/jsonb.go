@@ -230,6 +230,10 @@ type SignEntry struct {
 	SignatureKey string `json:"signature_file_key,omitempty"`
 	// AssetID 签字时的签章资产 id（v16 起；可空，便于法律追溯定位版本）
 	AssetID string `json:"asset_id,omitempty"`
+	// 代签留痕（三字段同时非空表示代签：UserID/Name 为被代签巡检员，签名图取代签人本人资产——代签人对该次确认负责）
+	ProxyBy     string `json:"proxy_by,omitempty"`
+	ProxyName   string `json:"proxy_name,omitempty"`
+	ProxyReason string `json:"proxy_reason,omitempty"`
 }
 
 // SignArray 映射 jsonb 签字记录数组。

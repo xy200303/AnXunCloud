@@ -214,8 +214,9 @@ func New(cfg *config.Config, db *gorm.DB, rdb *redis.Client) (*gin.Engine, *insp
 		{
 			reports.GET("", middleware.RequirePerm("report:list"), reportCtl.List)
 			reports.POST("/generate", middleware.RequirePerm("report:generate"), middleware.OperLog(db, "report", "generate"), reportCtl.Generate)
+			reports.GET("/sign-candidates", middleware.RequirePerm("report:generate"), reportCtl.SignCandidates)
 			reports.GET("/:id", middleware.RequirePerm("report:list"), reportCtl.Detail)
-			reports.POST("/:id/sign-inspector", middleware.RequirePerm("report:sign:inspector"), middleware.OperLog(db, "report", "sign_inspector"), reportCtl.SignInspector)
+			reports.POST("/:id/sign-inspector", middleware.RequirePerm("report:sign:inspector", "report:sign:proxy"), middleware.OperLog(db, "report", "sign_inspector"), reportCtl.SignInspector)
 			reports.POST("/:id/sign-supervisor", middleware.RequirePerm("report:sign:supervisor"), middleware.OperLog(db, "report", "sign_supervisor"), reportCtl.SignSupervisor)
 			reports.POST("/:id/sign-manager", middleware.RequirePerm("report:sign:manager"), middleware.OperLog(db, "report", "sign_manager"), reportCtl.SignManager)
 			reports.GET("/:id/pdf", middleware.RequirePerm("report:download"), reportCtl.PDF)

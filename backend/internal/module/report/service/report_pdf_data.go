@@ -292,13 +292,21 @@ func (s *ReportService) pdfData(r *model.InspectionReport) pdf.MonthlyReportData
 	// ===== 9.三级签字栏（含签名图快照） =====
 	signedBy := map[string]string{}
 	sigBy := map[string]string{}
+	proxyNameBy := map[string]string{}
 	for _, e := range r.InspectorSigned {
 		signedBy[e.UserID] = e.SignedAt
 		sigBy[e.UserID] = e.SignatureKey
+		if e.ProxyName != "" {
+			proxyNameBy[e.UserID] = e.ProxyName
+		}
 	}
 	for _, uid := range r.InspectorIDs {
+		name := s.userName(uid)
+		if pn, ok := proxyNameBy[uid]; ok {
+			name += "（" + pn + "代签）" // 代签必须显式标注；原因留在系统留痕，不挤签字栏
+		}
 		d.InspectorSigns = append(d.InspectorSigns, pdf.SignInfo{
-			Name: s.userName(uid), Time: signedBy[uid], SignatureKey: sigBy[uid],
+			Name: name, Time: signedBy[uid], SignatureKey: sigBy[uid],
 		})
 	}
 	// 已签但不在应签名单的（如超管代签）追加展示

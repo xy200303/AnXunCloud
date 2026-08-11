@@ -15,6 +15,7 @@
     "echarts": "^6.1.0",
     "element-plus": "^2.9.7",
     "pinia": "^4.0.2",
+    "signature_pad": "^5.1.4",
     "vue": "^3.5.13",
     "vue-router": "^5.2.0"
   },

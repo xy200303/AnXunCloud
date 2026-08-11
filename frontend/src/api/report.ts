@@ -44,6 +44,9 @@ export interface ReportInspector {
   signed_at: string
   // 手写签名图 URL（后端并行开发中，可能缺省；有值时在签字区展示签名图）
   signature_url?: string | null
+  // 代签留痕（signed=true 且为代签时存在）
+  proxy_name?: string
+  proxy_reason?: string
 }
 
 // 打卡记录明细行（stats.records 快照；历史报告由后端实时查询兜底）
@@ -70,7 +73,12 @@ export interface ReportDetail {
   records: ReportRecord[]
   inspector_ids: string[]
   inspectors: ReportInspector[]
-  inspector_signed: { user_id: string; name: string; signed_at: string }[]
+  inspector_signed: { user_id: string; name: string; signed_at: string; proxy_by?: string }[]
+  // 指定签字人（生成时圈定；空数组 = 该级跳过，PDF 签字栏留空）
+  supervisor_ids: string[]
+  supervisors: { user_id: string; name: string; signed: boolean }[]
+  manager_ids: string[]
+  managers: { user_id: string; name: string; signed: boolean }[]
   supervisor_by: string | null
   supervisor_name: string | null
   supervisor_at: string | null
@@ -94,6 +102,7 @@ export interface ReportListQuery {
   community_id?: string
   period?: string
   status?: string
+  pending_mine?: string // '1' = 只看待我签
 }
 
 export function listReports(params: ReportListQuery) {
@@ -104,7 +113,7 @@ export function getReport(id: string) {
   return request<ReportDetail>({ url: `/reports/${id}`, method: 'get' })
 }
 
-export function generateReport(data: { community_id: string; period: string }) {
+export function generateReport(data: { community_id: string; period: string; supervisor_ids?: string[]; manager_ids?: string[] }) {
   return request<{ id: string; title: string; status: ReportStatus; regenerated: boolean }>({
     url: '/reports/generate',
     method: 'post',
@@ -112,10 +121,34 @@ export function generateReport(data: { community_id: string; period: string }) {
   })
 }
 
-export function signInspector(id: string) {
+// 生成报告时的可选签字人（持有对应签字权限且管辖该小区的启用用户；has_signature=是否已配置手写签名）
+export interface SignCandidate {
+  id: string
+  name: string
+  has_signature: boolean
+}
+
+export function getSignCandidates(communityId: string) {
+  return request<{ supervisors: SignCandidate[]; managers: SignCandidate[] }>({
+    url: '/reports/sign-candidates',
+    method: 'get',
+    params: { community_id: communityId }
+  })
+}
+
+// 巡检员确认：无 body 为本人确认；带 proxy_for+reason 为代签（须 report:sign:proxy 权限）
+// signature_file_key：未配置手写签名时随请求提交的一次性签名（签字页弹出签名板手写产生）
+export interface InspectorSignPayload {
+  proxy_for?: string
+  reason?: string
+  signature_file_key?: string
+}
+
+export function signInspector(id: string, payload?: InspectorSignPayload) {
   return request<{ status: ReportStatus; signed_count: number; inspector_total: number }>({
     url: `/reports/${id}/sign-inspector`,
-    method: 'post'
+    method: 'post',
+    data: payload
   })
 }
 
@@ -123,6 +156,7 @@ export interface SignBody {
   action: 'approve' | 'reject'
   remark?: string
   reason?: string
+  signature_file_key?: string // 一次性签名（未配置手写签名时）
 }
 
 export function signSupervisor(id: string, data: SignBody) {

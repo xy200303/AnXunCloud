@@ -74,14 +74,7 @@
                   />
                 </div>
                 <div class="signature-actions">
-                  <el-upload
-                    :auto-upload="false"
-                    :show-file-list="false"
-                    accept=".png,.jpg,.jpeg"
-                    :on-change="handleSignatureChange"
-                  >
-                    <el-button :loading="savingSignature">{{ signatureUrl ? '更换签名' : '上传签名' }}</el-button>
-                  </el-upload>
+                  <el-button type="primary" plain @click="openPad">{{ signatureUrl ? '重新手写' : '在线手写' }}</el-button>
                   <el-button
                     v-if="signatureUrl"
                     type="danger"
@@ -91,7 +84,7 @@
                   >删除</el-button>
                 </div>
                 <div class="text-secondary signature-tip">
-                  手写签名将显示在月度巡检报告的签字栏中，建议使用白底黑字的 PNG/JPG 图片，大小不超过 2MB。
+                  手写签名将显示在月度巡检报告的签字栏中，支持鼠标与触屏手写。
                 </div>
               </div>
             </el-tab-pane>
@@ -136,16 +129,20 @@
         </div>
       </el-col>
     </el-row>
+
+    <!-- 在线手写签名板 -->
+    <SignaturePad ref="padRef" @save="handlePadSave" />
   </div>
 </template>
 
 <script setup lang="ts">
 import { computed, nextTick, onMounted, reactive, ref } from 'vue'
 import { onBeforeRouteLeave, useRouter } from 'vue-router'
-import { ElMessage, ElMessageBox, type FormInstance, type FormRules, type InputInstance, type UploadFile } from 'element-plus'
+import { ElMessage, ElMessageBox, type FormInstance, type FormRules, type InputInstance } from 'element-plus'
 import { useUserStore } from '@/store/user'
 import { updateProfile, updatePassword, getMyLoginLogs, type MyLoginLog } from '@/api/user'
 import { uploadImage } from '@/api/upload'
+import SignaturePad from '@/components/SignaturePad.vue'
 import { resetRouterState } from '@/router'
 
 const router = useRouter()
@@ -205,7 +202,7 @@ async function handleSaveProfile() {
 const signatureUrl = computed(() => info.value?.signature_url || '')
 const savingSignature = ref(false)
 
-// 签名随 profile 保存：name/phone 传当前已保存值，避免覆盖基本资料表单
+// 签名保存：name/phone 传当前已保存值，避免覆盖基本资料表单
 async function saveSignature(fileKey: string) {
   savingSignature.value = true
   try {
@@ -217,32 +214,10 @@ async function saveSignature(fileKey: string) {
     await userStore.fetchInfo()
     return true
   } catch {
-    // 统一错误提示由 request 封装处理；上传接口未就绪（并行开发中）时静默失败
+    // 统一错误提示由 request 封装处理
     return false
   } finally {
     savingSignature.value = false
-  }
-}
-
-async function handleSignatureChange(uploadFile: UploadFile) {
-  const raw = uploadFile.raw
-  if (!raw) return
-  if (!['image/png', 'image/jpeg'].includes(raw.type)) {
-    ElMessage.warning('仅支持 PNG/JPG 格式图片')
-    return
-  }
-  if (raw.size > 2 * 1024 * 1024) {
-    ElMessage.warning('图片大小不能超过 2MB')
-    return
-  }
-  savingSignature.value = true
-  try {
-    const { file_key } = await uploadImage(raw, 'signature')
-    savingSignature.value = false
-    if (await saveSignature(file_key)) ElMessage.success('签名已保存')
-  } catch {
-    savingSignature.value = false
-    ElMessage.warning('签名上传失败，上传接口可能尚未就绪')
   }
 }
 
@@ -254,6 +229,31 @@ async function handleRemoveSignature() {
   }).then(() => true).catch(() => false)
   if (!ok) return
   if (await saveSignature('')) ElMessage.success('签名已删除')
+}
+
+// ===== 在线手写签名板 =====
+const padRef = ref<InstanceType<typeof SignaturePad>>()
+
+function openPad() {
+  padRef.value?.open()
+}
+
+// 手写板保存：PNG 文件走签名上传通道后写入签章资产
+async function handlePadSave(file: File) {
+  savingSignature.value = true
+  try {
+    const { file_key } = await uploadImage(file, 'signature')
+    if (await saveSignature(file_key)) {
+      ElMessage.success('签名已保存')
+      return true
+    }
+    return false
+  } catch {
+    ElMessage.warning('签名上传失败，请重试')
+    return false
+  } finally {
+    savingSignature.value = false
+  }
 }
 
 // ===== 修改密码 =====

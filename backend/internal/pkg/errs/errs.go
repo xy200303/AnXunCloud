@@ -111,6 +111,9 @@ var (
 	ErrReportNotInspector        = New(47003, http.StatusForbidden, "当前用户不在应确认巡检员名单内")
 	ErrReportAlreadySigned       = New(47004, http.StatusConflict, "当前用户已确认过该报告")
 	ErrReportRejectReasonRequired = New(47005, http.StatusBadRequest, "驳回必须填写驳回原因")
+	ErrReportSignerConflict      = New(47006, http.StatusConflict, "三级签字须由不同人员完成")
+	ErrReportNotSigner           = New(47007, http.StatusForbidden, "当前用户不在该级指定签字人名单内")
+	ErrSignatureMissing          = New(47008, http.StatusConflict, "未配置手写签名，请先在个人中心设置手写签名后再签字")
 )
 
 // 46xxx 上传与 OSS

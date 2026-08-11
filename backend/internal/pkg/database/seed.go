@@ -126,6 +126,7 @@ func seedMenus(tx *gorm.DB) (map[string]string, error) {
 				{title: "主管签字", typ: model.MenuTypeButton, perms: "report:sign:supervisor", sort: 3},
 				{title: "经理终审", typ: model.MenuTypeButton, perms: "report:sign:manager", sort: 4},
 				{title: "下载PDF", typ: model.MenuTypeButton, perms: "report:download", sort: 5},
+				{title: "代签", typ: model.MenuTypeButton, perms: "report:sign:proxy", sort: 6},
 			}},
 		}},
 		{title: "小区管理", path: "/community", icon: "OfficeBuilding", typ: model.MenuTypeMenu, perms: "community:list", sort: 50, children: []menuSeed{
@@ -255,13 +256,19 @@ func seedRoleMenus(tx *gorm.DB, roleIDs, menuIDs map[string]string) error {
 			managerMenuIDs = append(managerMenuIDs, id)
 		}
 	}
-	// 巡检员无后台菜单，但需持有 report:sign:inspector 权限点：
-	// 月报三级签字的第一级"巡检员确认"要求应签巡检员本人调用（超管代签不推进状态机），
-	// 否则报告永远停在 pending_inspector。页面入口后续由小程序/移动门户提供，权限先行下放。
-	if id, ok := menuIDs["report:sign:inspector"]; ok {
-		if err := assign(roleIDs["inspector"], []string{id}); err != nil {
-			return err
+	// 巡检员授予「月度报告」菜单（report:list）+ 巡检员确认按钮（report:sign:inspector）：
+	// 月报三级签字的第一级"巡检员确认"要求应签巡检员本人调用（代签走 report:sign:proxy 留痕代签），
+	// 否则报告永远停在 pending_inspector。PC 后台报告页即为其确认入口（生成/下载/上级签字按钮无权限点自动隐藏）；
+	// 小程序端调同一组签字接口，两端规则一致。
+	inspectorMenuKeys := []string{"report:list", "report:sign:inspector"}
+	var inspectorMenuIDs []string
+	for _, key := range inspectorMenuKeys {
+		if id, ok := menuIDs[key]; ok {
+			inspectorMenuIDs = append(inspectorMenuIDs, id)
 		}
+	}
+	if err := assign(roleIDs["inspector"], inspectorMenuIDs); err != nil {
+		return err
 	}
 	// 维修工仅有小程序接口权限点，无后台菜单，不分配
 	return assign(roleIDs["manager"], managerMenuIDs)

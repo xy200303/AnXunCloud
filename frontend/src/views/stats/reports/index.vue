@@ -24,6 +24,9 @@
           </el-select>
         </el-form-item>
         <el-form-item>
+          <el-checkbox v-model="pendingMine" label="只看待我签" @change="handleSearch" />
+        </el-form-item>
+        <el-form-item>
           <el-button type="primary" :icon="Search" @click="handleSearch">查询</el-button>
           <el-button :icon="Refresh" @click="handleReset">重置</el-button>
         </el-form-item>
@@ -193,7 +196,7 @@
           <!-- 三级签字进度 -->
           <div class="section-title">三级签字</div>
           <el-steps :active="signActive" align-center finish-status="success" class="sign-steps">
-            <el-step title="巡检员确认" :description="`已确认 ${signedCount}/${detail.inspector_ids.length} 人`" />
+            <el-step title="巡检员确认" :description="inspectorStepDesc" />
             <el-step title="安全主管审批" :description="supervisorStepDesc" />
             <el-step title="物业经理终审" :description="managerStepDesc" />
           </el-steps>
@@ -216,6 +219,9 @@
                 <el-tag :type="p.signed ? 'success' : 'info'" size="small">
                   {{ p.signed ? `已确认 ${p.signed_at}` : '待确认' }}
                 </el-tag>
+                <el-tooltip v-if="p.proxy_name" :content="`代签原因：${p.proxy_reason}`" placement="top">
+                  <el-tag type="warning" size="small">{{ p.proxy_name }} 代签</el-tag>
+                </el-tooltip>
               </div>
             </div>
             <div v-else class="text-secondary">当月无应确认巡检员</div>
@@ -239,7 +245,11 @@
               </div>
               <div v-if="detail.supervisor_remark" class="sign-remark">审批意见：{{ detail.supervisor_remark }}</div>
             </template>
-            <div v-else class="text-secondary">待审批</div>
+            <div v-else-if="!detail.supervisors?.length" class="text-secondary">未指定签字人，该级已跳过（PDF 签字栏留空）</div>
+            <div v-else class="sign-line">
+              <el-tag type="warning" size="small">待审批</el-tag>
+              <span class="text-secondary">签字人：{{ detail.supervisors.map((p) => p.name).join('、') }}（任一签署即可）</span>
+            </div>
           </div>
 
           <div class="sign-block">
@@ -260,11 +270,15 @@
               </div>
               <div v-if="detail.manager_remark" class="sign-remark">终审意见：{{ detail.manager_remark }}</div>
             </template>
-            <div v-else class="text-secondary">待终审</div>
+            <div v-else-if="!detail.managers?.length" class="text-secondary">未指定签字人，该级已跳过（PDF 签字栏留空）</div>
+            <div v-else class="sign-line">
+              <el-tag type="warning" size="small">待终审</el-tag>
+              <span class="text-secondary">签字人：{{ detail.managers.map((p) => p.name).join('、') }}（任一签署即可）</span>
+            </div>
           </div>
 
           <!-- 签字操作区 -->
-          <div v-if="showInspectorSign || showSupervisorSign || showManagerSign" class="sign-actions">
+          <div v-if="showInspectorSign || showProxySign || showSupervisorSign || showManagerSign || separationHint" class="sign-actions">
             <el-button
               v-if="showInspectorSign"
               type="primary"
@@ -274,10 +288,20 @@
             >
               确认签字
             </el-button>
+            <el-button
+              v-if="showProxySign"
+              type="warning"
+              plain
+              :icon="EditPen"
+              @click="openProxySign"
+            >
+              代签
+            </el-button>
             <template v-if="showSupervisorSign || showManagerSign">
               <el-button type="success" :icon="CircleCheck" :loading="signing" @click="handleApprove">通过</el-button>
-              <el-button type="danger" :loading="signing" @click="handleReject">驳回</el-button>
             </template>
+            <el-button v-if="showRejectBtn" type="danger" :loading="signing" @click="handleReject">驳回</el-button>
+            <span v-if="separationHint" class="text-secondary separation-hint">{{ separationHint }}</span>
           </div>
 
           <!-- 下载 -->
@@ -298,16 +322,16 @@
     </el-drawer>
 
     <!-- 生成报告对话框 -->
-    <el-dialog v-model="generateVisible" title="生成报告" width="440px" :close-on-click-modal="false">
+    <el-dialog v-model="generateVisible" title="生成报告" width="520px" :close-on-click-modal="false">
       <el-alert
         type="info"
         :closable="false"
         title="同一小区同一期间已存在报告时将重新统计并重置签字流程（已通过不可重算）"
         class="generate-tip"
       />
-      <el-form ref="generateFormRef" :model="generateForm" :rules="generateRules" label-width="70px">
+      <el-form ref="generateFormRef" :model="generateForm" :rules="generateRules" label-width="98px">
         <el-form-item label="小区" prop="community_id">
-          <el-select v-model="generateForm.community_id" placeholder="请选择小区" style="width: 100%">
+          <el-select v-model="generateForm.community_id" placeholder="请选择小区" style="width: 100%" @change="loadCandidates">
             <el-option v-for="c in communities" :key="c.id" :label="c.name" :value="c.id" />
           </el-select>
         </el-form-item>
@@ -320,32 +344,99 @@
             style="width: 100%"
           />
         </el-form-item>
+        <el-form-item label="主管签字人">
+          <el-select
+            v-model="generateForm.supervisor_ids"
+            multiple
+            collapse-tags
+            collapse-tags-tooltip
+            placeholder="选择主管签字人（任一签署即可）"
+            :loading="candidatesLoading"
+            style="width: 100%"
+          >
+            <el-option v-for="p in candidates.supervisors" :key="p.id" :label="p.name" :value="p.id">
+              <span>{{ p.name }}</span>
+              <span v-if="!p.has_signature" class="candidate-warn">未配置签名</span>
+            </el-option>
+          </el-select>
+        </el-form-item>
+        <el-form-item label="经理签字人">
+          <el-select
+            v-model="generateForm.manager_ids"
+            multiple
+            collapse-tags
+            collapse-tags-tooltip
+            placeholder="选择经理签字人（任一签署即可）"
+            :loading="candidatesLoading"
+            style="width: 100%"
+          >
+            <el-option v-for="p in candidates.managers" :key="p.id" :label="p.name" :value="p.id">
+              <span>{{ p.name }}</span>
+              <span v-if="!p.has_signature" class="candidate-warn">未配置签名</span>
+            </el-option>
+          </el-select>
+        </el-form-item>
+        <div class="signer-tip text-secondary">
+          默认圈选全部候选人（持有对应签字权限且管辖该小区的人员）；清空某级则该级自动跳过，PDF 签字栏留空。签字人须先配置手写签名方可签字。
+        </div>
       </el-form>
       <template #footer>
         <el-button @click="generateVisible = false">取消</el-button>
         <el-button type="primary" :loading="generating" @click="submitGenerate">生成</el-button>
       </template>
     </el-dialog>
+
+    <!-- 代签对话框 -->
+    <el-dialog v-model="proxyVisible" title="代签确认" width="440px" :close-on-click-modal="false">
+      <el-alert
+        type="warning"
+        :closable="false"
+        title="代签将记录你的身份与原因，PDF 签字栏会标注「由你代签」，请谨慎操作"
+        class="generate-tip"
+      />
+      <el-form ref="proxyFormRef" :model="proxyForm" :rules="proxyRules" label-width="88px">
+        <el-form-item label="被代签人" prop="user_id">
+          <el-select v-model="proxyForm.user_id" placeholder="选择未确认的巡检员" style="width: 100%">
+            <el-option v-for="p in unsignedInspectors" :key="p.user_id" :label="p.name" :value="p.user_id" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="代签原因" prop="reason">
+          <el-input v-model="proxyForm.reason" type="textarea" :rows="2" maxlength="100" show-word-limit placeholder="如：巡检员休假/离职，主管代为确认" />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="proxyVisible = false">取消</el-button>
+        <el-button type="warning" :loading="signing" @click="submitProxySign">确认代签</el-button>
+      </template>
+    </el-dialog>
+
+    <!-- 签字时未配置手写签名：弹出签名板现场手写（可选保存下次使用） -->
+    <SignaturePad ref="padRef" show-save-option @save="handlePadSave" />
   </div>
 </template>
 
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue'
-import { Search, Refresh, Plus, Download, CircleCheck } from '@element-plus/icons-vue'
+import { Search, Refresh, Plus, Download, CircleCheck, EditPen } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox, type FormInstance, type FormRules } from 'element-plus'
 import {
   listReports,
   getReport,
   generateReport,
+  getSignCandidates,
   signInspector,
   signSupervisor,
   signManager,
   type ReportItem,
   type ReportDetail,
   type ReportStats,
-  type ReportStatus
+  type ReportStatus,
+  type SignCandidate
 } from '@/api/report'
 import { listCommunities } from '@/api/community'
+import { uploadImage } from '@/api/upload'
+import { updateProfile } from '@/api/user'
+import SignaturePad from '@/components/SignaturePad.vue'
 import { downloadFile } from '@/utils/download'
 import { useUserStore } from '@/store/user'
 import type { CommunityItem } from '@/api/biz-types'
@@ -382,11 +473,13 @@ const query = reactive({
   period: undefined as string | undefined,
   status: undefined as string | undefined
 })
+// 只看待我签（当前用户在报告当前级签字人名单内）
+const pendingMine = ref(false)
 
 async function fetchList() {
   loading.value = true
   try {
-    const data = await listReports({ ...query })
+    const data = await listReports({ ...query, pending_mine: pendingMine.value ? '1' : undefined })
     list.value = data.list
     total.value = data.total
   } finally {
@@ -490,16 +583,37 @@ const signActive = computed(() => {
 })
 
 const supervisorStepDesc = computed(() => {
-  if (!detail.value?.supervisor_name) return '待审批'
-  return detail.value.supervisor_name
+  const d = detail.value
+  if (!d) return ''
+  if (d.supervisor_name) return d.supervisor_name
+  if (!d.supervisors?.length) return '已跳过'
+  return '待审批'
 })
 const managerStepDesc = computed(() => {
-  if (!detail.value?.manager_name) return '待终审'
-  return detail.value.manager_name
+  const d = detail.value
+  if (!d) return ''
+  if (d.manager_name) return d.manager_name
+  if (!d.managers?.length) return '已跳过'
+  return '待终审'
+})
+const inspectorStepDesc = computed(() => {
+  const d = detail.value
+  if (!d) return ''
+  if (!d.inspector_ids.length) return '已跳过'
+  return `已确认 ${signedCount.value}/${d.inspector_ids.length} 人`
 })
 
-// ===== 签字操作（按当前环节 + 权限点显隐）=====
+// ===== 签字操作（按当前环节 + 指定签字人名单显隐；未配置签名时点击弹出签名板现场手写）=====
 const signing = ref(false)
+
+// 当前用户是否已配置手写签名（未配置时签字会先弹出签名板）
+const hasSignature = computed(() => !!userStore.info?.signature_url)
+const inSupervisorList = computed(
+  () => !!userStore.info?.id && (detail.value?.supervisor_ids || []).includes(userStore.info.id)
+)
+const inManagerList = computed(
+  () => !!userStore.info?.id && (detail.value?.manager_ids || []).includes(userStore.info.id)
+)
 
 const showInspectorSign = computed(() => {
   const d = detail.value
@@ -507,16 +621,142 @@ const showInspectorSign = computed(() => {
   if (!userStore.hasPerm('report:sign:inspector')) return false
   const uid = userStore.info?.id
   if (d.inspector_signed.some((e) => e.user_id === uid)) return false
-  // 超管可代签；普通用户须在应签名单内
-  return userStore.isSuperAdmin || (!!uid && d.inspector_ids.includes(uid))
+  return !!uid && d.inspector_ids.includes(uid)
 })
 
+// 职责分离：已完成上一级签字（含代签）的用户不再显示本级通过按钮，改提示
+const signedLevel1 = computed(() => {
+  const uid = userStore.info?.id
+  return !!uid && !!detail.value?.inspector_signed.some((e) => e.user_id === uid || e.proxy_by === uid)
+})
+const isLevel2Signer = computed(
+  () => !!userStore.info?.id && detail.value?.supervisor_by === userStore.info.id
+)
+
 const showSupervisorSign = computed(
-  () => detail.value?.status === 'pending_supervisor' && userStore.hasPerm('report:sign:supervisor')
+  () =>
+    detail.value?.status === 'pending_supervisor' &&
+    userStore.hasPerm('report:sign:supervisor') &&
+    !signedLevel1.value &&
+    inSupervisorList.value
 )
 const showManagerSign = computed(
-  () => detail.value?.status === 'pending_manager' && userStore.hasPerm('report:sign:manager')
+  () =>
+    detail.value?.status === 'pending_manager' &&
+    userStore.hasPerm('report:sign:manager') &&
+    !isLevel2Signer.value &&
+    inManagerList.value
 )
+
+// 签字按钮被隐藏时的原因说明（职责分离 / 不在指定名单）
+const separationHint = computed(() => {
+  const d = detail.value
+  if (!d) return ''
+  if (d.status === 'pending_supervisor' && userStore.hasPerm('report:sign:supervisor')) {
+    if (signedLevel1.value) return '你已完成巡检员确认，主管审批须由其他人员操作'
+    if (!inSupervisorList.value) return '你不在本报告主管签字人名单内'
+  }
+  if (d.status === 'pending_manager' && userStore.hasPerm('report:sign:manager')) {
+    if (isLevel2Signer.value) return '你已完成主管审批，终审须由其他人员操作'
+    if (!inManagerList.value) return '你不在本报告经理签字人名单内'
+  }
+  return ''
+})
+
+// 驳回不受职责分离限制（负向动作），但须在本级指定签字人名单内（与后端同口径）
+const showRejectBtn = computed(() => {
+  const d = detail.value
+  if (!d) return false
+  if (d.status === 'pending_supervisor') return userStore.hasPerm('report:sign:supervisor') && inSupervisorList.value
+  if (d.status === 'pending_manager') return userStore.hasPerm('report:sign:manager') && inManagerList.value
+  return false
+})
+
+// 代签入口：有待确认巡检员且持有 report:sign:proxy 权限（代签用代签人本人签名）
+const showProxySign = computed(() => {
+  const d = detail.value
+  if (!d || d.status !== 'pending_inspector') return false
+  if (!userStore.hasPerm('report:sign:proxy')) return false
+  return d.inspectors.some((p) => !p.signed)
+})
+
+const proxyVisible = ref(false)
+const proxyFormRef = ref<FormInstance>()
+const proxyForm = reactive({ user_id: '', reason: '' })
+const proxyRules: FormRules = {
+  user_id: [{ required: true, message: '请选择被代签人', trigger: 'change' }],
+  reason: [{ required: true, message: '请填写代签原因', trigger: 'blur' }]
+}
+const unsignedInspectors = computed(() => detail.value?.inspectors.filter((p) => !p.signed) ?? [])
+
+function openProxySign() {
+  proxyForm.user_id = ''
+  proxyForm.reason = ''
+  proxyFormRef.value?.clearValidate()
+  proxyVisible.value = true
+}
+
+// ===== 签字时的手写签名补齐：未配置签名则弹出签名板现场手写，可选保存供下次使用 =====
+const padRef = ref<InstanceType<typeof SignaturePad>>()
+let pendingSign: ((sigKey: string) => Promise<void>) | null = null
+
+// 已配置签名直接执行（sigKey 空串，后端取当前签名资产快照）；否则先弹签名板，签完继续执行
+function withSignature(action: (sigKey: string) => Promise<void>) {
+  if (hasSignature.value) {
+    void action('')
+    return
+  }
+  pendingSign = action
+  padRef.value?.open()
+}
+
+// 签名板保存：上传 PNG；勾选保存则写入签章资产（下次签字直接用），否则仅本次签字使用
+async function handlePadSave(file: File, saveForLater: boolean) {
+  try {
+    const { file_key } = await uploadImage(file, 'signature')
+    let sigKey = file_key
+    if (saveForLater) {
+      await updateProfile({
+        name: userStore.info?.name || '',
+        phone: userStore.info?.phone || '',
+        signature_file_key: file_key
+      })
+      await userStore.fetchInfo()
+      sigKey = ''
+      ElMessage.success('签名已保存，下次签字将直接使用')
+    }
+    const action = pendingSign
+    pendingSign = null
+    if (action) await action(sigKey)
+    return true
+  } catch {
+    // 拦截器已提示；返回 false 保持签名板打开，可重试或取消
+    return false
+  }
+}
+
+async function submitProxySign() {
+  await proxyFormRef.value?.validate()
+  if (!detail.value) return
+  const id = detail.value.id
+  const { user_id, reason } = proxyForm
+  withSignature(async (sigKey) => {
+    signing.value = true
+    try {
+      const res = await signInspector(id, {
+        proxy_for: user_id,
+        reason,
+        signature_file_key: sigKey || undefined
+      })
+      proxyVisible.value = false
+      await afterSign(res.status === 'pending_supervisor' ? '全员已确认，已流转主管审批' : '代签已记录')
+    } catch {
+      // 错误提示由请求拦截器统一弹出
+    } finally {
+      signing.value = false
+    }
+  })
+}
 
 async function afterSign(message: string) {
   ElMessage.success(message)
@@ -530,19 +770,23 @@ async function handleInspectorSign() {
   } catch {
     return
   }
-  signing.value = true
-  try {
-    const res = await signInspector(detail.value.id)
-    await afterSign(res.status === 'pending_supervisor' ? '全员已确认，已流转主管审批' : '已确认签字')
-  } catch {
-    // 错误提示由请求拦截器统一弹出（如「不在应签名单」「已确认过」）
-  } finally {
-    signing.value = false
-  }
+  const id = detail.value.id
+  withSignature(async (sigKey) => {
+    signing.value = true
+    try {
+      const res = await signInspector(id, sigKey ? { signature_file_key: sigKey } : undefined)
+      await afterSign(res.status === 'pending_supervisor' ? '全员已确认，已流转主管审批' : '已确认签字')
+    } catch {
+      // 错误提示由请求拦截器统一弹出（如「不在应签名单」「已确认过」）
+    } finally {
+      signing.value = false
+    }
+  })
 }
 
 async function handleApprove() {
   if (!detail.value) return
+  const id = detail.value.id
   const isManager = detail.value.status === 'pending_manager'
   let remark = ''
   try {
@@ -556,21 +800,23 @@ async function handleApprove() {
   } catch {
     return
   }
-  signing.value = true
-  try {
-    const body = { action: 'approve' as const, remark }
-    if (isManager) {
-      await signManager(detail.value.id, body)
-      await afterSign('终审通过，报告已归档')
-    } else {
-      await signSupervisor(detail.value.id, body)
-      await afterSign('审批通过，已流转经理终审')
+  withSignature(async (sigKey) => {
+    signing.value = true
+    try {
+      const body = { action: 'approve' as const, remark, signature_file_key: sigKey || undefined }
+      if (isManager) {
+        await signManager(id, body)
+        await afterSign('终审通过，报告已归档')
+      } else {
+        await signSupervisor(id, body)
+        await afterSign('审批通过，已流转经理终审')
+      }
+    } catch {
+      // 拦截器已提示
+    } finally {
+      signing.value = false
     }
-  } catch {
-    // 拦截器已提示
-  } finally {
-    signing.value = false
-  }
+  })
 }
 
 async function handleReject() {
@@ -624,17 +870,45 @@ const generating = ref(false)
 const generateFormRef = ref<FormInstance>()
 const generateForm = reactive({
   community_id: undefined as string | undefined,
-  period: undefined as string | undefined
+  period: undefined as string | undefined,
+  supervisor_ids: [] as string[],
+  manager_ids: [] as string[]
 })
 const generateRules: FormRules = {
   community_id: [{ required: true, message: '请选择小区', trigger: 'change' }],
   period: [{ required: true, message: '请选择月份', trigger: 'change' }]
 }
 
+// 签字候选人（选定小区后加载，默认全选；清空某级 = 该级跳过）
+const candidatesLoading = ref(false)
+const candidates = reactive<{ supervisors: SignCandidate[]; managers: SignCandidate[] }>({
+  supervisors: [],
+  managers: []
+})
+
+async function loadCandidates() {
+  candidates.supervisors = []
+  candidates.managers = []
+  generateForm.supervisor_ids = []
+  generateForm.manager_ids = []
+  if (!generateForm.community_id) return
+  candidatesLoading.value = true
+  try {
+    const data = await getSignCandidates(generateForm.community_id)
+    candidates.supervisors = data.supervisors
+    candidates.managers = data.managers
+    generateForm.supervisor_ids = data.supervisors.map((p) => p.id)
+    generateForm.manager_ids = data.managers.map((p) => p.id)
+  } finally {
+    candidatesLoading.value = false
+  }
+}
+
 function openGenerate() {
   generateForm.community_id = query.community_id
   generateForm.period = query.period
   generateVisible.value = true
+  loadCandidates()
 }
 
 async function submitGenerate() {
@@ -642,12 +916,17 @@ async function submitGenerate() {
   if (!valid) return
   generating.value = true
   try {
-    const data = await generateReport({ community_id: generateForm.community_id!, period: generateForm.period! })
+    const data = await generateReport({
+      community_id: generateForm.community_id!,
+      period: generateForm.period!,
+      supervisor_ids: generateForm.supervisor_ids,
+      manager_ids: generateForm.manager_ids
+    })
     ElMessage.success(data.regenerated ? `「${data.title}」已重新统计并重置签字流程` : `「${data.title}」已生成`)
     generateVisible.value = false
     handleSearch()
   } catch {
-    // 拦截器已提示（如「已通过报告不可重算」）
+    // 拦截器已提示（如「已通过报告不可重算」「签字人须在候选池内」）
   } finally {
     generating.value = false
   }
@@ -759,8 +1038,13 @@ async function submitGenerate() {
 
 .sign-actions {
   display: flex;
+  align-items: center;
   gap: $spacing-sm;
   margin: $spacing-md 0;
+
+  .separation-hint {
+    font-size: $font-size-aux;
+  }
 }
 
 .drawer-footer {
@@ -771,5 +1055,18 @@ async function submitGenerate() {
 
 .generate-tip {
   margin-bottom: $spacing-md;
+}
+
+.signer-tip {
+  margin: -8px 0 $spacing-md 98px;
+  font-size: $font-size-aux;
+  line-height: 1.6;
+}
+
+// 候选人选项内的「未配置签名」警示
+.candidate-warn {
+  float: right;
+  color: var(--el-color-warning);
+  font-size: $font-size-aux;
 }
 </style>

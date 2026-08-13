@@ -62,7 +62,7 @@
       <!-- 用户下拉 -->
       <el-dropdown trigger="click" @command="handleCommand">
         <span class="user-entry">
-          <el-avatar :size="28" class="user-avatar">{{ avatarText }}</el-avatar>
+          <el-avatar :size="28" class="user-avatar" :src="avatarUrl">{{ avatarText }}</el-avatar>
           <span class="user-name">{{ userStore.name }}</span>
           <el-icon :size="14"><ArrowDown /></el-icon>
         </span>
@@ -98,6 +98,7 @@ import { usePermissionStore } from '@/store/permission'
 import { resetRouterState } from '@/router'
 import type { RouteMenu } from '@/api/types'
 import { listMessages, markMessageRead, type MessageItem } from '@/api/message'
+import { fileUrl } from '@/api/upload'
 import PasswordDialog from '@/components/PasswordDialog.vue'
 
 const route = useRoute()
@@ -109,6 +110,8 @@ const permissionStore = usePermissionStore()
 const passwordVisible = ref(false)
 
 const avatarText = computed(() => userStore.name.slice(0, 1) || '用')
+// 头像 URL：avatar 存 file_key，拼 /uploads 静态路由；无头像回退姓氏文字
+const avatarUrl = computed(() => (userStore.info?.avatar ? fileUrl(userStore.info.avatar) : ''))
 
 // ===== 消息通知 =====
 const messageVisible = ref(false)

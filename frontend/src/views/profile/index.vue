@@ -4,7 +4,18 @@
       <!-- 左：账号概览卡 -->
       <el-col :xs="24" :md="8">
         <div class="profile-card overview-card">
-          <el-avatar :size="72" class="profile-avatar">{{ avatarText }}</el-avatar>
+          <!-- 头像：hover 显示更换入口，选择图片即上传生效 -->
+          <el-upload
+            class="avatar-uploader"
+            :show-file-list="false"
+            accept="image/*"
+            :http-request="handleAvatarUpload"
+          >
+            <div class="avatar-wrap">
+              <el-avatar :size="72" class="profile-avatar" :src="avatarUrl">{{ avatarText }}</el-avatar>
+              <div class="avatar-mask">更换头像</div>
+            </div>
+          </el-upload>
           <div class="profile-name">
             {{ userStore.name }}
             <el-tag v-if="info?.is_builtin" type="warning" size="small" class="builtin-tag">内置账号</el-tag>
@@ -141,7 +152,7 @@ import { onBeforeRouteLeave, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox, type FormInstance, type FormRules, type InputInstance } from 'element-plus'
 import { useUserStore } from '@/store/user'
 import { updateProfile, updatePassword, getMyLoginLogs, type MyLoginLog } from '@/api/user'
-import { uploadImage } from '@/api/upload'
+import { uploadImage, fileUrl } from '@/api/upload'
 import SignaturePad from '@/components/SignaturePad.vue'
 import { resetRouterState } from '@/router'
 
@@ -150,7 +161,27 @@ const userStore = useUserStore()
 
 const info = computed(() => userStore.info)
 const avatarText = computed(() => userStore.name.slice(0, 1) || '用')
+// 头像 URL：avatar 存 file_key，本地存储模式拼 /uploads 静态路由
+const avatarUrl = computed(() => (info.value?.avatar ? fileUrl(info.value.avatar) : ''))
 const activeTab = ref('profile')
+
+// ===== 头像更换（选择即上传，成功后刷新 store） =====
+const uploadingAvatar = ref(false)
+
+async function handleAvatarUpload(opt: { file: File }) {
+  if (uploadingAvatar.value) return
+  uploadingAvatar.value = true
+  try {
+    const { file_key } = await uploadImage(opt.file, 'avatar')
+    await updateProfile({ name: info.value?.name || '', phone: info.value?.phone || '', avatar: file_key })
+    await userStore.fetchInfo()
+    ElMessage.success('头像已更新')
+  } catch {
+    // 统一错误提示由 request 封装处理
+  } finally {
+    uploadingAvatar.value = false
+  }
+}
 
 // ===== 基本资料 =====
 const profileFormRef = ref<FormInstance>()
@@ -331,6 +362,35 @@ onBeforeRouteLeave(async () => {
 
 .overview-card {
   text-align: center;
+
+  .avatar-uploader {
+    display: inline-block;
+  }
+
+  .avatar-wrap {
+    position: relative;
+    display: inline-block;
+    cursor: pointer;
+    border-radius: 50%;
+
+    .avatar-mask {
+      position: absolute;
+      inset: 0;
+      border-radius: 50%;
+      background: rgba(0, 0, 0, 0.45);
+      color: $color-white;
+      font-size: $font-size-aux;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      opacity: 0;
+      transition: opacity 0.2s;
+    }
+
+    &:hover .avatar-mask {
+      opacity: 1;
+    }
+  }
 
   .profile-avatar {
     background-color: $color-primary;

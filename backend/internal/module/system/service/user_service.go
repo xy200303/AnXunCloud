@@ -568,8 +568,9 @@ func uniqueStrings(ids []string) []string {
 
 // UpdateProfile 修改当前用户基本资料（姓名、手机号；手机号全局唯一校验）。
 // sigKey 为 nil 表示不改动签名；空串表示移除签名；其余为手写签名图 file_key。
+// avatar 为 nil 表示不改动头像；空串表示清除头像；其余为头像 URL（上传接口返回的 url）。
 // v16 起签名写入签章资产表（创建/替换当前用户的 user_signature 资产），不再写 sys_user 列。
-func (s *UserService) UpdateProfile(uid string, name, phone string, sigKey *string) *errs.Error {
+func (s *UserService) UpdateProfile(uid string, name, phone string, sigKey *string, avatar *string) *errs.Error {
 	var u model.SysUser
 	if err := s.db.First(&u, "id = ?", uid).Error; err != nil {
 		return errs.ErrNotFound
@@ -592,6 +593,9 @@ func (s *UserService) UpdateProfile(uid string, name, phone string, sigKey *stri
 		}
 	}
 	updates := map[string]any{"name": name, "phone": phone}
+	if avatar != nil {
+		updates["avatar"] = strings.TrimSpace(*avatar)
+	}
 	if err := s.db.Model(&u).Updates(updates).Error; err != nil {
 		return errs.ErrInternal
 	}

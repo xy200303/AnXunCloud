@@ -56,7 +56,7 @@ export function importUsers(file: File) {
 
 // 个人中心：资料修改与改密（接口文档补充）
 // signature_file_key：手写签名图片 file_key（先经上传接口获取）；传空串表示删除签名
-export function updateProfile(data: { name: string; phone: string; email?: string; signature_file_key?: string }) {
+export function updateProfile(data: { name: string; phone: string; email?: string; signature_file_key?: string; avatar?: string }) {
   return request<null>({ url: '/system/users/profile', method: 'put', data })
 }
 

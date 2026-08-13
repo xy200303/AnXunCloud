@@ -606,10 +606,12 @@ export function apiProfile(): Promise<UserInfo> {
 /**
  * 修改本人资料 PUT /profile（对齐 userCtl.UpdateProfile：name/phone 必传）；
  * signatureFileKey 不传 = 不改动签名；传入则创建/替换当前用户 active 签名资产（下次签字直接用）。
+ * avatarFileKey 不传 = 不改动头像；传入则更新头像（存 file_key，展示拼 /uploads/）。
  */
-export function apiUpdateProfile(name: string, phone: string, signatureFileKey?: string): Promise<UserInfo> {
+export function apiUpdateProfile(name: string, phone: string, signatureFileKey?: string, avatarFileKey?: string): Promise<UserInfo> {
   const body: Record<string, any> = { name: name, phone: phone }
   if (signatureFileKey != null) body.signature_file_key = signatureFileKey
+  if (avatarFileKey != null) body.avatar = avatarFileKey
   return new Promise<UserInfo>((resolve, reject) => {
     httpPut<RawUser>('/profile', body, true)
       .then((d) => {

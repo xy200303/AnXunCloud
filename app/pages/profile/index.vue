@@ -1,9 +1,10 @@
 <template>
   <view class="page" :style="{ backgroundColor: colors.bgPage }">
-    <!-- 用户卡片 -->
+    <!-- 用户卡片（点头像更换） -->
     <view class="card" :style="{ backgroundColor: colors.bgCard }">
-      <view class="avatar" :style="{ backgroundColor: colors.primaryLight }">
-        <text class="avatar-text" :style="{ color: colors.primary }">{{ avatarText }}</text>
+      <view class="avatar" :style="{ backgroundColor: colors.primaryLight }" @click="changeAvatar">
+        <image v-if="avatarUrl != ''" class="avatar-img" :src="avatarUrl" mode="aspectFill" />
+        <text v-else class="avatar-text" :style="{ color: colors.primary }">{{ avatarText }}</text>
       </view>
       <view class="user-meta">
         <text class="user-name" :style="{ color: colors.textPrimary }">{{ name }}</text>
@@ -47,6 +48,7 @@
 import { Colors, ColorTokens } from '@/utils/theme'
 import { apiUploadLocal, apiUpdateProfile } from '@/services/api'
 import { useAuthStore } from '@/stores/auth'
+import { toAbsUrl } from '@/utils/url'
 import SignaturePad from '@/components/SignaturePad.vue'
 
 type ProfileData = {
@@ -68,6 +70,12 @@ export default {
     avatarText(): string {
       const u = useAuthStore().userInfo
       return u != null && u.name != '' ? u.name.substring(0, 1) : '?'
+    },
+    /** 头像 URL：avatar 存 file_key，拼后端源 + /uploads/；空 = 显示姓氏占位 */
+    avatarUrl(): string {
+      const u = useAuthStore().userInfo
+      if (u == null || u.avatar == null || u.avatar == '') return ''
+      return toAbsUrl('/uploads/' + u.avatar)
     },
     roleText(): string {
       const u = useAuthStore().userInfo
@@ -97,6 +105,32 @@ export default {
   methods: {
     todo() {
       uni.showToast({ title: '后续里程碑交付', icon: 'none' })
+    },
+    /** 更换头像：选图 → 上传（scene=avatar）→ PUT /profile 写 avatar → 刷新资料 */
+    changeAvatar() {
+      uni.chooseImage({
+        count: 1,
+        sizeType: ['compressed'],
+        sourceType: ['album', 'camera'],
+        success: (res) => {
+          const path = res.tempFilePaths[0]
+          uni.showLoading({ title: '上传中…', mask: true })
+          apiUploadLocal(path, 'avatar')
+            .then((up) => {
+              const u = useAuthStore().userInfo
+              return apiUpdateProfile(u != null ? u.name : '', u != null ? u.phone : '', undefined, up.file_key)
+            })
+            .then(() => useAuthStore().fetchProfile())
+            .then(() => {
+              uni.hideLoading()
+              uni.showToast({ title: '头像已更新', icon: 'success' })
+            })
+            .catch((e: Error) => {
+              uni.hideLoading()
+              uni.showToast({ title: e.message, icon: 'none' })
+            })
+        }
+      })
     },
     goPendingReports() {
       uni.navigateTo({ url: '/pages/reports/pending' })
@@ -168,6 +202,13 @@ export default {
   align-items: center;
   justify-content: center;
   margin-right: 24rpx;
+  overflow: hidden;
+}
+
+.avatar-img {
+  width: 112rpx;
+  height: 112rpx;
+  border-radius: 56rpx;
 }
 
 .avatar-text {

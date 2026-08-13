@@ -40,6 +40,23 @@ export const useAuthStore = defineStore('auth', {
     canSeeWorkorders(): boolean {
       const u = this.userInfo
       return u != null && (u.roles.indexOf('inspector') >= 0 || u.roles.indexOf('repair') >= 0)
+    },
+    /**
+     * 权限点判断：传入单个 code 或数组，任一命中即 true；userInfo 为空返回 false。
+     * 超管以 super_admin 角色兜底（与 api.ts hasPerm 同口径）。
+     */
+    hasPerm(): (codes: string | string[]) => boolean {
+      const u = this.userInfo
+      return (codes: string | string[]): boolean => {
+        if (u == null) return false
+        if ((u.roles ?? []).indexOf('super_admin') >= 0) return true
+        const list = typeof codes == 'string' ? [codes] : codes
+        const perms = u.perms ?? []
+        for (let i = 0; i < list.length; i++) {
+          if (perms.indexOf(list[i]) >= 0) return true
+        }
+        return false
+      }
     }
   },
   actions: {

@@ -71,6 +71,54 @@
       "style": {
         "navigationBarTitleText": "巡检打卡"
       }
+    },
+    {
+      "path": "pages/admin/dashboard",
+      "style": {
+        "navigationBarTitleText": "今日看板",
+        "enablePullDownRefresh": true
+      }
+    },
+    {
+      "path": "pages/admin/task-detail",
+      "style": {
+        "navigationBarTitleText": "任务明细",
+        "enablePullDownRefresh": true
+      }
+    },
+    {
+      "path": "pages/admin/review",
+      "style": {
+        "navigationBarTitleText": "打卡审核",
+        "enablePullDownRefresh": true
+      }
+    },
+    {
+      "path": "pages/admin/workorders",
+      "style": {
+        "navigationBarTitleText": "工单派单",
+        "enablePullDownRefresh": true
+      }
+    },
+    {
+      "path": "pages/admin/workorder-detail",
+      "style": {
+        "navigationBarTitleText": "工单详情",
+        "enablePullDownRefresh": true
+      }
+    },
+    {
+      "path": "pages/admin/points",
+      "style": {
+        "navigationBarTitleText": "点位管理",
+        "enablePullDownRefresh": true
+      }
+    },
+    {
+      "path": "pages/admin/point-form",
+      "style": {
+        "navigationBarTitleText": "点位编辑"
+      }
     }
   ],
   "globalStyle": {

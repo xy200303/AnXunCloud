@@ -12,6 +12,27 @@
       </view>
     </view>
 
+    <!-- 管理功能（按权限点显隐；全部无权限时整个区块不显示） -->
+    <view v-if="showAdmin" class="card menu-card" :style="{ backgroundColor: colors.bgCard }">
+      <text class="menu-group-title" :style="{ color: colors.textSecondary }">管理功能</text>
+      <view v-if="canDashboard" class="row" @click="goAdmin('/pages/admin/dashboard')">
+        <text class="row-text" :style="{ color: colors.textRegular }">今日看板</text>
+        <text class="row-arrow" :style="{ color: colors.textSecondary }">></text>
+      </view>
+      <view v-if="canReview" class="row" @click="goAdmin('/pages/admin/review')">
+        <text class="row-text" :style="{ color: colors.textRegular }">打卡审核</text>
+        <text class="row-arrow" :style="{ color: colors.textSecondary }">></text>
+      </view>
+      <view v-if="canWorkorderManage" class="row" @click="goAdmin('/pages/admin/workorders')">
+        <text class="row-text" :style="{ color: colors.textRegular }">工单派单</text>
+        <text class="row-arrow" :style="{ color: colors.textSecondary }">></text>
+      </view>
+      <view v-if="canPointManage" class="row" @click="goAdmin('/pages/admin/points')">
+        <text class="row-text" :style="{ color: colors.textRegular }">点位管理</text>
+        <text class="row-arrow" :style="{ color: colors.textSecondary }">></text>
+      </view>
+    </view>
+
     <!-- 功能入口 -->
     <view class="card menu-card" :style="{ backgroundColor: colors.bgCard }">
       <view class="row" @click="goPendingReports">
@@ -93,6 +114,26 @@ export default {
     signatureText(): string {
       const u = useAuthStore().userInfo
       return u != null && (u.signature_url ?? '') != '' ? '已配置' : '未设置'
+    },
+    /** 今日看板入口：inspection:task:list 或 inspection:task:monitor 任一 */
+    canDashboard(): boolean {
+      return useAuthStore().hasPerm(['inspection:task:list', 'inspection:task:monitor'])
+    },
+    /** 打卡审核入口 */
+    canReview(): boolean {
+      return useAuthStore().hasPerm('inspection:checkin:review')
+    },
+    /** 工单派单入口：workorder:assign / review / list 任一 */
+    canWorkorderManage(): boolean {
+      return useAuthStore().hasPerm(['workorder:assign', 'workorder:review', 'workorder:list'])
+    },
+    /** 点位管理入口 */
+    canPointManage(): boolean {
+      return useAuthStore().hasPerm('inspection:point:list')
+    },
+    /** 管理区块整体显隐：任一入口可见即显示 */
+    showAdmin(): boolean {
+      return this.canDashboard || this.canReview || this.canWorkorderManage || this.canPointManage
     }
   },
   onShow() {
@@ -134,6 +175,10 @@ export default {
     },
     goPendingReports() {
       uni.navigateTo({ url: '/pages/reports/pending' })
+    },
+    /** 管理入口跳转（入口显隐已按权限控制） */
+    goAdmin(url: string) {
+      uni.navigateTo({ url: url })
     },
     openSignaturePad() {
       const pad: any = this.$refs.pad
@@ -235,6 +280,11 @@ export default {
   flex-direction: row;
   align-items: center;
   justify-content: space-between;
+}
+
+.menu-group-title {
+  font-size: 24rpx;
+  padding-top: 16rpx;
 }
 
 .row-text {

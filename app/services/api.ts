@@ -71,6 +71,8 @@ export type PointByCode = {
   point_id: string
   point_name: string
   qrcode_no: string
+  /** 点位备案的 NFC 卡号（卡片 UID），用于贴卡预校验；空 = 未绑定 NFC */
+  nfc_id: string
   community_id: string
   community_name: string
   building_name: string
@@ -102,6 +104,8 @@ export type TaskPoint = {
   credential: string
   require_fence: boolean
   qrcode_no: string
+  /** 点位备案的 NFC 卡号（卡片 UID），贴卡预校验用；空 = 未绑定 */
+  nfc_id: string
   longitude: number
   latitude: number
   fence_radius: number
@@ -428,6 +432,7 @@ type RawPoint = {
   id?: string | number
   name?: string
   qrcode_no?: string
+  nfc_id?: string
   community_id?: string | number
   community_name?: string
   building_name?: string
@@ -466,6 +471,7 @@ type RawTaskDetail = {
     credential?: string
     require_fence?: boolean
     qrcode_no?: string
+    nfc_id?: string
     longitude?: number
     latitude?: number
     fence_radius?: number
@@ -660,6 +666,7 @@ export function apiPointByCode(code: string): Promise<PointByCode> {
           point_id: toId(p.id),
           point_name: p.name ?? '',
           qrcode_no: p.qrcode_no ?? '',
+          nfc_id: p.nfc_id ?? '',
           community_id: toId(p.community_id),
           community_name: p.community_name ?? '',
           building_name: p.building_name ?? '',
@@ -707,6 +714,7 @@ export function apiTaskDetail(id: string): Promise<TaskDetail> {
             credential: p.credential ?? '',
             require_fence: p.require_fence ?? false,
             qrcode_no: p.qrcode_no ?? '',
+            nfc_id: p.nfc_id ?? '',
             longitude: p.longitude ?? 0,
             latitude: p.latitude ?? 0,
             fence_radius: p.fence_radius ?? 0,
@@ -1086,6 +1094,478 @@ export function apiAnnouncementDetail(id: string): Promise<AnnouncementDetail> {
           created_by: d.created_by ?? '',
           created_at: d.created_at ?? ''
         })
+      })
+      .catch(reject)
+  })
+}
+
+// =====================================================================================
+// 管理端接口（App 管理功能：复用 PC 控制器，路由挂在 /api/app 下，见 router.go「管理功能」段）
+// =====================================================================================
+
+// ---- 今日看板 / 任务监控（对齐 StatsService.Dashboard / TaskService.List/Detail/Remind） ----
+
+/** 今日看板 GET /dashboard 响应（today_completion.total/done 为点位粒度计数，rate 为百分比数值） */
+export type DashboardData = {
+  today_completion: { total: number; done: number; rate: number }
+  doing_tasks: number
+  overdue_tasks: number
+  pending_workorders: number
+  trend_7d: Array<{ date: string; total: number; done: number; rate: number }>
+  community_rank: Array<{ community_id: string; community_name: string; total: number; done: number; rate: number }>
+  latest_workorders: Array<{
+    id: string
+    order_no: string
+    title: string
+    community_name: string
+    priority: string
+    status: string
+    created_at: string
+  }>
+  /** 今日执行动态（task_name 实为打卡点位名，见 StatsService.Dashboard） */
+  task_timeline: Array<{ time: string; inspector_name: string; task_id: string; task_name: string; action: string }>
+}
+
+/** 任务监控列表项（对齐 TaskService.toItem） */
+export type MonitorTask = {
+  id: string
+  plan_id: string
+  plan_name: string
+  community_id: string
+  community_name: string
+  inspector_id: string
+  inspector_name: string
+  task_date: string
+  time_window: string
+  /** pending/doing/done/overdue */
+  status: string
+  total_points: number
+  done_points: number
+  progress: number
+  abnormal_count: number
+  suspect_count: number
+  missing_count: number
+  started_at: string | null
+  finished_at: string | null
+}
+
+export type MonitorTasksPage = {
+  list: MonitorTask[]
+  total: number
+  page: number
+  page_size: number
+}
+
+/** 任务明细点位（对齐 TaskService.Detail points 元素；checkin 为打卡摘要，未打卡为 null） */
+export type MonitorTaskPoint = {
+  point_id: string
+  point_name: string
+  building_name: string
+  sort: number
+  credential: string
+  require_fence: boolean
+  /** pending/done */
+  status: string
+  checkin: {
+    id: string
+    checkin_time: string
+    checkin_type: string
+    distance_to_point: number | null
+    result: string
+    is_suspect: boolean
+    suspect_reason: string
+    remark: string
+    audit_status: string
+  } | null
+}
+
+/** 任务监控明细（对齐 TaskService.Detail：{task, points} 结构，与巡检端 /tasks/:id 不同） */
+export type MonitorTaskDetail = {
+  task: {
+    id: string
+    plan_name: string
+    community_name: string
+    inspector_id: string
+    inspector_name: string
+    task_date: string
+    time_window: string
+    status: string
+    total_points: number
+    done_points: number
+    progress: number
+    started_at: string | null
+    finished_at: string | null
+  }
+  points: MonitorTaskPoint[]
+}
+
+// ---- 打卡审核（对齐 ReviewService.List / Pass / Reject） -------------------------------
+
+/** 审核记录列表项（对齐 ReviewService.reviewItem；photos 为 PhotoArray[{item,url,watermarked_url}]） */
+export type ReviewRecord = {
+  id: string
+  task_id: string
+  point_id: string
+  point_name: string
+  community_id: string
+  community_name: string
+  inspector_id: string
+  inspector_name: string
+  checkin_time: string
+  /** qrcode/fence/nfc/offline */
+  checkin_type: string
+  distance_to_point: number | null
+  /** normal/abnormal */
+  result: string
+  remark: string
+  is_suspect: boolean
+  suspect_reason: string
+  photos: OrderPhoto[]
+  check_items: Array<{ name: string; pass: boolean; note: string; photos: string[]; requirement: string | null }>
+  /** pending/passed/rejected */
+  audit_status: string
+  audit_by: string | null
+  audit_at: string | null
+  audit_remark: string
+  ai_verdict: string
+  ai_reason: string
+}
+
+export type ReviewRecordsPage = {
+  list: ReviewRecord[]
+  total: number
+  page: number
+  page_size: number
+}
+
+// ---- 工单派单与验收（对齐 OrderController.List/Detail/Assign/Review） --------------------
+
+/** 管理端工单列表项（对齐 OrderService.toItem） */
+export type ManageOrderItem = {
+  id: string
+  order_no: string
+  title: string
+  community_id: string
+  community_name: string
+  point_id: string | null
+  point_name: string
+  priority: string
+  status: string
+  reporter_id: string
+  reporter_name: string
+  assignee_id: string | null
+  assignee_name: string | null
+  created_at: string
+}
+
+/** 管理端工单列表响应（status_counts 为四档聚合计数：processing 含 assigned+processing，closed 含 closed+rejected） */
+export type ManageOrdersPage = {
+  status_counts: Record<string, number>
+  list: ManageOrderItem[]
+  total: number
+  page: number
+  page_size: number
+}
+
+/** 派单候选用户（对齐 UserService.toItem；注意：roles 元素只有 {id, name}，无 code 字段） */
+export type StaffUser = {
+  id: string
+  username: string
+  name: string
+  phone: string
+  avatar: string
+  roles: Array<{ id: string; name: string }>
+  status: number
+}
+
+// ---- 点位管理（对齐 PointService.List/Detail/Create/Update + TemplateService.List） -------
+
+/** 点位列表/详情项（对齐 PointService.toItem；status 为 1 启用 / 0 停用） */
+export type PointItem = {
+  id: string
+  community_id: string
+  community_name: string
+  building_id: string | null
+  building_name: string
+  name: string
+  type: string
+  type_label: string
+  qrcode_no: string
+  nfc_id: string
+  template_id: string | null
+  template_name: string
+  longitude: number
+  latitude: number
+  fence_radius: number
+  /** qrcode/nfc/none/any */
+  credential: string
+  require_fence: boolean
+  required_photo_items: string[]
+  sort: number
+  status: number
+  created_at: string
+  remark?: string
+}
+
+export type PointsPage = {
+  list: PointItem[]
+  total: number
+  page: number
+  page_size: number
+}
+
+/** 点位保存请求体（对齐 dto.PointSaveReq；qrcode_no 由后端发号，不可改） */
+export type PointSavePayload = {
+  community_id: string
+  building_id?: string | null
+  name: string
+  type: string
+  longitude: number
+  latitude: number
+  fence_radius?: number
+  credential?: string
+  require_fence?: boolean
+  template_id?: string | null
+  nfc_id?: string
+  required_photo_items?: string[]
+  sort?: number
+  status?: number
+  remark?: string
+}
+
+/** 小区/楼栋树节点（对齐 dto.CommunityTreeNode） */
+export type CommunityTreeNode = {
+  id: string
+  name: string
+  buildings: Array<{ id: string; name: string; type: string }>
+}
+
+/** 检查项模板列表项（对齐 TemplateService.templateItem） */
+export type TemplateListItem = {
+  id: string
+  name: string
+  /** 空为通用模板 */
+  point_type: string
+  status: number
+}
+
+/** 今日看板 GET /dashboard */
+export function apiAdminDashboard(): Promise<DashboardData> {
+  return new Promise<DashboardData>((resolve, reject) => {
+    httpGet<any>('/dashboard')
+      .then((d) => {
+        if (d == null) {
+          reject(new Error('看板响应异常'))
+          return
+        }
+        const tc = d.today_completion ?? {}
+        resolve({
+          today_completion: { total: tc.total ?? 0, done: tc.done ?? 0, rate: tc.rate ?? 0 },
+          doing_tasks: d.doing_tasks ?? 0,
+          overdue_tasks: d.overdue_tasks ?? 0,
+          pending_workorders: d.pending_workorders ?? 0,
+          trend_7d: d.trend_7d ?? [],
+          community_rank: d.community_rank ?? [],
+          latest_workorders: d.latest_workorders ?? [],
+          task_timeline: d.task_timeline ?? []
+        })
+      })
+      .catch(reject)
+  })
+}
+
+/** 任务监控列表 GET /inspection/tasks（filter: ''=全部 / missing=有漏点 / abnormal=异常 / suspect=疑似） */
+export function apiTaskMonitorList(page: number, pageSize: number, filter: string, taskDate?: string): Promise<MonitorTasksPage> {
+  let path = '/inspection/tasks?page=' + page + '&page_size=' + pageSize
+  if (filter != '') path += '&filter=' + filter
+  if (taskDate != null && taskDate != '') path += '&task_date=' + taskDate
+  return new Promise<MonitorTasksPage>((resolve, reject) => {
+    httpGet<any>(path)
+      .then((d) => {
+        resolve({
+          list: (d?.list ?? []) as MonitorTask[],
+          total: d?.total ?? 0,
+          page: d?.page ?? page,
+          page_size: d?.page_size ?? pageSize
+        })
+      })
+      .catch(reject)
+  })
+}
+
+/** 任务监控明细 GET /inspection/tasks/:id/detail（点位逐个打卡状态） */
+export function apiTaskMonitorDetail(id: string): Promise<MonitorTaskDetail> {
+  return new Promise<MonitorTaskDetail>((resolve, reject) => {
+    httpGet<any>('/inspection/tasks/' + id + '/detail')
+      .then((d) => {
+        if (d == null || d.task == null) {
+          reject(new Error('任务明细响应异常'))
+          return
+        }
+        resolve({ task: d.task, points: (d.points ?? []) as MonitorTaskPoint[] })
+      })
+      .catch(reject)
+  })
+}
+
+/** 任务催办 POST /inspection/tasks/:id/remind（已完成任务后端报错，直接 toast message） */
+export function apiTaskRemind(id: string): Promise<null> {
+  return httpPost<null>('/inspection/tasks/' + id + '/remind', null, true)
+}
+
+/** 打卡审核记录 GET /inspection/review/records */
+export function apiReviewRecords(page: number, pageSize: number, auditStatus: string): Promise<ReviewRecordsPage> {
+  let path = '/inspection/review/records?page=' + page + '&page_size=' + pageSize
+  if (auditStatus != '') path += '&audit_status=' + auditStatus
+  return new Promise<ReviewRecordsPage>((resolve, reject) => {
+    httpGet<any>(path)
+      .then((d) => {
+        resolve({
+          list: (d?.list ?? []) as ReviewRecord[],
+          total: d?.total ?? 0,
+          page: d?.page ?? page,
+          page_size: d?.page_size ?? pageSize
+        })
+      })
+      .catch(reject)
+  })
+}
+
+/** 审核通过 POST /inspection/review/:id/pass（仅 pending 可审） */
+export function apiReviewPass(id: string): Promise<null> {
+  return httpPost<null>('/inspection/review/' + id + '/pass', null, true)
+}
+
+/** 审核驳回 POST /inspection/review/:id/reject {reason}（必填） */
+export function apiReviewReject(id: string, reason: string): Promise<null> {
+  return httpPost<null>('/inspection/review/' + id + '/reject', { reason: reason }, true)
+}
+
+/**
+ * 管理端工单列表 GET /manage/workorders。
+ * status 为 tab 档位：pending / processing（实际下传 assigned,processing）/ review / closed（closed,rejected），由调用方展开为多值。
+ */
+export function apiManageOrders(page: number, pageSize: number, status: string): Promise<ManageOrdersPage> {
+  let path = '/manage/workorders?page=' + page + '&page_size=' + pageSize
+  if (status != '') path += '&status=' + status
+  return new Promise<ManageOrdersPage>((resolve, reject) => {
+    httpGet<any>(path)
+      .then((d) => {
+        resolve({
+          status_counts: (d?.status_counts ?? {}) as Record<string, number>,
+          list: (d?.list ?? []) as ManageOrderItem[],
+          total: d?.total ?? 0,
+          page: d?.page ?? page,
+          page_size: d?.page_size ?? pageSize
+        })
+      })
+      .catch(reject)
+  })
+}
+
+/** 管理端工单详情 GET /manage/workorders/:id（结构同 WorkOrderDetail） */
+export function apiManageOrderDetail(id: string): Promise<WorkOrderDetail> {
+  return new Promise<WorkOrderDetail>((resolve, reject) => {
+    httpGet<any>('/manage/workorders/' + id)
+      .then((d) => {
+        if (d == null) {
+          reject(new Error('工单详情响应异常'))
+          return
+        }
+        resolve(d as WorkOrderDetail)
+      })
+      .catch(reject)
+  })
+}
+
+/** 派单 POST /manage/workorders/:id/assign {assignee_id, remark?} */
+export function apiAssignOrder(id: string, assigneeId: string, remark: string): Promise<null> {
+  return httpPost<null>('/manage/workorders/' + id + '/assign', { assignee_id: assigneeId, remark: remark }, true)
+}
+
+/** 验收 POST /manage/workorders/:id/review {result: pass|reject, review_remark}（reject 时 remark 后端强制必填） */
+export function apiReviewOrder(id: string, result: 'pass' | 'reject', reviewRemark: string): Promise<null> {
+  return httpPost<null>('/manage/workorders/' + id + '/review', { result: result, review_remark: reviewRemark }, true)
+}
+
+/** 派单选人 GET /system/users（启用用户；维修员候选由前端按角色过滤，见 StaffUser.roles 字段说明） */
+export function apiOrderUsers(): Promise<StaffUser[]> {
+  return new Promise<StaffUser[]>((resolve, reject) => {
+    httpGet<any>('/system/users?page=1&page_size=100&status=1')
+      .then((d) => {
+        resolve((d?.list ?? []) as StaffUser[])
+      })
+      .catch(reject)
+  })
+}
+
+/** 点位列表 GET /inspection/points */
+export function apiPointList(page: number, pageSize: number, communityId: string, name: string): Promise<PointsPage> {
+  let path = '/inspection/points?page=' + page + '&page_size=' + pageSize
+  if (communityId != '') path += '&community_id=' + communityId
+  if (name != '') path += '&name=' + encodeURIComponent(name)
+  return new Promise<PointsPage>((resolve, reject) => {
+    httpGet<any>(path)
+      .then((d) => {
+        resolve({
+          list: (d?.list ?? []) as PointItem[],
+          total: d?.total ?? 0,
+          page: d?.page ?? page,
+          page_size: d?.page_size ?? pageSize
+        })
+      })
+      .catch(reject)
+  })
+}
+
+/** 点位详情 GET /inspection/points/:id */
+export function apiPointDetail(id: string): Promise<PointItem> {
+  return new Promise<PointItem>((resolve, reject) => {
+    httpGet<any>('/inspection/points/' + id)
+      .then((d) => {
+        if (d == null) {
+          reject(new Error('点位详情响应异常'))
+          return
+        }
+        resolve(d as PointItem)
+      })
+      .catch(reject)
+  })
+}
+
+/** 新增点位 POST /inspection/points → {id, qrcode_no} */
+export function apiPointCreate(req: PointSavePayload): Promise<{ id: string; qrcode_no: string }> {
+  return new Promise<{ id: string; qrcode_no: string }>((resolve, reject) => {
+    httpPost<any>('/inspection/points', req as Record<string, any>, true)
+      .then((d) => {
+        resolve({ id: d?.id ?? '', qrcode_no: d?.qrcode_no ?? '' })
+      })
+      .catch(reject)
+  })
+}
+
+/** 更新点位 PUT /inspection/points/:id */
+export function apiPointUpdate(id: string, req: PointSavePayload): Promise<null> {
+  return httpPut<null>('/inspection/points/' + id, req as Record<string, any>, true)
+}
+
+/** 小区/楼栋树 GET /communities/tree */
+export function apiCommunityTree(): Promise<CommunityTreeNode[]> {
+  return new Promise<CommunityTreeNode[]>((resolve, reject) => {
+    httpGet<any>('/communities/tree')
+      .then((d) => {
+        resolve((d ?? []) as CommunityTreeNode[])
+      })
+      .catch(reject)
+  })
+}
+
+/** 检查项模板 GET /inspection/templates（建点位下拉选项，一次取全） */
+export function apiTemplateList(): Promise<TemplateListItem[]> {
+  return new Promise<TemplateListItem[]>((resolve, reject) => {
+    httpGet<any>('/inspection/templates?page=1&page_size=100')
+      .then((d) => {
+        resolve((d?.list ?? []) as TemplateListItem[])
       })
       .catch(reject)
   })

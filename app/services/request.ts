@@ -18,17 +18,17 @@ import {
 } from '@/utils/storage'
 
 // ---- baseURL：按端 + 环境切换 ------------------------------------------------
-// TODO(发版前): 将 ACTIVE_ENV 切到 'prod' 并填写正式域名（HTTPS 强制）。
+// 发版前：将 ACTIVE_ENV 切到 'prod'（HTTPS 强制）。
 type EnvName = 'dev' | 'prod'
 const ACTIVE_ENV: EnvName = 'dev'
 
 // #ifndef MP-WEIXIN
 const BASE_URL_DEV = 'http://10.172.17.43:8090/api/app' // 内网调试：PC 局域网 IP（手机与电脑同一内网；IP 变了改这里）
-const BASE_URL_PROD = 'https://api.example.com/api/app' // TODO 正式域名待申请
+const BASE_URL_PROD = 'https://pi.hbuer.com/api/app'
 // #endif
 // #ifdef MP-WEIXIN
 const BASE_URL_DEV = 'http://10.172.17.43:8090/api/mp' // 内网调试：PC 局域网 IP
-const BASE_URL_PROD = 'https://api.example.com/api/mp' // TODO 正式域名待申请
+const BASE_URL_PROD = 'https://pi.hbuer.com/api/mp'
 // #endif
 
 const BASE_URL = ACTIVE_ENV == 'prod' ? BASE_URL_PROD : BASE_URL_DEV

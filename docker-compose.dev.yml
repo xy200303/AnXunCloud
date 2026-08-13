@@ -7,9 +7,9 @@ services:
     container_name: anxuncloud-dev-postgres
     env_file: .env.dev
     environment:
-      POSTGRES_USER: ${PI_POSTGRES_USER:-postgres}
-      POSTGRES_PASSWORD: ${PI_POSTGRES_PASSWORD:?need PI_POSTGRES_PASSWORD}
-      POSTGRES_DB: ${PI_POSTGRES_DBNAME:-anxuncloud}
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?need POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DBNAME:-anxuncloud}
     ports:
       - "25433:5432"        # 避开本地 pi-postgres(25432)
     volumes:
@@ -42,9 +42,9 @@ services:
     env_file: .env.dev
     environment:
       # 容器网络内用服务名互联（覆盖 .env.dev 的 127.0.0.1）
-      PI_POSTGRES_HOST: postgres
-      PI_POSTGRES_PORT: "5432"
-      PI_REDIS_ADDR: redis:6379
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: "5432"
+      REDIS_ADDR: redis:6379
     ports:
       - "8090:8090"
     volumes:

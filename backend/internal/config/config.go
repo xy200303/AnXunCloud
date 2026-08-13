@@ -120,11 +120,10 @@ func Load() (*Config, error) {
 	loadEnvFile()
 
 	v := viper.New()
-	// 环境变量：PI_POSTGRES_HOST -> postgres.host
-	v.SetEnvPrefix("PI")
+	// 环境变量：POSTGRES_HOST -> postgres.host（不加统一前缀，直接映射）
 	v.SetEnvKeyReplacer(strings.NewReplacer(".", "_", "-", "_"))
 	v.AutomaticEnv()
-	// 无前缀的关键变量（部署规范约定）
+	// 无前缀的关键变量（部署规范约定，键名与映射路径不一致的显式绑定）
 	v.BindEnv("admin.username", "ADMIN_USERNAME")
 	v.BindEnv("admin.password", "ADMIN_PASSWORD")
 	v.BindEnv("admin.name", "ADMIN_NAME")

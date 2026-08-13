@@ -7,9 +7,9 @@ services:
     container_name: anxuncloud-prod-postgres
     env_file: .env.prod
     environment:
-      POSTGRES_USER: ${PI_POSTGRES_USER:-postgres}
-      POSTGRES_PASSWORD: ${PI_POSTGRES_PASSWORD:?need PI_POSTGRES_PASSWORD}
-      POSTGRES_DB: ${PI_POSTGRES_DBNAME:-anxuncloud}
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?need POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DBNAME:-anxuncloud}
     # 不对外暴露端口，仅容器网络内访问
     volumes:
       - pgdata_prod:/var/lib/postgresql/data

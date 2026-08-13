@@ -54,24 +54,24 @@
 |---|---|---|---|
 | `APP_ENV` | 运行环境（dev/prod），决定默认加载的 .env 文件 | dev | 否 |
 | `ENV_FILE` | 显式指定 env 文件路径（优先于 APP_ENV 推导） | - | 否 |
-| `PI_SERVER_PORT` | 后端监听端口 | 8090 | 否 |
-| `PI_SERVER_MODE` | gin 模式 debug/release | debug | 否 |
-| `PI_LOG_LEVEL` | 日志级别 debug/info/warn/error | info | 否 |
-| `PI_APP_BASE_URL` | 对外访问地址（拼文件 URL/OSS 回调） | - | 生产必填 |
-| `PI_POSTGRES_HOST/PORT/USER/PASSWORD/DBNAME/SSLMODE` | PostgreSQL 连接 | 见 .env.example | 是 |
-| `PI_REDIS_ADDR/PASSWORD/DB` | Redis 连接 | 127.0.0.1:6379 | 是 |
-| `PI_JWT_SECRET` | JWT 签名密钥 | - | **是（生产 ≥32 位随机串）** |
-| `PI_JWT_ACCESS_TTL` / `PI_JWT_REFRESH_TTL` | 双令牌有效期 | 2h / 168h | 否 |
-| `PI_CORS_ALLOW_ORIGINS` | 允许跨域来源 | * | 否 |
+| `SERVER_PORT` | 后端监听端口 | 8090 | 否 |
+| `SERVER_MODE` | gin 模式 debug/release | debug | 否 |
+| `LOG_LEVEL` | 日志级别 debug/info/warn/error | info | 否 |
+| `APP_BASE_URL` | 对外访问地址（拼文件 URL/OSS 回调） | - | 生产必填 |
+| `POSTGRES_HOST/PORT/USER/PASSWORD/DBNAME/SSLMODE` | PostgreSQL 连接 | 见 .env.example | 是 |
+| `REDIS_ADDR/PASSWORD/DB` | Redis 连接 | 127.0.0.1:6379 | 是 |
+| `JWT_SECRET` | JWT 签名密钥 | - | **是（生产 ≥32 位随机串）** |
+| `JWT_ACCESS_TTL` / `JWT_REFRESH_TTL` | 双令牌有效期 | 2h / 168h | 否 |
+| `CORS_ALLOW_ORIGINS` | 允许跨域来源 | * | 否 |
 | `ADMIN_USERNAME` / `ADMIN_PASSWORD` / `ADMIN_NAME` | 初始超管账号（仅首次 seed 生效，bcrypt 入库；prod 用默认弱密码会打印醒目警告） | admin / Admin@123 / 系统管理员 | 生产必改 |
-| `PI_WECHAT_APPID` / `PI_WECHAT_SECRET` | 微信小程序凭据；**缺失或 MOCK=true 即 mock 登录模式**（code 传 `mock:<手机号>`，仅开发联调） | 空 | 否 |
-| `PI_WECHAT_MOCK` | 强制 mock 登录开关 | true（dev） | 否 |
-| `PI_UPLOAD_MODE` | 上传模式：dev 本地存储 / oss 阿里云直传 | dev | 否 |
-| `PI_UPLOAD_LOCAL_DIR` | dev 模式存储目录（以 /uploads 静态路由提供访问） | uploads | 否 |
-| `PI_UPLOAD_MAX_FILE_SIZE` | 单文件上限（字节） | 20971520 | 否 |
-| `PI_OSS_*`（ACCESS_KEY_ID/SECRET/ROLE_ARN/BUCKET/ENDPOINT/EXPIRE_SECONDS） | 阿里云 OSS + STS 配置 | 空 | oss 模式必填 |
-| `PI_WATERMARK_FONT_PATH` | 水印中文字体路径（TTF） | 仓库自带 `backend/fonts/NotoSansSC.ttf`，容器内固定 `/app/fonts/NotoSansSC.ttf` | 否 |
-| `PI_WATERMARK_LOGO_PATH` | 二维码标牌 LOGO 路径（PNG） | 仓库自带 `backend/assets/logo.png`（默认「安」字图标，替换为公司 LOGO 即可），容器内固定 `/app/assets/logo.png`；文件缺失时自动跳过 LOGO | 否 |
+| `WECHAT_APPID` / `WECHAT_SECRET` | 微信小程序凭据；**缺失或 MOCK=true 即 mock 登录模式**（code 传 `mock:<手机号>`，仅开发联调） | 空 | 否 |
+| `WECHAT_MOCK` | 强制 mock 登录开关 | true（dev） | 否 |
+| `UPLOAD_MODE` | 上传模式：dev 本地存储 / oss 阿里云直传 | dev | 否 |
+| `UPLOAD_LOCAL_DIR` | dev 模式存储目录（以 /uploads 静态路由提供访问） | uploads | 否 |
+| `UPLOAD_MAX_FILE_SIZE` | 单文件上限（字节） | 20971520 | 否 |
+| `OSS_*`（ACCESS_KEY_ID/SECRET/ROLE_ARN/BUCKET/ENDPOINT/EXPIRE_SECONDS） | 阿里云 OSS + STS 配置 | 空 | oss 模式必填 |
+| `WATERMARK_FONT_PATH` | 水印中文字体路径（TTF） | 仓库自带 `backend/fonts/NotoSansSC.ttf`，容器内固定 `/app/fonts/NotoSansSC.ttf` | 否 |
+| `WATERMARK_LOGO_PATH` | 二维码标牌 LOGO 路径（PNG） | 仓库自带 `backend/assets/logo.png`（默认「安」字图标，替换为公司 LOGO 即可），容器内固定 `/app/assets/logo.png`；文件缺失时自动跳过 LOGO | 否 |
 | `SPA_DIST_PATH` | 生产 SPA 托管目录（非 /api、/uploads 路径 fallback index.html） | 空（不启用） | prod 必填 |
 
 ## 快速开始（Docker）
@@ -176,11 +176,11 @@ docker compose --env-file .env.prod -f docker-compose.prod.yml down
 
 ## 生产部署 Checklist
 
-- [ ] `.env.prod`：`PI_POSTGRES_PASSWORD`、`PI_JWT_SECRET`（≥32 位随机）、`ADMIN_PASSWORD` 全部替换为强随机值
-- [ ] `PI_APP_BASE_URL` 改为正式域名；前置 Nginx/网关终止 HTTPS（全站强制 HTTPS）
-- [ ] `PI_WECHAT_APPID/SECRET` 填真实值并置 `PI_WECHAT_MOCK=false`
-- [ ] 照片存储切 OSS：`PI_UPLOAD_MODE=oss` + 完整 `PI_OSS_*`，桶开启版本控制、私有读
-- [ ] `PI_CORS_ALLOW_ORIGINS` 收敛为前端域名
+- [ ] `.env.prod`：`POSTGRES_PASSWORD`、`JWT_SECRET`（≥32 位随机）、`ADMIN_PASSWORD` 全部替换为强随机值
+- [ ] `APP_BASE_URL` 改为正式域名；前置 Nginx/网关终止 HTTPS（全站强制 HTTPS）
+- [ ] `WECHAT_APPID/SECRET` 填真实值并置 `WECHAT_MOCK=false`
+- [ ] 照片存储切 OSS：`UPLOAD_MODE=oss` + 完整 `OSS_*`，桶开启版本控制、私有读
+- [ ] `CORS_ALLOW_ORIGINS` 收敛为前端域名
 - [ ] 超管首次登录后立即改密；按需创建角色与账号
 - [ ] PostgreSQL 每日 `pg_dump` 备份到对象存储，保留 30 天
 - [ ] 月度分区滚动已内建于服务（每日幂等检查），确认服务常驻即可
@@ -192,5 +192,5 @@ docker compose --env-file .env.prod -f docker-compose.prod.yml down
 - **air 不触发热编译**：Windows 挂载卷已启用轮询（`.air.toml` poll=800ms）；仍无效时重启 backend 容器。
 - **前端 5180 打不开/接口 404**：确认 backend 容器健康（`docker compose ps`）；代理目标由 `VITE_PROXY_TARGET` 注入，改了需重建 frontend 容器。
 - **prod 访问 / 返回 404**：确认 `SPA_DIST_PATH=/app/dist` 且镜像构建日志中前端 build 成功。
-- **水印不生成**：检查 `PI_WATERMARK_FONT_PATH` 指向的 TTF 存在且支持中文；字体重量缺失时仅跳过水印不影响打卡。
+- **水印不生成**：检查 `WATERMARK_FONT_PATH` 指向的 TTF 存在且支持中文；字体重量缺失时仅跳过水印不影响打卡。
 - **登录报 40105**：确认库已 seed（首次启动日志有"数据库迁移与初始化完成"）；改过 `ADMIN_PASSWORD` 但库已初始化时不会覆盖已有账号，用重置密码接口或清卷重 seed。

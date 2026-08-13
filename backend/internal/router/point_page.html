@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+<title>点位信息 · 安巡云</title>
+<style>
+  :root {
+    --dark: #16324F;
+    --gold: #C8A56B;
+    --gray: #64748B;
+    --bg: #F4F6FA;
+    --line: #E8ECF2;
+    --ok: #1E9E6A;
+    --bad: #D64545;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: "Noto Sans SC", "PingFang SC", "Microsoft YaHei", -apple-system, sans-serif;
+    background: var(--bg);
+    color: var(--dark);
+    min-height: 100vh;
+  }
+  .hero {
+    background: linear-gradient(160deg, #16324F 0%, #1F456B 100%);
+    padding: 40px 24px 64px;
+    color: #fff;
+  }
+  .brand { display: flex; align-items: center; gap: 10px; opacity: .95; }
+  .brand svg { width: 34px; height: 34px; }
+  .brand .name { font-size: 17px; font-weight: 600; letter-spacing: 2px; }
+  .brand .sub { font-size: 11px; color: #B9C6D6; letter-spacing: 1px; margin-top: 2px; }
+  .pt-name { font-size: 24px; font-weight: 700; margin-top: 28px; letter-spacing: 1px; }
+  .pt-meta { font-size: 13px; color: #B9C6D6; margin-top: 8px; }
+  .card {
+    background: #fff;
+    border-radius: 14px;
+    margin: -40px 16px 0;
+    padding: 20px;
+    box-shadow: 0 4px 16px rgba(22, 50, 79, .08);
+    position: relative;
+  }
+  .row { display: flex; justify-content: space-between; padding: 10px 0; font-size: 14px; }
+  .row + .row { border-top: 1px solid var(--line); }
+  .row .k { color: var(--gray); }
+  .row .v { font-weight: 500; }
+  .stats { display: flex; gap: 12px; margin: 14px 16px 0; }
+  .stat {
+    flex: 1; background: #fff; border-radius: 14px; padding: 16px;
+    text-align: center; box-shadow: 0 4px 16px rgba(22, 50, 79, .06);
+  }
+  .stat .n { font-size: 26px; font-weight: 700; }
+  .stat .n.ok { color: var(--ok); }
+  .stat .n.bad { color: var(--bad); }
+  .stat .t { font-size: 12px; color: var(--gray); margin-top: 4px; }
+  .section { margin: 20px 16px 0; }
+  .section h2 { font-size: 15px; font-weight: 600; margin-bottom: 10px; }
+  .rec {
+    background: #fff; border-radius: 12px; padding: 14px 16px; margin-bottom: 10px;
+    display: flex; align-items: center; gap: 12px;
+    box-shadow: 0 2px 8px rgba(22, 50, 79, .05);
+  }
+  .rec .dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+  .rec .dot.ok { background: var(--ok); }
+  .rec .dot.bad { background: var(--bad); }
+  .rec .main { flex: 1; min-width: 0; }
+  .rec .time { font-size: 14px; font-weight: 500; }
+  .rec .who { font-size: 12px; color: var(--gray); margin-top: 3px; }
+  .rec .tag { font-size: 12px; font-weight: 600; }
+  .rec .tag.ok { color: var(--ok); }
+  .rec .tag.bad { color: var(--bad); }
+  .empty { text-align: center; color: var(--gray); font-size: 13px; padding: 28px 0; }
+  .footer { text-align: center; color: #9AA7B8; font-size: 11px; padding: 28px 0 20px; letter-spacing: 1px; }
+  .err-box { text-align: center; padding: 80px 24px; }
+  .err-box .t { font-size: 17px; font-weight: 600; }
+  .err-box .d { font-size: 13px; color: var(--gray); margin-top: 10px; }
+  #app { display: none; }
+</style>
+</head>
+<body>
+<div id="err" class="err-box" style="display:none">
+  <div class="t">未找到相关点位信息</div>
+  <div class="d">该标签未绑定有效点位，或点位已停用</div>
+</div>
+
+<div id="app">
+  <div class="hero">
+    <div class="brand">
+      <svg viewBox="0 0 512 512" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <path d="M118 357L224 122C230 108 242 99 256 99C270 99 282 108 288 122L394 357H337L311 296H201L175 357H118ZM220 253H292L256 168L220 253Z" fill="#F7FAFF"/>
+        <path d="M199 274H313" stroke="#D5B780" stroke-width="18" stroke-linecap="round"/>
+        <path d="M141 382C177 414 216 428 256 428C296 428 335 414 371 382" stroke="#D5B780" stroke-width="16" stroke-linecap="round"/>
+        <circle cx="371" cy="382" r="10" fill="#D5B780"/>
+      </svg>
+      <div>
+        <div class="name">安巡云</div>
+        <div class="sub">ANXUNCLOUD · 物业巡检管理平台</div>
+      </div>
+    </div>
+    <div class="pt-name" id="ptName"></div>
+    <div class="pt-meta" id="ptMeta"></div>
+  </div>
+
+  <div class="card">
+    <div class="row"><span class="k">点位编号</span><span class="v" id="ptCode"></span></div>
+    <div class="row"><span class="k">所属小区</span><span class="v" id="ptComm"></span></div>
+    <div class="row" id="rowBuilding"><span class="k">楼栋 / 区域</span><span class="v" id="ptBuilding"></span></div>
+    <div class="row"><span class="k">点位类型</span><span class="v" id="ptType"></span></div>
+  </div>
+
+  <div class="stats">
+    <div class="stat"><div class="n" id="statTotal">0</div><div class="t">近30天巡检次数</div></div>
+    <div class="stat"><div class="n bad" id="statAbnormal">0</div><div class="t">其中异常</div></div>
+  </div>
+
+  <div class="section">
+    <h2>最近巡检记录</h2>
+    <div id="recs"></div>
+  </div>
+
+  <div class="footer">安巡云 AnxunCloud · 让每一次巡检都有据可查</div>
+</div>
+
+<script>
+(function () {
+  var TYPE_MAP = {
+    common: '普通点位', power_room: '配电房', fire_control: '消防控制室',
+    pump_room: '水泵房', elevator: '电梯机房', garage: '地下车库'
+  };
+  var WAY_MAP = { qrcode: '扫码', fence: '围栏', nfc: 'NFC', offline: '离线补传' };
+
+  var m = location.pathname.match(/\/p\/([^\/]+)/);
+  var code = m ? decodeURIComponent(m[1]) : '';
+  function showErr() {
+    document.getElementById('err').style.display = 'block';
+  }
+  if (!code) { showErr(); return; }
+
+  fetch('/api/public/point/' + encodeURIComponent(code))
+    .then(function (r) { return r.json(); })
+    .then(function (j) {
+      if (!j || j.code !== 0 || !j.data) { showErr(); return; }
+      var d = j.data, p = d.point || {};
+      document.getElementById('ptName').textContent = p.name || '';
+      document.getElementById('ptMeta').textContent = '巡检点位信息公开页';
+      document.getElementById('ptCode').textContent = p.qrcode_no || code;
+      document.getElementById('ptComm').textContent = p.community_name || '-';
+      if (p.building_name) {
+        document.getElementById('ptBuilding').textContent = p.building_name;
+      } else {
+        document.getElementById('rowBuilding').style.display = 'none';
+      }
+      document.getElementById('ptType').textContent = TYPE_MAP[p.type] || p.type || '-';
+      var st = d.stats || {};
+      document.getElementById('statTotal').textContent = st.total_30d || 0;
+      document.getElementById('statAbnormal').textContent = st.abnormal_30d || 0;
+
+      var list = d.recent || [];
+      var box = document.getElementById('recs');
+      if (list.length === 0) {
+        box.innerHTML = '<div class="empty">暂无巡检记录</div>';
+      } else {
+        list.forEach(function (r) {
+          var ok = r.result === 'normal';
+          var el = document.createElement('div');
+          el.className = 'rec';
+          el.innerHTML =
+            '<span class="dot ' + (ok ? 'ok' : 'bad') + '"></span>' +
+            '<div class="main">' +
+              '<div class="time">' + (r.checkin_time || '') + '</div>' +
+              '<div class="who">' + (r.inspector || '') + ' · ' + (WAY_MAP[r.checkin_type] || r.checkin_type || '') + '打卡</div>' +
+            '</div>' +
+            '<span class="tag ' + (ok ? 'ok' : 'bad') + '">' + (ok ? '正常' : '异常') + '</span>';
+          box.appendChild(el);
+        });
+      }
+      document.getElementById('app').style.display = 'block';
+      document.title = (p.name || '点位信息') + ' · 安巡云';
+    })
+    .catch(showErr);
+})();
+</script>
+</body>
+</html>

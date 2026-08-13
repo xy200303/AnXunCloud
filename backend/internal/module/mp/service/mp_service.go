@@ -279,7 +279,7 @@ func (s *MPService) loginLog(userID *string, username, ip, ua, status, msg strin
 func (s *MPService) PointByCode(inspectorID, code string) (gin.H, *errs.Error) {
 	var pt insmodel.InspectionPoint
 	if err := s.db.Where("qrcode_no = ? OR nfc_id = ?", code, code).First(&pt).Error; err != nil {
-		return nil, errs.ErrNotFound.WithMsg("未识别的点位编码")
+		return nil, errs.ErrNotFound.WithMsg("未找到相关点位信息")
 	}
 	// 数据权限：非全量数据范围的用户须管辖该点位所在小区
 	var user sysmodel.SysUser
@@ -327,13 +327,64 @@ func (s *MPService) PointByCode(inspectorID, code string) (gin.H, *errs.Error) {
 	}
 	return gin.H{
 		"point": gin.H{
-			"id": pt.ID, "name": pt.Name, "qrcode_no": pt.QRCodeNo,
+			"id": pt.ID, "name": pt.Name, "qrcode_no": pt.QRCodeNo, "nfc_id": pt.NfcID,
 			"community_id": pt.CommunityID, "community_name": s.commName(pt.CommunityID),
 			"building_name": buildingName,
 			"credential": pt.Credential, "require_fence": pt.RequireFence,
 			"longitude": pt.Longitude, "latitude": pt.Latitude, "fence_radius": pt.FenceRadius,
 		},
 		"tasks": matched,
+	}, nil
+}
+
+// PublicPoint 短链接公开点位摘要（免登录：NFC 贴卡/扫码打开 H5 信息页的数据源）。
+// 脱敏原则：仅点位基础信息 + 巡检结果摘要，不出坐标、照片、凭证配置等敏感项。
+func (s *MPService) PublicPoint(code string) (gin.H, *errs.Error) {
+	var pt insmodel.InspectionPoint
+	if err := s.db.Where("qrcode_no = ? OR nfc_id = ?", code, code).First(&pt).Error; err != nil {
+		return nil, errs.ErrNotFound.WithMsg("未找到相关点位信息")
+	}
+	if pt.Status != "enabled" {
+		return nil, errs.ErrNotFound.WithMsg("未找到相关点位信息")
+	}
+	buildingName := ""
+	if pt.BuildingID != nil {
+		var b insmodel.Building
+		if s.db.Select("name").First(&b, "id = ?", *pt.BuildingID).Error == nil {
+			buildingName = b.Name
+		}
+	}
+	// 近 30 天巡检概况
+	since := time.Now().AddDate(0, 0, -30)
+	var total30, abnormal30 int64
+	s.db.Model(&insmodel.CheckinRecord{}).Where("point_id = ? AND checkin_time >= ?", pt.ID, since).Count(&total30)
+	s.db.Model(&insmodel.CheckinRecord{}).
+		Where("point_id = ? AND checkin_time >= ? AND result = ?", pt.ID, since, insmodel.ResultAbnormal).Count(&abnormal30)
+	// 最近 5 条巡检记录
+	var recs []insmodel.CheckinRecord
+	s.db.Where("point_id = ?", pt.ID).Order("checkin_time DESC").Limit(5).Find(&recs)
+	recent := make([]gin.H, 0, len(recs))
+	for i := range recs {
+		r := &recs[i]
+		name := ""
+		var u sysmodel.SysUser
+		if s.db.Select("name").First(&u, "id = ?", r.InspectorID).Error == nil {
+			name = u.Name
+		}
+		recent = append(recent, gin.H{
+			"checkin_time": r.CheckinTime.Format("2006-01-02 15:04"),
+			"result":       r.Result,
+			"checkin_type": r.CheckinType,
+			"inspector":    name,
+		})
+	}
+	return gin.H{
+		"point": gin.H{
+			"name": pt.Name, "qrcode_no": pt.QRCodeNo, "type": pt.Type,
+			"community_name": s.commName(pt.CommunityID), "building_name": buildingName,
+		},
+		"stats":  gin.H{"total_30d": total30, "abnormal_30d": abnormal30},
+		"recent": recent,
 	}, nil
 }
 
@@ -422,6 +473,7 @@ func (s *MPService) TaskDetail(inspectorID, taskID string) (gin.H, *errs.Error) 
 		points = append(points, gin.H{
 			"point_id": pt.ID, "point_name": pt.Name, "building_name": buildingName,
 			"sort": i + 1, "credential": pt.Credential, "require_fence": pt.RequireFence, "qrcode_no": pt.QRCodeNo,
+			"nfc_id": pt.NfcID,
 			"longitude": pt.Longitude, "latitude": pt.Latitude, "fence_radius": pt.FenceRadius,
 			"required_photo_items": pt.RequiredPhotoItems, "my_checkin": myCheckin,
 		})

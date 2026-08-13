@@ -164,7 +164,8 @@
 import { Colors, ColorTokens } from '@/utils/theme'
 import { apiTaskDetail, apiCheckin, apiUploadLocal, TaskPoint, CheckinResult, CheckinReqPayload } from '@/services/api'
 import { burnWatermark } from '@/utils/watermark'
-import { isNfcSupported, readNdefOnce, toastNfcUnavailable } from '@/utils/nfc'
+import { isNfcSupported, readCardOnce, toastNfcUnavailable } from '@/utils/nfc'
+import { getLocationGcj02 } from '@/utils/geo'
 import { enqueueOfflineCheckin, uuidv7, NETWORK_ERR_PREFIX, OfflinePhoto } from '@/utils/offline'
 import { useAuthStore } from '@/stores/auth'
 
@@ -345,25 +346,23 @@ export default {
       if (this.locating) return
       this.locating = true
       this.locFailed = false
-      uni.getLocation({
-        type: 'gcj02',
-        success: (res) => {
+      getLocationGcj02(
+        (loc) => {
           this.hasLoc = true
-          this.myLng = res.longitude
-          this.myLat = res.latitude
+          this.myLng = loc.longitude
+          this.myLat = loc.latitude
           if (this.point != null) {
             this.distance = Math.round(
-              haversine(res.longitude, res.latitude, this.point.longitude, this.point.latitude)
+              haversine(loc.longitude, loc.latitude, this.point.longitude, this.point.latitude)
             )
           }
+          this.locating = false
         },
-        fail: () => {
+        () => {
           this.locFailed = true
-        },
-        complete: () => {
           this.locating = false
         }
-      })
+      )
     },
     onLocTap() {
       // 定位失败时可点击重试
@@ -395,22 +394,18 @@ export default {
         return
       }
       uni.showLoading({ title: '请贴近 NFC 标签', mask: true })
-      readNdefOnce((res, errMsg) => {
+      readCardOnce((cardId, errMsg) => {
         uni.hideLoading()
-        if (res == null || res.code == null) {
+        if (cardId == null) {
           uni.showToast({ title: errMsg || 'NFC 读取失败', icon: 'none' })
           return
         }
-        // NDEF 文本 = 点位编号，须与本点位一致（与扫码校验同规则）
-        if (this.point != null && this.point.qrcode_no != '' && res.code != this.point.qrcode_no) {
+        // 卡片 UID 须与点位备案的「NFC 卡号」一致（与扫码校验同规则；后端提交时还会再比对一次）
+        if (this.point != null && this.point.nfc_id != '' && cardId != this.point.nfc_id) {
           uni.showToast({ title: 'NFC 标签与本点位不匹配', icon: 'none' })
           return
         }
-        // TODO(NFC-gap)：后端 checkMode 比对的是「NFC 卡号」（point.nfc_id = 卡片 UID，
-        // 见 backend checkin_service.go），故此处提交卡片 UID 作 nfc_id。
-        // 若后台点位档案里 nfc_id 录入的是标签 NDEF 文本（点位编号）而非卡 UID，
-        // 需改为提交 res.code，或修正后台点位档案的 nfc_id 数据。
-        this.nfcCardId = res.cardId != null ? res.cardId : res.code
+        this.nfcCardId = cardId
         uni.showToast({ title: '点位校验成功', icon: 'success' })
       })
     },

@@ -1,5 +1,5 @@
 import { apiPointByCode } from '@/services/api'
-import { isNfcSupported, readNdefOnce, toastNfcUnavailable } from '@/utils/nfc'
+import { isNfcSupported, readCardOnce, toastNfcUnavailable } from '@/utils/nfc'
 
 let scanning = false
 
@@ -55,7 +55,7 @@ function doScan() {
 
 /**
  * NFC 打卡（iOS 唯一入口；Android/鸿蒙另有全局前台监听，见 App.vue）。
- * 用户点按钮 → 系统扫描面板 → 读 NDEF 文本（点位编号）→ 任务定位器跳转。
+ * 用户点按钮 → 系统扫描面板 → 读卡片 UID → 任务定位器跳转（后端 by-code 按 nfc_id 匹配）。
  */
 function doNfc() {
   if (!isNfcSupported()) {
@@ -63,13 +63,13 @@ function doNfc() {
     return
   }
   uni.showLoading({ title: '请贴近 NFC 标签', mask: true })
-  readNdefOnce((res, errMsg) => {
+  readCardOnce((cardId, errMsg) => {
     uni.hideLoading()
-    if (res == null || res.code == null) {
+    if (cardId == null) {
       uni.showToast({ title: errMsg || 'NFC 读取失败', icon: 'none' })
       return
     }
-    resolvePointCode(res.code)
+    resolvePointCode(cardId)
   })
 }
 

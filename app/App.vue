@@ -32,7 +32,7 @@ export default {
     // 内部按运行时平台分流：Android 注册即听；鸿蒙自动启动无弹窗会话；iOS 忽略（走按钮触发）。
     // 注意：经典 uni-app 不支持 APP-HARMONY 条件编译，这里必须写 APP-PLUS。
     if (getAccessToken() != '' && platformOf() != 'ios') {
-      startGlobalListener((code) => {
+      startGlobalListener((cardId) => {
         // 已在打卡表单页时不打断当前填写，仅提示（与技术方案的「顶部提示条」简化差异）
         const pages = getCurrentPages()
         const cur = pages.length > 0 ? (pages[pages.length - 1] as any).route : ''
@@ -40,7 +40,8 @@ export default {
           uni.showToast({ title: '已识别 NFC 标签，请用表单内「NFC 校验」完成凭证', icon: 'none' })
           return
         }
-        resolvePointCode(code)
+        // 按卡片 UID 定位点位（后端 by-code 按 nfc_id 匹配；未备案的卡轻提示「未找到相关点位信息」）
+        resolvePointCode(cardId)
       })
     }
     // #endif

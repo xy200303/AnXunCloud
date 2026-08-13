@@ -93,6 +93,17 @@ func (ctl *MPController) PointByCode(c *gin.Context) {
 	write(c, data, be)
 }
 
+// PublicPoint GET /api/public/point/:code（短链接 H5 点位信息页，免登录脱敏摘要）
+func (ctl *MPController) PublicPoint(c *gin.Context) {
+	code := c.Param("code")
+	if code == "" {
+		response.Fail(c, errs.ErrParam.WithMsg("code 不能为空"))
+		return
+	}
+	data, be := ctl.mp.PublicPoint(code)
+	write(c, data, be)
+}
+
 // TaskDetail GET /tasks/:id
 func (ctl *MPController) TaskDetail(c *gin.Context) {
 	id, be := pathID(c)

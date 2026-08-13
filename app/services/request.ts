@@ -20,7 +20,7 @@ import {
 // ---- baseURL：按端 + 环境切换 ------------------------------------------------
 // 发版前：将 ACTIVE_ENV 切到 'prod'（HTTPS 强制）。
 type EnvName = 'dev' | 'prod'
-const ACTIVE_ENV: EnvName = 'dev'
+const ACTIVE_ENV: EnvName = 'prod'
 
 // #ifndef MP-WEIXIN
 const BASE_URL_DEV = 'http://10.172.17.43:8090/api/app' // 内网调试：PC 局域网 IP（手机与电脑同一内网；IP 变了改这里）
@@ -197,4 +197,9 @@ export function httpPut<T = any>(path: string, data: Record<string, any> | null,
 /** 当前 baseURL（调试用） */
 export function getBaseUrl(): string {
   return BASE_URL
+}
+
+/** 站点公开访问源（去掉 /api/app|mp 后缀）：用于生成 NFC 短链接等对外 URL */
+export function getPublicOrigin(): string {
+  return BASE_URL.replace(/\/api\/(app|mp)$/, '')
 }

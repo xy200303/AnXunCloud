@@ -16,9 +16,13 @@
             "autoclose" : true,
             "delay" : 0
         },
-        "modules" : {},
+        "modules" : {
+            "Geolocation" : {},
+            "Barcode" : {}
+        },
         "distribute" : {
             "android" : {
+                "packagename" : "com.xiaoyun.pi",
                 "permissions" : [
                     "<uses-permission android:name=\"android.permission.CAMERA\"/>",
                     "<uses-permission android:name=\"android.permission.ACCESS_FINE_LOCATION\"/>",
@@ -35,10 +39,19 @@
                     }
                 },
                 "privacyDescription" : {
-                    "NFCReaderUsageDescription" : "需要读取巡检点位 NFC 标签以完成打卡校验"
-                }
+                    "NFCReaderUsageDescription" : "需要读取巡检点位 NFC 标签以完成打卡校验",
+                    "NSLocationWhenInUseUsageDescription" : "需要获取您的位置以完成巡检打卡的围栏校验",
+                    "NSLocationAlwaysAndWhenInUseUsageDescription" : "需要获取您的位置以完成巡检打卡的围栏校验"
+                },
+                "dSYMs" : false
             },
-            "sdkConfigs" : {}
+            "sdkConfigs" : {
+                "geolocation" : {
+                    "system" : {
+                        "__platform__" : [ "ios", "android" ]
+                    }
+                }
+            }
         }
     },
     "app-harmony" : {

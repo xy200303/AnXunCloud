@@ -275,6 +275,68 @@ func (s *MPService) loginLog(userID *string, username, ip, ua, status, msg strin
 
 // ========== 任务 ==========
 
+// PointByCode 扫码/NFC 定位：按二维码编号或 NFC ID 查点位，并匹配今日任务上下文（任务定位器，非凭证）。
+func (s *MPService) PointByCode(inspectorID, code string) (gin.H, *errs.Error) {
+	var pt insmodel.InspectionPoint
+	if err := s.db.Where("qrcode_no = ? OR nfc_id = ?", code, code).First(&pt).Error; err != nil {
+		return nil, errs.ErrNotFound.WithMsg("未识别的点位编码")
+	}
+	// 数据权限：非全量数据范围的用户须管辖该点位所在小区
+	var user sysmodel.SysUser
+	if err := s.db.Select("id", "role_ids", "community_ids").First(&user, "id = ?", inspectorID).Error; err != nil {
+		return nil, errs.ErrUnauthorized
+	}
+	var roles []sysmodel.SysRole
+	if len(user.RoleIDs) > 0 {
+		s.db.Select("id", "data_scope").Where("id IN ?", []string(user.RoleIDs)).Find(&roles)
+	}
+	scopeAll := false
+	for _, r := range roles {
+		if r.DataScope == sysmodel.ScopeAll {
+			scopeAll = true
+			break
+		}
+	}
+	if !scopeAll && !user.CommunityIDs.Contains(pt.CommunityID) {
+		return nil, errs.ErrDataScope
+	}
+	// 今日任务上下文：我今日包含该点位的任务及打卡状态（多个任务取列表，客户端选最近未完成）
+	today := time.Now().Format("2006-01-02")
+	var tasks []insmodel.InspectionTask
+	s.db.Where("inspector_id = ? AND task_date = ?", inspectorID, today).Find(&tasks)
+	matched := make([]gin.H, 0, 1)
+	for i := range tasks {
+		t := &tasks[i]
+		var plan insmodel.InspectionPlan
+		if s.db.Unscoped().Select("id", "name", "point_ids").First(&plan, "id = ?", t.PlanID).Error != nil {
+			continue
+		}
+		if !plan.PointIDs.Contains(pt.ID) {
+			continue
+		}
+		checked := s.db.Where("task_id = ? AND point_id = ?", t.ID, pt.ID).
+			First(&insmodel.CheckinRecord{}).Error == nil
+		matched = append(matched, gin.H{"task_id": t.ID, "plan_name": plan.Name, "status": t.Status, "checked": checked})
+	}
+	buildingName := ""
+	if pt.BuildingID != nil {
+		var b insmodel.Building
+		if s.db.Select("name").First(&b, "id = ?", *pt.BuildingID).Error == nil {
+			buildingName = b.Name
+		}
+	}
+	return gin.H{
+		"point": gin.H{
+			"id": pt.ID, "name": pt.Name, "qrcode_no": pt.QRCodeNo,
+			"community_id": pt.CommunityID, "community_name": s.commName(pt.CommunityID),
+			"building_name": buildingName,
+			"credential": pt.Credential, "require_fence": pt.RequireFence,
+			"longitude": pt.Longitude, "latitude": pt.Latitude, "fence_radius": pt.FenceRadius,
+		},
+		"tasks": matched,
+	}, nil
+}
+
 // TodayTasks 今日任务列表 + 总进度（进行中排最前）。
 func (s *MPService) TodayTasks(inspectorID string) (gin.H, *errs.Error) {
 	today := time.Now().Format("2006-01-02")
@@ -332,6 +394,7 @@ func (s *MPService) TaskDetail(inspectorID, taskID string) (gin.H, *errs.Error) 
 		byPoint[checkins[i].PointID] = &checkins[i]
 	}
 	points := make([]gin.H, 0, len(plan.PointIDs))
+	ptTpl := map[int]string{} // points 下标 → 点位绑定的检查项模板 ID（仅非空）
 	for i, pid := range plan.PointIDs {
 		var pt insmodel.InspectionPoint
 		if s.db.First(&pt, "id = ?", pid).Error != nil {
@@ -362,6 +425,36 @@ func (s *MPService) TaskDetail(inspectorID, taskID string) (gin.H, *errs.Error) 
 			"longitude": pt.Longitude, "latitude": pt.Latitude, "fence_radius": pt.FenceRadius,
 			"required_photo_items": pt.RequiredPhotoItems, "my_checkin": myCheckin,
 		})
+		if pt.TemplateID != nil && *pt.TemplateID != "" {
+			ptTpl[len(points)-1] = *pt.TemplateID
+		}
+	}
+	// 批量查检查项模板项：收集全部非空 TemplateID 一次 IN 查询（禁止循环单查），按 template_id 分组
+	tplItems := map[string][]gin.H{}
+	if len(ptTpl) > 0 {
+		tplIDs := make([]string, 0, len(ptTpl))
+		for _, tid := range ptTpl {
+			tplIDs = append(tplIDs, tid)
+		}
+		var items []insmodel.CheckTemplateItem
+		s.db.Where("template_id IN ?", tplIDs).Order("sort ASC").Find(&items)
+		for i := range items {
+			it := &items[i]
+			requirement := ""
+			if it.Requirement != nil {
+				requirement = *it.Requirement
+			}
+			tplItems[it.TemplateID] = append(tplItems[it.TemplateID], gin.H{
+				"name": it.Name, "requirement": requirement, "photo_required": it.PhotoRequired,
+			})
+		}
+	}
+	for idx := range points {
+		ci := tplItems[ptTpl[idx]]
+		if ci == nil {
+			ci = []gin.H{} // 无模板（或模板无项）输出空数组而非 null
+		}
+		points[idx]["check_items"] = ci
 	}
 	return gin.H{
 		"id": task.ID, "plan_name": plan.Name, "community_name": s.commName(task.CommunityID),
@@ -385,7 +478,8 @@ func (s *MPService) MyOrders(userID string, q *dto.MyOrdersQuery) (*response.Pag
 		db = db.Where("reporter_id = ? OR assignee_id = ?", userID, userID)
 	}
 	if q.Status != "" {
-		db = db.Where("status = ?", q.Status)
+		// 支持逗号多值（如 pending,assigned 合并为「待处理」筛选）
+		db = db.Where("status IN ?", strings.Split(q.Status, ","))
 	}
 	var total int64
 	if err := db.Count(&total).Error; err != nil {
@@ -414,6 +508,33 @@ func (s *MPService) MyOrders(userID string, q *dto.MyOrdersQuery) (*response.Pag
 		})
 	}
 	return &response.Page{List: list, Total: total, Page: q.Page, PageSize: q.PageSize}, nil
+}
+
+// MyOrderCounts 我的工单按状态计数（type 过滤口径与 MyOrders 一致），
+// 供移动端状态筛选 chip 角标与「指派给我」红点使用。返回 {status: count}。
+func (s *MPService) MyOrderCounts(userID string, typ string) (gin.H, *errs.Error) {
+	db := s.db.Model(&womodel.WorkOrder{})
+	switch typ {
+	case "reported":
+		db = db.Where("reporter_id = ?", userID)
+	case "assigned":
+		db = db.Where("assignee_id = ?", userID)
+	default:
+		db = db.Where("reporter_id = ? OR assignee_id = ?", userID, userID)
+	}
+	type statusCount struct {
+		Status string
+		Cnt    int64
+	}
+	var rows []statusCount
+	if err := db.Select("status, COUNT(*) AS cnt").Group("status").Scan(&rows).Error; err != nil {
+		return nil, errs.ErrInternal
+	}
+	out := gin.H{}
+	for _, r := range rows {
+		out[r.Status] = r.Cnt
+	}
+	return out, nil
 }
 
 // Messages 消息列表 + 未读数。

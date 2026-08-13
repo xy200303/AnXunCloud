@@ -23,12 +23,21 @@ func NewAuthController(svc *service.AuthService) *AuthController {
 
 // Login POST /auth/login
 func (ctl *AuthController) Login(c *gin.Context) {
+	ctl.login(c, service.ChannelAdmin)
+}
+
+// LoginApp POST /api/app/login（APP 三端账号密码登录，渠道 app）
+func (ctl *AuthController) LoginApp(c *gin.Context) {
+	ctl.login(c, service.ChannelApp)
+}
+
+func (ctl *AuthController) login(c *gin.Context, channel string) {
 	var req dto.LoginReq
 	if be := bind.JSON(c, &req); be != nil {
 		response.Fail(c, be)
 		return
 	}
-	resp, be := ctl.svc.Login(c.Request.Context(), &req, c.ClientIP(), c.GetHeader("User-Agent"))
+	resp, be := ctl.svc.LoginChannel(c.Request.Context(), &req, channel, c.ClientIP(), c.GetHeader("User-Agent"))
 	if be != nil {
 		response.Fail(c, be)
 		return
@@ -57,12 +66,21 @@ func (ctl *AuthController) Register(c *gin.Context) {
 
 // Refresh POST /auth/refresh
 func (ctl *AuthController) Refresh(c *gin.Context) {
+	ctl.refresh(c, service.ChannelAdmin)
+}
+
+// RefreshApp POST /api/app/refresh
+func (ctl *AuthController) RefreshApp(c *gin.Context) {
+	ctl.refresh(c, service.ChannelApp)
+}
+
+func (ctl *AuthController) refresh(c *gin.Context, channel string) {
 	var req dto.RefreshReq
 	if be := bind.JSON(c, &req); be != nil {
 		response.Fail(c, be)
 		return
 	}
-	resp, be := ctl.svc.Refresh(c.Request.Context(), req.RefreshToken)
+	resp, be := ctl.svc.RefreshChannel(c.Request.Context(), channel, req.RefreshToken)
 	if be != nil {
 		response.Fail(c, be)
 		return
@@ -72,12 +90,21 @@ func (ctl *AuthController) Refresh(c *gin.Context) {
 
 // Logout POST /auth/logout
 func (ctl *AuthController) Logout(c *gin.Context) {
+	ctl.logout(c, service.ChannelAdmin)
+}
+
+// LogoutApp POST /api/app/auth/logout
+func (ctl *AuthController) LogoutApp(c *gin.Context) {
+	ctl.logout(c, service.ChannelApp)
+}
+
+func (ctl *AuthController) logout(c *gin.Context, channel string) {
 	identity := middleware.CurrentIdentity(c)
 	if identity == nil {
 		response.Fail(c, errs.ErrUnauthorized)
 		return
 	}
-	if be := ctl.svc.Logout(c.Request.Context(), identity, identity.AccessExpiresAt); be != nil {
+	if be := ctl.svc.LogoutChannel(c.Request.Context(), identity, identity.AccessExpiresAt, channel); be != nil {
 		response.Fail(c, be)
 		return
 	}

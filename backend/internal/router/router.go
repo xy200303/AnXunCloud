@@ -111,6 +111,10 @@ func New(cfg *config.Config, db *gorm.DB, rdb *redis.Client) (*gin.Engine, *insp
 		secured.GET("/auth/routes", authCtl.Routes)
 		secured.GET("/dashboard", statsCtl.Dashboard)
 
+		// 地图服务配置与地点搜索（登录即可：物业主管也要能地图选点，不绑系统配置权限）
+		secured.GET("/map/config", configCtl.MapConfig)
+		secured.GET("/map/search", configCtl.MapSearch)
+
 		// 顶栏消息（登录即可，仅本人消息）
 		secured.GET("/system/messages", messageCtl.List)
 		secured.PUT("/system/messages/:id/read", messageCtl.MarkRead)
@@ -228,23 +232,75 @@ func New(cfg *config.Config, db *gorm.DB, rdb *redis.Client) (*gin.Engine, *insp
 	{
 		mp.POST("/login", mpCtl.Login)
 		mp.POST("/refresh", mpCtl.Refresh)
+		mp.GET("/auth/register-config", authCtl.RegisterConfig)
+		mp.POST("/auth/register", authCtl.Register)
 		mp.POST("/upload/callback", mpCtl.Callback) // OSS 服务端间回调（验签，无 JWT）
 
 		mpAuth := mp.Group("", middleware.Auth(db, sess, jwtm, mpsvc.ChannelMP))
 		{
 			mpAuth.GET("/tasks/today", mpCtl.TodayTasks)
 			mpAuth.GET("/tasks/:id", mpCtl.TaskDetail)
+			mpAuth.GET("/points/by-code/:code", mpCtl.PointByCode)
 			mpAuth.POST("/checkin", mpCtl.Checkin)
 			mpAuth.POST("/checkin/offline-sync", mpCtl.OfflineSync)
 			mpAuth.POST("/upload/sts", mpCtl.STS)
 			mpAuth.POST("/upload/local", mpCtl.Local) // dev 模式本地上传
 			mpAuth.GET("/workorders/mine", mpCtl.MyOrders)
+			mpAuth.GET("/workorders/mine/counts", mpCtl.OrderCounts)
 			mpAuth.GET("/workorders/:id", mpCtl.OrderDetail)
 			mpAuth.POST("/workorders/:id/accept", mpCtl.OrderAccept)
 			mpAuth.POST("/workorders/:id/finish", mpCtl.OrderFinish)
 			mpAuth.GET("/messages", mpCtl.Messages)
 			mpAuth.PUT("/messages/:id/read", mpCtl.MarkRead)
 			mpAuth.GET("/announcements", mpCtl.Announcements)
+			mpAuth.GET("/announcements/:id", mpCtl.AnnouncementDetail)
+		}
+	}
+
+	// APP 端（Android/iOS/鸿蒙）：业务接口与 mp 组同形同逻辑（同一批 Service），
+	// 会话渠道 app；登录为账号密码，另挂月报签字与个人中心（小程序端不开放 PC 侧签字/配置入口，需要时再加）。
+	app := r.Group("/api/app")
+	{
+		app.POST("/login", authCtl.LoginApp)
+		app.POST("/refresh", authCtl.RefreshApp)
+		app.GET("/auth/register-config", authCtl.RegisterConfig)
+		app.POST("/auth/register", authCtl.Register)
+
+		appAuth := app.Group("", middleware.Auth(db, sess, jwtm, authsvc.ChannelApp))
+		{
+			appAuth.POST("/auth/logout", authCtl.LogoutApp)
+			// 个人中心（登录即可）
+			appAuth.GET("/profile", authCtl.Info)
+			appAuth.PUT("/profile", middleware.OperLog(db, "system", "update_profile"), userCtl.UpdateProfile)
+			appAuth.PUT("/password", middleware.OperLog(db, "system", "change_password"), userCtl.ChangePassword)
+			// 任务 / 打卡 / 上传（复用 mp 控制器）
+			appAuth.GET("/tasks/today", mpCtl.TodayTasks)
+			appAuth.GET("/tasks/:id", mpCtl.TaskDetail)
+			appAuth.GET("/points/by-code/:code", mpCtl.PointByCode)
+			appAuth.POST("/checkin", mpCtl.Checkin)
+			appAuth.POST("/checkin/offline-sync", mpCtl.OfflineSync)
+			appAuth.POST("/upload/sts", mpCtl.STS)
+			appAuth.POST("/upload/local", mpCtl.Local)
+			// 工单 / 消息 / 公告
+			appAuth.GET("/workorders/mine", mpCtl.MyOrders)
+			appAuth.GET("/workorders/mine/counts", mpCtl.OrderCounts)
+			appAuth.GET("/workorders/:id", mpCtl.OrderDetail)
+			appAuth.POST("/workorders/:id/accept", mpCtl.OrderAccept)
+			appAuth.POST("/workorders/:id/finish", mpCtl.OrderFinish)
+			appAuth.GET("/messages", mpCtl.Messages)
+			appAuth.PUT("/messages/:id/read", mpCtl.MarkRead)
+			appAuth.GET("/announcements", mpCtl.Announcements)
+			appAuth.GET("/announcements/:id", mpCtl.AnnouncementDetail)
+			// 月报签字（权限点与 PC 完全一致；待我签用 ?pending_mine=1）
+			appReports := appAuth.Group("/reports")
+			{
+				appReports.GET("", middleware.RequirePerm("report:list"), reportCtl.List)
+				appReports.GET("/:id", middleware.RequirePerm("report:list"), reportCtl.Detail)
+				appReports.POST("/:id/sign-inspector", middleware.RequirePerm("report:sign:inspector", "report:sign:proxy"), middleware.OperLog(db, "report", "sign_inspector"), reportCtl.SignInspector)
+				appReports.POST("/:id/sign-supervisor", middleware.RequirePerm("report:sign:supervisor"), middleware.OperLog(db, "report", "sign_supervisor"), reportCtl.SignSupervisor)
+				appReports.POST("/:id/sign-manager", middleware.RequirePerm("report:sign:manager"), middleware.OperLog(db, "report", "sign_manager"), reportCtl.SignManager)
+				appReports.GET("/:id/pdf", middleware.RequirePerm("report:download"), reportCtl.PDF)
+			}
 		}
 	}
 

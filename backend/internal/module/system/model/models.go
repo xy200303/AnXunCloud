@@ -205,15 +205,16 @@ func (Community) TableName() string { return "community" }
 // SysNotice 通知公告（第二阶段补充表，status：0 草稿 / 1 已发布 / 2 已下线）
 type SysNotice struct {
 	types.UUIDModel
-	Title         string         `gorm:"size:64" json:"title"`
-	Content       string         `gorm:"type:text" json:"content"`
-	Status        int            `json:"status"`
-	PublishAt     *time.Time     `json:"publish_at"`
-	CreatedBy     *string        `gorm:"type:uuid" json:"created_by"`
-	CreatedByName string         `gorm:"size:64" json:"created_by_name"`
-	CreatedAt     time.Time      `json:"created_at"`
-	UpdatedAt     time.Time      `json:"updated_at"`
-	DeletedAt     gorm.DeletedAt `json:"-"`
+	Title         string                `gorm:"size:64" json:"title"`
+	Content       string                `gorm:"type:text" json:"content"`
+	Status        int                   `json:"status"`
+	Attachments   types.AttachmentArray `gorm:"type:jsonb" json:"attachments"`
+	PublishAt     *time.Time            `json:"publish_at"`
+	CreatedBy     *string               `gorm:"type:uuid" json:"created_by"`
+	CreatedByName string                `gorm:"size:64" json:"created_by_name"`
+	CreatedAt     time.Time             `json:"created_at"`
+	UpdatedAt     time.Time             `json:"updated_at"`
+	DeletedAt     gorm.DeletedAt        `json:"-"`
 }
 
 func (SysNotice) TableName() string { return "sys_notice" }

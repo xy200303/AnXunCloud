@@ -14,6 +14,7 @@ const (
 	CredentialQRCode = "qrcode"
 	CredentialNFC    = "nfc"
 	CredentialNone   = "none"
+	CredentialAny    = "any" // 任一：扫码或 NFC 均可作为凭证
 )
 
 // 任务状态
@@ -103,7 +104,7 @@ type InspectionPoint struct {
 	Longitude          float64           `gorm:"type:numeric(10,7)" json:"longitude"`
 	Latitude           float64           `gorm:"type:numeric(10,7)" json:"latitude"`
 	FenceRadius        int               `json:"fence_radius"`
-	Credential         string            `gorm:"size:16" json:"credential"` // qrcode/nfc/none
+	Credential         string            `gorm:"size:16" json:"credential"` // qrcode/nfc/none/any（任一：扫码或 NFC）
 	RequireFence       bool              `json:"require_fence"`
 	RequiredPhotoItems types.StringArray `gorm:"type:jsonb" json:"required_photo_items"`
 	Sort               int               `json:"sort"`

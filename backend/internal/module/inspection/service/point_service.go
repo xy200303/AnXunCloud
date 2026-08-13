@@ -406,9 +406,9 @@ func (s *PointService) validate(req *dto.PointSaveReq) *errs.Error {
 		}
 	}
 	switch credentialOrDefault(req.Credential) {
-	case model.CredentialQRCode, model.CredentialNFC, model.CredentialNone:
+	case model.CredentialQRCode, model.CredentialNFC, model.CredentialNone, model.CredentialAny:
 	default:
-		return errs.ErrParam.WithMsg("credential 取值非法（qrcode/nfc/none）")
+		return errs.ErrParam.WithMsg("credential 取值非法（qrcode/nfc/none/any）")
 	}
 	// 凭证与围栏至少启用一项
 	if credentialOrDefault(req.Credential) == model.CredentialNone && !req.RequireFence {
@@ -459,9 +459,11 @@ const pointImportMaxRows = 500
 var importModeMap = map[string][2]any{
 	"扫码":    {model.CredentialQRCode, false},
 	"NFC":   {model.CredentialNFC, false},
+	"任一":    {model.CredentialAny, false},
 	"围栏":    {model.CredentialNone, true},
 	"扫码+围栏": {model.CredentialQRCode, true},
 	"NFC+围栏": {model.CredentialNFC, true},
+	"任一+围栏": {model.CredentialAny, true},
 }
 
 // Import 逐行校验导入点位（跳过失败行，成功行落库；二维码编号照常自动发号）。
@@ -612,7 +614,7 @@ func (s *PointService) Import(c *gin.Context, r io.Reader) (*dto.PointImportResu
 		if modeText != "" {
 			m, ok := importModeMap[modeText]
 			if !ok {
-				fail("打卡方式「" + modeText + "」非法（扫码/NFC/围栏/扫码+围栏/NFC+围栏）")
+				fail("打卡方式「" + modeText + "」非法（扫码/NFC/任一/围栏/扫码+围栏/NFC+围栏/任一+围栏）")
 				continue
 			}
 			credential, _ = m[0].(string)

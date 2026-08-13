@@ -259,6 +259,35 @@ func (a *SignArray) Scan(src any) error {
 	return json.Unmarshal(data, a)
 }
 
+// AttachmentItem 公告附件元素（sys_notice.attachments JSONB）。
+type AttachmentItem struct {
+	Name string `json:"name"`
+	URL  string `json:"url"`
+}
+
+// AttachmentArray 映射 jsonb 附件数组（sys_notice.attachments）。
+type AttachmentArray []AttachmentItem
+
+func (a AttachmentArray) Value() (driver.Value, error) {
+	if a == nil {
+		return "[]", nil
+	}
+	b, err := json.Marshal(a)
+	return string(b), err
+}
+
+func (a *AttachmentArray) Scan(src any) error {
+	data, err := toBytes(src)
+	if err != nil {
+		return err
+	}
+	if data == nil {
+		*a = AttachmentArray{}
+		return nil
+	}
+	return json.Unmarshal(data, a)
+}
+
 func toBytes(src any) ([]byte, error) {
 	if src == nil {
 		return nil, nil

@@ -6,6 +6,7 @@ import (
 	"anxuncloud/internal/module/system/dto"
 	"anxuncloud/internal/module/system/service"
 	"anxuncloud/internal/pkg/bind"
+	"anxuncloud/internal/pkg/errs"
 	"anxuncloud/internal/pkg/response"
 )
 
@@ -75,6 +76,29 @@ func (ctl *ConfigController) Update(c *gin.Context) {
 		return
 	}
 	response.OK(c, nil)
+}
+
+// MapConfig GET /map/config — 地图服务公开配置（登录即可，不绑系统配置权限）。
+// key 未配置时返回空串，前端据此禁用地图选点并引导去参数配置填写。
+func (ctl *ConfigController) MapConfig(c *gin.Context) {
+	key, _ := ctl.svc.Get("map.tencent_key")
+	response.OK(c, gin.H{"provider": "tencent", "key": key})
+}
+
+// MapSearch GET /map/search?keyword=xx[&location=lat,lng] — 地点搜索代理（登录即可）。
+// 转发腾讯地点提示 API，避免前端跨域；key 不出内网。
+func (ctl *ConfigController) MapSearch(c *gin.Context) {
+	keyword := c.Query("keyword")
+	if keyword == "" {
+		response.Fail(c, errs.ErrParam.WithMsg("keyword 为必填项"))
+		return
+	}
+	list, be := ctl.svc.SearchPlaces(c.Request.Context(), keyword, c.Query("location"))
+	if be != nil {
+		response.Fail(c, be)
+		return
+	}
+	response.OK(c, list)
 }
 
 // Delete DELETE /system/configs/:id

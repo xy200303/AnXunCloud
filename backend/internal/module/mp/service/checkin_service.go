@@ -293,6 +293,13 @@ func (s *CheckinService) checkMode(req *dto.CheckinReq, point *insmodel.Inspecti
 		if req.NFCID == "" || req.NFCID != point.NfcID {
 			return errs.ErrQRCodeMismatch.WithMsg("NFC 校验失败：卡号与点位不匹配")
 		}
+	case insmodel.CredentialAny:
+		// 任一：二维码或 NFC 匹配其一即通过（NFC 仅当点位录了卡号才可比）
+		qrOK := point.QRCodeNo != "" && normalizeQRCode(req.QRCodeNo) == point.QRCodeNo
+		nfcOK := point.NfcID != "" && req.NFCID != "" && req.NFCID == point.NfcID
+		if !qrOK && !nfcOK {
+			return errs.ErrQRCodeMismatch.WithMsg("凭证校验失败：请扫描点位二维码或读取 NFC 标签")
+		}
 	}
 	if point.RequireFence && distance > float64(point.FenceRadius) {
 		return errs.ErrOutOfFence.WithMsg(fmt.Sprintf("距点位 %dm，超出围栏半径 %dm", int(distance), point.FenceRadius))

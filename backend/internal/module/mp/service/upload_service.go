@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -77,9 +79,10 @@ func storageDir(store *storage.Storage, scene string, uid string) string {
 }
 
 // SaveLocal dev 模式本地直传（multipart），写文件记录。
+// scene=signature 为 App 端月报签字的一次性手写签名（报告 resolveSignKey 按 scene+user_id 校验归属）。
 func (s *UploadService) SaveLocal(userID string, scene, filename string, size int64, r io.Reader) (gin.H, *errs.Error) {
 	switch scene {
-	case "checkin", "workorder", "avatar":
+	case "checkin", "workorder", "avatar", "signature":
 	default:
 		return nil, errs.ErrParam.WithMsg("scene 取值非法")
 	}
@@ -109,14 +112,20 @@ func (s *UploadService) SaveLocal(userID string, scene, filename string, size in
 	return gin.H{"file_key": key, "url": url}, nil
 }
 
-// SaveAdminLocal 管理端本地上传（/api/admin/system/upload）：签名/公章/头像/工单整改图片。
+// SaveAdminLocal 管理端本地上传（/api/admin/system/upload）：签名/公章/头像/工单整改图片/公告附件。
 func (s *UploadService) SaveAdminLocal(userID string, scene, filename string, size int64, r io.Reader) (gin.H, *errs.Error) {
 	switch scene {
-	case "signature", "seal", "avatar", "workorder":
+	case "signature", "seal", "avatar", "workorder", "notice":
 	default:
 		return nil, errs.ErrParam.WithMsg("scene 取值非法")
 	}
-	ext, be := s.store.CheckExt(filename)
+	var ext string
+	var be *errs.Error
+	if scene == "notice" {
+		ext, be = checkNoticeExt(filename)
+	} else {
+		ext, be = s.store.CheckExt(filename)
+	}
 	if be != nil {
 		return nil, be
 	}
@@ -127,14 +136,40 @@ func (s *UploadService) SaveAdminLocal(userID string, scene, filename string, si
 	if err != nil {
 		return nil, errs.ErrInternal
 	}
+	mime := "image/" + ext
+	if scene == "notice" && !noticeImageExts[ext] {
+		mime = "application/octet-stream"
+	}
 	rec := sysmodel.UploadFile{
 		FileKey: key, Scene: scene, UserID: userID, Size: size,
-		MimeType: "image/" + ext, URL: url,
+		MimeType: mime, URL: url,
 	}
 	if err := s.db.Create(&rec).Error; err != nil {
 		return nil, errs.ErrInternal
 	}
 	return gin.H{"file_key": key, "url": url}, nil
+}
+
+// noticeImageExts 公告附件中按图片处理的扩展名（App 端缩略图预览）。
+var noticeImageExts = map[string]bool{
+	"jpg": true, "jpeg": true, "png": true, "gif": true, "webp": true, "heic": true,
+}
+
+// noticeAttachmentExts 公告附件允许的扩展名：图片 + 常见文档/表格/压缩包
+// （全局 upload.allowed_types 仅图片，公告附件单独放宽）。
+var noticeAttachmentExts = map[string]bool{
+	"jpg": true, "jpeg": true, "png": true, "gif": true, "webp": true, "heic": true,
+	"pdf": true, "doc": true, "docx": true, "xls": true, "xlsx": true,
+	"ppt": true, "pptx": true, "txt": true, "zip": true,
+}
+
+// checkNoticeExt 校验公告附件扩展名。
+func checkNoticeExt(name string) (string, *errs.Error) {
+	ext := strings.TrimPrefix(strings.ToLower(filepath.Ext(name)), ".")
+	if noticeAttachmentExts[ext] {
+		return ext, nil
+	}
+	return "", errs.ErrUploadType.WithMsg("公告附件仅支持图片（jpg/png/gif/webp 等）与 pdf/word/excel/ppt/txt/zip")
 }
 
 // Callback OSS 上传回调：验签（oss 模式）→ 幂等写文件记录 → {"Status":"OK"}。

@@ -82,6 +82,17 @@ func (ctl *MPController) TodayTasks(c *gin.Context) {
 	write(c, data, be)
 }
 
+// PointByCode GET /points/by-code/:code（扫码/NFC 定位任务）
+func (ctl *MPController) PointByCode(c *gin.Context) {
+	code := c.Param("code")
+	if code == "" {
+		response.Fail(c, errs.ErrParam.WithMsg("code 不能为空"))
+		return
+	}
+	data, be := ctl.mp.PointByCode(uid(c), code)
+	write(c, data, be)
+}
+
 // TaskDetail GET /tasks/:id
 func (ctl *MPController) TaskDetail(c *gin.Context) {
 	id, be := pathID(c)
@@ -172,6 +183,12 @@ func (ctl *MPController) MyOrders(c *gin.Context) {
 	write(c, page, be)
 }
 
+// OrderCounts GET /workorders/mine/counts（按状态计数，query: type）
+func (ctl *MPController) OrderCounts(c *gin.Context) {
+	data, be := ctl.mp.MyOrderCounts(uid(c), c.DefaultQuery("type", ""))
+	write(c, data, be)
+}
+
 // OrderDetail GET /workorders/:id
 func (ctl *MPController) OrderDetail(c *gin.Context) {
 	id, be := pathID(c)
@@ -248,5 +265,16 @@ func (ctl *MPController) Announcements(c *gin.Context) {
 	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
 	pageSize, _ := strconv.Atoi(c.DefaultQuery("page_size", "20"))
 	data, be := ctl.notices.Published(page, pageSize)
+	write(c, data, be)
+}
+
+// AnnouncementDetail GET /announcements/:id（仅已发布可见）
+func (ctl *MPController) AnnouncementDetail(c *gin.Context) {
+	id, be := pathID(c)
+	if be != nil {
+		response.Fail(c, be)
+		return
+	}
+	data, be := ctl.notices.PublishedDetail(id)
 	write(c, data, be)
 }

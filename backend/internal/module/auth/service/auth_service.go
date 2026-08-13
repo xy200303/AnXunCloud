@@ -25,6 +25,9 @@ import (
 // ChannelAdmin 后台会话渠道。
 const ChannelAdmin = "admin"
 
+// ChannelApp 移动 APP（Android/iOS/鸿蒙）会话渠道。
+const ChannelApp = "app"
+
 // AuthService 认证服务。
 type AuthService struct {
 	db     *gorm.DB
@@ -42,9 +45,14 @@ func NewAuthService(db *gorm.DB, rdb *redis.Client, sess *session.Store, jwtm *j
 
 // Login 后台账号密码登录，签发双令牌并建立 Redis 会话。
 func (s *AuthService) Login(ctx context.Context, req *dto.LoginReq, ip, ua string) (*dto.TokenResp, *errs.Error) {
+	return s.LoginChannel(ctx, req, ChannelAdmin, ip, ua)
+}
+
+// LoginChannel 账号密码登录（按渠道建立会话/写日志；APP 端走 ChannelApp）。
+func (s *AuthService) LoginChannel(ctx context.Context, req *dto.LoginReq, channel, ip, ua string) (*dto.TokenResp, *errs.Error) {
 	// 登录限流：连续失败达 security.login_fail_limit 锁定 10 分钟
 	if be := s.checkLoginLimit(ctx, ip); be != nil {
-		s.writeLoginLog(nil, req.Username, ip, ua, "fail", "登录过于频繁已锁定")
+		s.writeLoginLog(nil, req.Username, ip, ua, "fail", "登录过于频繁已锁定", channel)
 		return nil, be
 	}
 
@@ -52,15 +60,15 @@ func (s *AuthService) Login(ctx context.Context, req *dto.LoginReq, ip, ua strin
 	err := s.db.Where("username = ?", req.Username).First(&user).Error
 	if err != nil || !password.Compare(user.Password, req.Password) {
 		s.incrLoginFail(ctx, ip)
-		s.writeLoginLog(nilIfErr(err, &user), req.Username, ip, ua, "fail", "用户名或密码错误")
+		s.writeLoginLog(nilIfErr(err, &user), req.Username, ip, ua, "fail", "用户名或密码错误", channel)
 		return nil, errs.ErrBadCredentials
 	}
 	if user.Status != model.StatusEnabled {
-		s.writeLoginLog(&user.ID, req.Username, ip, ua, "fail", "账号已停用")
+		s.writeLoginLog(&user.ID, req.Username, ip, ua, "fail", "账号已停用", channel)
 		return nil, errs.ErrAccountDisabled
 	}
 
-	resp, be := s.issueTokens(ctx, &user)
+	resp, be := s.issueTokens(ctx, &user, channel)
 	if be != nil {
 		return nil, be
 	}
@@ -68,7 +76,7 @@ func (s *AuthService) Login(ctx context.Context, req *dto.LoginReq, ip, ua strin
 	s.rdb.Del(ctx, "limit:login:"+ip)
 	now := time.Now()
 	s.db.Model(&model.SysUser{}).Where("id = ?", user.ID).Update("last_login_at", now)
-	s.writeLoginLog(&user.ID, req.Username, ip, ua, "success", "登录成功")
+	s.writeLoginLog(&user.ID, req.Username, ip, ua, "success", "登录成功", channel)
 	return resp, nil
 }
 
@@ -134,8 +142,13 @@ func (s *AuthService) Register(ctx context.Context, req *dto.RegisterReq, ip str
 	return nil
 }
 
-// Refresh 用 refresh token 滚动换新双令牌。
+// Refresh 用 refresh token 滚动换新双令牌（后台渠道）。
 func (s *AuthService) Refresh(ctx context.Context, refreshToken string) (*dto.TokenResp, *errs.Error) {
+	return s.RefreshChannel(ctx, ChannelAdmin, refreshToken)
+}
+
+// RefreshChannel 按渠道滚动换新双令牌。
+func (s *AuthService) RefreshChannel(ctx context.Context, channel, refreshToken string) (*dto.TokenResp, *errs.Error) {
 	claims, err := s.jwtm.Parse(refreshToken)
 	if err != nil || claims.Type != jwtutil.TypeRefresh {
 		return nil, errs.ErrRefreshInvalid
@@ -144,7 +157,7 @@ func (s *AuthService) Refresh(ctx context.Context, refreshToken string) (*dto.To
 	if black {
 		return nil, errs.ErrRefreshInvalid
 	}
-	sessInfo, err := s.sess.Get(ctx, ChannelAdmin, claims.UserID)
+	sessInfo, err := s.sess.Get(ctx, channel, claims.UserID)
 	if err != nil || sessInfo == nil || sessInfo.RefreshID != claims.ID {
 		return nil, errs.ErrRefreshInvalid
 	}
@@ -157,22 +170,27 @@ func (s *AuthService) Refresh(ctx context.Context, refreshToken string) (*dto.To
 	}
 	// 旧 refresh 作废（滚动刷新）
 	s.sess.Blacklist(ctx, claims.ID, time.Until(claims.ExpiresAt.Time))
-	return s.issueTokens(ctx, &user)
+	return s.issueTokens(ctx, &user, channel)
 }
 
-// Logout 注销会话：双 token 加入黑名单并删除会话。
+// Logout 注销会话：双 token 加入黑名单并删除会话（后台渠道）。
 func (s *AuthService) Logout(ctx context.Context, identity *middleware.Identity, accessExp time.Time) *errs.Error {
-	sessInfo, err := s.sess.Get(ctx, ChannelAdmin, identity.UserID)
+	return s.LogoutChannel(ctx, identity, accessExp, ChannelAdmin)
+}
+
+// LogoutChannel 按渠道注销会话。
+func (s *AuthService) LogoutChannel(ctx context.Context, identity *middleware.Identity, accessExp time.Time, channel string) *errs.Error {
+	sessInfo, err := s.sess.Get(ctx, channel, identity.UserID)
 	if err == nil && sessInfo != nil {
 		s.sess.Blacklist(ctx, sessInfo.RefreshID, s.jwtm.RefreshTTL())
 	}
 	s.sess.Blacklist(ctx, identity.JTI, time.Until(accessExp))
-	return wrapErr(s.sess.Delete(ctx, ChannelAdmin, identity.UserID))
+	return wrapErr(s.sess.Delete(ctx, channel, identity.UserID))
 }
 
 // KillUserSessions 使用户全部端会话失效（重置密码/停用/删除时调用）。
 func (s *AuthService) KillUserSessions(ctx context.Context, userID string) {
-	for _, channel := range []string{ChannelAdmin, "mp"} {
+	for _, channel := range []string{ChannelAdmin, ChannelApp, "mp"} {
 		if info, err := s.sess.Get(ctx, channel, userID); err == nil && info != nil {
 			s.sess.Blacklist(ctx, info.TokenID, s.jwtm.AccessTTL())
 			s.sess.Blacklist(ctx, info.RefreshID, s.jwtm.RefreshTTL())
@@ -322,7 +340,7 @@ func buildRouteTree(menus []model.SysMenu, parentID string) []dto.RouteNode {
 }
 
 // issueTokens 签发双令牌并刷新会话。
-func (s *AuthService) issueTokens(ctx context.Context, user *model.SysUser) (*dto.TokenResp, *errs.Error) {
+func (s *AuthService) issueTokens(ctx context.Context, user *model.SysUser, channel string) (*dto.TokenResp, *errs.Error) {
 	access, accessJTI, err := s.jwtm.Generate(user.ID, user.Username, jwtutil.TypeAccess)
 	if err != nil {
 		return nil, errs.ErrInternal
@@ -335,7 +353,7 @@ func (s *AuthService) issueTokens(ctx context.Context, user *model.SysUser) (*dt
 	if len(user.RoleIDs) > 0 {
 		s.db.Model(&model.SysRole{}).Where("id IN ?", []string(user.RoleIDs)).Pluck("code", &roles)
 	}
-	err = s.sess.Save(ctx, ChannelAdmin, user.ID, session.Info{
+	err = s.sess.Save(ctx, channel, user.ID, session.Info{
 		TokenID:   accessJTI,
 		RefreshID: refreshJTI,
 		Name:      user.Name,
@@ -385,12 +403,12 @@ func (s *AuthService) loginFailLimit() int {
 	return 5
 }
 
-// writeLoginLog 写登录日志。
-func (s *AuthService) writeLoginLog(userID *string, username, ip, ua, status, msg string) {
+// writeLoginLog 写登录日志（channel 区分后台/APP/小程序）。
+func (s *AuthService) writeLoginLog(userID *string, username, ip, ua, status, msg, channel string) {
 	rec := model.SysLoginLog{
 		UserID:   userID,
 		Username: username,
-		Channel:  ChannelAdmin,
+		Channel:  channel,
 		IP:       ip,
 		UA:       truncate(ua, 500),
 		Status:   status,

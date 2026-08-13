@@ -1,30 +1,48 @@
 <template>
   <div class="app-container" v-loading="loading">
+    <!-- 问候条 -->
+    <div class="hero-card">
+      <div class="hero-main">
+        <div class="hero-hello">{{ greeting }}，{{ userStore.name || '管理员' }}</div>
+        <div class="hero-sub">欢迎使用安巡云物业巡检管理平台</div>
+      </div>
+      <div class="hero-date">
+        <div class="hero-day">{{ dateText }}</div>
+        <div class="hero-week">{{ weekText }}</div>
+      </div>
+    </div>
+
     <!-- 第一行：统计卡 ×4（可点击下钻） -->
-    <el-row :gutter="16">
+    <el-row :gutter="16" class="block-row">
       <el-col :xs="12" :md="6">
         <div class="stat-card" @click="drill('/inspection/tasks')">
-          <div class="stat-title">今日任务完成率</div>
+          <div class="stat-top">
+            <div class="stat-icon tone-primary"><el-icon :size="22"><CircleCheck /></el-icon></div>
+            <div class="stat-title">今日任务完成率</div>
+          </div>
           <div class="stat-main">
-            <el-progress
-              type="circle"
-              :percentage="data?.today_completion.rate ?? 0"
-              :width="72"
-              :stroke-width="8"
-              :color="CHART_COLORS.primary"
-            />
             <div>
               <div class="stat-value">{{ data?.today_completion.rate ?? '--' }}%</div>
               <div class="stat-desc">
                 已检 {{ data?.today_completion.done ?? 0 }} / 应检 {{ data?.today_completion.total ?? 0 }}
               </div>
             </div>
+            <el-progress
+              type="circle"
+              :percentage="data?.today_completion.rate ?? 0"
+              :width="64"
+              :stroke-width="6"
+              :color="CHART_COLORS.primary"
+            />
           </div>
         </div>
       </el-col>
       <el-col :xs="12" :md="6">
         <div class="stat-card" @click="drill('/inspection/tasks')">
-          <div class="stat-title">进行中任务</div>
+          <div class="stat-top">
+            <div class="stat-icon tone-success"><el-icon :size="22"><Timer /></el-icon></div>
+            <div class="stat-title">进行中任务</div>
+          </div>
           <div class="stat-value">{{ data?.doing_tasks ?? '--' }}</div>
           <div class="stat-desc">实时执行中的任务</div>
         </div>
@@ -32,7 +50,12 @@
       <el-col :xs="12" :md="6">
         <!-- 待处理异常：有值时红色高亮，为 0 时不高亮 -->
         <div class="stat-card" :class="{ highlight: (data?.pending_workorders ?? 0) > 0 }" @click="drill('/workorders/list')">
-          <div class="stat-title">待处理异常</div>
+          <div class="stat-top">
+            <div class="stat-icon" :class="(data?.pending_workorders ?? 0) > 0 ? 'tone-danger' : 'tone-neutral'">
+              <el-icon :size="22"><WarningFilled /></el-icon>
+            </div>
+            <div class="stat-title">待处理异常</div>
+          </div>
           <div class="stat-value" :class="{ danger: (data?.pending_workorders ?? 0) > 0 }">
             {{ data?.pending_workorders ?? '--' }}
           </div>
@@ -41,7 +64,12 @@
       </el-col>
       <el-col :xs="12" :md="6">
         <div class="stat-card" :class="{ highlight: (data?.overdue_tasks ?? 0) > 0 }" @click="drill('/inspection/tasks')">
-          <div class="stat-title">逾期任务</div>
+          <div class="stat-top">
+            <div class="stat-icon" :class="(data?.overdue_tasks ?? 0) > 0 ? 'tone-warning' : 'tone-neutral'">
+              <el-icon :size="22"><AlarmClock /></el-icon>
+            </div>
+            <div class="stat-title">逾期任务</div>
+          </div>
           <div class="stat-value" :class="{ danger: (data?.overdue_tasks ?? 0) > 0 }">
             {{ data?.overdue_tasks ?? '--' }}
           </div>
@@ -119,12 +147,15 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
+import { CircleCheck, Timer, WarningFilled, AlarmClock } from '@element-plus/icons-vue'
 import { getDashboard } from '@/api/dashboard'
 import type { DashboardData } from '@/api/types'
 import Echart from '@/components/Echart.vue'
 import { CHART_COLORS } from '@/utils/echarts'
+import { useUserStore } from '@/store/user'
 
 const router = useRouter()
+const userStore = useUserStore()
 const loading = ref(false)
 const data = ref<DashboardData | null>(null)
 
@@ -140,6 +171,21 @@ onMounted(async () => {
 function drill(path: string) {
   router.push(path)
 }
+
+// ===== 问候条 =====
+const greeting = computed(() => {
+  const h = new Date().getHours()
+  if (h < 6) return '凌晨好'
+  if (h < 9) return '早上好'
+  if (h < 12) return '上午好'
+  if (h < 14) return '中午好'
+  if (h < 18) return '下午好'
+  return '晚上好'
+})
+
+const now = new Date()
+const dateText = `${now.getFullYear()} 年 ${now.getMonth() + 1} 月 ${now.getDate()} 日`
+const weekText = '星期' + '日一二三四五六'[now.getDay()]
 
 // ===== 近 7 天趋势：单系列主色折线 + 10% 面积填充（图表规范 §五） =====
 const trendOption = computed(() => {
@@ -239,21 +285,103 @@ function woStatusType(s: string) {
 </script>
 
 <style scoped lang="scss">
+// ===== 问候条 =====
+.hero-card {
+  background: $color-bg-card;
+  border-radius: $radius-card;
+  padding: $spacing-xl $spacing-xxl;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-left: 4px solid $color-primary;
+
+  .hero-hello {
+    font-size: $font-size-page-title;
+    font-weight: 600;
+    color: $color-text-primary;
+  }
+
+  .hero-sub {
+    font-size: $font-size-body;
+    color: $color-text-secondary;
+    margin-top: $spacing-xs;
+  }
+
+  .hero-date {
+    text-align: right;
+
+    .hero-day {
+      font-size: $font-size-card-title;
+      font-weight: 600;
+      color: $color-text-primary;
+    }
+
+    .hero-week {
+      font-size: $font-size-aux;
+      color: $color-text-secondary;
+      margin-top: $spacing-xs;
+    }
+  }
+}
+
+// ===== 统计卡 =====
 .stat-card {
   background: $color-bg-card;
   border-radius: $radius-card;
   padding: $spacing-lg $spacing-xl;
   cursor: pointer;
   border: 1px solid transparent;
-  transition: border-color 0.2s;
-  min-height: 108px;
+  transition: border-color 0.2s, transform 0.2s;
+  min-height: 128px;
 
   &:hover {
     border-color: $color-primary-hover;
+    transform: translateY(-2px);
   }
 
   &.highlight {
     border-color: $color-danger;
+  }
+
+  .stat-top {
+    display: flex;
+    align-items: center;
+    gap: $spacing-md;
+  }
+
+  .stat-icon {
+    width: 44px;
+    height: 44px;
+    border-radius: $radius-card;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+
+    &.tone-primary {
+      background: $color-primary-light;
+      color: $color-primary;
+    }
+
+    &.tone-success {
+      background: rgba($color-success, 0.1);
+      color: $color-success;
+    }
+
+    &.tone-warning {
+      background: rgba($color-warning, 0.1);
+      color: $color-warning;
+    }
+
+    &.tone-danger {
+      background: rgba($color-danger, 0.1);
+      color: $color-danger;
+    }
+
+    &.tone-neutral {
+      background: $color-bg-page;
+      color: $color-text-secondary;
+    }
   }
 
   .stat-title {
@@ -264,7 +392,7 @@ function woStatusType(s: string) {
   .stat-main {
     display: flex;
     align-items: center;
-    gap: $spacing-lg;
+    justify-content: space-between;
     margin-top: $spacing-sm;
   }
 
@@ -273,11 +401,15 @@ function woStatusType(s: string) {
     font-weight: 600;
     color: $color-text-primary;
     line-height: 1.3;
-    margin: $spacing-sm 0 $spacing-xs;
+    margin: $spacing-md 0 $spacing-xs;
 
     &.danger {
       color: $color-danger;
     }
+  }
+
+  .stat-main .stat-value {
+    margin-top: $spacing-sm;
   }
 
   .stat-desc {
@@ -290,6 +422,7 @@ function woStatusType(s: string) {
   margin-top: $spacing-lg;
 }
 
+// ===== 区块卡 =====
 .block-card {
   background: $color-bg-card;
   border-radius: $radius-card;
@@ -300,6 +433,16 @@ function woStatusType(s: string) {
     display: flex;
     justify-content: space-between;
     align-items: center;
+  }
+
+  .card-title {
+    font-size: $font-size-card-title;
+    font-weight: 600;
+    color: $color-text-primary;
+    margin: 0;
+    padding-left: $spacing-md;
+    border-left: 4px solid $color-primary;
+    line-height: 1.4;
   }
 
   .chart-summary {

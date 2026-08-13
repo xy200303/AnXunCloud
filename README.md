@@ -107,6 +107,8 @@ app 容器由根目录唯一 `Dockerfile` 的 `prod` target 多阶段构建：no
 手动构建示例：`docker build --target prod -t anxuncloud-app .`（dev 镜像对应 `--target backend-dev` / `--target frontend-dev`）。
 后端托管 SPA：只暴露一个端口，`/` 返回前端页面，前端 history 路由刷新不 404，`/api`、`/uploads` 正常走后端。
 
+**构建加速**：Dockerfile 已内置国内镜像源（Go 模块 `goproxy.cn`、npm `npmmirror.com`、apk 阿里云镜像），可用 build-arg 覆盖：`GOPROXY` / `NPM_REGISTRY` / `ALPINE_MIRROR`（如 `--build-arg GOPROXY=direct`）。基础镜像（golang/node/alpine）拉取慢则在服务器 `/etc/docker/daemon.json` 配 `registry-mirrors`（如 `https://docker.m.daocloud.io`）后 `systemctl restart docker`。
+
 ## 本地不用 Docker 的开发方式
 
 ```bash

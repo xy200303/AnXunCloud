@@ -145,16 +145,16 @@
           </el-col>
         </el-row>
 
-        <!-- 坐标：腾讯地图 key 未配置，先手动输入；此处预留地图选点组件位置 -->
+        <!-- 坐标：腾讯地图 key 已配置时支持地图选点，未配置时仅手动输入 -->
         <el-form-item label="坐标">
           <div class="coord-row">
             <el-input-number v-model="form.longitude" :precision="6" :step="0.0001" :min="70" :max="140" placeholder="经度" controls-position="right" />
             <el-input-number v-model="form.latitude" :precision="6" :step="0.0001" :min="3" :max="54" placeholder="纬度" controls-position="right" />
-            <el-tooltip content="地图选点组件将在腾讯地图 key 配置后接入" placement="top">
-              <el-button :icon="MapLocation" disabled>地图选点</el-button>
+            <el-tooltip :content="mapKey ? '打开地图点击选点' : '请先在「系统管理-参数配置」填写 map.tencent_key'" placement="top">
+              <el-button :icon="MapLocation" :disabled="!mapKey" @click="mapPickerVisible = true">地图选点</el-button>
             </el-tooltip>
           </div>
-          <div class="text-secondary">GCJ-02 坐标系；地图选点待腾讯地图 key 配置后开放</div>
+          <div class="text-secondary">{{ mapKey ? 'GCJ-02 坐标系；可点击「地图选点」在地图上拾取坐标' : 'GCJ-02 坐标系；地图选点需先在「系统管理-参数配置」填写 map.tencent_key' }}</div>
         </el-form-item>
 
         <el-form-item label="围栏校验">
@@ -168,16 +168,17 @@
         </el-form-item>
 
         <el-form-item label="围栏半径">
-          <el-slider v-model="form.fence_radius" :min="50" :max="500" :step="10" :disabled="!form.require_fence" show-input />
+          <el-slider v-model="form.fence_radius" :min="50" :max="1000" :step="10" :disabled="!form.require_fence" show-input />
         </el-form-item>
 
         <el-form-item label="点位凭证" prop="credential">
           <el-radio-group v-model="form.credential">
             <el-radio value="qrcode">扫码</el-radio>
             <el-radio value="nfc">NFC</el-radio>
+            <el-radio value="any">任一</el-radio>
             <el-radio value="none">不需要</el-radio>
           </el-radio-group>
-          <div class="text-secondary">凭证用于确认「到的是这个点位」；凭证与围栏至少启用一项</div>
+          <div class="text-secondary">凭证用于确认「到的是这个点位」；任一 = 扫码或 NFC 均可；凭证与围栏至少启用一项</div>
         </el-form-item>
 
         <el-form-item label="检查项模板">
@@ -188,7 +189,7 @@
         </el-form-item>
 
         <el-form-item label="NFC 卡号" prop="nfc_id">
-          <el-input v-model="form.nfc_id" placeholder="选填；点位凭证为 NFC 时必填" style="width: 260px" />
+          <el-input v-model="form.nfc_id" placeholder="选填；凭证为 NFC 时必填，为任一时建议填写" style="width: 260px" />
         </el-form-item>
 
         <el-form-item label="必拍项">
@@ -293,6 +294,15 @@
       </template>
     </el-dialog>
   </div>
+
+  <!-- 地图选点对话框（teleport 到 body，避免受表单弹窗层级影响） -->
+  <MapPickerDialog
+    v-model:visible="mapPickerVisible"
+    :api-key="mapKey"
+    :longitude="form.longitude"
+    :latitude="form.latitude"
+    @confirm="handleMapPick"
+  />
 </template>
 
 <script setup lang="ts">
@@ -306,6 +316,8 @@ import { listPoints, createPoint, updatePoint, deletePoint, generateQrcodes, imp
 import { listTemplates } from '@/api/template'
 import { listCommunityTree } from '@/api/community'
 import { listDictData } from '@/api/dict'
+import { getMapConfig } from '@/api/map'
+import MapPickerDialog from '@/components/MapPickerDialog.vue'
 import { downloadFile } from '@/utils/download'
 import type { PointItem, TemplateItem } from '@/api/biz-types'
 import type { DictData } from '@/api/types'
@@ -389,9 +401,26 @@ function handleReset() {
   handleSearch()
 }
 
+// ===== 地图选点：进入页面拉取地图配置，key 非空才开放选点按钮 =====
+const mapKey = ref('')
+const mapPickerVisible = ref(false)
+
+function handleMapPick(pos: { lng: number; lat: number }) {
+  form.longitude = pos.lng
+  form.latitude = pos.lat
+}
+
+// 拉取地图服务配置（key 为空时「地图选点」保持禁用）；打开表单时也会重新拉，避免配完 key 必须刷新整页
+function refreshMapKey() {
+  getMapConfig().then((d) => {
+    mapKey.value = d.provider === 'tencent' ? d.key : ''
+  }).catch(() => {})
+}
+
 onMounted(() => {
   fetchTree()
   fetchList()
+  refreshMapKey()
   // 点位类型字典
   listDictData({ type_code: 'point_type', page: 1, page_size: 100 }).then((d) => {
     pointTypeOptions.value = d.list.filter((x) => x.status === 1)
@@ -404,7 +433,7 @@ onMounted(() => {
 
 // 打卡方式展示：凭证 + 围栏两个维度组合成一句话
 function checkinModeLabel(p: { credential: string; require_fence: boolean }) {
-  const cred = { qrcode: '扫码', nfc: 'NFC', none: '' }[p.credential] ?? p.credential
+  const cred = { qrcode: '扫码', nfc: 'NFC', any: '任一', none: '' }[p.credential] ?? p.credential
   if (p.credential === 'none') return p.require_fence ? '围栏' : '--'
   return p.require_fence ? `${cred}+围栏` : cred
 }
@@ -465,6 +494,7 @@ function buildCascader() {
 
 function openForm(row?: PointItem) {
   buildCascader()
+  refreshMapKey() // 每次打开表单都取最新 key（参数配置里刚填的立即生效）
   formRef.value?.clearValidate()
   if (row) {
     Object.assign(form, {
@@ -589,10 +619,10 @@ const templateFields = [
   { field: '点位名称', required: '*', rule: '同楼栋下不可重名' },
   { field: '点位类型', required: '*', rule: '须为字典 point_type 中的类型（标签或值均可）' },
   { field: '检查项模板', required: '—', rule: '选填，须为启用中的模板名称' },
-  { field: 'NFC卡号', required: '—', rule: '选填；打卡方式为 NFC 时必填' },
+  { field: 'NFC卡号', required: '—', rule: '选填；打卡方式为 NFC 时必填，为任一时建议填写' },
   { field: '经度/纬度', required: '*', rule: 'GCJ-02 坐标系，如 120.212001 / 30.208112' },
   { field: '围栏半径(米)', required: '—', rule: '选填，10–2000 整数，默认取系统参数' },
-  { field: '打卡方式', required: '—', rule: '扫码 / NFC / 围栏 / 扫码+围栏 / NFC+围栏，默认扫码+围栏' },
+  { field: '打卡方式', required: '—', rule: '扫码 / NFC / 任一 / 围栏 / 扫码+围栏 / NFC+围栏 / 任一+围栏，默认扫码+围栏' },
   { field: '必拍项', required: '—', rule: '选填，多个用英文逗号分隔，如：器材全景,铭牌' },
   { field: '状态', required: '—', rule: '启用 / 停用，默认启用' }
 ]

@@ -93,7 +93,24 @@
           <el-input v-model="form.title" maxlength="64" show-word-limit placeholder="公告标题" />
         </el-form-item>
         <el-form-item label="内容" prop="content">
-          <el-input v-model="form.content" type="textarea" :rows="6" placeholder="公告正文（纯文本）" />
+          <el-input v-model="form.content" type="textarea" :rows="6" placeholder="公告正文（纯文本，http(s) 链接在 App 端自动识别为可点链接）" />
+        </el-form-item>
+        <el-form-item label="附件">
+          <div class="attach-area">
+            <div v-for="(att, i) in form.attachments" :key="i" class="attach-item">
+              <el-icon><Paperclip /></el-icon>
+              <span class="attach-name" :title="att.name">{{ att.name }}</span>
+              <el-icon class="attach-del" @click="form.attachments.splice(i, 1)"><Close /></el-icon>
+            </div>
+            <el-upload
+              :show-file-list="false"
+              :http-request="handleAttachUpload"
+              accept=".jpg,.jpeg,.png,.gif,.webp,.heic,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.zip"
+            >
+              <el-button size="small" :loading="attachUploading" :icon="Upload">上传附件</el-button>
+            </el-upload>
+            <div class="attach-tip">支持图片（jpg/png/gif/webp 等）与常见文档（pdf/word/excel/ppt/txt/zip），App 端公告详情页展示</div>
+          </div>
         </el-form-item>
       </el-form>
       <template #footer>
@@ -118,11 +135,12 @@
 
 <script setup lang="ts">
 import { onMounted, reactive, ref } from 'vue'
-import { ElMessage, ElMessageBox, type FormInstance, type FormRules } from 'element-plus'
-import { Search, Refresh, Plus, RefreshRight, ArrowDown } from '@element-plus/icons-vue'
+import { ElMessage, ElMessageBox, type FormInstance, type FormRules, type UploadRequestOptions } from 'element-plus'
+import { Search, Refresh, Plus, RefreshRight, ArrowDown, Paperclip, Close, Upload } from '@element-plus/icons-vue'
 import { listNotices, createNotice, updateNotice, deleteNotice } from '@/api/notice'
+import { uploadImage, fileUrl } from '@/api/upload'
 import { useUserStore } from '@/store/user'
-import type { NoticeItem } from '@/api/biz-types'
+import type { NoticeAttachment, NoticeItem } from '@/api/biz-types'
 
 const userStore = useUserStore()
 const loading = ref(false)
@@ -162,7 +180,7 @@ onMounted(fetchList)
 const formVisible = ref(false)
 const submitting = ref(false)
 const formRef = ref<FormInstance>()
-const form = reactive({ id: '', title: '', content: '' })
+const form = reactive({ id: '', title: '', content: '', attachments: [] as NoticeAttachment[] })
 
 const formRules: FormRules = {
   title: [{ required: true, message: '请输入标题', trigger: 'blur' }],
@@ -171,8 +189,26 @@ const formRules: FormRules = {
 
 function openForm(row?: NoticeItem) {
   formRef.value?.clearValidate()
-  Object.assign(form, row ? { id: row.id, title: row.title, content: row.content } : { id: '', title: '', content: '' })
+  Object.assign(form, row
+    ? { id: row.id, title: row.title, content: row.content, attachments: (row.attachments || []).map(a => ({ ...a })) }
+    : { id: '', title: '', content: '', attachments: [] })
   formVisible.value = true
+}
+
+// ===== 附件上传（走管理端 /system/upload，scene=notice） =====
+const attachUploading = ref(false)
+
+async function handleAttachUpload(opt: UploadRequestOptions) {
+  attachUploading.value = true
+  try {
+    const file = opt.file as File
+    const { file_key, url } = await uploadImage(file, 'notice')
+    form.attachments.push({ name: file.name, url: url || fileUrl(file_key) })
+  } catch {
+    ElMessage.warning('附件上传失败，请重试')
+  } finally {
+    attachUploading.value = false
+  }
 }
 
 async function handleSubmit(status: 0 | 1) {
@@ -188,11 +224,12 @@ async function handleSubmit(status: 0 | 1) {
   }
   submitting.value = true
   try {
+    const payload = { title: form.title, content: form.content, status, attachments: form.attachments }
     if (form.id) {
-      await updateNotice(form.id, { title: form.title, content: form.content, status })
+      await updateNotice(form.id, payload)
       ElMessage.success(status === 1 ? '已发布并推送' : '草稿已保存')
     } else {
-      await createNotice({ title: form.title, content: form.content, status })
+      await createNotice(payload)
       ElMessage.success(status === 1 ? '已发布并推送' : '草稿已保存')
     }
     formVisible.value = false
@@ -203,13 +240,14 @@ async function handleSubmit(status: 0 | 1) {
 }
 
 // ===== 行内操作：发布/下线/删除 =====
+// 注意：后端 Update 的 title/content 为必填校验，行内状态变更需携带原值
 async function handleRowCommand(cmd: string, row: NoticeItem) {
   if (cmd === 'publish') {
     const ok = await ElMessageBox.confirm('发布后将推送至巡检员小程序消息页，确定发布吗？', '发布确认', {
       confirmButtonText: '发布', cancelButtonText: '取消', type: 'warning'
     }).then(() => true).catch(() => false)
     if (!ok) return
-    await updateNotice(row.id, { status: 1 })
+    await updateNotice(row.id, { title: row.title, content: row.content, attachments: row.attachments || [], status: 1 })
     ElMessage.success('已发布')
     fetchList()
   } else if (cmd === 'offline') {
@@ -217,7 +255,7 @@ async function handleRowCommand(cmd: string, row: NoticeItem) {
       confirmButtonText: '下线', cancelButtonText: '取消', type: 'warning'
     }).then(() => true).catch(() => false)
     if (!ok) return
-    await updateNotice(row.id, { status: 2 })
+    await updateNotice(row.id, { title: row.title, content: row.content, attachments: row.attachments || [], status: 2 })
     ElMessage.success('已下线')
     fetchList()
   } else if (cmd === 'delete') {
@@ -244,6 +282,45 @@ function openPreview(row: NoticeItem) {
 <style scoped lang="scss">
 .danger-text {
   color: $color-danger;
+}
+
+/* 附件区 */
+.attach-area {
+  width: 100%;
+
+  .attach-item {
+    display: flex;
+    align-items: center;
+    gap: $spacing-xs;
+    padding: 4px 8px;
+    margin-bottom: 4px;
+    background: $color-bg-page;
+    border-radius: $radius-card;
+    color: $color-text-regular;
+    font-size: $font-size-body;
+
+    .attach-name {
+      flex: 1;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .attach-del {
+      cursor: pointer;
+      color: $color-text-secondary;
+
+      &:hover {
+        color: $color-danger;
+      }
+    }
+  }
+
+  .attach-tip {
+    margin-top: 4px;
+    font-size: $font-size-aux;
+    color: $color-text-secondary;
+  }
 }
 
 /* 操作列：链接按钮与下拉按钮纵向居中对齐 */

@@ -23,6 +23,11 @@ export default defineConfig({
   server: {
     port: 5180,
     strictPort: true,
+    watch: {
+      // Docker Desktop 挂载 Windows 目录时 inotify 事件不传递，必须轮询才能热更新
+      usePolling: true,
+      interval: 1000
+    },
     proxy: {
       '/api': {
         // 默认代理本地后端；docker dev 环境经 VITE_PROXY_TARGET 指向 backend 容器

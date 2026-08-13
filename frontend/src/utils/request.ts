@@ -59,7 +59,7 @@ service.interceptors.response.use(
       // 统一收敛为 data 部分，api 层直接拿到业务数据
       return res.data
     }
-    handleBizError(res.code, res.message)
+    handleBizError(res.code, res.message, !!(response.config as any).silent)
     return Promise.reject(new Error(res.message || '请求失败'))
   },
   (error: AxiosError<ApiResult>) => {
@@ -77,7 +77,7 @@ service.interceptors.response.use(
     }
     const res = error.response?.data
     if (res && typeof res.code === 'number') {
-      handleBizError(res.code, res.message)
+      handleBizError(res.code, res.message, !!(error.config as any)?.silent)
     } else if (error.code === 'ECONNABORTED') {
       ElMessage.error('请求超时，请稍后重试')
     } else {
@@ -87,14 +87,15 @@ service.interceptors.response.use(
   }
 )
 
-function handleBizError(code: number, message?: string) {
+function handleBizError(code: number, message?: string, silent = false) {
   // 认证类错误：跳登录
   if (code === 40101 || code === 40102 || code === 40103 || code === 40104) {
     ElMessage.error(message || '登录状态已失效，请重新登录')
     toLogin()
     return
   }
-  ElMessage.error(message || '操作失败，请稍后重试')
+  // silent：调用方自行展示错误（如地图选点面板内提示），不再全局 toast
+  if (!silent) ElMessage.error(message || '操作失败，请稍后重试')
 }
 
 // 泛型请求：返回 data 部分

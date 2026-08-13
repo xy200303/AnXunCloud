@@ -323,11 +323,17 @@ export interface PerformanceItem {
 }
 
 // ===== 通知公告 =====
+export interface NoticeAttachment {
+  name: string
+  url: string
+}
+
 export interface NoticeItem {
   id: string
   title: string
   content: string
   status: number // 0 草稿 / 1 已发布 / 2 已下线
+  attachments: NoticeAttachment[]
   publish_at: string | null
   created_by: string
   created_at: string

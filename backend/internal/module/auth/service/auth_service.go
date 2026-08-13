@@ -157,8 +157,8 @@ func (s *AuthService) RefreshChannel(ctx context.Context, channel, refreshToken 
 	if black {
 		return nil, errs.ErrRefreshInvalid
 	}
-	sessInfo, err := s.sess.Get(ctx, channel, claims.UserID)
-	if err != nil || sessInfo == nil || sessInfo.RefreshID != claims.ID {
+	sessInfo, err := s.sess.GetByRefresh(ctx, channel, claims.UserID, claims.ID)
+	if err != nil || sessInfo == nil {
 		return nil, errs.ErrRefreshInvalid
 	}
 	var user model.SysUser
@@ -178,24 +178,28 @@ func (s *AuthService) Logout(ctx context.Context, identity *middleware.Identity,
 	return s.LogoutChannel(ctx, identity, accessExp, ChannelAdmin)
 }
 
-// LogoutChannel 按渠道注销会话。
+// LogoutChannel 按渠道注销会话（只退出当前登录点，其他端会话不受影响）。
 func (s *AuthService) LogoutChannel(ctx context.Context, identity *middleware.Identity, accessExp time.Time, channel string) *errs.Error {
-	sessInfo, err := s.sess.Get(ctx, channel, identity.UserID)
+	sessInfo, err := s.sess.Get(ctx, channel, identity.UserID, identity.JTI)
 	if err == nil && sessInfo != nil {
 		s.sess.Blacklist(ctx, sessInfo.RefreshID, s.jwtm.RefreshTTL())
 	}
 	s.sess.Blacklist(ctx, identity.JTI, time.Until(accessExp))
-	return wrapErr(s.sess.Delete(ctx, channel, identity.UserID))
+	return wrapErr(s.sess.Delete(ctx, channel, identity.UserID, identity.JTI))
 }
 
-// KillUserSessions 使用户全部端会话失效（重置密码/停用/删除时调用）。
+// KillUserSessions 使用户全部端全部登录点会话失效（重置密码/停用/删除时调用）。
 func (s *AuthService) KillUserSessions(ctx context.Context, userID string) {
 	for _, channel := range []string{ChannelAdmin, ChannelApp, "mp"} {
-		if info, err := s.sess.Get(ctx, channel, userID); err == nil && info != nil {
+		infos, err := s.sess.List(ctx, channel, userID)
+		if err != nil {
+			continue
+		}
+		for _, info := range infos {
 			s.sess.Blacklist(ctx, info.TokenID, s.jwtm.AccessTTL())
 			s.sess.Blacklist(ctx, info.RefreshID, s.jwtm.RefreshTTL())
-			s.sess.Delete(ctx, channel, userID)
 		}
+		s.sess.DeleteAll(ctx, channel, userID)
 	}
 }
 

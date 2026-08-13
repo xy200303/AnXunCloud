@@ -81,9 +81,9 @@ func Auth(db *gorm.DB, sess *session.Store, jwtm *jwtutil.Manager, channel strin
 			response.Fail(c, errs.ErrUnauthorized)
 			return
 		}
-		// 会话存活校验（登出即删会话，旧 token 随之失效）
-		sessInfo, err := sess.Get(c.Request.Context(), channel, claims.UserID)
-		if err != nil || sessInfo == nil || sessInfo.TokenID != claims.ID {
+		// 会话存活校验（按 access jti 精确匹配当前登录点；登出即删会话，旧 token 随之失效）
+		sessInfo, err := sess.Get(c.Request.Context(), channel, claims.UserID, claims.ID)
+		if err != nil || sessInfo == nil {
 			response.Fail(c, errs.ErrUnauthorized)
 			return
 		}

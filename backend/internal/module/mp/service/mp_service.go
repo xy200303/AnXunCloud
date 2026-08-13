@@ -243,8 +243,8 @@ func (s *MPService) Refresh(ctx context.Context, refreshToken string) (gin.H, *e
 	if black {
 		return nil, errs.ErrRefreshInvalid
 	}
-	sessInfo, err := s.sess.Get(ctx, ChannelMP, claims.UserID)
-	if err != nil || sessInfo == nil || sessInfo.RefreshID != claims.ID {
+	sessInfo, err := s.sess.GetByRefresh(ctx, ChannelMP, claims.UserID, claims.ID)
+	if err != nil || sessInfo == nil {
 		return nil, errs.ErrRefreshInvalid
 	}
 	var user sysmodel.SysUser

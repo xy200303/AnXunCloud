@@ -6,10 +6,10 @@
       <div class="brand-deco deco-bl"></div>
       <div class="brand-inner">
         <div class="brand-logo">
-          <el-icon :size="28"><OfficeBuilding /></el-icon>
+          <img src="/brand/anxuncloud-mark-reverse.svg" alt="安巡云" />
         </div>
         <h1 class="brand-name">安巡云</h1>
-        <p class="brand-slogan">物业巡检管理平台</p>
+        <p class="brand-slogan">ANXUNCLOUD · 物业巡检管理平台</p>
         <div class="brand-divider"></div>
         <ul class="brand-points">
           <li><el-icon :size="15"><CircleCheck /></el-icon><span>巡检计划与任务执行监控</span></li>
@@ -17,7 +17,7 @@
           <li><el-icon :size="15"><CircleCheck /></el-icon><span>异常工单闭环处理</span></li>
         </ul>
       </div>
-      <p class="brand-footer">安巡云 AnxunCloud · 让每一次巡检都有据可查</p>
+      <p class="brand-footer">安巡云 AnxunCloud · 物业巡检管理平台</p>
     </div>
 
     <!-- 右侧登录表单 -->
@@ -63,7 +63,7 @@
 import { onMounted, reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, type FormInstance, type FormRules } from 'element-plus'
-import { User, Lock, OfficeBuilding, CircleCheck } from '@element-plus/icons-vue'
+import { User, Lock, CircleCheck } from '@element-plus/icons-vue'
 import { useUserStore } from '@/store/user'
 import { getRegisterConfig } from '@/api/auth'
 
@@ -122,7 +122,7 @@ async function handleLogin() {
   flex-shrink: 0;
   position: relative;
   overflow: hidden;
-  background: linear-gradient(155deg, $color-sidebar 0%, $color-primary-active 55%, $color-primary 100%);
+  background: linear-gradient(155deg, #14263d 0%, $color-sidebar 54%, $color-primary-active 100%);
   color: $color-white;
   display: flex;
   flex-direction: column;
@@ -159,35 +159,35 @@ async function handleLogin() {
   }
 
   .brand-logo {
-    width: 56px;
-    height: 56px;
-    border-radius: $radius-card;
-    background: rgba(255, 255, 255, 0.14);
-    border: 1px solid rgba(255, 255, 255, 0.25);
-    display: flex;
-    align-items: center;
-    justify-content: center;
+    width: 76px;
+    height: 76px;
+
+    img {
+      display: block;
+      width: 100%;
+      height: 100%;
+    }
   }
 
   .brand-name {
+    margin: 18px 0 4px;
     font-size: 34px;
     font-weight: 600;
-    margin: $spacing-xl 0 $spacing-xs;
-    letter-spacing: 4px;
+    letter-spacing: 8px;
   }
 
   .brand-slogan {
-    font-size: $font-size-card-title;
-    opacity: 0.8;
     margin: 0;
-    letter-spacing: 2px;
+    color: rgba(247, 250, 255, 0.72);
+    font-size: 13px;
+    letter-spacing: 1.5px;
   }
 
   .brand-divider {
     width: 40px;
     height: 3px;
     border-radius: 2px;
-    background: rgba(255, 255, 255, 0.5);
+    background: #c8a56b;
     margin: $spacing-xxl 0;
   }
 

@@ -2,10 +2,7 @@
   <view class="page" :style="{ backgroundColor: colors.bgPage, paddingTop: statusPadTop }">
     <!-- 品牌区 -->
     <view class="brand">
-      <view class="logo" :style="{ backgroundColor: colors.primary }">
-        <text class="logo-text" :style="{ color: colors.white }">安</text>
-      </view>
-      <text class="brand-title" :style="{ color: colors.textPrimary }">安巡云 · 移动巡检</text>
+      <image class="logo" src="/static/brand/anxuncloud-lockup.png" mode="aspectFit" />
     </view>
 
     <!-- 登录表单 -->
@@ -290,22 +287,8 @@ export default {
 }
 
 .logo {
-  width: 128rpx;
-  height: 128rpx;
-  border-radius: 32rpx;
-  align-items: center;
-  justify-content: center;
-  margin-bottom: 24rpx;
-}
-
-.logo-text {
-  font-size: 64rpx;
-  font-weight: bold;
-}
-
-.brand-title {
-  font-size: 40rpx; /* FontSize.title */
-  font-weight: 600;
+  width: 480rpx;
+  height: 203rpx; /* lockup 比例 1514:640 ≈ 2.37:1 */
 }
 
 .form {

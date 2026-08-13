@@ -2,7 +2,7 @@
   <div class="layout-wrapper" :class="{ collapsed: appStore.sidebarCollapsed }">
     <aside class="sidebar">
       <div class="logo">
-        <el-icon :size="22" class="logo-icon"><OfficeBuilding /></el-icon>
+        <img class="logo-icon" src="/brand/anxuncloud-mark-reverse.svg" alt="安巡云" />
         <span v-show="!appStore.sidebarCollapsed" class="logo-text">安巡云</span>
       </div>
       <el-scrollbar class="menu-scroll">
@@ -32,7 +32,6 @@ import { computed } from 'vue'
 import { useRoute } from 'vue-router'
 import { useAppStore } from '@/store/app'
 import { usePermissionStore } from '@/store/permission'
-import { OfficeBuilding } from '@element-plus/icons-vue'
 import SidebarItem from './components/SidebarItem.vue'
 import Navbar from './components/Navbar.vue'
 import TagsView from './components/TagsView.vue'
@@ -72,13 +71,16 @@ const activeMenu = computed(() => route.path)
     flex-shrink: 0;
 
     .logo-icon {
-      color: $color-primary-hover;
+      width: 34px;
+      height: 34px;
       flex-shrink: 0;
     }
 
     .logo-text {
-      font-size: $font-size-card-title;
+      color: #f7f3eb;
+      font-size: 17px;
       font-weight: 600;
+      letter-spacing: 5px;
       white-space: nowrap;
     }
   }

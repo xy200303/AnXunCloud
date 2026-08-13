@@ -71,7 +71,7 @@
 | `UPLOAD_MAX_FILE_SIZE` | 单文件上限（字节） | 20971520 | 否 |
 | `OSS_*`（ACCESS_KEY_ID/SECRET/ROLE_ARN/BUCKET/ENDPOINT/EXPIRE_SECONDS） | 阿里云 OSS + STS 配置 | 空 | oss 模式必填 |
 | `WATERMARK_FONT_PATH` | 水印中文字体路径（TTF） | 仓库自带 `backend/fonts/NotoSansSC.ttf`，容器内固定 `/app/fonts/NotoSansSC.ttf` | 否 |
-| `WATERMARK_LOGO_PATH` | 二维码标牌 LOGO 路径（PNG） | 仓库自带 `backend/assets/logo.png`（默认「安」字图标，替换为公司 LOGO 即可），容器内固定 `/app/assets/logo.png`；文件缺失时自动跳过 LOGO | 否 |
+| `WATERMARK_LOGO_PATH` | 二维码标牌 LOGO 路径（PNG） | 仓库自带 `backend/assets/logo.png`（安巡云品牌图形标），容器内固定 `/app/assets/logo.png`；文件缺失时自动跳过 LOGO | 否 |
 | `SPA_DIST_PATH` | 生产 SPA 托管目录（非 /api、/uploads 路径 fallback index.html） | 空（不启用） | prod 必填 |
 
 ## 快速开始（Docker）

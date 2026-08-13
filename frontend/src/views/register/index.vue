@@ -2,19 +2,22 @@
   <div class="register-page">
     <!-- 左侧品牌区（与登录页一致，窄屏隐藏） -->
     <div class="brand-panel">
+      <div class="brand-deco deco-tr"></div>
+      <div class="brand-deco deco-bl"></div>
       <div class="brand-inner">
         <div class="brand-logo">
-          <el-icon :size="30"><OfficeBuilding /></el-icon>
+          <el-icon :size="28"><OfficeBuilding /></el-icon>
         </div>
         <h1 class="brand-name">安巡云</h1>
         <p class="brand-slogan">物业巡检管理平台</p>
+        <div class="brand-divider"></div>
         <ul class="brand-points">
-          <li>巡检计划与任务执行监控</li>
-          <li>扫码 / NFC / GPS 围栏打卡</li>
-          <li>异常工单闭环处理</li>
+          <li><el-icon :size="15"><CircleCheck /></el-icon><span>巡检计划与任务执行监控</span></li>
+          <li><el-icon :size="15"><CircleCheck /></el-icon><span>扫码 / NFC / GPS 围栏打卡</span></li>
+          <li><el-icon :size="15"><CircleCheck /></el-icon><span>异常工单闭环处理</span></li>
         </ul>
       </div>
-      <p class="brand-footer">安巡云 AnxunCloud</p>
+      <p class="brand-footer">安巡云 AnxunCloud · 让每一次巡检都有据可查</p>
     </div>
 
     <!-- 右侧注册表单 -->
@@ -70,7 +73,7 @@
 import { onMounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, type FormInstance, type FormRules } from 'element-plus'
-import { User, Lock, Postcard, Iphone, OfficeBuilding } from '@element-plus/icons-vue'
+import { User, Lock, Postcard, Iphone, OfficeBuilding, CircleCheck } from '@element-plus/icons-vue'
 import { getRegisterConfig, register } from '@/api/auth'
 
 const router = useRouter()
@@ -154,67 +157,100 @@ async function handleRegister() {
 
 // ===== 左侧品牌区（与登录页一致） =====
 .brand-panel {
-  width: 420px;
+  width: 440px;
   flex-shrink: 0;
-  background: linear-gradient(160deg, $color-primary-active 0%, $color-primary 60%, $color-primary-hover 100%);
+  position: relative;
+  overflow: hidden;
+  background: linear-gradient(155deg, $color-sidebar 0%, $color-primary-active 55%, $color-primary 100%);
   color: $color-white;
   display: flex;
   flex-direction: column;
-  justify-content: space-between;
-  padding: 64px 48px 32px;
+  justify-content: center;
+  padding: 0 56px;
+
+  // 装饰光圈（右上 / 左下，纯装饰不响应事件）
+  .brand-deco {
+    position: absolute;
+    border-radius: 50%;
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    pointer-events: none;
+  }
+
+  .deco-tr {
+    width: 340px;
+    height: 340px;
+    top: -120px;
+    right: -120px;
+    box-shadow: 0 0 0 40px rgba(255, 255, 255, 0.04), 0 0 0 90px rgba(255, 255, 255, 0.03);
+  }
+
+  .deco-bl {
+    width: 260px;
+    height: 260px;
+    bottom: -100px;
+    left: -100px;
+    box-shadow: 0 0 0 36px rgba(255, 255, 255, 0.04);
+  }
+
+  .brand-inner {
+    position: relative;
+    z-index: 1;
+  }
 
   .brand-logo {
     width: 56px;
     height: 56px;
     border-radius: $radius-card;
-    background: rgba(255, 255, 255, 0.16);
+    background: rgba(255, 255, 255, 0.14);
+    border: 1px solid rgba(255, 255, 255, 0.25);
     display: flex;
     align-items: center;
     justify-content: center;
   }
 
   .brand-name {
-    font-size: 30px;
+    font-size: 34px;
     font-weight: 600;
-    margin: $spacing-lg 0 $spacing-xs;
-    letter-spacing: 2px;
+    margin: $spacing-xl 0 $spacing-xs;
+    letter-spacing: 4px;
   }
 
   .brand-slogan {
     font-size: $font-size-card-title;
-    opacity: 0.85;
+    opacity: 0.8;
     margin: 0;
-    letter-spacing: 1px;
+    letter-spacing: 2px;
+  }
+
+  .brand-divider {
+    width: 40px;
+    height: 3px;
+    border-radius: 2px;
+    background: rgba(255, 255, 255, 0.5);
+    margin: $spacing-xxl 0;
   }
 
   .brand-points {
-    margin: 48px 0 0;
+    margin: 0;
     padding: 0;
     list-style: none;
 
     li {
+      display: flex;
+      align-items: center;
+      gap: 10px;
       font-size: $font-size-body;
-      opacity: 0.85;
-      line-height: 2.2;
-      padding-left: 20px;
-      position: relative;
-
-      &::before {
-        content: '';
-        position: absolute;
-        left: 0;
-        top: 14px;
-        width: 6px;
-        height: 6px;
-        border-radius: 50%;
-        background: rgba(255, 255, 255, 0.7);
-      }
+      opacity: 0.9;
+      line-height: 2.4;
     }
   }
 
   .brand-footer {
+    position: absolute;
+    left: 56px;
+    bottom: 28px;
     font-size: $font-size-aux;
-    opacity: 0.6;
+    opacity: 0.55;
     margin: 0;
   }
 }

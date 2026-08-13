@@ -1,5 +1,5 @@
 import { apiPointByCode } from '@/services/api'
-import { isNfcSupported, readNdefOnce } from '@/utils/nfc'
+import { isNfcSupported, readNdefOnce, toastNfcUnavailable } from '@/utils/nfc'
 
 let scanning = false
 
@@ -59,7 +59,7 @@ function doScan() {
  */
 function doNfc() {
   if (!isNfcSupported()) {
-    uni.showToast({ title: 'NFC 打卡接入中', icon: 'none' })
+    toastNfcUnavailable()
     return
   }
   uni.showLoading({ title: '请贴近 NFC 标签', mask: true })

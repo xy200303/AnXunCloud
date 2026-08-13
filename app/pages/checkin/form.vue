@@ -164,7 +164,7 @@
 import { Colors, ColorTokens } from '@/utils/theme'
 import { apiTaskDetail, apiCheckin, apiUploadLocal, TaskPoint, CheckinResult, CheckinReqPayload } from '@/services/api'
 import { burnWatermark } from '@/utils/watermark'
-import { isNfcSupported, readNdefOnce } from '@/utils/nfc'
+import { isNfcSupported, readNdefOnce, toastNfcUnavailable } from '@/utils/nfc'
 import { enqueueOfflineCheckin, uuidv7, NETWORK_ERR_PREFIX, OfflinePhoto } from '@/utils/offline'
 import { useAuthStore } from '@/stores/auth'
 
@@ -391,7 +391,7 @@ export default {
     },
     nfcTap() {
       if (!isNfcSupported()) {
-        uni.showToast({ title: 'NFC 打卡接入中', icon: 'none' })
+        toastNfcUnavailable()
         return
       }
       uni.showLoading({ title: '请贴近 NFC 标签', mask: true })

@@ -28,10 +28,12 @@
           placeholder-class="input-ph"
           :password="!showPwd"
         />
-        <!-- TODO(图标): 明文切换暂用文字，后续换眼睛图标资源 -->
-        <text class="pwd-toggle" :style="{ color: colors.primary }" @click="togglePwd">
-          {{ pwdToggleText }}
-        </text>
+        <image
+          class="pwd-toggle"
+          :src="showPwd ? '/static/icons/eye-off.png' : '/static/icons/eye.png'"
+          mode="aspectFit"
+          @click="togglePwd"
+        />
       </view>
 
       <!-- 错误内联提示（按钮上方，不用 Toast） -->
@@ -60,7 +62,8 @@
       TODO(M5 前): 申请微信开放平台移动应用 AppID / 小程序 AppID 后接入。
     -->
     <view class="btn-wechat" :style="{ borderColor: colors.border }" @click="onWechatLogin">
-      <text class="btn-wechat-text" :style="{ color: colors.textRegular }">微信登录（待接入）</text>
+      <image class="btn-wechat-icon" src="/static/icons/wechat.png" mode="aspectFit" />
+      <text class="btn-wechat-text" :style="{ color: colors.textRegular }">微信登录</text>
     </view>
 
     <!-- 注册入口：仅当后端开关 auth.register_enabled 开启时显示 -->
@@ -173,9 +176,6 @@ export default {
     /** 状态栏占位高度（模板不做字符串拼接） */
     statusPadTop(): string {
       return `${this.statusBarH}px`
-    },
-    pwdToggleText(): string {
-      return this.showPwd ? '隐藏' : '显示'
     },
     loginBtnColor(): string {
       return this.loading ? Colors.info : Colors.primary
@@ -342,7 +342,8 @@ export default {
 }
 
 .pwd-toggle {
-  font-size: 26rpx; /* FontSize.caption */
+  width: 36rpx;
+  height: 36rpx;
   padding: 16rpx 8rpx;
 }
 
@@ -386,8 +387,15 @@ export default {
   height: 96rpx;
   border-radius: 20rpx;
   border-width: 1rpx;
+  flex-direction: row;
   align-items: center;
   justify-content: center;
+}
+
+.btn-wechat-icon {
+  width: 40rpx;
+  height: 40rpx;
+  margin-right: 12rpx;
 }
 
 .btn-wechat-text {

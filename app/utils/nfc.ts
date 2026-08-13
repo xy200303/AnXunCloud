@@ -118,6 +118,33 @@ export function isNfcSupported(): boolean {
 }
 
 /**
+ * NFC 不可用原因：'no-plugin' 当前安装包/基座未集成插件（标准基座运行开发包常见）；
+ * 'unsupported' 设备不支持或未开启；'ok' 可用。
+ */
+export function nfcUnavailReason(): string {
+  // #ifdef APP-PLUS
+  try {
+    return HlNfc.isNfcSupported() ? 'ok' : 'unsupported'
+  } catch (_e) {
+    return 'no-plugin'
+  }
+  // #endif
+  // #ifndef APP-PLUS
+  return 'unsupported'
+  // #endif
+}
+
+/** NFC 不可用时给出准确提示（替代笼统的「接入中」） */
+export function toastNfcUnavailable() {
+  const r = nfcUnavailReason()
+  if (r == 'no-plugin') {
+    uni.showToast({ title: '当前安装包未集成 NFC 插件，请使用自定义基座运行', icon: 'none' })
+    return
+  }
+  uni.showToast({ title: '设备不支持 NFC 或未开启', icon: 'none' })
+}
+
+/**
  * 单次读取（iOS 主路径：用户点按钮 → 系统扫描面板；Android/鸿蒙用于表单内手动校验）。
  * cb(res, errMsg)：res.code 为 NDEF 文本（点位编号），res.cardId 为卡片 UID。
  * 用户取消/超时也会通过 cb(null, 原因) 回调。

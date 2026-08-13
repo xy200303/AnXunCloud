@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android" xmlns:tools="http://schemas.android.com/tools"
+    package="uts.sdk.modules.hlNfccaseUts">
+    
+    <!-- NFC 权限/能力声明 -->
+    <uses-permission android:name="android.permission.NFC" />
+    <!-- 可选：不强制要求设备必须有 NFC（避免无 NFC 设备安装失败） -->
+    <uses-feature android:name="android.hardware.nfc" android:required="false" />
+
+    <application>
+        <!--
+          NFC 分发接收 Activity：
+          - 负责在“App 后台/冷启动”时接到系统 NFC Intent
+          - 解析 tag 信息后缓存起来（供 UTS 接口 getPendingTagSync() 读取）
+          - 再拉起/切到 App 主界面（由 App 自己在前端做页面跳转）
+        -->
+        <activity
+            android:name="uts.sdk.modules.hlNfccaseUts.NfcDispatchActivity"
+            android:exported="true"
+            android:excludeFromRecents="true"
+            android:launchMode="singleTask"
+            android:taskAffinity=""
+            android:theme="@android:style/Theme.Translucent.NoTitleBar">
+
+            <intent-filter android:priority="999">
+                <action android:name="android.nfc.action.TECH_DISCOVERED" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+
+            <intent-filter android:priority="999">
+                <action android:name="android.nfc.action.TAG_DISCOVERED" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+
+            <meta-data
+                android:name="android.nfc.action.TECH_DISCOVERED"
+                android:resource="@xml/hl_nfc_tech_filter" />
+        </activity>
+    </application>
+</manifest>

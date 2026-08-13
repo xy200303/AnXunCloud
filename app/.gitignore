@@ -1,0 +1,8 @@
+# uni-app x 编译产物
+unpackage/
+
+# HBuilderX 本地缓存
+.hbuilderx/
+
+# 依赖（如使用 CLI 工程）
+node_modules/

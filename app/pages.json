@@ -1,0 +1,119 @@
+{
+  "pages": [
+    {
+      "path": "pages/tasks/today",
+      "style": {
+        "navigationBarTitleText": "今日任务",
+        "enablePullDownRefresh": true
+      }
+    },
+    {
+      "path": "pages/workorders/list",
+      "style": {
+        "navigationBarTitleText": "工单",
+        "enablePullDownRefresh": true
+      }
+    },
+    {
+      "path": "pages/workorders/detail",
+      "style": {
+        "navigationBarTitleText": "工单详情"
+      }
+    },
+    {
+      "path": "pages/messages/index",
+      "style": {
+        "navigationBarTitleText": "消息",
+        "enablePullDownRefresh": true
+      }
+    },
+    {
+      "path": "pages/messages/notice-detail",
+      "style": {
+        "navigationBarTitleText": "公告详情"
+      }
+    },
+    {
+      "path": "pages/profile/index",
+      "style": {
+        "navigationBarTitleText": "我的"
+      }
+    },
+    {
+      "path": "pages/login/index",
+      "style": {
+        "navigationBarTitleText": "登录",
+        "navigationStyle": "custom"
+      }
+    },
+    {
+      "path": "pages/reports/pending",
+      "style": {
+        "navigationBarTitleText": "待我签",
+        "enablePullDownRefresh": true
+      }
+    },
+    {
+      "path": "pages/reports/detail",
+      "style": {
+        "navigationBarTitleText": "报告详情"
+      }
+    },
+    {
+      "path": "pages/tasks/detail",
+      "style": {
+        "navigationBarTitleText": "任务明细",
+        "enablePullDownRefresh": true
+      }
+    },
+    {
+      "path": "pages/checkin/form",
+      "style": {
+        "navigationBarTitleText": "巡检打卡"
+      }
+    }
+  ],
+  "globalStyle": {
+    "navigationBarTextStyle": "white",
+    "navigationBarTitleText": "安巡云巡检",
+    "navigationBarBackgroundColor": "#2B5AED",
+    "backgroundColor": "#F5F6F8"
+  },
+  "tabBar": {
+    "color": "#86909C",
+    "selectedColor": "#2B5AED",
+    "backgroundColor": "#FFFFFF",
+    "borderStyle": "white",
+    "list": [
+      {
+        "pagePath": "pages/tasks/today",
+        "text": "任务",
+        "iconPath": "static/tabbar/tasks.png",
+        "selectedIconPath": "static/tabbar/tasks_active.png"
+      },
+      {
+        "pagePath": "pages/workorders/list",
+        "text": "工单",
+        "iconPath": "static/tabbar/workorder.png",
+        "selectedIconPath": "static/tabbar/workorder_active.png"
+      },
+      {
+        "pagePath": "pages/messages/index",
+        "text": "消息",
+        "iconPath": "static/tabbar/message.png",
+        "selectedIconPath": "static/tabbar/message_active.png"
+      },
+      {
+        "pagePath": "pages/profile/index",
+        "text": "我的",
+        "iconPath": "static/tabbar/profile.png",
+        "selectedIconPath": "static/tabbar/profile_active.png"
+      }
+    ],
+    "midButton": {
+      "width": "60px",
+      "height": "60px",
+      "backgroundImage": "static/tabbar/scan_mid.png"
+    }
+  }
+}

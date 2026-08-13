@@ -1,0 +1,8 @@
+{
+  "string": [
+    {
+      "name": "permission_nfc_reason",
+      "value": "用于读取 NFC 标签信息"
+    }
+  ]
+}

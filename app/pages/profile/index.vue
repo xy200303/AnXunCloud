@@ -1,0 +1,222 @@
+<template>
+  <view class="page" :style="{ backgroundColor: colors.bgPage }">
+    <!-- 用户卡片 -->
+    <view class="card" :style="{ backgroundColor: colors.bgCard }">
+      <view class="avatar" :style="{ backgroundColor: colors.primaryLight }">
+        <text class="avatar-text" :style="{ color: colors.primary }">{{ avatarText }}</text>
+      </view>
+      <view class="user-meta">
+        <text class="user-name" :style="{ color: colors.textPrimary }">{{ name }}</text>
+        <text class="user-role" :style="{ color: colors.textSecondary }">{{ roleText }}</text>
+      </view>
+    </view>
+
+    <!-- 功能入口 -->
+    <view class="card menu-card" :style="{ backgroundColor: colors.bgCard }">
+      <view class="row" @click="goPendingReports">
+        <text class="row-text" :style="{ color: colors.textRegular }">待我签报告</text>
+        <text class="row-arrow" :style="{ color: colors.textSecondary }">></text>
+      </view>
+      <view class="row" @click="openSignaturePad">
+        <text class="row-text" :style="{ color: colors.textRegular }">手写签名</text>
+        <text class="row-arrow" :style="{ color: colors.textSecondary }">{{ signatureText }} ></text>
+      </view>
+      <view class="row" @click="todo">
+        <text class="row-text" :style="{ color: colors.textRegular }">修改密码</text>
+        <text class="row-arrow" :style="{ color: colors.textSecondary }">></text>
+      </view>
+      <view class="row" @click="todo">
+        <text class="row-text" :style="{ color: colors.textRegular }">关于安巡云</text>
+        <text class="row-arrow" :style="{ color: colors.textSecondary }">v1.0.0(100)</text>
+      </view>
+    </view>
+
+    <!-- 退出登录（danger 独立区块，二次确认） -->
+    <view class="btn-logout" :style="{ backgroundColor: colors.bgCard }" @click="onLogout">
+      <text class="btn-logout-text" :style="{ color: colors.danger }">退出登录</text>
+    </view>
+
+    <!-- 手写签名板（个人中心配置入口：保存即写入签章资产，下次签字直接用） -->
+    <SignaturePad ref="pad" :show-save-option="false" @save="onPadSave" />
+
+    <view class="tabbar-space"></view>
+  </view>
+</template>
+
+<script lang="ts">
+import { Colors, ColorTokens } from '@/utils/theme'
+import { apiUploadLocal, apiUpdateProfile } from '@/services/api'
+import { useAuthStore } from '@/stores/auth'
+import SignaturePad from '@/components/SignaturePad.vue'
+
+type ProfileData = {
+  colors: ColorTokens
+}
+
+export default {
+  components: { SignaturePad },
+  data(): ProfileData {
+    return {
+      colors: Colors
+    }
+  },
+  computed: {
+    name(): string {
+      const u = useAuthStore().userInfo
+      return u != null && u.name != '' ? u.name : '未登录'
+    },
+    avatarText(): string {
+      const u = useAuthStore().userInfo
+      return u != null && u.name != '' ? u.name.substring(0, 1) : '?'
+    },
+    roleText(): string {
+      const u = useAuthStore().userInfo
+      if (u == null) return ''
+      if (u.roles.length == 0) return '未分配角色'
+      // 角色 code → 中文名（与 sys_role 种子数据一致；新增角色时同步维护）
+      const names: Record<string, string> = {
+        super_admin: '超级管理员',
+        manager: '物业主管',
+        inspector: '巡检员',
+        repair: '维修人员'
+      }
+      return u.roles.map((r) => (names[r] != null ? names[r] : r)).join(' / ')
+    },
+    signatureText(): string {
+      const u = useAuthStore().userInfo
+      return u != null && (u.signature_url ?? '') != '' ? '已配置' : '未设置'
+    }
+  },
+  onShow() {
+    // 兜底拉一次个人信息（登录回包无 user 或角色/签名变更时刷新）
+    const store = useAuthStore()
+    if (store.isLoggedIn) {
+      store.fetchProfile().catch((_e: any) => {})
+    }
+  },
+  methods: {
+    todo() {
+      uni.showToast({ title: '后续里程碑交付', icon: 'none' })
+    },
+    goPendingReports() {
+      uni.navigateTo({ url: '/pages/reports/pending' })
+    },
+    openSignaturePad() {
+      const pad: any = this.$refs.pad
+      pad.open()
+    },
+    /** 保存签名：上传 PNG（scene=signature）→ PUT /profile 写入签章资产 */
+    onPadSave(filePath: string, _saveForLater: boolean) {
+      const pad: any = this.$refs.pad
+      apiUploadLocal(filePath, 'signature')
+        .then((up) => {
+          const u = useAuthStore().userInfo
+          return apiUpdateProfile(u != null ? u.name : '', u != null ? u.phone : '', up.file_key)
+        })
+        .then(() => useAuthStore().fetchProfile())
+        .then(() => {
+          pad.finish(true)
+          uni.showToast({ title: '签名已保存，签字时将直接使用', icon: 'none' })
+        })
+        .catch((e: Error) => {
+          pad.finish(false)
+          uni.showToast({ title: e.message, icon: 'none' })
+        })
+    },
+    onLogout() {
+      uni.showModal({
+        title: '退出登录',
+        content: '确定要退出当前账号吗？',
+        confirmText: '退出',
+        success: (res) => {
+          if (res.confirm) {
+            useAuthStore().logout()
+          }
+        }
+      })
+    }
+  }
+}
+</script>
+
+<style scoped>
+.page {
+  flex: 1;
+  padding: 24rpx;
+}
+
+.card {
+  border-radius: 24rpx;
+  padding: 32rpx;
+  margin-bottom: 24rpx;
+  flex-direction: row;
+  align-items: center;
+}
+
+/* 菜单卡：覆盖 .card 的横向布局，功能行纵向堆叠 */
+.menu-card {
+  flex-direction: column;
+  align-items: stretch;
+  padding-top: 8rpx;
+  padding-bottom: 8rpx;
+}
+
+.avatar {
+  width: 112rpx;
+  height: 112rpx;
+  border-radius: 56rpx;
+  align-items: center;
+  justify-content: center;
+  margin-right: 24rpx;
+}
+
+.avatar-text {
+  font-size: 48rpx;
+  font-weight: 600;
+}
+
+.user-meta {
+  flex: 1;
+}
+
+.user-name {
+  font-size: 40rpx; /* FontSize.title */
+  font-weight: 600;
+}
+
+.user-role {
+  font-size: 26rpx;
+  margin-top: 8rpx;
+}
+
+.row {
+  min-height: 104rpx;
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.row-text {
+  font-size: 30rpx;
+}
+
+.row-arrow {
+  font-size: 26rpx;
+}
+
+.btn-logout {
+  height: 104rpx;
+  border-radius: 20rpx;
+  align-items: center;
+  justify-content: center;
+}
+
+.btn-logout-text {
+  font-size: 34rpx;
+  font-weight: 600;
+}
+
+.tabbar-space {
+  height: 160rpx;
+}
+</style>

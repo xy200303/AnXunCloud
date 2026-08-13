@@ -1,0 +1,299 @@
+/**
+ * NFC UTS 插件接口定义
+ * Android/iOS 统一接口（iOS 侧可返回不支持）
+ */
+
+// ======================== 基础结果类型 ========================
+
+export type HlNfcResult = {
+	/** 0 成功；非 0 失败 */
+	code : number,
+	/** 结果数据（成功时包含 tag 信息；失败时包含 error 等信息） */
+	data : UTSJSONObject
+}
+
+// ======================== 数据结构 ========================
+
+/**
+ * NFC Tag 事件数据（统一用 JSON 承载，便于跨端/跨类型扩展）
+ *
+ * Android 侧建议字段：
+ * - timestamp: number
+ * - action: string (android.nfc.action.*)
+ * - uidHex: string
+ * - techs: string[]
+ * - ndefText?: string | null
+ * - ndefUri?: string | null
+ * - ndefRecords?: any[] | null
+ * - extras?: object (isoDep/nfcA/nfcB/nfcF/nfcV/mifare* 等扩展信息)
+ */
+export type HlNfcTagEvent = UTSJSONObject
+
+/**
+ * NFC Tag 事件回调
+ *
+ * 说明：
+ * - 前台碰卡：可即时回调
+ * - 后台/冷启动碰卡：会先缓存，待 App 启动后可通过 getPendingTagSync() 取出
+ */
+export type HlNfcTagCallback = (event : HlNfcTagEvent) => void
+
+/**
+ * NFC 会话失效回调（iOS 特有）
+ *
+ * 触发场景：
+ * - 用户点击系统 NFC 弹框的「取消」按钮（reason = 'userCanceled'）
+ * - 会话超时（60 秒无操作，reason = 'sessionTimeout'）
+ * - 系统繁忙（reason = 'systemBusy'）
+ * - 其他系统错误（reason = 'error'）
+ *
+ * event 字段：
+ * - reason: string   触发原因
+ * - message: string  系统错误描述
+ * - timestamp: number 触发时间戳
+ */
+export type HlNfcSessionInvalidatedCallback = (event : UTSJSONObject) => void
+
+// ======================== 导出函数声明 ========================
+
+/**
+ * 监听 NFC 碰卡事件（持续回调）
+ * Android：会在 UI 线程触发 callback.invoke(event)
+ */
+export declare function onTagDiscovered(callback : HlNfcTagCallback) : void
+
+/**
+ * 读取“待处理的 NFC 事件”（用于后台/冷启动场景）
+ * @param clearRead 是否读取后清空缓存（true=读取并清空；false=只读取不清空）
+ */
+export declare function getPendingTagSync(clearRead : boolean) : any
+
+/**
+ * 清空待处理 NFC 事件（仅清缓存队列，不影响内存中的活动标签）
+ */
+export declare function clearPendingTag() : void
+
+/**
+ * 清除内存中的活动标签（lastTag）
+ * 调用后高级读写 API 将返回 NO_TAG_IN_MEMORY 错误，直到下一次贴卡
+ * 同时重置去重状态，下一次同卡贴近会触发新的回调
+ * @platform Android / iOS / HarmonyOS
+ */
+export declare function clearActiveTag() : void
+
+/**
+ * 重置所有 NFC 状态（= clearPendingTag + clearActiveTag）
+ * 清空缓存队列 + 清除内存活动标签 + 重置去重状态
+ * @platform Android / iOS / HarmonyOS
+ */
+export declare function resetNfcState() : void
+
+/**
+ * 设备是否支持 NFC
+ */
+export declare function isNfcSupported() : boolean
+
+/**
+ * NFC 功能是否已开启（系统设置开关）
+ *
+ * 平台差异：
+ * - Android：通过 NfcAdapter.isEnabled 检测，准确反映系统 NFC 开关状态
+ * - HarmonyOS：通过 controller.getNfcState() 检测，准确反映系统 NFC 开关状态
+ * - iOS：CoreNFC 无公开 API 检测系统 NFC 开关，此方法与 isNfcSupported() 返回相同值。
+ *   iOS 的 NFC 设置开关仅影响后台碰卡检测，前台 NFCTagReaderSession 不受其影响。
+ *   如需判断实际可用性，应在 startNFCSession 后通过 onSessionInvalidated 回调判断。
+ */
+export declare function isNfcEnabled() : boolean
+
+/**
+ * 检查并处理当前 Activity 的 Intent 中的 NFC 数据（兜底方案）
+ * 用于 App.vue 中通过 plus API 检测到 Intent 包含 NFC 时调用
+ * @returns 如果检测到并保存了 NFC 数据，返回 true；否则返回 false
+ */
+export declare function checkAndSaveCurrentIntentNfc() : boolean
+
+/**
+ * 检查 NfcDispatchActivity 是否被调用过（用于调试）
+ * @returns 返回时间戳（毫秒），0 表示没有被调用过
+ */
+export declare function checkNfcDispatchCalled() : number
+
+/**
+ * 配置插件行为（可选）
+ *
+ * 推荐字段（Android）：
+ * - useReaderMode: boolean            // 前台使用 ReaderMode（更丝滑，避免“透明页”）
+ * - activeTagTtlMs: number            // 最近一次 Tag 可操作窗口（ms），用于 transceive/读块 API
+ * - dedupeMs: number                  // 去重窗口（ms），同一 uidHex 在窗口内只缓存/回调一次
+ * - pendingMax: number                // 后台缓存队列最大条数（默认 10）
+ * - skipNdefCheck: boolean            // ReaderMode 下是否跳过 NDEF 检查（默认 false，开启可提升特定卡片扫描速度，但无法读出 NDEF 数据）
+ * - readCacheTtlMs: number            // 读指令缓存存活期（ms），对于同一 UID 同一指令（如 transceive/读块）在特定时间内返回缓存数据（默认 0 不启用）
+ *
+ * iOS 额外字段（系统 NFC 弹框文案，均可选，不传则保留插件默认值）：
+ * - keepSessionAlive: boolean         // 读卡后保持会话，便于同一会话内 ndefWrite
+ * - readSuccessAlertMessage: string   // 读卡完成且即将关闭会话时的弹框文案，默认 "读取成功！"
+ * - readSuccessKeepAliveAlertMessage: string // keepSessionAlive 为 true 时读卡完成文案，默认 "读取成功，请保持标签靠近设备以继续操作"
+ */
+export declare function configure(options : any) : void
+
+/**
+ * 清除底层针对读取指令（mifare/transceive等）的内存缓存
+ */
+export declare function clearReadCache() : void
+
+/**
+ * 读取“待处理的 NFC 事件队列”（用于后台/冷启动场景，多次碰卡不丢）
+ * @param clearRead 是否读取后清空队列
+ * @param max 最多返回多少条（从新到旧）
+ */
+export declare function getPendingTagsSync(clearRead : boolean, max : number) : any
+
+/**
+ * 立即刷新当前“活动中的 NFC 标签”快照
+ *
+ * 说明：
+ * - Android：基于最近一次识别到的 Tag，主动重新读取一次标签内容
+ * - 适用于“写入后不移开手机，马上再读取最新内容”的场景
+ * - 若当前没有可用的活动标签，返回错误
+ */
+export declare function refreshActiveTagSync() : any
+
+/**
+ * MifareClassic：读某个 sector（需要 keyA/keyB）
+ * @param sector 扇区号
+ * @param keyType 'A' | 'B'
+ * @param keyHex 12位十六进制（6字节），例如 "FFFFFFFFFFFF"
+ */
+export declare function mifareClassicReadSector(sector : number, keyType : string, keyHex : string) : any
+
+/**
+ * MifareClassic：读某个 block（需要 keyA/keyB）
+ * @param block 块号（全局 block index）
+ * @param keyType 'A' | 'B'
+ * @param keyHex 12位十六进制（6字节）
+ */
+export declare function mifareClassicReadBlock(block : number, keyType : string, keyHex : string) : any
+
+/**
+ * MifareUltralight：读连续 pages（通常不需要 key）
+ * @param startPage 起始页
+ * @param pageCount 读取页数（每页 4 bytes）
+ */
+export declare function mifareUltralightReadPages(startPage : number, pageCount : number) : any
+
+/**
+ * IsoDep：发送 APDU（hex）并返回响应（hex）
+ */
+export declare function isoDepTransceive(apduHex : string) : any
+
+/**
+ * NfcV：发送原始命令（hex）并返回响应（hex）
+ */
+export declare function nfcVTransceive(cmdHex : string) : any
+
+// ======================== 写入操作 API ========================
+
+/**
+ * 写入 NDEF 消息
+ * @param records NDEF 记录数组，每条支持以下格式：
+ *   { type: 'text',     data: '文本',       lang?: 'en' }
+ *   { type: 'uri',      data: 'https://...' }
+ *   { type: 'mime',     data: '内容',       mimeType: 'text/plain' }
+ *   { type: 'external', data: '内容',       domain: 'com.example', extType: 'mytype' }
+ *   { type: 'raw',      data: 'payloadHex', tnf: 0, typeHex: '', idHex: '' }
+ * 说明：
+ * - 只有 raw.data 会按十六进制 payload 解析
+ * - text / uri / mime / external 的 data 都按普通字符串内容写入
+ * @returns 返回 { code: 0, data: { uidHex, message } } 或错误信息
+ * @platform Android / iOS / HarmonyOS
+ * @note iOS 需要 configure({ keepSessionAlive: true })，并在 onTagDiscovered 回调的同一会话内调用
+ */
+export declare function ndefWrite(records : any[]) : any
+
+/**
+ * MiFare Classic 写块
+ * @param block 块号
+ * @param keyType 密钥类型 'A' 或 'B'
+ * @param keyHex 6字节密钥的十六进制字符串（12个字符）
+ * @param dataHex 16字节数据的十六进制字符串（32个字符）
+ * @returns 返回 { code: 0, data: { uidHex, block, message } } 或错误信息
+ * @platform Android / HarmonyOS
+ */
+export declare function mifareClassicWriteBlock(block : number, keyType : string, keyHex : string, dataHex : string) : any
+
+/**
+ * MiFare Ultralight 写页
+ * @param page 页号
+ * @param dataHex 4字节数据的十六进制字符串（8个字符）
+ * @returns 返回 { code: 0, data: { uidHex, page, message } } 或错误信息
+ * @platform Android / HarmonyOS
+ */
+export declare function mifareUltralightWritePage(page : number, dataHex : string) : any
+
+/**
+ * NfcA：发送原始帧并返回响应（hex）
+ * @param cmdHex 命令帧的十六进制字符串
+ * @returns 返回 { code: 0, data: { uidHex, responseHex } } 或错误信息
+ * @platform Android
+ */
+export declare function nfcATransceive(cmdHex : string) : any
+
+/**
+ * NfcB：发送原始帧并返回响应（hex）
+ * @param cmdHex 命令帧的十六进制字符串
+ * @returns 返回 { code: 0, data: { uidHex, responseHex } } 或错误信息
+ * @platform Android
+ */
+export declare function nfcBTransceive(cmdHex : string) : any
+
+/**
+ * NdefFormatable：将空白卡格式化为 NDEF 格式并写入初始消息
+ * @param records 初始 NDEF 记录数组（格式同 ndefWrite），传空数组则仅格式化不写内容
+ * @returns 返回 { code: 0, data: { uidHex, message } } 或错误信息
+ * @platform Android
+ * @note 如果卡片已经是 NDEF 格式，请使用 ndefWrite 直接写入
+ */
+export declare function ndefFormatAndWrite(records : any[]) : any
+
+/**
+ * iOS 特有：启动 NFC 扫描会话
+ * 
+ * 说明：
+ * - iOS CoreNFC 需要用户主动触发（显示系统弹窗），不支持后台/冷启动唤醒
+ * - 调用后会显示系统 NFC 扫描弹窗，用户靠近 NFC 标签即可读取
+ * - Android 平台此方法为空实现（Android 自动监听前台碰卡）
+ * - 需要在 Info.plist 中配置 "Privacy - NFC Scan Usage Description" 权限说明
+ * @param alertMessage iOS 扫描弹窗提示文案；不传时默认 "请将 NFC 标签靠近设备"
+ * 
+ * 使用场景：
+ * - 用户点击"扫描 NFC"按钮时调用
+ * - 页面 onShow 时自动调用（仅 iOS）
+ */
+export declare function startNFCSession(alertMessage?: string) : void
+
+/**
+ * iOS 特有：停止 NFC 扫描会话
+ * 
+ * 说明：
+ * - 关闭 iOS 系统 NFC 扫描弹窗
+ * - Android 平台此方法为空实现
+ */
+export declare function stopNFCSession() : void
+
+/**
+ * 监听 NFC 会话失效事件（iOS 特有）
+ *
+ * 当用户取消 NFC 弹框、会话超时或系统繁忙时触发回调。
+ * Android / HarmonyOS 平台为空实现（这些平台没有系统级 NFC 弹框）。
+ *
+ * @param callback 会话失效时的回调
+ */
+export declare function onSessionInvalidated(callback : HlNfcSessionInvalidatedCallback) : void
+
+/**
+ * 获取 NFC 调试信息
+ *
+ * 主要用于客户现场排查 iOS 系统 NFC 弹框不出现、session 未激活等问题。
+ * Android/Harmony 可返回平台占位信息，iOS 返回 CoreNFC 的 session 状态。
+ */
+export declare function getNFCDebugInfo() : any

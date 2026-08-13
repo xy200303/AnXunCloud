@@ -48,6 +48,7 @@ type StatusReq struct {
 // RoleItem 用户视图中的角色摘要。
 type RoleItem struct {
 	ID   string `json:"id"`
+	Code string `json:"code"`
 	Name string `json:"name"`
 }
 

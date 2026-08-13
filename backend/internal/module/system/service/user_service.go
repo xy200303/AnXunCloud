@@ -100,9 +100,9 @@ func (s *UserService) toItem(u *model.SysUser) dto.UserItem {
 	}
 	if len(u.RoleIDs) > 0 {
 		var roles []model.SysRole
-		s.db.Select("id", "name").Where("id IN ?", []string(u.RoleIDs)).Find(&roles)
+		s.db.Select("id", "code", "name").Where("id IN ?", []string(u.RoleIDs)).Find(&roles)
 		for _, r := range roles {
-			item.Roles = append(item.Roles, dto.RoleItem{ID: r.ID, Name: r.Name})
+			item.Roles = append(item.Roles, dto.RoleItem{ID: r.ID, Code: r.Code, Name: r.Name})
 		}
 	}
 	if len(u.CommunityIDs) > 0 {

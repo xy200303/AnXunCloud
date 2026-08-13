@@ -1,6 +1,7 @@
 package service
 
 import (
+	"fmt"
 	"strings"
 	"time"
 
@@ -480,6 +481,36 @@ func distanceOrNil(r *model.CheckinRecord) any {
 		return nil
 	}
 	return int(*r.DistanceToPoint)
+}
+
+// Remind 任务催办：给执行人发送站内提醒（已完成任务不可催办；App 管理端一键催办）。
+func (s *TaskService) Remind(c *gin.Context, id string) *errs.Error {
+	var t model.InspectionTask
+	if err := s.db.First(&t, "id = ?", id).Error; err != nil {
+		return errs.ErrNotFound
+	}
+	if be := middleware.CheckCommunity(c, t.CommunityID); be != nil {
+		return be
+	}
+	if t.Status == model.TaskDone {
+		return errs.ErrParam.WithMsg("任务已完成，无需催办")
+	}
+	planName := ""
+	var plan model.InspectionPlan
+	if s.db.Unscoped().Select("name").First(&plan, "id = ?", t.PlanID).Error == nil {
+		planName = plan.Name
+	}
+	msg := sysmodel.SysMessage{
+		UserID:  t.InspectorID,
+		Type:    "task",
+		Title:   "巡检任务催办",
+		Content: fmt.Sprintf("你的巡检任务「%s」（%s）还未完成，当前进度 %d/%d 个点位，请尽快执行。", planName, t.TaskDate.Format("2006-01-02"), t.DonePoints, t.TotalPoints),
+		BizID:   &t.ID,
+	}
+	if err := s.db.Create(&msg).Error; err != nil {
+		return errs.ErrInternal
+	}
+	return nil
 }
 
 // timeRangeOn 对指定字段追加时间范围过滤。

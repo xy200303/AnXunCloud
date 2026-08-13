@@ -2,6 +2,7 @@
 package router
 
 import (
+	_ "embed"
 	"os"
 	"path/filepath"
 	"strings"
@@ -34,6 +35,11 @@ import (
 	"anxuncloud/internal/pkg/storage"
 	"anxuncloud/internal/pkg/watermark"
 )
+
+// pointPageHTML NFC/二维码短链接 H5 点位信息页（免登录，内嵌资源随二进制分发）。
+//
+//go:embed point_page.html
+var pointPageHTML string
 
 // New 构建 HTTP 引擎并注册全部路由；返回引擎与巡检调度器（由 main 启停）。
 func New(cfg *config.Config, db *gorm.DB, rdb *redis.Client) (*gin.Engine, *inspectionsvc.Scheduler) {
@@ -94,6 +100,13 @@ func New(cfg *config.Config, db *gorm.DB, rdb *redis.Client) (*gin.Engine, *insp
 	// 健康检查 + dev 模式本地文件静态路由
 	r.GET("/healthz", func(c *gin.Context) { response.OK(c, gin.H{"status": "up"}) })
 	r.Static("/uploads", cfg.Upload.LocalDir)
+
+	// 短链接公开入口（免登录）：H5 点位信息页 + 脱敏摘要 API
+	r.GET("/p/:code", func(c *gin.Context) {
+		c.Header("Cache-Control", "no-cache")
+		c.Data(200, "text/html; charset=utf-8", []byte(pointPageHTML))
+	})
+	r.GET("/api/public/point/:code", mpCtl.PublicPoint)
 
 	admin := r.Group("/api/admin")
 	{
@@ -291,6 +304,40 @@ func New(cfg *config.Config, db *gorm.DB, rdb *redis.Client) (*gin.Engine, *insp
 			appAuth.PUT("/messages/:id/read", mpCtl.MarkRead)
 			appAuth.GET("/announcements", mpCtl.Announcements)
 			appAuth.GET("/announcements/:id", mpCtl.AnnouncementDetail)
+
+			// ===== 管理功能（App 端）：复用 PC 控制器 + 同一套权限点，入口由 App 按 perms 显隐 =====
+			appAuth.GET("/dashboard", statsCtl.Dashboard)
+			appAuth.GET("/communities/tree", middleware.RequirePerm("community:list", "inspection:point:list"), communityCtl.Tree)
+			appAuth.GET("/system/users", middleware.RequirePerm("system:user:list", "workorder:assign"), userCtl.List)
+			// 点位管理（现场建点：GPS 录坐标 + NFC 写卡；删除仅 PC 端）
+			appPoints := appAuth.Group("/inspection/points")
+			{
+				appPoints.GET("", middleware.RequirePerm("inspection:point:list"), inspectionCtl.ListPoints)
+				appPoints.POST("", middleware.RequirePerm("inspection:point:create"), middleware.OperLog(db, "inspection", "create"), inspectionCtl.CreatePoint)
+				appPoints.GET("/:id", middleware.RequirePerm("inspection:point:list"), inspectionCtl.PointDetail)
+				appPoints.PUT("/:id", middleware.RequirePerm("inspection:point:update"), middleware.OperLog(db, "inspection", "update"), inspectionCtl.UpdatePoint)
+			}
+			// 检查项模板（建点位时下拉选项）
+			appAuth.GET("/inspection/templates", middleware.RequirePerm("inspection:template:list", "inspection:point:create"), templateCtl.List)
+			// 任务监控 + 一键催办
+			appAuth.GET("/inspection/tasks", middleware.RequirePerm("inspection:task:list", "inspection:task:monitor"), inspectionCtl.ListTasks)
+			appAuth.GET("/inspection/tasks/:id/detail", middleware.RequirePerm("inspection:task:list", "inspection:task:monitor"), inspectionCtl.TaskDetail)
+			appAuth.POST("/inspection/tasks/:id/remind", middleware.RequirePerm("inspection:task:list", "inspection:task:monitor"), middleware.OperLog(db, "inspection", "remind"), inspectionCtl.RemindTask)
+			// 打卡审核
+			appReview := appAuth.Group("/inspection/review")
+			{
+				appReview.GET("/records", middleware.RequirePerm("inspection:checkin:review"), reviewCtl.Records)
+				appReview.POST("/:id/pass", middleware.RequirePerm("inspection:checkin:review"), middleware.OperLog(db, "inspection", "review_pass"), reviewCtl.Pass)
+				appReview.POST("/:id/reject", middleware.RequirePerm("inspection:checkin:review"), middleware.OperLog(db, "inspection", "review_reject"), reviewCtl.Reject)
+			}
+			// 工单管理（派单/验收）：与巡检员「我的工单」路径隔离
+			appOrders := appAuth.Group("/manage/workorders")
+			{
+				appOrders.GET("", middleware.RequirePerm("workorder:list"), orderCtl.List)
+				appOrders.GET("/:id", middleware.RequirePerm("workorder:list"), orderCtl.Detail)
+				appOrders.POST("/:id/assign", middleware.RequirePerm("workorder:assign"), middleware.OperLog(db, "workorder", "assign"), orderCtl.Assign)
+				appOrders.POST("/:id/review", middleware.RequirePerm("workorder:review"), middleware.OperLog(db, "workorder", "review"), orderCtl.Review)
+			}
 			// 月报签字（权限点与 PC 完全一致；待我签用 ?pending_mine=1）
 			appReports := appAuth.Group("/reports")
 			{

@@ -264,6 +264,16 @@ func (ctl *InspectionController) TaskDetail(c *gin.Context) {
 	write(c, data, be)
 }
 
+// RemindTask 任务催办：给执行人发站内提醒（App 管理端一键催办）。
+func (ctl *InspectionController) RemindTask(c *gin.Context) {
+	id, be := pathID(c)
+	if be != nil {
+		response.Fail(c, be)
+		return
+	}
+	write(c, nil, ctl.tasks.Remind(c, id))
+}
+
 // GenerateTasks 手动触发任务生成（默认今天；供联调与补偿，幂等）。
 func (ctl *InspectionController) GenerateTasks(c *gin.Context) {
 	var req dto.GenerateTaskReq

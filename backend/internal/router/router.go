@@ -336,10 +336,16 @@ func registerSPA(r *gin.Engine, distPath string) {
 		fp := filepath.Join(root, clean)
 		if strings.HasPrefix(fp, root+string(os.PathSeparator)) {
 			if st, err := os.Stat(fp); err == nil && !st.IsDir() {
+				// 带内容哈希的构建产物（/assets/*.js|css）可长缓存
+				if strings.HasPrefix(clean, "assets"+string(os.PathSeparator)) || strings.HasPrefix(clean, "assets/") {
+					c.Header("Cache-Control", "public, max-age=31536000, immutable")
+				}
 				c.File(fp)
 				return
 			}
 		}
+		// index.html 不长缓存：重新部署后浏览器总能拿到最新的 chunk 引用（防白屏）
+		c.Header("Cache-Control", "no-cache")
 		c.File(index)
 	})
 }

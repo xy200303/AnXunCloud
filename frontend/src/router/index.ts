@@ -32,6 +32,20 @@ const router = createRouter({
   scrollBehavior: () => ({ top: 0 })
 })
 
+// 重新部署后旧 chunk 失效（哈希变更），浏览器缓存的旧页面动态导入失败会白屏：
+// 捕获后整页刷新一次拉取新资源；10s 内只刷一次，防止循环刷新
+router.onError((error) => {
+  const msg = error?.message || ''
+  const isChunkError = /dynamically imported module|Importing a module script failed|ChunkLoadError|Failed to fetch/i.test(msg)
+  if (!isChunkError) return
+  const key = 'anxuncloud-chunk-reload-at'
+  const last = Number(sessionStorage.getItem(key) || 0)
+  if (Date.now() - last > 10_000) {
+    sessionStorage.setItem(key, String(Date.now()))
+    window.location.reload()
+  }
+})
+
 // 导航守卫：登录校验 + 动态路由注入
 router.beforeEach(async (to) => {
   document.title = to.meta?.title

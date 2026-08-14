@@ -53,22 +53,16 @@
           {{end}}
           <h2>{{.Name}}</h2>
           <p class="dl-os">{{.OS}}</p>
-          {{if .PageQR}}
+          {{if and .PageQR .Available}}
+          <!-- 有安装包才展示本页二维码：电脑访问时手机扫码接力到本页下载 -->
           <div class="dl-qr">
-            {{if .Available}}
             <img src="/api/public/download/qr" alt="扫码打开下载页" width="156" height="156" />
-            {{else}}
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><path d="M14 14h3v3h-3zM21 14v7h-7"/></svg>
-            {{end}}
           </div>
           {{end}}
-          {{if .MpQR}}
+          {{if and .MpQR .Available}}
+          <!-- 小程序：展示后台上传的小程序码 -->
           <div class="dl-qr">
-            {{if .Available}}
             <img src="{{.URL}}" alt="微信小程序码" width="156" height="156" />
-            {{else}}
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><path d="M14 14h3v3h-3zM21 14v7h-7"/></svg>
-            {{end}}
           </div>
           {{end}}
           {{if .Available}}

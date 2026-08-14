@@ -62,7 +62,14 @@
     {
       "path": "pages/reports/pdf",
       "style": {
-        "navigationBarTitleText": "报告预览"
+        "navigationBarTitleText": "报告预览",
+        "app-plus": {
+          "titleNView": {
+            "buttons": [
+              { "text": "打开/分享", "fontSize": "14px", "width": "80px" }
+            ]
+          }
+        }
       }
     },
     {

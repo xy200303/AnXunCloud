@@ -18,7 +18,8 @@
         },
         "modules" : {
             "Geolocation" : {},
-            "Barcode" : {}
+            "Barcode" : {},
+            "Share" : {}
         },
         "distribute" : {
             "android" : {

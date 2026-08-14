@@ -1062,7 +1062,11 @@ export function openReportPdf(id: string) {
       uni.hideLoading()
       const file = '/api/public/report-pdf/' + encodeURIComponent(id) + '?ticket=' + encodeURIComponent(ticket)
       const viewer = getPublicOrigin() + '/pdfjs/viewer.html?file=' + encodeURIComponent(file)
-      uni.navigateTo({ url: '/pages/reports/pdf?src=' + encodeURIComponent(viewer) })
+      // file 绝对地址传给预览页：导航栏「打开/分享」直接下载后用系统面板调起 WPS/QQ/微信
+      const fileUrl = getPublicOrigin() + file
+      uni.navigateTo({
+        url: '/pages/reports/pdf?src=' + encodeURIComponent(viewer) + '&file=' + encodeURIComponent(fileUrl)
+      })
     })
     .catch((e: Error) => {
       uni.hideLoading()

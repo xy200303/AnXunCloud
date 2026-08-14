@@ -182,6 +182,11 @@ func seedMenus(tx *gorm.DB) (map[string]string, error) {
 				{title: "新增签章", typ: model.MenuTypeButton, perms: "system:signasset:create", sort: 1},
 				{title: "作废签章", typ: model.MenuTypeButton, perms: "system:signasset:revoke", sort: 2},
 			}},
+			{title: "品牌官网", path: "/system/site", icon: "Platform", typ: model.MenuTypeMenu, perms: "system:site:list", sort: 9, children: []menuSeed{
+				{title: "保存页面配置", typ: model.MenuTypeButton, perms: "system:site:update", sort: 1},
+				{title: "上传发布物", typ: model.MenuTypeButton, perms: "system:site:upload", sort: 2},
+				{title: "删除发布物", typ: model.MenuTypeButton, perms: "system:site:delete", sort: 3},
+			}},
 		}},
 		{title: "个人中心", path: "/profile", icon: "UserFilled", typ: model.MenuTypeMenu, perms: "profile:view", sort: 70, hidden: true},
 	}
@@ -354,6 +359,12 @@ func seedConfigs(tx *gorm.DB) error {
 		{Key: "ai.timeout_seconds", Name: "超时秒数", Value: "60", ConfigGroup: "ai", Remark: "超时/失败默认通过并记录 ai_verdict=error"},
 		{Key: "ai.prompt", Name: "审查规则", Value: "", ConfigGroup: "ai", Remark: "留空用内置规则：判断照片清晰度、与点位/检查项匹配度、有无明显异常，输出 pass/review"},
 		{Key: "report.company_name", Name: "管理单位落款", Value: "", ConfigGroup: "report", Remark: "月报封面\"管理单位\"与页尾落款单位名称；空则留白"},
+		{Key: "site.slogan", Name: "官网标语", Value: "二维码 / NFC / GPS 围栏三重到点校验，拍照留证、工单闭环、月度报告电子签，巡检情况后台一目了然。", ConfigGroup: "site", Remark: "官网首页主标题下的一句话介绍"},
+		{Key: "site.contact_phone", Name: "联系电话", Value: "", ConfigGroup: "site", Remark: "官网页脚展示，留空不显示"},
+		{Key: "site.contact_email", Name: "联系邮箱", Value: "", ConfigGroup: "site", Remark: "官网页脚展示，留空不显示"},
+		{Key: "site.theme_color", Name: "官网主题色", Value: "#2b5aed", ConfigGroup: "site", Remark: "官网按钮/强调色，十六进制色值"},
+		{Key: "site.footer_note", Name: "页脚文案", Value: "安巡云 AnXunCloud · 让每一次巡检都有据可查", ConfigGroup: "site", Remark: "官网页脚底部一行文案"},
+		{Key: "site.show_admin_entry", Name: "显示管理后台入口", Value: "false", ConfigGroup: "site", Remark: "true 时官网导航/页脚显示「管理后台」链接，默认隐藏不暴露后台地址"},
 		// 公章自 v16 起由 sign_asset 签章资产表管理，不再使用 report.seal_file_key 配置项
 		// auth.register_enabled 由迁移 v7 统一插入（覆盖新库与存量库），seed 不再重复
 	}

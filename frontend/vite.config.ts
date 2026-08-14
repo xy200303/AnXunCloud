@@ -4,6 +4,8 @@ import { fileURLToPath, URL } from 'node:url'
 
 // 开发期代理：/api 转发到本地后端
 export default defineConfig({
+  // 管理后台部署在 /admin 子路径（根路径留给品牌官网）
+  base: '/admin/',
   plugins: [vue()],
   resolve: {
     alias: {

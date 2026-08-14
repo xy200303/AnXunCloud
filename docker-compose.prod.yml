@@ -42,7 +42,7 @@ services:
     ports:
       - "18080:8080"                   # 唯一对外端口（避开本机 8080 占用）
     volumes:
-      - uploads_prod:/app/uploads      # dev 上传模式下的文件持久化
+      - uploads_prod:/app/uploads      # dev 上传模式下的文件持久化（含官网发布物）
     depends_on:
       postgres:
         condition: service_healthy

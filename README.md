@@ -27,8 +27,9 @@
 ```
 物业管理平台/
 ├── backend/                # Go 后端（cmd/server 入口；internal/{config,middleware,module,pkg,router}）
-│   └── .air.toml           # air 配置（Windows 挂载卷下启用轮询）
-├── frontend/               # Vue3 管理后台
+│   ├── .air.toml           # air 配置（Windows 挂载卷下启用轮询）
+│   └── internal/router/website/  # 品牌官网静态站点（go:embed 随二进制分发）
+├── frontend/               # Vue3 管理后台（部署在 /admin 子路径）
 ├── miniprogram/            # 微信小程序端（预留）
 ├── docs/                   # 方案/需求/接口/数据库/UI 文档
 ├── .env.dev                # 开发环境配置（docker dev 与本地直跑共用）
@@ -72,7 +73,7 @@
 | `OSS_*`（ACCESS_KEY_ID/SECRET/ROLE_ARN/BUCKET/ENDPOINT/EXPIRE_SECONDS） | 阿里云 OSS + STS 配置 | 空 | oss 模式必填 |
 | `WATERMARK_FONT_PATH` | 水印中文字体路径（TTF） | 仓库自带 `backend/fonts/NotoSansSC.ttf`，容器内固定 `/app/fonts/NotoSansSC.ttf` | 否 |
 | `WATERMARK_LOGO_PATH` | 二维码标牌 LOGO 路径（PNG） | 仓库自带 `backend/assets/logo.png`（安巡云品牌图形标），容器内固定 `/app/assets/logo.png`；文件缺失时自动跳过 LOGO | 否 |
-| `SPA_DIST_PATH` | 生产 SPA 托管目录（非 /api、/uploads 路径 fallback index.html） | 空（不启用） | prod 必填 |
+| `SPA_DIST_PATH` | 生产 SPA 托管目录（管理后台挂在 `/admin` 子路径，history 路由 fallback index.html） | 空（不启用） | prod 必填 |
 
 ## 快速开始（Docker）
 
@@ -82,8 +83,8 @@
 docker compose --env-file .env.dev -f docker-compose.dev.yml up -d --build
 ```
 
-- backend：air 监听 `./backend` 源码变更自动重编译（Windows 挂载卷用轮询）
-- frontend：vite dev server + HMR，`/api`、`/uploads` 代理到 backend 容器
+- backend：air 监听 `./backend` 源码变更自动重编译（Windows 挂载卷用轮询）；同时托管官网 `http://localhost:8090/` 与下载页 `http://localhost:8090/download`
+- frontend：vite dev server + HMR，`/api`、`/uploads` 代理到 backend 容器；后台访问 `http://localhost:5180/admin/`（base 已改为 /admin 子路径）
 - 首次启动自动完成建表迁移 + seed（超管/角色/菜单/字典/参数）
 
 ### 数据库迁移（goose）
@@ -105,7 +106,14 @@ docker compose --env-file .env.prod -f docker-compose.prod.yml up -d --build
 
 app 容器由根目录唯一 `Dockerfile` 的 `prod` target 多阶段构建：node 构建 `frontend/dist` → go 构建后端二进制 → alpine 运行镜像（含二进制 + dist + 中文字体）。
 手动构建示例：`docker build --target prod -t anxuncloud-app .`（dev 镜像对应 `--target backend-dev` / `--target frontend-dev`）。
-后端托管 SPA：只暴露一个端口，`/` 返回前端页面，前端 history 路由刷新不 404，`/api`、`/uploads` 正常走后端。
+后端单端口托管全部页面：
+
+- `/` **品牌官网**（产品介绍，源码在 `backend/internal/router/website/`，go:embed 随二进制分发，改完重启即生效）
+- `/download` **App 下载页**（Android APK / HarmonyOS HAP / iOS IPA / 微信小程序码四个渠道；发布物在后台「系统管理 → 品牌官网 → 下载渠道」上传，官网自动开放对应渠道，无需改文件重启）
+- `/admin/` **管理后台**（前端 history 路由刷新不 404）
+- `/api`、`/uploads`、`/p/{code}`（点位短链接）正常走后端
+
+官网内容与发布物均可在后台「系统管理 → 品牌官网」配置：标语、主题色、联系电话/邮箱、页脚文案、是否显示管理后台入口（默认隐藏，不暴露后台地址），以及各平台安装包/小程序码的上传与删除（文件走统一文件层，scene=app，上限 512MB）。
 
 **构建加速**：Dockerfile 已内置国内镜像源（Go 模块 `goproxy.cn`、npm `npmmirror.com`、apk 阿里云镜像），可用 build-arg 覆盖：`GOPROXY` / `NPM_REGISTRY` / `ALPINE_MIRROR`（如 `--build-arg GOPROXY=direct`）。基础镜像（golang/node/alpine）拉取慢则在服务器 `/etc/docker/daemon.json` 配 `registry-mirrors`（如 `https://docker.m.daocloud.io`）后 `systemctl restart docker`。
 

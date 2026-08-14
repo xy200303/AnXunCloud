@@ -25,8 +25,8 @@ function toLogin() {
   if (reloginPending) return
   reloginPending = true
   clearToken()
-  // 全量刷新，清掉已注入的动态路由与状态
-  window.location.href = `/login?redirect=${encodeURIComponent(window.location.pathname)}`
+  // 全量刷新，清掉已注入的动态路由与状态（BASE_URL 为 /admin/ 子路径）
+  window.location.href = `${import.meta.env.BASE_URL}login?redirect=${encodeURIComponent(window.location.pathname)}`
 }
 
 const service = axios.create({

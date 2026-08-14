@@ -97,6 +97,7 @@ func New(cfg *config.Config, db *gorm.DB, rdb *redis.Client) (*gin.Engine, *insp
 	messageCtl := systemctl.NewMessageController(messageSvc)
 	uploadCtl := systemctl.NewUploadController(uploadSvc)
 	signAssetCtl := systemctl.NewSignAssetController(signAssetSvc)
+	siteCtl := systemctl.NewSiteController(systemsvc.NewSiteService(db, store, configSvc), store)
 	communityCtl := communityctl.NewCommunityController(communitySvc)
 	inspectionCtl := inspectionctl.NewInspectionController(pointSvc, planSvc, taskSvc)
 	templateCtl := inspectionctl.NewTemplateController(templateSvc)
@@ -169,6 +170,16 @@ func New(cfg *config.Config, db *gorm.DB, rdb *redis.Client) (*gin.Engine, *insp
 
 		sys := secured.Group("/system")
 		registerSystemRoutes(sys, db, userCtl, roleCtl, menuCtl, dictCtl, configCtl, logCtl, noticeCtl, uploadCtl, signAssetCtl)
+
+		// 品牌官网管理（页面配置 + 下载渠道发布物）
+		site := sys.Group("/site")
+		{
+			site.GET("/config", middleware.RequirePerm("system:site:list"), siteCtl.Config)
+			site.PUT("/config", middleware.RequirePerm("system:site:update"), middleware.OperLog(db, "system", "site_config"), siteCtl.SaveConfig)
+			site.GET("/releases", middleware.RequirePerm("system:site:list"), siteCtl.Releases)
+			site.POST("/releases", middleware.RequirePerm("system:site:upload"), middleware.OperLog(db, "system", "site_release_upload"), siteCtl.Upload)
+			site.DELETE("/releases/:id", middleware.RequirePerm("system:site:delete"), middleware.OperLog(db, "system", "site_release_delete"), siteCtl.Delete)
+		}
 
 		// 小区与楼栋
 		secured.GET("/communities", middleware.RequirePerm("community:list"), communityCtl.List)
@@ -388,13 +399,17 @@ func New(cfg *config.Config, db *gorm.DB, rdb *redis.Client) (*gin.Engine, *insp
 		}
 	}
 
-	// 生产单端口 SPA：托管前端构建产物，非 /api、/uploads 路径 fallback 到 index.html
+	// 品牌官网（/、/download、/site/*）与 App 下载公开接口
+	registerSiteRoutes(r, cfg, siteCtl)
+
+	// 生产单端口 SPA：管理后台托管在 /admin 子路径，非 /api、/uploads 路径 fallback 到 index.html
 	registerSPA(r, cfg.SPA.DistPath)
 
 	return r, scheduler
 }
 
-// registerSPA 注册 SPA 静态托管与 history 路由回退（SPA_DIST_PATH 指向有效目录时生效）。
+// registerSPA 注册管理后台 SPA 静态托管与 history 路由回退（SPA_DIST_PATH 指向有效目录时生效）。
+// 管理后台统一挂在 /admin 子路径下，根路径留给品牌官网。
 func registerSPA(r *gin.Engine, distPath string) {
 	if distPath == "" {
 		return
@@ -415,8 +430,13 @@ func registerSPA(r *gin.Engine, distPath string) {
 			c.JSON(404, gin.H{"code": 40400, "message": "接口不存在", "data": nil})
 			return
 		}
-		// 命中静态文件则直接返回，否则回退 index.html（前端 history 路由）
-		clean := filepath.Clean(strings.TrimPrefix(p, "/"))
+		// 非 /admin 路径一律回到官网首页（官网自身路由已显式注册，不会走到这里）
+		if p != "/admin" && !strings.HasPrefix(p, "/admin/") {
+			c.Redirect(http.StatusFound, "/")
+			return
+		}
+		// 命中静态文件则直接返回，否则回退 index.html（前端 history 路由，base 为 /admin/）
+		clean := filepath.Clean(strings.TrimPrefix(p, "/admin"))
 		fp := filepath.Join(root, clean)
 		if strings.HasPrefix(fp, root+string(os.PathSeparator)) {
 			if st, err := os.Stat(fp); err == nil && !st.IsDir() {

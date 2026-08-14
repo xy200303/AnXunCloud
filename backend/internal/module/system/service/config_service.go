@@ -147,6 +147,28 @@ func (s *ConfigService) Get(key string) (string, bool) {
 	return v, ok
 }
 
+// SetValue 按 key 更新参数值（不存在则报错；写后失效缓存）。供品牌官网等按 key 定向保存的场景使用。
+func (s *ConfigService) SetValue(key, value string) *errs.Error {
+	res := s.db.Model(&model.SysConfig{}).Where("key = ?", key).Update("value", value)
+	if res.Error != nil {
+		return errs.ErrInternal
+	}
+	if res.RowsAffected == 0 {
+		return errs.ErrNotFound.WithMsg("配置项不存在：" + key)
+	}
+	s.invalidate()
+	return nil
+}
+
+// GetByKeys 按 key 列表读取参数（name/value/remark 一并返回，供配置表单渲染）。
+func (s *ConfigService) GetByKeys(keys []string) ([]model.SysConfig, *errs.Error) {
+	var rows []model.SysConfig
+	if err := s.db.Select("id", "key", "name", "value", "remark").Where("key IN ?", keys).Find(&rows).Error; err != nil {
+		return nil, errs.ErrInternal
+	}
+	return rows, nil
+}
+
 // loadAll 读取全量参数（优先缓存）。
 func (s *ConfigService) loadAll(ctx context.Context) (map[string]string, error) {
 	cached, err := s.rdb.Get(ctx, configCacheKey).Result()

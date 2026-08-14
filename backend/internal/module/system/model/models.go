@@ -252,6 +252,22 @@ type UploadFile struct {
 
 func (UploadFile) TableName() string { return "upload_file" }
 
+// AppRelease App 发布物（迁移 v15 建表）：Android APK / 鸿蒙 HAP / iOS IPA / 微信小程序码。
+// 官网 /download 按平台取最新一条展示；文件统一走文件层（scene=app）。
+type AppRelease struct {
+	types.UUIDModel
+	Platform  string    `gorm:"size:16;index:idx_app_release_platform,priority:1" json:"platform"` // android/harmony/ios/wechat_mp
+	Version   string    `gorm:"size:64" json:"version"`
+	FileKey   string    `gorm:"size:255" json:"file_key"`
+	Name      string    `gorm:"size:255" json:"name"`
+	Size      int64     `json:"size"`
+	Note      string    `gorm:"size:255" json:"note"`
+	CreatedAt time.Time `gorm:"index:idx_app_release_platform,priority:2,sort:desc" json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
+func (AppRelease) TableName() string { return "app_release" }
+
 // SignAsset 签章资产（迁移 v16 建表）：手写签名/公章版本链，换签名/换章不删旧记录。
 // 同 asset_type+owner_id 仅一条 active（部分唯一索引 uk_sign_asset_active 保证）。
 type SignAsset struct {

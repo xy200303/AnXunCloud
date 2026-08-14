@@ -5,16 +5,19 @@ import (
 	"bytes"
 	"crypto"
 	"crypto/hmac"
+	"crypto/md5"
 	"crypto/rsa"
 	"crypto/sha1"
 	"crypto/x509"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"encoding/pem"
 	"fmt"
 	"io"
 	"net/http"
 	"net/url"
+	"os"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -95,6 +98,23 @@ func (s *Storage) Save(scene string, uid string, ext string, r io.Reader) (strin
 		return "", "", nil, "", err
 	}
 	return key, s.URL(key), data, MD5Hex(data), nil
+}
+
+// SaveStream 流式保存大文件（安装包等，体积上限由调用方自行控制）：边写边算 MD5，不全量进内存。
+// 返回 key/url/md5/实际写入字节数（云驱动 stat 不到时 size 为 0，由调用方以请求大小为准）。
+func (s *Storage) SaveStream(scene, uid, ext string, r io.Reader) (string, string, string, int64, error) {
+	key := s.NewFileKey(scene, uid, ext)
+	h := md5.New()
+	if err := s.driver.Put(key, io.TeeReader(r, h)); err != nil {
+		return "", "", "", 0, err
+	}
+	var size int64
+	if d, ok := s.driver.(*localDriver); ok {
+		if st, err := os.Stat(filepath.Join(d.dir, filepath.FromSlash(key))); err == nil {
+			size = st.Size()
+		}
+	}
+	return key, s.URL(key), hex.EncodeToString(h.Sum(nil)), size, nil
 }
 
 // SaveGenerated 保存服务端生成的文件（二维码包、报表），scene 固定 export。

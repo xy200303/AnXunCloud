@@ -6,7 +6,7 @@
       <div class="brand-deco deco-bl"></div>
       <div class="brand-inner">
         <div class="brand-logo">
-          <img src="/brand/anxuncloud-mark-reverse.svg" alt="安巡云" />
+          <img :src="brandMark" alt="安巡云" />
         </div>
         <h1 class="brand-name">安巡云</h1>
         <p class="brand-slogan">ANXUNCLOUD · 物业巡检管理平台</p>
@@ -75,6 +75,9 @@ import { useRouter } from 'vue-router'
 import { ElMessage, type FormInstance, type FormRules } from 'element-plus'
 import { User, Lock, Postcard, Iphone, CircleCheck } from '@element-plus/icons-vue'
 import { getRegisterConfig, register } from '@/api/auth'
+
+// 品牌资源走 public 目录，需带上部署子路径（/admin/）
+const brandMark = `${import.meta.env.BASE_URL}brand/anxuncloud-mark-reverse.svg`
 
 const router = useRouter()
 const formRef = ref<FormInstance>()

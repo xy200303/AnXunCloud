@@ -2,7 +2,7 @@
   <div class="layout-wrapper" :class="{ collapsed: appStore.sidebarCollapsed }">
     <aside class="sidebar">
       <div class="logo">
-        <img class="logo-icon" src="/brand/anxuncloud-mark-reverse.svg" alt="安巡云" />
+        <img class="logo-icon" :src="brandMark" alt="安巡云" />
         <span v-show="!appStore.sidebarCollapsed" class="logo-text">安巡云</span>
       </div>
       <el-scrollbar class="menu-scroll">
@@ -36,6 +36,9 @@ import SidebarItem from './components/SidebarItem.vue'
 import Navbar from './components/Navbar.vue'
 import TagsView from './components/TagsView.vue'
 import AppMain from './components/AppMain.vue'
+
+// 品牌资源走 public 目录，需带上部署子路径（/admin/）
+const brandMark = `${import.meta.env.BASE_URL}brand/anxuncloud-mark-reverse.svg`
 
 const route = useRoute()
 const appStore = useAppStore()

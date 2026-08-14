@@ -1,0 +1,281 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>安巡云 AnXunCloud · 物业巡检管理平台</title>
+  <meta name="description" content="安巡云是面向物业公司的巡检管理平台：二维码 / NFC / GPS 围栏三重到点校验，拍照留证、异常工单闭环、月度报告电子签名，让每一次巡检都有据可查。" />
+  <link rel="icon" type="image/svg+xml" href="/site/assets/anxuncloud-mark.svg" />
+  <link rel="stylesheet" href="/site/assets/site.css" />
+</head>
+<body>
+
+  <!-- 顶部导航 -->
+  <header class="nav">
+    <div class="wrap nav-inner">
+      <a class="nav-logo" href="/" aria-label="安巡云首页">
+        <img src="/site/assets/anxuncloud-lockup.svg" alt="安巡云 AnXunCloud" />
+      </a>
+      <nav class="nav-links" aria-label="主导航">
+        <a href="#features">产品能力</a>
+        <a href="#flow">巡检闭环</a>
+        <a href="#console">管理后台</a>
+        <a href="#security">安全部署</a>
+        <a href="/download">下载 App</a>
+        <a data-admin-entry hidden class="btn btn-primary btn-sm" href="/admin/">管理后台</a>
+      </nav>
+    </div>
+  </header>
+
+  <!-- Hero -->
+  <section class="hero">
+    <div class="wrap hero-inner">
+      <div>
+        <span class="eyebrow">物业巡检数字化平台</span>
+        <h1>让每一次巡检<br />都有据可查</h1>
+        <p class="hero-sub" data-site="slogan">
+          二维码 / NFC / GPS 围栏三重到点校验，拍照留证、工单闭环、月度报告电子签，巡检情况后台一目了然。
+        </p>
+        <div class="hero-cta">
+          <a class="btn btn-primary btn-lg" href="/download">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12"/><path d="m7 11 5 5 5-5"/><path d="M4 21h16"/></svg>
+            下载巡检 App
+          </a>
+          <a data-admin-entry hidden class="btn btn-ghost btn-lg" href="/admin/">进入管理后台</a>
+        </div>
+        <div class="hero-trust">
+          <span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>私有化部署，数据自主可控</span>
+          <span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>Docker 一键交付</span>
+          <span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>巡检员账号批量导入</span>
+        </div>
+      </div>
+
+      <div class="hero-visual" aria-hidden="true">
+        <div class="mock">
+          <div class="mock-bar"><i></i><i></i><i></i></div>
+          <div class="mock-body">
+            <div class="mock-side"><b class="on"></b><b></b><b></b><b></b><b></b></div>
+            <div class="mock-main">
+              <div class="mock-cards">
+                <div class="mock-card"><em>今日任务</em><strong>36</strong></div>
+                <div class="mock-card"><em>到点率</em><strong class="blue">98.6%</strong></div>
+                <div class="mock-card"><em>异常工单</em><strong>3</strong></div>
+              </div>
+              <div class="mock-list">
+                <div class="mock-row">
+                  <i><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><path d="M14 14h3v3h-3zM21 14v7h-7"/></svg></i>
+                  <div><u></u><u></u></div>
+                  <s>已打卡</s>
+                </div>
+                <div class="mock-row">
+                  <i><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 21s-7-5.3-7-11a7 7 0 0 1 14 0c0 5.7-7 11-7 11z"/><circle cx="12" cy="10" r="2.5"/></svg></i>
+                  <div><u></u><u></u></div>
+                  <s>已打卡</s>
+                </div>
+                <div class="mock-row">
+                  <i><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 9v4"/><path d="M12 17h.01"/><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/></svg></i>
+                  <div><u></u><u></u></div>
+                  <s class="warn">待复核</s>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 数据条 -->
+  <section class="strip">
+    <div class="wrap strip-inner">
+      <div class="strip-item"><b>3<i>种</i></b><span>到点凭证：二维码 / NFC / GPS 围栏</span></div>
+      <div class="strip-item"><b>6<i>步</i></b><span>计划到归档的完整业务闭环</span></div>
+      <div class="strip-item"><b>100<i>%</i></b><span>打卡照片与定位全程留痕</span></div>
+      <div class="strip-item"><b>1<i>键</i></b><span>月度巡检报告自动生成归档</span></div>
+    </div>
+  </section>
+
+  <!-- 产品能力 -->
+  <section class="section" id="features">
+    <div class="wrap">
+      <div class="section-head center">
+        <span class="eyebrow">产品能力</span>
+        <h2 class="section-title">为物业巡检场景而生的完整功能</h2>
+        <p class="section-desc">从巡检员手机端的一次打卡，到管理后台的一份月度报告，每个环节都为物业现场管理设计。</p>
+      </div>
+      <div class="grid grid-3">
+        <div class="card">
+          <div class="card-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><path d="M14 14h3v3h-3zM21 14v7h-7"/></svg></div>
+          <h3>扫码打卡</h3>
+          <p>每个点位张贴专属二维码，巡检员到场扫码打卡。二维码采用短链接，外来人员扫码也能查看点位公开信息。</p>
+        </div>
+        <div class="card">
+          <div class="card-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 8.5a8 8 0 0 1 12 0"/><path d="M8.5 12a5 5 0 0 1 7 0"/><path d="M11 15.5a2 2 0 0 1 2 0"/><circle cx="12" cy="19" r="1"/></svg></div>
+          <h3>NFC 触碰打卡</h3>
+          <p>手机靠近 NFC 标签即可唤起对应点位任务。卡号唯一绑定点位，复制难度高，从物理层面杜绝「不到场打卡」。</p>
+        </div>
+        <div class="card">
+          <div class="card-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 21s-7-5.3-7-11a7 7 0 0 1 14 0c0 5.7-7 11-7 11z"/><circle cx="12" cy="10" r="2.5"/></svg></div>
+          <h3>GPS 电子围栏</h3>
+          <p>点位支持设置围栏半径，打卡时校验实时定位是否在围栏内，越界打卡自动标记异常并通知主管复核。</p>
+        </div>
+        <div class="card">
+          <div class="card-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.2"/></svg></div>
+          <h3>拍照留证</h3>
+          <p>打卡照片强制现场拍摄，自动叠加时间、地点水印，可配置必传照片数量，事后可追溯、可举证。</p>
+        </div>
+        <div class="card">
+          <div class="card-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14.7 6.3a4.5 4.5 0 0 0-6 6L3 18l3 3 5.7-5.7a4.5 4.5 0 0 0 6-6L14 13l-3-3 3.7-3.7z"/></svg></div>
+          <h3>异常工单闭环</h3>
+          <p>巡检发现异常一键生成工单，派单、处理、验收全程在线流转，整改前后照片对照，责任到人。</p>
+        </div>
+        <div class="card">
+          <div class="card-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6"/><path d="m9 15 2 2 4-4"/></svg></div>
+          <h3>月度报告电子签</h3>
+          <p>月度巡检报告自动汇总生成 PDF，巡检员确认、主管审批、经理终审三级手写签名，归档即合规凭证。</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 巡检闭环 -->
+  <section class="section soft" id="flow">
+    <div class="wrap">
+      <div class="section-head center">
+        <span class="eyebrow">巡检闭环</span>
+        <h2 class="section-title">六步走完，一步不落</h2>
+        <p class="section-desc">计划自动排程生成任务，打卡、审核、整改、归档环环相扣，管理动作全程线上化。</p>
+      </div>
+      <div class="flow">
+        <div class="flow-item"><h3>制定计划</h3><p>按点位与模板配置周期计划，支持每日、每周、每月频次。</p></div>
+        <div class="flow-item"><h3>生成任务</h3><p>系统每日自动生成任务并指派到巡检员，逾期自动预警。</p></div>
+        <div class="flow-item"><h3>到点打卡</h3><p>扫码 / NFC / GPS 校验到场，拍照留证提交巡检结果。</p></div>
+        <div class="flow-item"><h3>主管审核</h3><p>异常打卡与疑似作弊自动标记，主管在线复核确认。</p></div>
+        <div class="flow-item"><h3>工单整改</h3><p>异常转工单派单处理，整改前后照片对照验收。</p></div>
+        <div class="flow-item"><h3>月度归档</h3><p>月末自动汇总生成报告，三级电子签名后归档留存。</p></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 管理后台 -->
+  <section class="section" id="console">
+    <div class="wrap split">
+      <div>
+        <span class="eyebrow">管理后台</span>
+        <h2 class="section-title">巡检情况，坐在办公室全掌握</h2>
+        <p class="section-desc">专业的侧边栏式管理后台，为物业管理者而生。</p>
+        <ul class="split-list">
+          <li>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12h4l3 8 4-16 3 8h4"/></svg>
+            <span><strong>今日看板</strong> — 任务进度、到点率、异常打卡实时呈现，谁在巡、巡到哪一目了然。</span>
+          </li>
+          <li>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 21s-7-5.3-7-11a7 7 0 0 1 14 0c0 5.7-7 11-7 11z"/><circle cx="12" cy="10" r="2.5"/></svg>
+            <span><strong>点位与凭证管理</strong> — 点位二维码批量生成打印，NFC 卡号绑定，围栏半径可视化配置。</span>
+          </li>
+          <li>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M17 21v-2a4 4 0 0 0-4-4H7a4 4 0 0 0-4 4v2"/><circle cx="10" cy="7" r="4"/><path d="M21 21v-2a4 4 0 0 0-3-3.87"/></svg>
+            <span><strong>人员与权限</strong> — 巡检员账号 Excel 批量导入导出，角色权限精细到按钮级。</span>
+          </li>
+          <li>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6"/></svg>
+            <span><strong>报告中心</strong> — 月度报告在线审签、归档下载，整改台账图文对照。</span>
+          </li>
+        </ul>
+      </div>
+      <div class="hero-visual" aria-hidden="true">
+        <div class="mock">
+          <div class="mock-bar"><i></i><i></i><i></i></div>
+          <div class="mock-body">
+            <div class="mock-side"><b></b><b class="on"></b><b></b><b></b><b></b></div>
+            <div class="mock-main">
+              <div class="mock-cards">
+                <div class="mock-card"><em>巡检员</em><strong>24</strong></div>
+                <div class="mock-card"><em>点位</em><strong class="blue">186</strong></div>
+                <div class="mock-card"><em>覆盖率</em><strong>97%</strong></div>
+              </div>
+              <div class="mock-list">
+                <div class="mock-row">
+                  <i><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg></i>
+                  <div><u></u><u></u></div>
+                  <s>已审核</s>
+                </div>
+                <div class="mock-row">
+                  <i><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.7 6.3a4.5 4.5 0 0 0-6 6L3 18l3 3 5.7-5.7a4.5 4.5 0 0 0 6-6L14 13l-3-3 3.7-3.7z"/></svg></i>
+                  <div><u></u><u></u></div>
+                  <s class="warn">处理中</s>
+                </div>
+                <div class="mock-row">
+                  <i><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6"/></svg></i>
+                  <div><u></u><u></u></div>
+                  <s>已归档</s>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 安全与部署 -->
+  <section class="section dark" id="security">
+    <div class="wrap">
+      <div class="section-head center">
+        <span class="eyebrow">安全与部署</span>
+        <h2 class="section-title">企业级的安全，一条命令的部署</h2>
+        <p class="section-desc">系统私有化部署在你自己的服务器上，数据不出公司，权限层层可控。</p>
+      </div>
+      <div class="grid grid-3">
+        <div class="card">
+          <div class="card-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 22s8-3.6 8-10V5l-8-3-8 3v7c0 6.4 8 10 8 10z"/><path d="m9 12 2 2 4-4"/></svg></div>
+          <h3>防伪防作弊</h3>
+          <p>NFC 卡号唯一绑定、定位围栏校验、拍照强制现场拍摄，多重手段识别代打卡与虚假巡检。</p>
+        </div>
+        <div class="card">
+          <div class="card-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="10" width="16" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg></div>
+          <h3>权限精细管控</h3>
+          <p>基于角色的权限体系，接口与按钮双重校验；登录、操作全程日志留痕，可追溯可审计。</p>
+        </div>
+        <div class="card">
+          <div class="card-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><path d="m3.3 7 8.7 5 8.7-5"/><path d="M12 22V12"/></svg></div>
+          <h3>私有化交付</h3>
+          <p>Docker Compose 一条命令完成部署，支持对象存储扩展；升级只需拉取镜像重启，运维零负担。</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- CTA -->
+  <section class="cta-band">
+    <div class="wrap">
+      <h2>现在开始，让巡检管理上线</h2>
+      <p>巡检员下载 App 即可开始打卡，管理者登录后台实时查看。</p>
+      <div class="hero-cta">
+        <a class="btn btn-primary btn-lg" href="/download">下载巡检 App</a>
+        <a data-admin-entry hidden class="btn btn-ghost btn-lg" href="/admin/">进入管理后台</a>
+      </div>
+    </div>
+  </section>
+
+  <!-- 页脚 -->
+  <footer class="footer">
+    <div class="wrap footer-inner">
+      <div class="footer-brand">
+        <img src="/site/assets/anxuncloud-mark-reverse.svg" alt="安巡云" />
+        <span>安巡云 AnXunCloud · 物业巡检管理平台</span>
+      </div>
+      <nav class="footer-links" aria-label="页脚导航">
+        <a href="/download">下载 App</a>
+        <a data-admin-entry hidden href="/admin/">管理后台</a>
+      </nav>
+    </div>
+    <div class="footer-copy">
+      <span data-site="footer-note">安巡云 AnXunCloud · 让每一次巡检都有据可查</span><span data-site="contact" style="margin-left:14px"></span>
+    </div>
+  </footer>
+
+  <script src="/site/assets/site.js" defer></script>
+
+</body>
+</html>

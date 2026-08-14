@@ -19,6 +19,8 @@ import (
 	authsvc "anxuncloud/internal/module/auth/service"
 	communityctl "anxuncloud/internal/module/community/controller"
 	communitysvc "anxuncloud/internal/module/community/service"
+	filectl "anxuncloud/internal/module/file/controller"
+	filesvc "anxuncloud/internal/module/file/service"
 	inspectionctl "anxuncloud/internal/module/inspection/controller"
 	inspectionsvc "anxuncloud/internal/module/inspection/service"
 	mpctl "anxuncloud/internal/module/mp/controller"
@@ -102,6 +104,7 @@ func New(cfg *config.Config, db *gorm.DB, rdb *redis.Client) (*gin.Engine, *insp
 	orderCtl := workorderctl.NewOrderController(orderSvc)
 	statsCtl := statsctl.NewStatsController(statsSvc)
 	reportCtl := reportctl.NewReportController(reportSvc)
+	fileCtl := filectl.NewFileController(filesvc.NewFileService(db, store, uploadSvc))
 	mpCtl := mpctl.NewMPController(mpSvc, checkinSvc, uploadSvc, orderSvc, noticeSvc)
 
 	// 健康检查 + dev 模式本地文件静态路由
@@ -123,6 +126,14 @@ func New(cfg *config.Config, db *gorm.DB, rdb *redis.Client) (*gin.Engine, *insp
 	r.StaticFS("/pdfjs", http.FS(pdfjsSub))
 	// 报告 PDF 公开下载（仅凭一次性 ticket；ticket 由登录接口签发，见 /api/app/reports/:id/pdf-ticket）
 	r.GET("/api/public/report-pdf/:id", reportCtl.PDFByTicket)
+
+	// 统一文件层：上传/直传凭证/下载（AuthAny 跨通道认证，scene 级读权限在 service 内判定）
+	files := r.Group("/api/files", middleware.AuthAny(db, sess, jwtm, authsvc.ChannelAdmin, authsvc.ChannelApp, mpsvc.ChannelMP))
+	{
+		files.POST("", fileCtl.Upload)
+		files.POST("/sts", fileCtl.STS)
+		files.GET("/*key", fileCtl.Download)
+	}
 
 	admin := r.Group("/api/admin")
 	{

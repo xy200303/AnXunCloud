@@ -478,8 +478,8 @@ a { color: var(--blue); text-decoration: none; }
 }
 
 @media (max-width: 640px) {
-  .nav-links { display: none; }
-  .nav-links .btn { display: inline-flex; }
+  .nav-links a { display: none; }
+  .nav-links a.nav-dl { display: inline; } /* 移动端保留「下载 App」纯文字入口 */
   .grid-3, .grid-2 { grid-template-columns: 1fr; }
   .flow { grid-template-columns: repeat(2, 1fr); }
   .dl-grid { grid-template-columns: 1fr; max-width: 460px; margin: 0 auto; }

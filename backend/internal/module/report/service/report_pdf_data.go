@@ -17,8 +17,8 @@ import (
 	"go.uber.org/zap"
 )
 
-// pdfData 由报告记录组装 PDF 版面数据。
-// 汇总表/分项明细/整改台账/典型整改按期间实时查询（点位+打卡记录+异常工单）；
+// pdfData 由报告记录组装 PDF 版面数据（v2 模板）。
+// 汇总表/分项明细/整改台账按期间实时查询（点位+打卡记录+异常工单）；
 // 签字信息取报告留痕（含签名图快照）；管理单位取 report 配置，公章取报告快照/签章资产表。
 func (s *ReportService) pdfData(r *model.InspectionReport) pdf.MonthlyReportData {
 	start, end, be := periodRange(r.Period)
@@ -94,6 +94,7 @@ func (s *ReportService) pdfData(r *model.InspectionReport) pdf.MonthlyReportData
 	s.db.Where("community_id = ? AND created_at >= ? AND created_at < ?", r.CommunityID, start, end).
 		Order("created_at ASC").Find(&orders)
 	for i := range orders {
+		inspectorIDSet[orders[i].ReporterID] = true // 台账「检查人」列
 		if orders[i].AssigneeID != nil {
 			inspectorIDSet[*orders[i].AssigneeID] = true
 		}
@@ -221,21 +222,26 @@ func (s *ReportService) pdfData(r *model.InspectionReport) pdf.MonthlyReportData
 		d.Details = append(d.Details, dt)
 	}
 
-	// ===== 5.现场照片（按打卡记录分组：逐项照片带项名标注，记录级照片标"全景"）=====
-	for _, rec := range recs {
-		title := rec.CheckinTime.Format("2006-01-02 15:04")
-		if pt, ok := pointByID[rec.PointID]; ok {
-			title = pt.Name + " · " + title
-		}
-		group := pdf.PhotoGroup{Title: title}
-		for _, ci := range itemsByRec[rec.ID] {
-			for _, key := range ci.Photos {
-				group.Cells = append(group.Cells, pdf.PhotoCell{Label: ci.Name, Key: key})
+	// ===== 附件：分项检查照片（v2：按设施类别分组，标注=点位名·日期[·检查项]） =====
+	for _, t := range typeNames.ordered {
+		group := pdf.PhotoGroup{Title: typeNames.label(t)}
+		for i := range points {
+			pt := points[i]
+			if pt.Type != t {
+				continue
 			}
-		}
-		for _, ph := range rec.Photos {
-			if k := photoFileKey(ph.URL); k != "" {
-				group.Cells = append(group.Cells, pdf.PhotoCell{Label: "全景", Key: k})
+			for _, rec := range recsByPoint[pt.ID] {
+				base := pt.Name + "·" + rec.CheckinTime.Format("01-02")
+				for _, ci := range itemsByRec[rec.ID] {
+					for _, key := range ci.Photos {
+						group.Cells = append(group.Cells, pdf.PhotoCell{Label: base + "·" + ci.Name, Key: key})
+					}
+				}
+				for _, ph := range rec.Photos {
+					if k := photoFileKey(ph.URL); k != "" {
+						group.Cells = append(group.Cells, pdf.PhotoCell{Label: base, Key: k})
+					}
+				}
 			}
 		}
 		if len(group.Cells) > photoGroupMaxCells {
@@ -246,50 +252,38 @@ func (s *ReportService) pdfData(r *model.InspectionReport) pdf.MonthlyReportData
 		}
 	}
 
-	// ===== 6.隐患问题清单及整改台账 =====
-	for _, o := range orders {
+	// ===== 5.问题清单及整改台账（v2 列：日期/故障问题+照片/处理情况+照片/检查人） =====
+	for i := range orders {
+		o := &orders[i]
 		row := pdf.LedgerRow{
-			Problem:  orderProblem(o),
-			Status:   orderStatusCN(o.Status),
-			Remark:   o.ReviewRemark,
-			Location: "-",
-			TypeName: "-",
+			Date:      o.CreatedAt.Format("2006-01-02"),
+			Problem:   orderProblem(*o),
+			Inspector: userNames[o.ReporterID],
 		}
+		// 问题描述带上点位位置（v2 表无位置列，位置信息并入问题描述）
 		if o.PointID != nil {
 			if pt, ok := pointByID[*o.PointID]; ok {
-				row.Location = pointLocation(pt)
-				row.TypeName = typeNames.label(pt.Type)
+				row.Problem = pointLocation(pt) + "：" + row.Problem
 			}
 		}
-		if o.AssigneeID != nil {
-			row.Assignee = userNames[*o.AssigneeID]
+		for _, ph := range o.Photos {
+			if k := photoFileKey(ph.URL); k != "" {
+				row.ProblemPhotos = append(row.ProblemPhotos, k)
+			}
 		}
-		if o.FinishedAt != nil {
-			row.FinishTime = o.FinishedAt.Format("2006-01-02 15:04")
+		row.FixText = o.FixRemark
+		if row.FixText == "" {
+			row.FixText = orderStatusCN(o.Status)
 		}
-		if o.ReviewedBy != nil {
-			row.Reviewer = userNames[*o.ReviewedBy]
-			row.ReviewDate = o.UpdatedAt.Format("2006-01-02")
+		for _, ph := range o.FixPhotos {
+			if k := photoFileKey(ph.URL); k != "" {
+				row.FixPhotos = append(row.FixPhotos, k)
+			}
 		}
 		d.Ledger = append(d.Ledger, row)
 	}
 
-	// ===== 7.本月典型整改事项（已闭环工单前 5 条） =====
-	for _, o := range orders {
-		if o.Status != womodel.OrderClosed {
-			continue
-		}
-		result := o.FixRemark
-		if result == "" {
-			result = "已完成整改，经复查确认闭环"
-		}
-		d.Typical = append(d.Typical, pdf.TypicalItem{Problem: orderProblem(o), Result: result})
-		if len(d.Typical) >= 5 {
-			break
-		}
-	}
-
-	// ===== 9.三级签字栏（含签名图快照） =====
+	// ===== 2.三级签字栏（含签名图快照） =====
 	signedBy := map[string]string{}
 	sigBy := map[string]string{}
 	proxyNameBy := map[string]string{}
@@ -333,8 +327,8 @@ func (s *ReportService) pdfData(r *model.InspectionReport) pdf.MonthlyReportData
 	return d
 }
 
-// photoGroupMaxCells 单条打卡记录照片上限（防单组撑爆版面）。
-const photoGroupMaxCells = 12
+// photoGroupMaxCells 单个设施类别照片上限（防单组撑爆版面）。
+const photoGroupMaxCells = 48
 
 // pointTypeNames 点位类型中文名表（按字典 point_type 排序；字典外类型置后用原 code）。
 type pointTypeNames struct {

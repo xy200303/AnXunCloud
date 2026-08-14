@@ -105,6 +105,7 @@ func (s *UploadService) SaveLocal(userID string, scene, filename string, size in
 	rec := sysmodel.UploadFile{
 		FileKey: key, Scene: scene, UserID: userID, Size: size,
 		MimeType: "image/" + ext, URL: url, ExifTime: exifTime,
+		Name: filepath.Base(filename), MD5: storage.FileMD5(s.store.LocalPath(key)), Storage: s.store.DriverName(),
 	}
 	if err := s.db.Create(&rec).Error; err != nil {
 		return nil, errs.ErrInternal
@@ -143,6 +144,7 @@ func (s *UploadService) SaveAdminLocal(userID string, scene, filename string, si
 	rec := sysmodel.UploadFile{
 		FileKey: key, Scene: scene, UserID: userID, Size: size,
 		MimeType: mime, URL: url,
+		Name: filepath.Base(filename), MD5: storage.FileMD5(s.store.LocalPath(key)), Storage: s.store.DriverName(),
 	}
 	if err := s.db.Create(&rec).Error; err != nil {
 		return nil, errs.ErrInternal
@@ -185,6 +187,8 @@ func (s *UploadService) Callback(c *gin.Context, body []byte) (int, any) {
 		Object   string `json:"object"`
 		Size     int64  `json:"size,string"`
 		MimeType string `json:"mimeType"`
+		ETag     string `json:"etag"`   // OSS 回调携带（非分片上传即内容 MD5）
+		Name     string `json:"x:name"` // 客户端自定义参数带回的原始文件名
 		UID      string `json:"x:uid"`
 		Scene    string `json:"x:scene"`
 	}
@@ -198,6 +202,7 @@ func (s *UploadService) Callback(c *gin.Context, body []byte) (int, any) {
 		rec := sysmodel.UploadFile{
 			FileKey: form.Object, Scene: form.Scene, UserID: form.UID,
 			Size: form.Size, MimeType: form.MimeType, URL: s.store.URL(form.Object),
+			Name: filepath.Base(form.Name), MD5: strings.Trim(form.ETag, `"`), Storage: s.store.DriverName(),
 		}
 		if rec.Scene == "" {
 			rec.Scene = "checkin"

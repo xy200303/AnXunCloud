@@ -233,16 +233,19 @@ type SysMessage struct {
 
 func (SysMessage) TableName() string { return "sys_message" }
 
-// UploadFile 上传文件记录（第二阶段补充表）
+// UploadFile 上传文件记录（第二阶段补充表；v21 起补 name/md5/storage 统一文件元数据）
 type UploadFile struct {
 	types.UUIDModel
 	FileKey        string     `gorm:"size:255" json:"file_key"`
 	Scene          string     `gorm:"size:16" json:"scene"`
-	UserID         string     `gorm:"type:uuid" json:"user_id"`
+	UserID         string     `gorm:"type:uuid" json:"user_id"` // 零 UUID = 服务端生成文件（月报/导出包）
 	Size           int64      `json:"size"`
 	MimeType       string     `gorm:"size:64" json:"mime_type"`
 	URL            string     `gorm:"size:512" json:"url"`
 	WatermarkedURL string     `gorm:"size:512" json:"watermarked_url"`
+	Name           string     `gorm:"size:255" json:"name"`    // 原始文件名
+	MD5            string     `gorm:"size:64" json:"md5"`      // 内容摘要（完整性校验/去重）
+	Storage        string     `gorm:"size:16" json:"storage"`  // 存储驱动：local/oss/cos
 	ExifTime       *time.Time `json:"exif_time"`
 	CreatedAt      time.Time  `json:"created_at"`
 }

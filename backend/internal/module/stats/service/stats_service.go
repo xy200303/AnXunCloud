@@ -13,6 +13,7 @@ import (
 	insmodel "anxuncloud/internal/module/inspection/model"
 	"anxuncloud/internal/module/stats/dto"
 	sysmodel "anxuncloud/internal/module/system/model"
+	systemsvc "anxuncloud/internal/module/system/service"
 	womodel "anxuncloud/internal/module/workorder/model"
 	"anxuncloud/internal/pkg/errs"
 	"anxuncloud/internal/pkg/response"
@@ -369,10 +370,11 @@ func (s *StatsService) Export(c *gin.Context, req *dto.ExportReq) (gin.H, *errs.
 		buf = b.Bytes()
 	}
 	fileName := fmt.Sprintf("%s_%s_%s.xlsx", fileTitle, req.StartDate, req.EndDate)
-	_, url, err := s.store.SaveGenerated("stats", fileName, buf)
+	key, url, err := s.store.SaveGenerated("stats", fileName, buf)
 	if err != nil {
 		return nil, errs.ErrInternal
 	}
+	systemsvc.RegisterGeneratedFile(s.db, s.store, fileName, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", storage.MD5Hex(buf), key, url, int64(len(buf)))
 	return gin.H{
 		"export_id":    fmt.Sprintf("exp%s", time.Now().Format("20060102150405")),
 		"status":       "done",

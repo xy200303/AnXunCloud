@@ -26,17 +26,26 @@ import (
 	"anxuncloud/internal/pkg/errs"
 )
 
-// Storage 存储服务。
+// Storage 存储服务（门面对象：驱动 + 上传策略；驱动实现见 driver.go，COS 接入时实现 Driver 即可）。
 type Storage struct {
 	cfg     config.UploadConfig
 	oss     config.OSSConfig
 	baseURL string
 	httpc   *http.Client
+	driver  Driver
 }
 
 func New(up config.UploadConfig, oss config.OSSConfig, baseURL string) *Storage {
-	return &Storage{cfg: up, oss: oss, baseURL: strings.TrimRight(baseURL, "/"), httpc: &http.Client{Timeout: 10 * time.Second}}
+	s := &Storage{cfg: up, oss: oss, baseURL: strings.TrimRight(baseURL, "/"), httpc: &http.Client{Timeout: 10 * time.Second}}
+	s.driver = newDriver(up.Mode, up.LocalDir, s.baseURL, oss.Bucket, oss.Endpoint)
+	return s
 }
+
+// DriverName 当前存储驱动名（local/oss/cos）。
+func (s *Storage) DriverName() string { return s.driver.Name() }
+
+// ReadFile 按 file_key 读取文件字节（统一文件层用；本地读盘，云存储走 HTTP）。
+func (s *Storage) ReadFile(fileKey string) ([]byte, error) { return s.driver.Read(fileKey) }
 
 // IsDev 是否本地开发模式。
 func (s *Storage) IsDev() bool { return s.cfg.Mode != "oss" }
@@ -66,10 +75,7 @@ func (s *Storage) CheckExt(name string) (string, *errs.Error) {
 
 // URL 返回文件访问地址（dev：本地静态路由；oss：拼接桶域名，私有读需另签名）。
 func (s *Storage) URL(fileKey string) string {
-	if s.IsDev() {
-		return s.baseURL + "/uploads/" + fileKey
-	}
-	return fmt.Sprintf("https://%s.%s/%s", s.oss.Bucket, s.oss.Endpoint, fileKey)
+	return s.driver.URL(fileKey)
 }
 
 // LocalPath file_key 对应的本地路径（仅 dev 模式有效）。

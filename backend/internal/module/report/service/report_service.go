@@ -21,6 +21,7 @@ import (
 	"anxuncloud/internal/module/report/dto"
 	"anxuncloud/internal/module/report/model"
 	sysmodel "anxuncloud/internal/module/system/model"
+	systemsvc "anxuncloud/internal/module/system/service"
 	womodel "anxuncloud/internal/module/workorder/model"
 	"anxuncloud/internal/pkg/authz"
 	"anxuncloud/internal/pkg/errs"
@@ -1029,10 +1030,11 @@ func (s *ReportService) RebuildPDF(reportID string) error {
 		logger.L.Info("月报 PDF 重渲染完成", zap.String("report_id", reportID), zap.String("file_key", r.FileKey))
 		return nil
 	}
-	key, _, err := s.store.SaveGenerated("reports", r.Title+".pdf", data)
+	key, url, err := s.store.SaveGenerated("reports", r.Title+".pdf", data)
 	if err != nil {
 		return err
 	}
+	systemsvc.RegisterGeneratedFile(s.db, s.store, r.Title+".pdf", "application/pdf", storage.MD5Hex(data), key, url, int64(len(data)))
 	if err := s.db.Model(&r).Update("file_key", key).Error; err != nil {
 		return err
 	}
@@ -1052,11 +1054,12 @@ func (s *ReportService) archivePDF(reportID string) {
 		logger.L.Warn("月报归档：PDF 生成失败", zap.Error(err), zap.String("report_id", reportID))
 		return
 	}
-	key, _, err := s.store.SaveGenerated("reports", r.Title+".pdf", data)
+	key, url, err := s.store.SaveGenerated("reports", r.Title+".pdf", data)
 	if err != nil {
 		logger.L.Warn("月报归档：保存失败", zap.Error(err), zap.String("report_id", reportID))
 		return
 	}
+	systemsvc.RegisterGeneratedFile(s.db, s.store, r.Title+".pdf", "application/pdf", storage.MD5Hex(data), key, url, int64(len(data)))
 	if err := s.db.Model(&r).Update("file_key", key).Error; err != nil {
 		logger.L.Warn("月报归档：回写 file_key 失败", zap.Error(err), zap.String("report_id", reportID))
 		return

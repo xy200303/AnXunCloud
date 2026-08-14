@@ -21,6 +21,7 @@ import (
 	"anxuncloud/internal/module/inspection/dto"
 	"anxuncloud/internal/module/inspection/model"
 	sysmodel "anxuncloud/internal/module/system/model"
+	systemsvc "anxuncloud/internal/module/system/service"
 	"anxuncloud/internal/pkg/bind"
 	"anxuncloud/internal/pkg/errs"
 	"anxuncloud/internal/pkg/excel"
@@ -354,10 +355,12 @@ func (s *PointService) QRCodeBatch(c *gin.Context, req *dto.QRCodeBatchReq) (gin
 		}
 	}
 	fileName := fmt.Sprintf("点位二维码_%s_%s.zip", commName, time.Now().Format("20060102"))
-	_, url, err := s.store.SaveGenerated("qrcode", fileName, buf.Bytes())
+	zipData := buf.Bytes()
+	key, url, err := s.store.SaveGenerated("qrcode", fileName, zipData)
 	if err != nil {
 		return nil, errs.ErrInternal
 	}
+	systemsvc.RegisterGeneratedFile(s.db, s.store, fileName, "application/zip", storage.MD5Hex(zipData), key, url, int64(len(zipData)))
 	return gin.H{
 		"file_url":  url,
 		"file_name": fileName,

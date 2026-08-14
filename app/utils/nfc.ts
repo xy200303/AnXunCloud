@@ -17,7 +17,7 @@
  *
  * 管理端点位维护扩展：
  * - readCardOnce：只读卡片 UID（录 nfc_id 用，不要求 NDEF 文本）；
- * - writePointCode：写入双 NDEF 记录（文本=点位编号 + URI=短链接 /p/{code}，未装 App 的手机贴卡可打开点位信息页）；
+ * - writePointCode：写入双 NDEF 记录（首条 URI=短链接 /p/{code} 供系统弹浏览器，次条文本=点位编号供 App 识别；
  *   写后重读校验；iOS 需 keepSessionAlive，写完恢复默认配置。
  * 读/写共用 onTagDiscovered 单次分发（插件无 off 接口），任一操作进行中另一通道立即失败回调。
  *
@@ -151,12 +151,14 @@ function doWrite(code: string, cb: (ok: boolean, errMsg?: string) => void) {
   const run = async () => {
     const anyNfc = HlNfc as any
     try {
-      // 双记录：文本（点位编号，App 内识别）+ URI（短链接，未装 App 的手机贴卡可打开点位信息页）
+      // 双记录：URI（短链接，未装 App 的手机贴卡可打开点位信息页）+ 文本（点位编号，App 内识别）
+      // URI 必须放首条：Android/iOS 系统按 NDEF 第一条记录分发，URI 在首条才会自动弹浏览器；
+      // 插件读卡遍历全部记录，文本在第二条不影响 App 内识别
       const uri = getPublicOrigin() + '/p/' + code
       // await 兼容三端：Android/iOS 返回同步对象（await 立即解包），鸿蒙可能返回 Promise
       const res: any = await anyNfc.ndefWrite([
-        { type: 'text', data: code, lang: 'zh' },
-        { type: 'uri', data: uri }
+        { type: 'uri', data: uri },
+        { type: 'text', data: code, lang: 'zh' }
       ])
       if (res == null || res.code != 0) {
         cb(false, pluginErrMsg(res, '写入失败，请保持贴卡重试'))
@@ -377,8 +379,8 @@ export function readCardOnce(cb: (cardId: string | null, errMsg?: string) => voi
 
 /**
  * 写入点位信息到 NFC 标签（双 NDEF 记录）：
- * - text = 点位编号（App 内识别/外部 NFC 工具可读）；
- * - uri  = 短链接 {站点源}/p/{code}（未装 App 的手机贴卡弹系统通知，浏览器打开点位信息公开页）。
+ * - uri  = 短链接 {站点源}/p/{code}（**首条**：系统按首条分发，贴卡弹浏览器打开点位信息公开页）；
+ * - text = 点位编号（次条：App 内识别/外部 NFC 工具可读）。
  * 流程：登记一次性写等待 → 提示贴卡 → onTagDiscovered 内 ndefWrite → 重读校验 → 恢复配置。
  * - Android：前台 ReaderMode 本就在监听，贴卡即触发；
  * - iOS：先 configure({keepSessionAlive:true}) 再 startNFCSession 弹系统面板，写完恢复默认配置；

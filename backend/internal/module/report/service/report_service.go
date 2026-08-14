@@ -244,10 +244,16 @@ func (s *ReportService) collectRecords(communityID string, start, end time.Time)
 	return rows
 }
 
-// photoFileKey 从照片 URL 反推 file_key（dev：.../uploads/{key}；oss：https://{bucket}.{endpoint}/{key}）。
+// photoFileKey 从照片 URL 反推 file_key（dev：.../uploads/{key} 或 .../api/files/{key}（可带 ?token=）；oss：https://{bucket}.{endpoint}/{key}）。
 func photoFileKey(u string) string {
+	if i := strings.Index(u, "?"); i >= 0 {
+		u = u[:i]
+	}
 	if i := strings.Index(u, "/uploads/"); i >= 0 {
 		return u[i+len("/uploads/"):]
+	}
+	if i := strings.Index(u, "/api/files/"); i >= 0 {
+		return u[i+len("/api/files/"):]
 	}
 	if pu, err := url.Parse(u); err == nil && pu.Host != "" {
 		return strings.TrimPrefix(pu.Path, "/")

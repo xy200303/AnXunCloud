@@ -48,7 +48,18 @@ func (d *localDriver) Read(key string) ([]byte, error) {
 	return os.ReadFile(filepath.Join(d.dir, filepath.FromSlash(key)))
 }
 
-func (d *localDriver) URL(key string) string { return d.baseURL + "/uploads/" + key }
+func (d *localDriver) URL(key string) string {
+	// 敏感场景（签名/公章/导出文件）走统一文件层 /api/files（鉴权）；内容图继续 /uploads 静态
+	if IsProtectedKey(key) {
+		return d.baseURL + "/api/files/" + key
+	}
+	return d.baseURL + "/uploads/" + key
+}
+
+// IsProtectedKey 敏感场景的 file_key 判定（signature/seal/export 前缀，读需鉴权）。
+func IsProtectedKey(key string) bool {
+	return strings.HasPrefix(key, "signature/") || strings.HasPrefix(key, "seal/") || strings.HasPrefix(key, "export/")
+}
 
 // ========== 阿里云 OSS 驱动 ==========
 

@@ -163,6 +163,7 @@ import { computed, onMounted, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import { Search, Refresh } from '@element-plus/icons-vue'
 import { getCoverage, getTimeliness, exportReport } from '@/api/stats'
+import { withFileToken } from '@/api/upload'
 import { listCommunities } from '@/api/community'
 import Echart from '@/components/Echart.vue'
 import { CHART_COLORS } from '@/utils/echarts'
@@ -300,7 +301,7 @@ async function handleExport(reportType: 'coverage' | 'timeliness' | 'monthly', f
     })
     if (res.status === 'done' && res.download_url) {
       const a = document.createElement('a')
-      a.href = res.download_url
+      a.href = withFileToken(res.download_url)
       a.target = '_blank'
       a.click()
       ElMessage.success('导出文件已生成，开始下载')

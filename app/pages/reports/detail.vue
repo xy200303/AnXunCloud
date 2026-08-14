@@ -51,7 +51,7 @@
             <image
               v-if="p.signed && p.signature_url"
               class="sign-img"
-              :src="p.signature_url"
+              :src="withFileToken(p.signature_url)"
               mode="aspectFit"
               @click="previewImage(p.signature_url)"
             />
@@ -75,7 +75,7 @@
               <image
                 v-if="d.supervisor_signature_url"
                 class="sign-img"
-                :src="d.supervisor_signature_url"
+                :src="withFileToken(d.supervisor_signature_url)"
                 mode="aspectFit"
                 @click="previewImage(d.supervisor_signature_url)"
               />
@@ -104,7 +104,7 @@
               <image
                 v-if="d.manager_signature_url"
                 class="sign-img"
-                :src="d.manager_signature_url"
+                :src="withFileToken(d.manager_signature_url)"
                 mode="aspectFit"
                 @click="previewImage(d.manager_signature_url)"
               />
@@ -253,6 +253,7 @@ import {
   ReportInspector
 } from '@/services/api'
 import { useAuthStore } from '@/stores/auth'
+import { withFileToken } from '@/utils/fileurl'
 import SignaturePad from '@/components/SignaturePad.vue'
 
 type StatItem = { label: string; value: string }
@@ -455,8 +456,9 @@ export default {
     },
     previewImage(url: string | null) {
       if (url == null || url == '') return
-      uni.previewImage({ urls: [url] })
+      uni.previewImage({ urls: [withFileToken(url)] })
     },
+    withFileToken,
     openPdf() {
       if (this.reportId == '') return
       openReportPdf(this.reportId)

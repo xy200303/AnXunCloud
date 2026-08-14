@@ -107,9 +107,17 @@ func New(cfg *config.Config, db *gorm.DB, rdb *redis.Client) (*gin.Engine, *insp
 	fileCtl := filectl.NewFileController(filesvc.NewFileService(db, store, uploadSvc))
 	mpCtl := mpctl.NewMPController(mpSvc, checkinSvc, uploadSvc, orderSvc, noticeSvc)
 
-	// 健康检查 + dev 模式本地文件静态路由
+	// 健康检查 + 本地文件静态路由（仅非敏感场景：checkin/workorder/avatar/notice 等内容图；
+	// signature/seal/export 由 /api/files 鉴权提供，store.URL 已按前缀分流）
 	r.GET("/healthz", func(c *gin.Context) { response.OK(c, gin.H{"status": "up"}) })
-	r.Static("/uploads", cfg.Upload.LocalDir)
+	r.GET("/uploads/*key", func(c *gin.Context) {
+		key := strings.TrimPrefix(c.Param("key"), "/")
+		if key == "" || strings.Contains(key, "..") || storage.IsProtectedKey(key) {
+			c.JSON(404, gin.H{"code": 40400, "message": "资源不存在或已删除", "data": nil})
+			return
+		}
+		c.File(filepath.Join(cfg.Upload.LocalDir, filepath.FromSlash(key)))
+	})
 
 	// 短链接公开入口（免登录）：H5 点位信息页 + 脱敏摘要 API
 	r.GET("/p/:code", func(c *gin.Context) {

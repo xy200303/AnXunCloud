@@ -148,7 +148,7 @@
         <el-form-item label="公章图片" required>
           <div class="seal-uploader">
             <div v-if="sealForm.file_key" class="seal-preview">
-              <el-image :src="fileUrl(sealForm.file_key)" fit="contain" class="seal-img" />
+              <el-image :src="withFileToken(sealForm.url || fileUrl(sealForm.file_key))" fit="contain" class="seal-img" />
               <el-button type="danger" link @click="sealForm.file_key = ''">移除</el-button>
             </div>
             <el-upload
@@ -180,7 +180,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { Search, Refresh, RefreshRight, Upload } from '@element-plus/icons-vue'
 import { listSignAssets, createSignAsset, revokeSignAsset, type SignAssetItem, type SignAssetType, type SignAssetStatus } from '@/api/sign-asset'
 import { listUsers } from '@/api/user'
-import { uploadImage, fileUrl } from '@/api/upload'
+import { uploadImage, fileUrl, withFileToken } from '@/api/upload'
 import type { UserItem } from '@/api/types'
 import type { UploadFile } from 'element-plus'
 
@@ -212,9 +212,9 @@ function statusTag(s: string): { label: string; type: 'info' | 'warning' | 'succ
   ) as { label: string; type: 'info' | 'warning' | 'success' | 'danger' }
 }
 
-// 图片地址：优先用接口返回的 url，缺省时按 file_key 拼静态路径（字段缺失优雅降级）
+// 图片地址：优先用接口返回的 url（敏感场景为 /api/files 鉴权地址，附 ?token=），缺省时按 file_key 拼静态路径
 function assetUrl(row: SignAssetItem) {
-  return row.url || fileUrl(row.file_key || '')
+  return withFileToken(row.url || fileUrl(row.file_key || ''))
 }
 
 function sha256Short(v?: string | null) {
@@ -295,10 +295,11 @@ async function handleRevoke(row: SignAssetItem) {
 const sealDialogVisible = ref(false)
 const sealUploading = ref(false)
 const sealSubmitting = ref(false)
-const sealForm = reactive({ file_key: '', remark: '' })
+const sealForm = reactive({ file_key: '', url: '', remark: '' })
 
 function openSealDialog() {
   sealForm.file_key = ''
+  sealForm.url = ''
   sealForm.remark = ''
   sealDialogVisible.value = true
 }
@@ -316,8 +317,9 @@ async function handleSealChange(uploadFile: UploadFile) {
   }
   sealUploading.value = true
   try {
-    const { file_key } = await uploadImage(raw, 'seal')
+    const { file_key, url } = await uploadImage(raw, 'seal')
     sealForm.file_key = file_key
+    sealForm.url = url
     ElMessage.success('图片已上传')
   } catch {
     // 错误提示由请求拦截器统一弹出

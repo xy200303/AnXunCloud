@@ -152,7 +152,7 @@ import { onBeforeRouteLeave, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox, type FormInstance, type FormRules, type InputInstance } from 'element-plus'
 import { useUserStore } from '@/store/user'
 import { updateProfile, updatePassword, getMyLoginLogs, type MyLoginLog } from '@/api/user'
-import { uploadImage, fileUrl } from '@/api/upload'
+import { uploadImage, fileUrl, withFileToken } from '@/api/upload'
 import SignaturePad from '@/components/SignaturePad.vue'
 import { resetRouterState } from '@/router'
 
@@ -230,7 +230,7 @@ async function handleSaveProfile() {
 }
 
 // ===== 手写签名（月报签字栏用）=====
-const signatureUrl = computed(() => info.value?.signature_url || '')
+const signatureUrl = computed(() => withFileToken(info.value?.signature_url || ''))
 const savingSignature = ref(false)
 
 // 签名保存：name/phone 传当前已保存值，避免覆盖基本资料表单

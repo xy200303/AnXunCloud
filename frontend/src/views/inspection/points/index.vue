@@ -313,6 +313,7 @@ import {
 } from 'element-plus'
 import { Search, Refresh, Plus, RefreshRight, Grid, MapLocation, Delete, Upload, Download, UploadFilled } from '@element-plus/icons-vue'
 import { listPoints, createPoint, updatePoint, deletePoint, generateQrcodes, importPoints, type PointQuery, type PointImportResult } from '@/api/point'
+import { withFileToken } from '@/api/upload'
 import { listTemplates } from '@/api/template'
 import { listCommunityTree } from '@/api/community'
 import { listDictData } from '@/api/dict'
@@ -592,9 +593,9 @@ async function handleBatchQrcode() {
   qrcodeLoading.value = true
   try {
     const res = await generateQrcodes(selected.value.map((p) => p.id))
-    // file_url 为服务端生成的下载地址（本地存储或 OSS 签名 URL）
+    // file_url 为服务端生成的统一下载地址（/api/files 需登录态，拼 ?token= 供直链下载）
     const a = document.createElement('a')
-    a.href = res.file_url
+    a.href = withFileToken(res.file_url)
     a.download = res.file_name
     a.target = '_blank'
     a.click()

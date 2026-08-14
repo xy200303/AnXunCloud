@@ -209,10 +209,10 @@
                   {{ p.name }}
                   <el-image
                     v-if="p.signature_url"
-                    :src="p.signature_url"
+                    :src="withFileToken(p.signature_url)"
                     fit="contain"
                     class="sign-img"
-                    :preview-src-list="[p.signature_url]"
+                    :preview-src-list="[withFileToken(p.signature_url)]"
                     preview-teleported
                   />
                 </span>
@@ -235,10 +235,10 @@
                 <span>{{ detail.supervisor_name }}</span>
                 <el-image
                   v-if="detail.supervisor_signature_url"
-                  :src="detail.supervisor_signature_url"
+                  :src="withFileToken(detail.supervisor_signature_url)"
                   fit="contain"
                   class="sign-img"
-                  :preview-src-list="[detail.supervisor_signature_url]"
+                  :preview-src-list="[withFileToken(detail.supervisor_signature_url)]"
                   preview-teleported
                 />
                 <span class="text-secondary">{{ detail.supervisor_at }}</span>
@@ -260,10 +260,10 @@
                 <span>{{ detail.manager_name }}</span>
                 <el-image
                   v-if="detail.manager_signature_url"
-                  :src="detail.manager_signature_url"
+                  :src="withFileToken(detail.manager_signature_url)"
                   fit="contain"
                   class="sign-img"
-                  :preview-src-list="[detail.manager_signature_url]"
+                  :preview-src-list="[withFileToken(detail.manager_signature_url)]"
                   preview-teleported
                 />
                 <span class="text-secondary">{{ detail.manager_at }}</span>
@@ -434,7 +434,7 @@ import {
   type SignCandidate
 } from '@/api/report'
 import { listCommunities } from '@/api/community'
-import { uploadImage } from '@/api/upload'
+import { uploadImage, withFileToken } from '@/api/upload'
 import { updateProfile } from '@/api/user'
 import SignaturePad from '@/components/SignaturePad.vue'
 import { downloadFile } from '@/utils/download'

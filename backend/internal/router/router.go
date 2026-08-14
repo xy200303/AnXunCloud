@@ -276,7 +276,7 @@ func New(cfg *config.Config, db *gorm.DB, rdb *redis.Client) (*gin.Engine, *insp
 		mp.POST("/auth/register", authCtl.Register)
 		mp.POST("/upload/callback", mpCtl.Callback) // OSS 服务端间回调（验签，无 JWT）
 
-		mpAuth := mp.Group("", middleware.Auth(db, sess, jwtm, mpsvc.ChannelMP))
+		mpAuth := mp.Group("", middleware.Auth(db, sess, jwtm, authsvc.ChannelApp)) // v21 起与 App 共用 app 通道会话
 		{
 			mpAuth.GET("/tasks/today", mpCtl.TodayTasks)
 			mpAuth.GET("/tasks/:id", mpCtl.TaskDetail)
@@ -302,6 +302,7 @@ func New(cfg *config.Config, db *gorm.DB, rdb *redis.Client) (*gin.Engine, *insp
 	app := r.Group("/api/app")
 	{
 		app.POST("/login", authCtl.LoginApp)
+		app.POST("/wx-login", mpCtl.Login) // 微信 code2session 登录（与 /api/mp/login 同一入口，移动端认证已合并）
 		app.POST("/refresh", authCtl.RefreshApp)
 		app.GET("/auth/register-config", authCtl.RegisterConfig)
 		app.POST("/auth/register", authCtl.Register)

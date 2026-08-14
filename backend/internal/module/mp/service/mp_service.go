@@ -14,6 +14,7 @@ import (
 	"gorm.io/gorm"
 
 	"anxuncloud/internal/config"
+	authsvc "anxuncloud/internal/module/auth/service"
 	insmodel "anxuncloud/internal/module/inspection/model"
 	"anxuncloud/internal/module/mp/dto"
 	sysmodel "anxuncloud/internal/module/system/model"
@@ -27,7 +28,8 @@ import (
 	"anxuncloud/internal/pkg/timefmt"
 )
 
-// ChannelMP 小程序会话渠道。
+// ChannelMP 小程序端标记（仅用于登录日志/审计的客户端类型标识）。
+// 会话通道自 v21 起与 App 合并为 ChannelApp：app/mp 共用一套会话体系，token 两端正通用。
 const ChannelMP = "mp"
 
 // MPService 小程序端服务（登录/任务/工单/消息/公告）。
@@ -242,7 +244,7 @@ func (s *MPService) issueTokens(ctx context.Context, user *sysmodel.SysUser) (gi
 	if len(user.RoleIDs) > 0 {
 		s.db.Model(&sysmodel.SysRole{}).Where("id IN ?", []string(user.RoleIDs)).Pluck("code", &roles)
 	}
-	err = s.sess.Save(ctx, ChannelMP, user.ID, session.Info{
+	err = s.sess.Save(ctx, authsvc.ChannelApp, user.ID, session.Info{
 		TokenID: accessJTI, RefreshID: refreshJTI, Name: user.Name,
 		Roles: strings.Join(roles, ","), LoginAt: time.Now().Format(timefmt.Layout),
 	}, s.jwtm.RefreshTTL())
@@ -269,7 +271,7 @@ func (s *MPService) Refresh(ctx context.Context, refreshToken string) (gin.H, *e
 	if black {
 		return nil, errs.ErrRefreshInvalid
 	}
-	sessInfo, err := s.sess.GetByRefresh(ctx, ChannelMP, claims.UserID, claims.ID)
+	sessInfo, err := s.sess.GetByRefresh(ctx, authsvc.ChannelApp, claims.UserID, claims.ID)
 	if err != nil || sessInfo == nil {
 		return nil, errs.ErrRefreshInvalid
 	}

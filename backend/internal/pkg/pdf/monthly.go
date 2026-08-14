@@ -153,19 +153,36 @@ func sectionTitle(p *gofpdf.Fpdf, title string) {
 	p.CellFormat(contentW, 10, title, "", 1, "L", false, 0, "")
 }
 
-// wrapText 按列宽把文本折行（按 rune 测宽；\n 强制换行）。
+// wrapTextNoStart 行首禁止出现的标点（避头尾：闭门点/连字符类不顶格）
+const wrapTextNoStart = "，。；、！？：）】》”’…—·"
+
+// wrapTextNoEnd 行尾禁止出现的标点（开门点留在行尾则移到下行）
+const wrapTextNoEnd = "（【《“‘"
+
+// wrapText 按列宽把文本折行（按 rune 测宽；\n 强制换行；中文标点避头尾）。
 func wrapText(p *gofpdf.Fpdf, text string, w float64) []string {
 	var lines []string
 	for _, para := range strings.Split(text, "\n") {
-		var cur strings.Builder
+		var cur []rune
 		for _, r := range para {
-			if p.GetStringWidth(cur.String()+string(r)) > w {
-				lines = append(lines, cur.String())
-				cur.Reset()
+			if p.GetStringWidth(string(cur)+string(r)) > w && len(cur) > 0 {
+				// 闭门点不允许出现在下行行首：允许其悬挂在当前行尾（略出界可接受）
+				if strings.ContainsRune(wrapTextNoStart, r) {
+					cur = append(cur, r)
+					continue
+				}
+				// 开门点不允许留在当前行行尾：移到下一行
+				if strings.ContainsRune(wrapTextNoEnd, cur[len(cur)-1]) {
+					lines = append(lines, string(cur[:len(cur)-1]))
+					cur = []rune{cur[len(cur)-1], r}
+					continue
+				}
+				lines = append(lines, string(cur))
+				cur = nil
 			}
-			cur.WriteRune(r)
+			cur = append(cur, r)
 		}
-		lines = append(lines, cur.String())
+		lines = append(lines, string(cur))
 	}
 	return lines
 }
@@ -184,12 +201,16 @@ func paragraph(p *gofpdf.Fpdf, text string, size, lh float64, indent bool) {
 	}
 }
 
-// trunc 超出列宽的文本截断（避免 Cell 溢出）。
+// trunc 超出列宽的文本截断（rune 安全，截断后补省略号；避免 Cell 溢出与生硬截断）。
 func trunc(p *gofpdf.Fpdf, s string, w float64) string {
-	for len(s) > 0 && p.GetStringWidth(s) > w-2 {
-		s = s[:len(s)-1]
+	if p.GetStringWidth(s) <= w-2 {
+		return s
 	}
-	return s
+	rs := []rune(s)
+	for len(rs) > 1 && p.GetStringWidth(string(rs)+"…") > w-2 {
+		rs = rs[:len(rs)-1]
+	}
+	return string(rs) + "…"
 }
 
 // ensureSpace 剩余高度不足 need 时先换页（避免章节标题孤行）。
@@ -281,7 +302,8 @@ func registerImage(p *gofpdf.Fpdf, loader func(string) ([]byte, string, error), 
 		return "", 0, 0, false
 	}
 	cfg, _, err := image.DecodeConfig(bytes.NewReader(data))
-	if err != nil || cfg.Width == 0 {
+	if err != nil || cfg.Width < 8 || cfg.Height < 8 {
+		// 解码失败或异常小图（如 1x1 占位图）按缺失处理，避免拉伸成色块
 		return "", 0, 0, false
 	}
 	if imgType == "PNG" {
@@ -700,7 +722,8 @@ func renderPhotoAppendix(p *gofpdf.Fpdf, d MonthlyReportData) {
 				x := x0 + float64(i)*photoCellW
 				rg := regs[i]
 				if rg.ok {
-					p.ImageOptions(rg.name, x+(photoCellW-rg.w)/2, y0, rg.w, rg.h, false, gofpdf.ImageOptions{ReadDpi: true}, 0, "")
+					// 图片在单元格行高内垂直居中，保证行内多图底部/标注对齐（防横竖图混排错位）
+					p.ImageOptions(rg.name, x+(photoCellW-rg.w)/2, y0+(rowH-rg.h)/2, rg.w, rg.h, false, gofpdf.ImageOptions{ReadDpi: true}, 0, "")
 				} else {
 					p.Rect(x+2, y0, photoCellW-4, rowH, "D")
 					p.SetXY(x, y0+rowH/2-2)

@@ -116,15 +116,23 @@ func (s *ReportService) pdfData(r *model.InspectionReport) pdf.MonthlyReportData
 		checked := 0
 		for _, pt := range pts {
 			prs := recsByPoint[pt.ID]
-			if len(prs) > 0 {
-				checked++
+			if len(prs) == 0 {
+				continue
 			}
+			checked++
+			// 「正常完好/存在问题」按点位口径统计（与"总数"单位一致）：
+			// 点位有打卡且无异常记正常完好；有任一异常打卡记存在问题
+			hasAbnormal := false
 			for _, rec := range prs {
 				if rec.Result == insmodel.ResultAbnormal {
-					row.Problems++
-				} else {
-					row.Normal++
+					hasAbnormal = true
+					break
 				}
+			}
+			if hasAbnormal {
+				row.Problems++
+			} else {
+				row.Normal++
 			}
 		}
 		row.InspectRate = pct(int64(checked), int64(row.Total))

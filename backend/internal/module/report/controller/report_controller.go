@@ -74,6 +74,15 @@ func (ctl *ReportController) Generate(c *gin.Context) {
 	write(c, data, be)
 }
 
+// Rebuild POST /reports/:id/rebuild（模板升级后用当前模板重渲染 PDF 并覆盖归档，状态/签字留痕不变）
+func (ctl *ReportController) Rebuild(c *gin.Context) {
+	if err := ctl.svc.RebuildPDF(c.Param("id")); err != nil {
+		response.Fail(c, errs.ErrInternal.WithMsg("重渲染失败"))
+		return
+	}
+	response.OKMsg(c, "已按当前模板重新生成", nil)
+}
+
 // SignCandidates GET /reports/sign-candidates?community_id=（生成报告时的可选签字人）
 func (ctl *ReportController) SignCandidates(c *gin.Context) {
 	communityID := c.Query("community_id")

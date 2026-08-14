@@ -307,9 +307,18 @@ func (s *CheckinService) checkMode(req *dto.CheckinReq, point *insmodel.Inspecti
 	return nil
 }
 
-// normalizeQRCode 扫码内容归一化：兼容早期带 scheme 前缀的贴纸（inspection://checkin?no=XXX），返回裸编号。
+// normalizeQRCode 扫码内容归一化：兼容短链接贴纸（{站点源}/p/{code}）与早期 scheme 前缀（inspection://checkin?no=XXX），返回裸编号。
 func normalizeQRCode(v string) string {
-	return strings.TrimPrefix(strings.TrimSpace(v), "inspection://checkin?no=")
+	s := strings.TrimSpace(v)
+	s = strings.TrimPrefix(s, "inspection://checkin?no=")
+	if i := strings.LastIndex(s, "/p/"); i >= 0 {
+		s = s[i+3:]
+		if j := strings.IndexAny(s, "?#"); j >= 0 {
+			s = s[:j]
+		}
+		s = strings.TrimRight(s, "/")
+	}
+	return s
 }
 
 // resolveCheckItems 检查项模板校验：点位绑定模板时，模板每项都必须有提交结果（按 name 匹配）；

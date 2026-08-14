@@ -232,11 +232,13 @@ function fmtDateTime(d: Date): string {
   )
 }
 
-/** 二维码内容归一化：去掉早期贴纸的 scheme 前缀（与后端 normalizeQRCode 一致） */
+/** 二维码内容归一化：兼容短链接贴纸（/p/{code}）与早期 scheme 前缀（与后端 normalizeQRCode 一致） */
 function normalizeCode(v: string): string {
   const prefix = 'inspection://checkin?no='
   let s = (v || '').trim()
   if (s.indexOf(prefix) == 0) s = s.substring(prefix.length)
+  const m = s.match(/\/p\/([A-Za-z0-9]+)\/?(?:[?#].*)?$/)
+  if (m != null) s = m[1]
   return s
 }
 

@@ -4,6 +4,17 @@ import { isNfcSupported, readCardOnce, toastNfcUnavailable } from '@/utils/nfc'
 let scanning = false
 
 /**
+ * 从扫码内容提取点位编号：
+ * - 新版二维码内容为短链接（{站点源}/p/{code}，外来人员扫码直接开公开页），提取路径中的编号；
+ * - 旧版二维码为纯编号（如 P000015），原样返回。
+ */
+export function extractPointCode(raw: string): string {
+  const text = String(raw || '').trim()
+  const m = text.match(/\/p\/([A-Za-z0-9]+)\/?(?:[?#].*)?$/)
+  return m != null ? m[1] : text
+}
+
+/**
  * 按编号解析点位并跳转打卡表单（扫码与 NFC 共用的「任务定位器」，技术方案 §5.3）。
  * code 为点位编号（如 P000015）；后端 by-code 接口同时按 qrcode_no / nfc_id 匹配。
  */
@@ -40,7 +51,7 @@ function doScan() {
     onlyFromCamera: true, // 禁相册选图（防二维码照片代扫作弊）
     success: (res) => {
       scanning = false
-      resolvePointCode(res.result)
+      resolvePointCode(extractPointCode(res.result))
     },
     fail: (err) => {
       scanning = false

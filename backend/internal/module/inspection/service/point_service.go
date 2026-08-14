@@ -270,7 +270,9 @@ func (s *PointService) MapPoints(c *gin.Context, communityID string) ([]gin.H, *
 	return list, nil
 }
 
-// QRCodeBatch 批量生成二维码并打包 zip 下载（码内容即点位编号本身，如 P000018，最短内容保证识别率）。
+// QRCodeBatch 批量生成二维码并打包 zip 下载。
+// 码内容为短链接 {APP_BASE_URL}/p/{code}：外来人员用微信/相机扫码直接打开点位信息公开页；
+// 巡检端扫码后由客户端提取编号（兼容旧版纯编号二维码，见 app/utils/scan.ts extractPointCode）。
 func (s *PointService) QRCodeBatch(c *gin.Context, req *dto.QRCodeBatchReq) (gin.H, *errs.Error) {
 	if len(req.PointIDs) > 200 {
 		return nil, errs.ErrParam.WithMsg("单次最多生成 200 个点位二维码")
@@ -310,8 +312,9 @@ func (s *PointService) QRCodeBatch(c *gin.Context, req *dto.QRCodeBatchReq) (gin
 	}
 	var buf bytes.Buffer
 	zw := zip.NewWriter(&buf)
+	origin := strings.TrimRight(s.store.BaseURL(), "/")
 	for _, p := range points {
-		content := p.QRCodeNo
+		content := origin + "/p/" + p.QRCodeNo
 		img, err := qrcode.New(content, qrcode.Medium)
 		if err != nil {
 			return nil, errs.ErrInternal

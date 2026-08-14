@@ -487,8 +487,46 @@ a { color: var(--blue); text-decoration: none; }
   .hero-cta .btn { flex: 1; }
 }
 
-/* 管理后台入口：默认隐藏（不暴露后台地址），后台「品牌官网」开启后由 site.js 移除 hidden */
-[data-admin-entry][hidden] { display: none !important; }
+/* ============ 联系区块 ============ */
+.contact-list {
+  font-style: normal;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.contact-item {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  background: #fff;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 18px 22px;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+.contact-item:hover { border-color: #cdd7e4; box-shadow: var(--shadow-card); }
+.contact-icon {
+  width: 44px;
+  height: 44px;
+  border-radius: 11px;
+  background: var(--blue-soft);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+}
+.contact-icon svg { width: 22px; height: 22px; color: var(--blue); }
+.contact-item em {
+  display: block;
+  font-style: normal;
+  font-size: 12.5px;
+  color: var(--slate);
+}
+.contact-item strong { font-size: 16px; font-weight: 600; color: var(--navy); }
+.contact-item strong a { color: var(--navy); }
+.contact-item strong a:hover { color: var(--blue); }
+
+.footer-icp { margin-left: 14px; }
 
 /* ============ 动效收敛 ============ */
 @media (prefers-reduced-motion: reduce) {

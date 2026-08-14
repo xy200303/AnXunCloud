@@ -6,10 +6,10 @@
 <script lang="ts">
 /**
  * 报告预览页（App）。
- * 导航栏「打开/分享」按钮（pages.json titleNView 配置）：
- * 下载 PDF 到本地（ticket 公开地址，无需登录头）→ 系统面板调起其他应用：
- * - 用其他应用打开：WPS/QQ 浏览器等（ACTION_VIEW 选择器）；
- * - 分享发送：微信/QQ/钉钉等（系统分享面板，需在 manifest 勾选 Share 模块）。
+ * 导航栏「打开」按钮（pages.json titleNView 配置）：
+ * 下载 PDF 到本地（ticket 公开地址，无需登录头）→ 直接调起系统分享面板（ACTION_SEND）：
+ * 不限文件类型，凡能接收文件的应用都会出现——微信好友/QQ/钉钉/邮箱/WPS/保存到文件等，
+ * 选 WPS 即打开查看，选微信即发送好友，一个面板全覆盖（需在 manifest 勾选 Share 模块）。
  */
 export default {
   data() {
@@ -36,16 +36,7 @@ export default {
         uni.showToast({ title: '文件地址缺失，请返回重进', icon: 'none' })
         return
       }
-      uni.showActionSheet({
-        itemList: ['用其他应用打开（WPS 等）', '分享发送（微信/QQ）'],
-        success: (res) => {
-          this.ensureFile((path) => {
-            if (res.tapIndex == 0) this.openExternal(path)
-            if (res.tapIndex == 1) this.shareFile(path)
-          })
-        },
-        fail: (_e) => {}
-      })
+      this.ensureFile((path) => this.shareFile(path))
     },
     /** 下载到本地（已下载过直接复用）；下载的临时文件无 .pdf 扩展名，需先改名为规范文件名，否则系统无法匹配可打开的应用 */
     ensureFile(cb: (path: string) => void) {
@@ -94,19 +85,7 @@ export default {
         }
       })
     },
-    /** 系统「打开方式」选择器（WPS/QQ 浏览器等） */
-    openExternal(path: string) {
-      // #ifdef APP-PLUS
-      plus.runtime.openFile(
-        path,
-        {},
-        (e) => {
-          uni.showToast({ title: '没有可打开 PDF 的应用：' + (e.message || ''), icon: 'none' })
-        }
-      )
-      // #endif
-    },
-    /** 系统分享面板（微信/QQ/钉钉等，type=file 分享文件本体） */
+    /** 系统分享面板（ACTION_SEND：微信/QQ/WPS/邮箱/保存到文件等所有能接收文件的应用） */
     shareFile(path: string) {
       // #ifdef APP-PLUS
       uni.shareWithSystem({
@@ -115,9 +94,8 @@ export default {
         summary: '月度巡检报告',
         fail: (e) => {
           const msg = (e && e.errMsg) ? e.errMsg : ''
-          if (msg.indexOf('cancel') < 0) {
-            uni.showToast({ title: '分享失败：' + msg, icon: 'none' })
-          }
+          if (msg.indexOf('cancel') >= 0) return // 用户取消，不提示
+          uni.showToast({ title: '调起失败，请重新打包基座后重试', icon: 'none' })
         }
       })
       // #endif

@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>下载 App · 安巡云 AnXunCloud 物业巡检管理平台</title>
+  <meta name="description" content="下载安巡云巡检 App：Android / HarmonyOS 安装包扫码下载，微信小程序扫码即用。到点打卡、拍照留证、接收工单，一部手机完成全部现场工作。" />
+  <link rel="canonical" href="{{.BaseURL}}/download" />
+  <meta property="og:type" content="website" />
+  <meta property="og:site_name" content="安巡云 AnXunCloud" />
+  <meta property="og:title" content="下载安巡云 App" />
+  <meta property="og:description" content="到点打卡、拍照留证、接收工单，一部手机完成全部现场工作。" />
+  <meta property="og:url" content="{{.BaseURL}}/download" />
+  <meta property="og:locale" content="zh_CN" />
+  <link rel="icon" type="image/svg+xml" href="/site/assets/anxuncloud-mark.svg" />
+  <link rel="stylesheet" href="/site/assets/site.css?v={{.AssetsVer}}" />
+  {{if .ThemeStyle}}<style>{{.ThemeStyle}}</style>{{end}}
+</head>
+<body>
+
+  <!-- 顶部导航 -->
+  <header class="nav">
+    <div class="wrap nav-inner">
+      <a class="nav-logo" href="/" aria-label="安巡云首页">
+        <img src="/site/assets/anxuncloud-lockup.svg" alt="安巡云 AnXunCloud 物业巡检管理平台" />
+      </a>
+      <nav class="nav-links" aria-label="主导航">
+        <a href="/">返回首页</a>
+      </nav>
+    </div>
+  </header>
+
+  <main>
+  <!-- 页头 -->
+  <section class="dl-hero">
+    <div class="wrap">
+      <span class="eyebrow" style="justify-content:center">巡检员移动端</span>
+      <h1>下载安巡云 App</h1>
+      <p>到点打卡、拍照留证、接收工单，一部手机完成全部现场工作。</p>
+    </div>
+  </section>
+
+  <!-- 下载卡片（服务端按发布物渲染） -->
+  <section class="section">
+    <div class="wrap">
+      <div class="dl-grid">
+        {{range .Channels}}
+        <div class="dl-card{{if and .Available .Badge}} primary{{end}}">
+          {{if .Available}}
+            {{if .Badge}}<span class="dl-badge">{{.Badge}}</span>{{else}}<span class="dl-badge">官方</span>{{end}}
+          {{else}}
+            <span class="dl-badge soon">暂未开放</span>
+          {{end}}
+          <h2>{{.Name}}</h2>
+          <p class="dl-os">{{.OS}}</p>
+          {{if .PageQR}}
+          <div class="dl-qr">
+            {{if .Available}}
+            <img src="/api/public/download/qr" alt="扫码打开下载页" width="156" height="156" />
+            {{else}}
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><path d="M14 14h3v3h-3zM21 14v7h-7"/></svg>
+            {{end}}
+          </div>
+          {{end}}
+          {{if .MpQR}}
+          <div class="dl-qr">
+            {{if .Available}}
+            <img src="{{.URL}}" alt="微信小程序码" width="156" height="156" />
+            {{else}}
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><path d="M14 14h3v3h-3zM21 14v7h-7"/></svg>
+            {{end}}
+          </div>
+          {{end}}
+          {{if .Available}}
+          <p class="dl-meta">{{.Meta}}</p>
+            {{if .MpQR}}
+            <span class="btn is-disabled">微信扫码打开</span>
+            {{else}}
+            <a class="btn btn-primary" href="{{.URL}}">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12"/><path d="m7 11 5 5 5-5"/><path d="M4 21h16"/></svg>
+              下载{{.Name}}
+            </a>
+            {{end}}
+          {{else}}
+          <p class="dl-soon-text">{{if .MpQR}}小程序尚未发布，上线后此处展示小程序码。{{else}}安装包暂未上传，请联系项目对接人获取。{{end}}</p>
+          <button class="btn is-disabled" disabled>暂未开放</button>
+          {{end}}
+        </div>
+        {{end}}
+      </div>
+
+      <!-- 安装说明 -->
+      <div class="dl-notes">
+        <h3>安装与使用说明</h3>
+        <div class="note-list">
+          <div class="note-item">
+            <b>扫码或直接下载</b>
+            电脑访问本页时，用手机扫码二维码即可打开下载；手机访问时直接点击下载按钮。
+          </div>
+          <div class="note-item">
+            <b>允许安装外部应用</b>
+            部分手机首次安装浏览器下载的 App 时，需在系统提示中允许「安装未知来源应用」，安装完成后可关闭该授权。
+          </div>
+          <div class="note-item">
+            <b>账号由管理员开通</b>
+            App 不支持自助注册。巡检员账号由管理员在后台开通或批量导入，首次登录后请及时修改密码并绑定手机号。
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+  </main>
+
+  <!-- 页脚 -->
+  <footer class="footer">
+    <div class="wrap footer-inner">
+      <div class="footer-brand">
+        <img src="/site/assets/anxuncloud-mark-reverse.svg" alt="安巡云" />
+        <span>安巡云 AnXunCloud · 物业巡检管理平台</span>
+      </div>
+      <nav class="footer-links" aria-label="页脚导航">
+        <a href="/">返回首页</a>
+        <a href="/#contact">联系我们</a>
+      </nav>
+    </div>
+    <div class="footer-copy">
+      <span>{{or .Cfg.footer_note "安巡云 AnXunCloud · 让每一次巡检都有据可查"}}</span>
+      {{if .Cfg.icp}}<span class="footer-icp">{{.Cfg.icp}}</span>{{end}}
+      <span class="footer-icp">© {{.Year}} 安巡云 AnXunCloud</span>
+    </div>
+  </footer>
+
+</body>
+</html>

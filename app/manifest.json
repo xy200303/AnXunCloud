@@ -51,7 +51,8 @@
                     "system" : {
                         "__platform__" : [ "ios", "android" ]
                     }
-                }
+                },
+                "share" : {}
             },
             "icons" : {
                 "android" : {

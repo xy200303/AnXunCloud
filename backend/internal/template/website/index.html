@@ -5,8 +5,18 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>安巡云 AnXunCloud · 物业巡检管理平台</title>
   <meta name="description" content="安巡云是面向物业公司的巡检管理平台：二维码 / NFC / GPS 围栏三重到点校验，拍照留证、异常工单闭环、月度报告电子签名，让每一次巡检都有据可查。" />
+  <meta name="keywords" content="物业巡检,巡检系统,巡检打卡,NFC打卡,二维码巡检,GPS围栏,物业管理系统,工单管理,巡检报告" />
+  <link rel="canonical" href="{{.BaseURL}}/" />
+  <meta property="og:type" content="website" />
+  <meta property="og:site_name" content="安巡云 AnXunCloud" />
+  <meta property="og:title" content="安巡云 AnXunCloud · 物业巡检管理平台" />
+  <meta property="og:description" content="二维码 / NFC / GPS 围栏三重到点校验，拍照留证、工单闭环、月度报告电子签名，让每一次巡检都有据可查。" />
+  <meta property="og:url" content="{{.BaseURL}}/" />
+  <meta property="og:locale" content="zh_CN" />
   <link rel="icon" type="image/svg+xml" href="/site/assets/anxuncloud-mark.svg" />
-  <link rel="stylesheet" href="/site/assets/site.css" />
+  <link rel="stylesheet" href="/site/assets/site.css?v={{.AssetsVer}}" />
+  {{if .ThemeStyle}}<style>{{.ThemeStyle}}</style>{{end}}
+  <script type="application/ld+json">{{.JSONLD}}</script>
 </head>
 <body>
 
@@ -14,34 +24,28 @@
   <header class="nav">
     <div class="wrap nav-inner">
       <a class="nav-logo" href="/" aria-label="安巡云首页">
-        <img src="/site/assets/anxuncloud-lockup.svg" alt="安巡云 AnXunCloud" />
+        <img src="/site/assets/anxuncloud-lockup.svg" alt="安巡云 AnXunCloud 物业巡检管理平台" />
       </a>
       <nav class="nav-links" aria-label="主导航">
         <a href="#features">产品能力</a>
         <a href="#flow">巡检闭环</a>
-        <a href="#console">管理后台</a>
-        <a href="#security">安全部署</a>
-        <a href="/download">下载 App</a>
-        <a data-admin-entry hidden class="btn btn-primary btn-sm" href="/admin/">管理后台</a>
+        <a href="#security">服务保障</a>
+        <a href="#contact">联系我们</a>
       </nav>
     </div>
   </header>
 
+  <main>
   <!-- Hero -->
   <section class="hero">
     <div class="wrap hero-inner">
       <div>
         <span class="eyebrow">物业巡检数字化平台</span>
         <h1>让每一次巡检<br />都有据可查</h1>
-        <p class="hero-sub" data-site="slogan">
-          二维码 / NFC / GPS 围栏三重到点校验，拍照留证、工单闭环、月度报告电子签，巡检情况后台一目了然。
-        </p>
+        <p class="hero-sub">{{or .Cfg.slogan "二维码 / NFC / GPS 围栏三重到点校验，拍照留证、工单闭环、月度报告电子签，巡检情况后台一目了然。"}}</p>
         <div class="hero-cta">
-          <a class="btn btn-primary btn-lg" href="/download">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12"/><path d="m7 11 5 5 5-5"/><path d="M4 21h16"/></svg>
-            下载巡检 App
-          </a>
-          <a data-admin-entry hidden class="btn btn-ghost btn-lg" href="/admin/">进入管理后台</a>
+          <a class="btn btn-primary btn-lg" href="#features">了解产品能力</a>
+          <a class="btn btn-ghost btn-lg" href="#contact">联系我们</a>
         </div>
         <div class="hero-trust">
           <span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>私有化部署，数据自主可控</span>
@@ -157,74 +161,13 @@
     </div>
   </section>
 
-  <!-- 管理后台 -->
-  <section class="section" id="console">
-    <div class="wrap split">
-      <div>
-        <span class="eyebrow">管理后台</span>
-        <h2 class="section-title">巡检情况，坐在办公室全掌握</h2>
-        <p class="section-desc">专业的侧边栏式管理后台，为物业管理者而生。</p>
-        <ul class="split-list">
-          <li>
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12h4l3 8 4-16 3 8h4"/></svg>
-            <span><strong>今日看板</strong> — 任务进度、到点率、异常打卡实时呈现，谁在巡、巡到哪一目了然。</span>
-          </li>
-          <li>
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 21s-7-5.3-7-11a7 7 0 0 1 14 0c0 5.7-7 11-7 11z"/><circle cx="12" cy="10" r="2.5"/></svg>
-            <span><strong>点位与凭证管理</strong> — 点位二维码批量生成打印，NFC 卡号绑定，围栏半径可视化配置。</span>
-          </li>
-          <li>
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M17 21v-2a4 4 0 0 0-4-4H7a4 4 0 0 0-4 4v2"/><circle cx="10" cy="7" r="4"/><path d="M21 21v-2a4 4 0 0 0-3-3.87"/></svg>
-            <span><strong>人员与权限</strong> — 巡检员账号 Excel 批量导入导出，角色权限精细到按钮级。</span>
-          </li>
-          <li>
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6"/></svg>
-            <span><strong>报告中心</strong> — 月度报告在线审签、归档下载，整改台账图文对照。</span>
-          </li>
-        </ul>
-      </div>
-      <div class="hero-visual" aria-hidden="true">
-        <div class="mock">
-          <div class="mock-bar"><i></i><i></i><i></i></div>
-          <div class="mock-body">
-            <div class="mock-side"><b></b><b class="on"></b><b></b><b></b><b></b></div>
-            <div class="mock-main">
-              <div class="mock-cards">
-                <div class="mock-card"><em>巡检员</em><strong>24</strong></div>
-                <div class="mock-card"><em>点位</em><strong class="blue">186</strong></div>
-                <div class="mock-card"><em>覆盖率</em><strong>97%</strong></div>
-              </div>
-              <div class="mock-list">
-                <div class="mock-row">
-                  <i><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg></i>
-                  <div><u></u><u></u></div>
-                  <s>已审核</s>
-                </div>
-                <div class="mock-row">
-                  <i><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.7 6.3a4.5 4.5 0 0 0-6 6L3 18l3 3 5.7-5.7a4.5 4.5 0 0 0 6-6L14 13l-3-3 3.7-3.7z"/></svg></i>
-                  <div><u></u><u></u></div>
-                  <s class="warn">处理中</s>
-                </div>
-                <div class="mock-row">
-                  <i><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6"/></svg></i>
-                  <div><u></u><u></u></div>
-                  <s>已归档</s>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
-  </section>
-
-  <!-- 安全与部署 -->
+  <!-- 服务保障 -->
   <section class="section dark" id="security">
     <div class="wrap">
       <div class="section-head center">
-        <span class="eyebrow">安全与部署</span>
+        <span class="eyebrow">服务保障</span>
         <h2 class="section-title">企业级的安全，一条命令的部署</h2>
-        <p class="section-desc">系统私有化部署在你自己的服务器上，数据不出公司，权限层层可控。</p>
+        <p class="section-desc">系统私有化部署在企业自己的服务器上，数据不出公司，权限层层可控。</p>
       </div>
       <div class="grid grid-3">
         <div class="card">
@@ -246,17 +189,57 @@
     </div>
   </section>
 
-  <!-- CTA -->
-  <section class="cta-band">
-    <div class="wrap">
-      <h2>现在开始，让巡检管理上线</h2>
-      <p>巡检员下载 App 即可开始打卡，管理者登录后台实时查看。</p>
-      <div class="hero-cta">
-        <a class="btn btn-primary btn-lg" href="/download">下载巡检 App</a>
-        <a data-admin-entry hidden class="btn btn-ghost btn-lg" href="/admin/">进入管理后台</a>
+  <!-- 联系我们 -->
+  <section class="section" id="contact">
+    <div class="wrap split">
+      <div>
+        <span class="eyebrow">联系我们</span>
+        <h2 class="section-title">聊聊您的巡检管理需求</h2>
+        <p class="section-desc">
+          无论是单个小区的试点，还是多项目的整体上线，我们都可以提供部署实施、
+          点位规划与使用培训支持。欢迎通过以下方式与我们联系。
+        </p>
       </div>
+      <address class="contact-list">
+        {{if .Cfg.company_name}}
+        <div class="contact-item">
+          <span class="contact-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 21h18"/><path d="M5 21V5a2 2 0 0 1 2-2h6a2 2 0 0 1 2 2v16"/><path d="M15 9h4a2 2 0 0 1 2 2v10"/><path d="M9 7h2M9 11h2M9 15h2"/></svg></span>
+          <div><em>公司</em><strong>{{.Cfg.company_name}}</strong></div>
+        </div>
+        {{end}}
+        {{if .Cfg.contact_phone}}
+        <div class="contact-item">
+          <span class="contact-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M22 16.9v3a2 2 0 0 1-2.2 2 19.8 19.8 0 0 1-8.6-3.1 19.5 19.5 0 0 1-6-6A19.8 19.8 0 0 1 2.1 4.2 2 2 0 0 1 4.1 2h3a2 2 0 0 1 2 1.7c.13.96.36 1.9.7 2.8a2 2 0 0 1-.45 2.1L8.1 9.9a16 16 0 0 0 6 6l1.3-1.3a2 2 0 0 1 2.1-.45c.9.34 1.84.57 2.8.7a2 2 0 0 1 1.7 2.05z"/></svg></span>
+          <div><em>电话</em><strong><a href="tel:{{.Cfg.contact_phone}}">{{.Cfg.contact_phone}}</a></strong></div>
+        </div>
+        {{end}}
+        {{if .Cfg.contact_email}}
+        <div class="contact-item">
+          <span class="contact-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="m22 7-10 6L2 7"/></svg></span>
+          <div><em>邮箱</em><strong><a href="mailto:{{.Cfg.contact_email}}">{{.Cfg.contact_email}}</a></strong></div>
+        </div>
+        {{end}}
+        {{if .Cfg.contact_wechat}}
+        <div class="contact-item">
+          <span class="contact-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 11.5a8.4 8.4 0 0 1-8.5 8.4c-1.5 0-2.9-.35-4.1-1L3 20l1.2-4.2A8.3 8.3 0 0 1 3 11.5a8.4 8.4 0 0 1 8.5-8.4 8.4 8.4 0 0 1 8.5 8.4z"/></svg></span>
+          <div><em>微信</em><strong>{{.Cfg.contact_wechat}}</strong></div>
+        </div>
+        {{end}}
+        {{if .Cfg.address}}
+        <div class="contact-item">
+          <span class="contact-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 21s-7-5.3-7-11a7 7 0 0 1 14 0c0 5.7-7 11-7 11z"/><circle cx="12" cy="10" r="2.5"/></svg></span>
+          <div><em>地址</em><strong>{{.Cfg.address}}</strong></div>
+        </div>
+        {{end}}
+        {{if not (or .Cfg.company_name .Cfg.contact_phone .Cfg.contact_email .Cfg.contact_wechat .Cfg.address)}}
+        <div class="contact-item">
+          <div><em>联系方式</em><strong>暂未公开，请稍后访问或联系您的项目对接人。</strong></div>
+        </div>
+        {{end}}
+      </address>
     </div>
   </section>
+  </main>
 
   <!-- 页脚 -->
   <footer class="footer">
@@ -266,16 +249,17 @@
         <span>安巡云 AnXunCloud · 物业巡检管理平台</span>
       </div>
       <nav class="footer-links" aria-label="页脚导航">
-        <a href="/download">下载 App</a>
-        <a data-admin-entry hidden href="/admin/">管理后台</a>
+        <a href="#features">产品能力</a>
+        <a href="#flow">巡检闭环</a>
+        <a href="#contact">联系我们</a>
       </nav>
     </div>
     <div class="footer-copy">
-      <span data-site="footer-note">安巡云 AnXunCloud · 让每一次巡检都有据可查</span><span data-site="contact" style="margin-left:14px"></span>
+      <span>{{or .Cfg.footer_note "安巡云 AnXunCloud · 让每一次巡检都有据可查"}}</span>
+      {{if .Cfg.icp}}<span class="footer-icp">{{.Cfg.icp}}</span>{{end}}
+      <span class="footer-icp">© {{.Year}} 安巡云 AnXunCloud</span>
     </div>
   </footer>
-
-  <script src="/site/assets/site.js" defer></script>
 
 </body>
 </html>

@@ -48,26 +48,33 @@ func NewMPService(db *gorm.DB, rdb *redis.Client, sess *session.Store, jwtm *jwt
 // ========== 登录 ==========
 
 // Login 微信 code 换登录态。
-// 【mock 模式】wechat.appid/secret 未配置或 mock=true 时，code 传 "mock:<手机号>"：
+// 【mock 模式】mock=true（仅 dev 可用）时，code 传 "mock:<手机号>"：
 // 按手机号查找已开通账号，首次自动绑定伪 openid（mock-openid-<手机号>），仅用于开发联调。
 func (s *MPService) Login(ctx context.Context, req *dto.MPLoginReq, ip, ua string) (gin.H, *errs.Error) {
+	// IP 维度失败限流（与后台登录一致的安全基线，防爆破/手机号枚举）
+	if be := s.checkLoginLimit(ctx, ip); be != nil {
+		return nil, be
+	}
 	var user *sysmodel.SysUser
 	if s.wechat.MockEnabled() {
 		u, be := s.mockLogin(req.Code)
 		if be != nil {
-			s.loginLog(nil, req.Code, ip, ua, "fail", be.Msg)
+			s.incrLoginFail(ctx, ip)
+			s.loginLog(nil, "", ip, ua, "fail", be.Msg)
 			return nil, be
 		}
 		user = u
 	} else {
 		u, be := s.wxLogin(ctx, req)
 		if be != nil {
-			s.loginLog(nil, req.Code, ip, ua, "fail", be.Msg)
+			s.incrLoginFail(ctx, ip)
+			s.loginLog(nil, "", ip, ua, "fail", be.Msg)
 			return nil, be
 		}
 		user = u
 	}
 	if user.Status != sysmodel.StatusEnabled {
+		s.incrLoginFail(ctx, ip)
 		s.loginLog(&user.ID, user.Username, ip, ua, "fail", "账号已停用")
 		return nil, errs.ErrAccountDisabled
 	}
@@ -75,10 +82,29 @@ func (s *MPService) Login(ctx context.Context, req *dto.MPLoginReq, ip, ua strin
 	if be != nil {
 		return nil, be
 	}
+	s.rdb.Del(ctx, "limit:login:mp:"+ip)
 	now := time.Now()
 	s.db.Model(&sysmodel.SysUser{}).Where("id = ?", user.ID).Update("last_login_at", now)
 	s.loginLog(&user.ID, user.Username, ip, ua, "success", "小程序登录成功")
 	return resp, nil
+}
+
+// checkLoginLimit 小程序登录 IP 锁定（连续 10 次失败锁 10 分钟）。
+func (s *MPService) checkLoginLimit(ctx context.Context, ip string) *errs.Error {
+	n, err := s.rdb.Get(ctx, "limit:login:mp:"+ip).Int()
+	if err == nil && n >= 10 {
+		return errs.ErrTooMany.WithMsg("登录失败次数过多，请 10 分钟后再试")
+	}
+	return nil
+}
+
+// incrLoginFail 累计失败次数（10 分钟窗口）。
+func (s *MPService) incrLoginFail(ctx context.Context, ip string) {
+	key := "limit:login:mp:" + ip
+	pipe := s.rdb.Pipeline()
+	pipe.Incr(ctx, key)
+	pipe.Expire(ctx, key, 10*time.Minute)
+	pipe.Exec(ctx)
 }
 
 // mockLogin mock 模式登录（开发联调专用）。
@@ -278,7 +304,8 @@ func (s *MPService) loginLog(userID *string, username, ip, ua, status, msg strin
 // PointByCode 扫码/NFC 定位：按二维码编号或 NFC ID 查点位，并匹配今日任务上下文（任务定位器，非凭证）。
 func (s *MPService) PointByCode(inspectorID, code string) (gin.H, *errs.Error) {
 	var pt insmodel.InspectionPoint
-	if err := s.db.Where("qrcode_no = ? OR nfc_id = ?", code, code).First(&pt).Error; err != nil {
+	// nfc_id 大小写不敏感（兼容存量小写录入；新写入库已统一大写）
+	if err := s.db.Where("qrcode_no = ? OR UPPER(nfc_id) = ?", code, strings.ToUpper(strings.TrimSpace(code))).First(&pt).Error; err != nil {
 		return nil, errs.ErrNotFound.WithMsg("未找到相关点位信息")
 	}
 	// 数据权限：非全量数据范围的用户须管辖该点位所在小区
@@ -341,7 +368,7 @@ func (s *MPService) PointByCode(inspectorID, code string) (gin.H, *errs.Error) {
 // 脱敏原则：仅点位基础信息 + 巡检结果摘要，不出坐标、照片、凭证配置等敏感项。
 func (s *MPService) PublicPoint(code string) (gin.H, *errs.Error) {
 	var pt insmodel.InspectionPoint
-	if err := s.db.Where("qrcode_no = ? OR nfc_id = ?", code, code).First(&pt).Error; err != nil {
+	if err := s.db.Where("qrcode_no = ? OR UPPER(nfc_id) = ?", code, strings.ToUpper(strings.TrimSpace(code))).First(&pt).Error; err != nil {
 		return nil, errs.ErrNotFound.WithMsg("未找到相关点位信息")
 	}
 	if pt.Status != "enabled" {
@@ -369,7 +396,7 @@ func (s *MPService) PublicPoint(code string) (gin.H, *errs.Error) {
 		name := ""
 		var u sysmodel.SysUser
 		if s.db.Select("name").First(&u, "id = ?", r.InspectorID).Error == nil {
-			name = u.Name
+			name = maskName(u.Name) // 公开页脱敏：不对外暴露员工完整姓名
 		}
 		recent = append(recent, gin.H{
 			"checkin_time": r.CheckinTime.Format("2006-01-02 15:04"),
@@ -386,6 +413,15 @@ func (s *MPService) PublicPoint(code string) (gin.H, *errs.Error) {
 		"stats":  gin.H{"total_30d": total30, "abnormal_30d": abnormal30},
 		"recent": recent,
 	}, nil
+}
+
+// maskName 姓名脱敏：保留首字（公开点位页等免登录场景不暴露员工完整姓名）。
+func maskName(name string) string {
+	r := []rune(strings.TrimSpace(name))
+	if len(r) <= 1 {
+		return name
+	}
+	return string(r[0]) + "*"
 }
 
 // TodayTasks 今日任务列表 + 总进度（进行中排最前）。

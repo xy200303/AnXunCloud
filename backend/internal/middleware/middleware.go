@@ -44,8 +44,8 @@ func ActionName(action string) string {
 	return action
 }
 
-// 敏感字段脱敏（密码类参数不落日志）
-var sensitiveRe = regexp.MustCompile(`("(?:new_)?password"\s*:\s*")[^"]*(")`)
+// 敏感字段脱敏（密码类参数不落日志；覆盖 password/new_password/old_password 等所有 *password* 键）
+var sensitiveRe = regexp.MustCompile(`(?i)("\w*password\w*"\s*:\s*")[^"]*(")`)
 
 // OperLog 操作日志中间件：请求结束后异步写入 sys_operation_log。
 // module/action 语义见接口文档 §2.9（如 system / create）。

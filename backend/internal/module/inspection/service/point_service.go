@@ -130,7 +130,7 @@ func (s *PointService) Create(c *gin.Context, req *dto.PointSaveReq) (string, st
 		Name:               req.Name,
 		Type:               req.Type,
 		TemplateID:         templatePtr(req.TemplateID),
-		NfcID:              req.NfcID,
+		NfcID:              normalizeNfcID(req.NfcID),
 		Longitude:          req.Longitude,
 		Latitude:           req.Latitude,
 		FenceRadius:        s.fenceRadius(req.FenceRadius),
@@ -157,6 +157,11 @@ func (s *PointService) Create(c *gin.Context, req *dto.PointSaveReq) (string, st
 		return "", "", errs.ErrInternal
 	}
 	return p.ID, p.QRCodeNo, nil
+}
+
+// normalizeNfcID NFC 卡号统一大写去空白（插件读出为大写十六进制，手工录入可能小写，入库统一规格）。
+func normalizeNfcID(v string) string {
+	return strings.ToUpper(strings.TrimSpace(v))
 }
 
 // nextQRCodeNo 取下一个二维码编号（P+6 位序列，如 P000018；无分隔符，肉眼报号与扫码解析都最简单）。
@@ -203,7 +208,7 @@ func (s *PointService) Update(c *gin.Context, id string, req *dto.PointSaveReq) 
 	}
 	updates := map[string]any{
 		"community_id": req.CommunityID, "building_id": req.BuildingID, "name": req.Name,
-		"type": req.Type, "template_id": templatePtr(req.TemplateID), "nfc_id": req.NfcID,
+		"type": req.Type, "template_id": templatePtr(req.TemplateID), "nfc_id": normalizeNfcID(req.NfcID),
 		"longitude": req.Longitude, "latitude": req.Latitude,
 		"fence_radius": s.fenceRadius(req.FenceRadius), "credential": credentialOrDefault(req.Credential), "require_fence": req.RequireFence,
 		"required_photo_items": types.StringArray(req.RequiredPhotoItems),
@@ -656,7 +661,7 @@ func (s *PointService) Import(c *gin.Context, r io.Reader) (*dto.PointImportResu
 		}
 		p := model.InspectionPoint{
 			CommunityID: commID, BuildingID: buildingID, Name: name, Type: pointType,
-			TemplateID: templateID, NfcID: nfcID, QRCodeNo: no,
+			TemplateID: templateID, NfcID: normalizeNfcID(nfcID), QRCodeNo: no,
 			Longitude: lon, Latitude: lat, FenceRadius: s.fenceRadius(radius),
 			Credential: credential, RequireFence: requireFence, RequiredPhotoItems: photoItems,
 			Status: status, Remark: remark,

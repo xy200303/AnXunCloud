@@ -128,6 +128,10 @@ func (s *RoleService) Update(id string, req *dto.RoleSaveReq) *errs.Error {
 		updates["data_scope"] = req.DataScope
 	}
 	if req.Status != nil {
+		// 内置角色（尤其 super_admin）禁停用：停用后所有持有账号即时失去权限，可能导致超管集体锁死
+		if role.IsBuiltin && model.StatusStr(*req.Status) == model.StatusDisabled {
+			return errs.ErrParam.WithMsg("内置角色不可停用")
+		}
 		updates["status"] = model.StatusStr(*req.Status)
 	}
 	err := s.db.Transaction(func(tx *gorm.DB) error {

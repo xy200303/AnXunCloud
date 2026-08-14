@@ -113,8 +113,8 @@ func (s *UserService) toItem(u *model.SysUser) dto.UserItem {
 	return item
 }
 
-// Create 新增用户。
-func (s *UserService) Create(req *dto.UserCreateReq) (string, *errs.Error) {
+// Create 新增用户。super_admin 角色仅超管本人可分配（防权限提升）。
+func (s *UserService) Create(req *dto.UserCreateReq, operatorSuper bool) (string, *errs.Error) {
 	if !password.ValidUsername(req.Username) {
 		return "", errs.ErrParam.WithMsg("username 须为 4–32 位字母数字下划线")
 	}
@@ -131,6 +131,9 @@ func (s *UserService) Create(req *dto.UserCreateReq) (string, *errs.Error) {
 	}
 	userType, be := s.resolveRoles(req.RoleIDs)
 	if be != nil {
+		return "", be
+	}
+	if be := s.guardSuperRoleAssign(req.RoleIDs, operatorSuper); be != nil {
 		return "", be
 	}
 	if be := s.checkCommunities(req.CommunityIDs); be != nil {
@@ -199,7 +202,8 @@ func (s *UserService) Detail(id string) (*dto.UserDetail, *errs.Error) {
 }
 
 // Update 修改用户（username 不可改，改密码走重置接口；内置账号不可移除 super_admin 角色）。
-func (s *UserService) Update(id string, req *dto.UserUpdateReq) *errs.Error {
+// super_admin 角色仅超管本人可分配（防权限提升）。
+func (s *UserService) Update(id string, req *dto.UserUpdateReq, operatorSuper bool) *errs.Error {
 	var u model.SysUser
 	if err := s.db.First(&u, "id = ?", id).Error; err != nil {
 		return errs.ErrNotFound
@@ -218,6 +222,9 @@ func (s *UserService) Update(id string, req *dto.UserUpdateReq) *errs.Error {
 	}
 	userType, be := s.resolveRoles(req.RoleIDs)
 	if be != nil {
+		return be
+	}
+	if be := s.guardSuperRoleAssign(req.RoleIDs, operatorSuper); be != nil {
 		return be
 	}
 	if be := s.checkCommunities(req.CommunityIDs); be != nil {
@@ -241,10 +248,23 @@ func (s *UserService) Update(id string, req *dto.UserUpdateReq) *errs.Error {
 }
 
 // ResetPassword 管理员重置密码，重置后该用户全部会话失效。
-func (s *UserService) ResetPassword(ctx context.Context, id string, newPassword string) *errs.Error {
+// 目标为内置账号或持有 super_admin 角色时，仅超管本人可操作（防接管超管账号）。
+func (s *UserService) ResetPassword(ctx context.Context, id string, newPassword string, operatorSuper bool) *errs.Error {
 	var u model.SysUser
 	if err := s.db.First(&u, "id = ?", id).Error; err != nil {
 		return errs.ErrNotFound
+	}
+	if !operatorSuper {
+		if u.IsBuiltin {
+			return errs.ErrNoPerm.WithMsg("内置超管账号仅超级管理员本人可重置密码")
+		}
+		has, be := s.hasSuperRole(u.RoleIDs)
+		if be != nil {
+			return be
+		}
+		if has {
+			return errs.ErrNoPerm.WithMsg("目标为超级管理员，仅超管本人可重置其密码")
+		}
 	}
 	if !password.ValidPassword(newPassword) {
 		return errs.ErrParam.WithMsg("new_password 须为 8–32 位且含字母与数字")
@@ -310,8 +330,7 @@ func (s *UserService) Delete(ctx context.Context, id string, operatorID string) 
 }
 
 // resolveRoles 校验角色存在并按角色推导用户类型（inspector/repair 优先，否则 admin）。
-func (s *UserService) resolveRoles(roleIDs []string) (string, *errs.Error) {
-	var roles []model.SysRole
+func (s *UserService) resolveRoles(roleIDs []string) (string, *errs.Error) {	var roles []model.SysRole
 	if err := s.db.Where("id IN ?", roleIDs).Find(&roles).Error; err != nil {
 		return "", errs.ErrInternal
 	}
@@ -327,6 +346,34 @@ func (s *UserService) resolveRoles(roleIDs []string) (string, *errs.Error) {
 		}
 	}
 	return userType, nil
+}
+
+// hasSuperRole 角色集合是否包含 super_admin。
+func (s *UserService) hasSuperRole(roleIDs []string) (bool, *errs.Error) {
+	if len(roleIDs) == 0 {
+		return false, nil
+	}
+	var n int64
+	if err := s.db.Model(&model.SysRole{}).
+		Where("id IN ? AND code = ?", roleIDs, model.SuperAdminCode).Count(&n).Error; err != nil {
+		return false, errs.ErrInternal
+	}
+	return n > 0, nil
+}
+
+// guardSuperRoleAssign 非超管操作者分配 super_admin 角色时拒绝（垂直越权防护）。
+func (s *UserService) guardSuperRoleAssign(roleIDs []string, operatorSuper bool) *errs.Error {
+	if operatorSuper {
+		return nil
+	}
+	has, be := s.hasSuperRole(roleIDs)
+	if be != nil {
+		return be
+	}
+	if has {
+		return errs.ErrNoPerm.WithMsg("仅超级管理员可分配超级管理员角色")
+	}
+	return nil
 }
 
 // checkCommunities 校验小区存在。
@@ -376,8 +423,8 @@ func (s *UserService) Export(q *dto.UserListQuery) ([]excel.UserExportRow, *errs
 	return rows, nil
 }
 
-// Import 逐行校验导入用户（跳过失败行，成功行落库）。
-func (s *UserService) Import(r io.Reader) (*dto.ImportResult, string, *errs.Error) {
+// Import 逐行校验导入用户（跳过失败行，成功行落库）。super_admin 角色仅超管本人可导入。
+func (s *UserService) Import(r io.Reader, operatorSuper bool) (*dto.ImportResult, string, *errs.Error) {
 	rows, err := excel.ParseUserImport(r)
 	if err != nil {
 		return nil, "", errs.ErrImportFileType
@@ -473,6 +520,11 @@ func (s *UserService) Import(r io.Reader) (*dto.ImportResult, string, *errs.Erro
 				roleOK = false
 				break
 			}
+			if role.Code == model.SuperAdminCode && !operatorSuper {
+				fail("仅超级管理员可导入超级管理员角色")
+				roleOK = false
+				break
+			}
 			roleIDs = append(roleIDs, role.ID)
 			roleCodes = append(roleCodes, role.Code)
 		}
@@ -540,6 +592,9 @@ func (s *UserService) Import(r io.Reader) (*dto.ImportResult, string, *errs.Erro
 		result.SuccessCount++
 	}
 	result.FailCount = len(result.FailDetails)
+	if result.SuccessCount > 0 {
+		authz.SyncAllQuiet(s.db) // 导入的新用户需重建 casbin g 规则，否则登录后无任何权限
+	}
 	msg := fmt.Sprintf("导入完成：成功 %d 条，失败 %d 条", result.SuccessCount, result.FailCount)
 	return result, msg, nil
 }

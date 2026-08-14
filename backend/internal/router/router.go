@@ -439,7 +439,7 @@ func registerSystemRoutes(sys *gin.RouterGroup, db *gorm.DB,
 		roles.GET("/:id", middleware.RequirePerm("system:role:list"), roleCtl.Detail)
 		roles.PUT("/:id", middleware.RequirePerm("system:role:update"), middleware.OperLog(db, "system", "update"), roleCtl.Update)
 		roles.DELETE("/:id", middleware.RequirePerm("system:role:delete"), middleware.OperLog(db, "system", "delete"), roleCtl.Delete)
-		roles.PUT("/:id/menus", middleware.RequirePerm("system:role:update"), middleware.OperLog(db, "system", "assign_menus"), roleCtl.AssignMenus)
+		roles.PUT("/:id/menus", middleware.RequirePerm("system:role:update", "system:role:assign"), middleware.OperLog(db, "system", "assign_menus"), roleCtl.AssignMenus)
 	}
 	menus := sys.Group("/menus")
 	{

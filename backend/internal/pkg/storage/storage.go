@@ -96,8 +96,9 @@ func (s *Storage) SaveLocal(scene string, uid string, ext string, r io.Reader) (
 }
 
 // SaveGenerated 保存服务端生成的文件（二维码包、报表），scene 固定 export。
+// 文件名前缀随机段：/uploads 为免鉴权静态目录，随机段使导出文件 URL 不可预测（防穷举下载）。
 func (s *Storage) SaveGenerated(subdir, filename string, data []byte) (string, string, error) {
-	key := fmt.Sprintf("export/%s/%s/%s", subdir, time.Now().Format("20060102"), filename)
+	key := fmt.Sprintf("export/%s/%s/%s_%s", subdir, time.Now().Format("20060102"), uuid.NewString()[:8], filename)
 	path := s.LocalPath(key)
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return "", "", err

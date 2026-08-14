@@ -290,13 +290,13 @@ func (s *CheckinService) checkMode(req *dto.CheckinReq, point *insmodel.Inspecti
 			return errs.ErrQRCodeMismatch
 		}
 	case insmodel.CredentialNFC:
-		if req.NFCID == "" || req.NFCID != point.NfcID {
+		if !nfcMatch(req.NFCID, point.NfcID) {
 			return errs.ErrQRCodeMismatch.WithMsg("NFC 校验失败：卡号与点位不匹配")
 		}
 	case insmodel.CredentialAny:
 		// 任一：二维码或 NFC 匹配其一即通过（NFC 仅当点位录了卡号才可比）
 		qrOK := point.QRCodeNo != "" && normalizeQRCode(req.QRCodeNo) == point.QRCodeNo
-		nfcOK := point.NfcID != "" && req.NFCID != "" && req.NFCID == point.NfcID
+		nfcOK := nfcMatch(req.NFCID, point.NfcID)
 		if !qrOK && !nfcOK {
 			return errs.ErrQRCodeMismatch.WithMsg("凭证校验失败：请扫描点位二维码或读取 NFC 标签")
 		}
@@ -305,6 +305,13 @@ func (s *CheckinService) checkMode(req *dto.CheckinReq, point *insmodel.Inspecti
 		return errs.ErrOutOfFence.WithMsg(fmt.Sprintf("距点位 %dm，超出围栏半径 %dm", int(distance), point.FenceRadius))
 	}
 	return nil
+}
+
+// nfcMatch NFC 卡号比对：双侧统一大写去空白后等值（兼容存量小写录入），空串不匹配。
+func nfcMatch(reqID, pointID string) bool {
+	a := strings.ToUpper(strings.TrimSpace(reqID))
+	b := strings.ToUpper(strings.TrimSpace(pointID))
+	return a != "" && b != "" && a == b
 }
 
 // normalizeQRCode 扫码内容归一化：兼容短链接贴纸（{站点源}/p/{code}）与早期 scheme 前缀（inspection://checkin?no=XXX），返回裸编号。

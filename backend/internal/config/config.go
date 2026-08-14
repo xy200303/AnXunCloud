@@ -71,15 +71,15 @@ type AppConfig struct {
 	BaseURL string `mapstructure:"base_url"`
 }
 
-// WechatConfig 小程序配置；AppID 为空或 Mock=true 时进入 mock 登录模式（仅开发联调）。
+// WechatConfig 小程序配置；Mock=true 时进入 mock 登录模式（仅开发联调，prod 环境强制忽略）。
 type WechatConfig struct {
 	AppID  string `mapstructure:"appid"`
 	Secret string `mapstructure:"secret"`
 	Mock   bool   `mapstructure:"mock"`
 }
 
-// MockEnabled 是否处于 mock 模式（配置缺失自动降级，便于开发联调）。
-func (w WechatConfig) MockEnabled() bool { return w.Mock || w.AppID == "" || w.Secret == "" }
+// MockEnabled 是否处于 mock 模式（必须显式 mock=true；prod 环境下 Load 已强制置 false，双保险）。
+func (w WechatConfig) MockEnabled() bool { return w.Mock }
 
 type UploadConfig struct {
 	Mode         string   `mapstructure:"mode"`
@@ -137,6 +137,10 @@ func Load() (*Config, error) {
 	cfg.Env = os.Getenv("APP_ENV")
 	if cfg.Env == "" {
 		cfg.Env = "dev"
+	}
+	// 安全兜底：prod 环境强制关闭微信 mock 登录，防止配置失误导致 mock:<手机号> 任意接管账号
+	if cfg.Env == "prod" {
+		cfg.Wechat.Mock = false
 	}
 	return &cfg, nil
 }

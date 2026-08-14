@@ -1,13 +1,20 @@
 package service
 
 import (
+	"regexp"
+
 	"gorm.io/gorm"
 
 	"anxuncloud/internal/module/system/dto"
 	"anxuncloud/internal/module/system/model"
+	"anxuncloud/internal/pkg/authz"
 	"anxuncloud/internal/pkg/bind"
 	"anxuncloud/internal/pkg/errs"
 )
+
+// permsRe 权限点格式：segment(:segment)*，小写字母数字下划线，如 inspection:point:list。
+// 拒绝 "*" 及任何含 '*' 的写法——perms 会原样进入 casbin p 规则，通配写法等于绕过授权模型。
+var permsRe = regexp.MustCompile(`^[a-z][a-z0-9_]*(:[a-z0-9_]+)*$`)
 
 // MenuService 菜单管理服务。
 type MenuService struct {
@@ -134,6 +141,7 @@ func (s *MenuService) Create(req *dto.MenuSaveReq) (string, *errs.Error) {
 	if err := s.db.Create(&menu).Error; err != nil {
 		return "", errs.ErrInternal
 	}
+	authz.SyncAllQuiet(s.db) // 菜单变更影响权限点全集，重建 casbin 策略防残留
 	return menu.ID, nil
 }
 
@@ -184,6 +192,7 @@ func (s *MenuService) Update(id string, req *dto.MenuSaveReq) *errs.Error {
 	if err := s.db.Model(&m).Updates(updates).Error; err != nil {
 		return errs.ErrInternal
 	}
+	authz.SyncAllQuiet(s.db) // perms/status 变更需即时生效（含权限收回方向）
 	return nil
 }
 
@@ -210,10 +219,11 @@ func (s *MenuService) Delete(id string) *errs.Error {
 	if err != nil {
 		return errs.ErrInternal
 	}
+	authz.SyncAllQuiet(s.db)
 	return nil
 }
 
-// validateSave 校验父菜单存在性及 dir/menu 的 path 必填。
+// validateSave 校验父菜单存在性及 dir/menu 的 path 必填、perms 格式。
 func (s *MenuService) validateSave(req *dto.MenuSaveReq, selfID string) *errs.Error {
 	if req.ParentID != "" {
 		if req.ParentID == selfID {
@@ -227,6 +237,9 @@ func (s *MenuService) validateSave(req *dto.MenuSaveReq, selfID string) *errs.Er
 	}
 	if req.Type != model.MenuTypeButton && req.Path == "" {
 		return errs.ErrParam.WithMsg("dir/menu 类型 path 必填")
+	}
+	if req.Perms != "" && !permsRe.MatchString(req.Perms) {
+		return errs.ErrParam.WithMsg("perms 格式应为 segment(:segment)* 小写字母数字下划线（如 inspection:point:list），不允许通配符")
 	}
 	return nil
 }

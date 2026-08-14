@@ -6,8 +6,10 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	"anxuncloud/internal/middleware"
 	"anxuncloud/internal/module/stats/dto"
 	"anxuncloud/internal/module/stats/service"
+	"anxuncloud/internal/pkg/authz"
 	"anxuncloud/internal/pkg/bind"
 	"anxuncloud/internal/pkg/errs"
 	"anxuncloud/internal/pkg/response"
@@ -69,6 +71,14 @@ func (ctl *StatsController) Export(c *gin.Context) {
 	if be := bind.JSON(c, &req); be != nil {
 		response.Fail(c, be)
 		return
+	}
+	// 操作/登录日志属敏感数据，路由只挂了 stats:export，此处按类型追加日志导出权限点校验
+	if req.ReportType == "operation_log" || req.ReportType == "login_log" {
+		ok, err := authz.EnforceAny(middleware.CurrentUserID(c), "system:log:export")
+		if err != nil || !ok {
+			response.Fail(c, errs.ErrNoPerm.WithMsg("导出日志需要日志导出权限"))
+			return
+		}
 	}
 	data, be := ctl.svc.Export(c, &req)
 	write(c, data, be)

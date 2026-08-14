@@ -52,7 +52,7 @@ func (ctl *UserController) Create(c *gin.Context) {
 		response.Fail(c, be)
 		return
 	}
-	id, be := ctl.svc.Create(&req)
+	id, be := ctl.svc.Create(&req, middleware.CurrentIdentity(c).SuperAdmin)
 	if be != nil {
 		response.Fail(c, be)
 		return
@@ -87,7 +87,7 @@ func (ctl *UserController) Update(c *gin.Context) {
 		response.Fail(c, be)
 		return
 	}
-	if be := ctl.svc.Update(id, &req); be != nil {
+	if be := ctl.svc.Update(id, &req, middleware.CurrentIdentity(c).SuperAdmin); be != nil {
 		response.Fail(c, be)
 		return
 	}
@@ -106,7 +106,7 @@ func (ctl *UserController) ResetPassword(c *gin.Context) {
 		response.Fail(c, be)
 		return
 	}
-	if be := ctl.svc.ResetPassword(c.Request.Context(), id, req.NewPassword); be != nil {
+	if be := ctl.svc.ResetPassword(c.Request.Context(), id, req.NewPassword, middleware.CurrentIdentity(c).SuperAdmin); be != nil {
 		response.Fail(c, be)
 		return
 	}
@@ -183,7 +183,7 @@ func (ctl *UserController) Import(c *gin.Context) {
 		return
 	}
 	defer f.Close()
-	result, msg, be := ctl.svc.Import(f)
+	result, msg, be := ctl.svc.Import(f, middleware.CurrentIdentity(c).SuperAdmin)
 	if be != nil {
 		response.Fail(c, be)
 		return

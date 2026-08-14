@@ -16,18 +16,8 @@
             <el-input v-model="configForm[item.key]" style="width: 140px" placeholder="#2b5aed" />
             <span class="field-remark">{{ item.remark }}</span>
           </div>
-          <div v-else-if="item.key === 'site.show_admin_entry'">
-            <el-switch
-              v-model="configForm[item.key]"
-              active-value="true"
-              inactive-value="false"
-              active-text="显示"
-              inactive-text="隐藏"
-            />
-            <div class="field-remark">{{ item.remark }}</div>
-          </div>
           <el-input
-            v-else-if="item.key === 'site.slogan' || item.key === 'site.footer_note'"
+            v-else-if="item.key === 'site.slogan' || item.key === 'site.footer_note' || item.key === 'site.address'"
             v-model="configForm[item.key]"
             type="textarea"
             :rows="2"
@@ -37,7 +27,7 @@
         </el-form-item>
         <el-form-item>
           <el-button v-perms="'system:site:update'" type="primary" :loading="saving" @click="handleSaveConfig">保存配置</el-button>
-          <span class="field-remark" style="margin-left: 12px">保存后官网约 1 分钟内生效</span>
+          <span class="field-remark" style="margin-left: 12px">保存后官网立即生效</span>
         </el-form-item>
       </el-form>
     </div>

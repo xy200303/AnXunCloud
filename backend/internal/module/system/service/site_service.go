@@ -24,8 +24,11 @@ func NewSiteService(db *gorm.DB, store *storage.Storage, cfg *ConfigService) *Si
 	return &SiteService{db: db, store: store, cfg: cfg}
 }
 
-// 官网可配置项（key 白名单：公共接口只暴露这些，后台表单也只渲染这些）
-var siteConfigKeys = []string{"site.slogan", "site.contact_phone", "site.contact_email", "site.theme_color", "site.footer_note", "site.show_admin_entry"}
+// 官网可配置项（key 白名单：SSR 注入与后台表单渲染都只用这些）
+var siteConfigKeys = []string{
+	"site.slogan", "site.company_name", "site.contact_phone", "site.contact_email",
+	"site.contact_wechat", "site.address", "site.icp", "site.theme_color", "site.footer_note",
+}
 
 var themeColorRe = regexp.MustCompile(`^#[0-9a-fA-F]{6}$`)
 
@@ -62,9 +65,6 @@ func (s *SiteService) SaveBrandConfig(values map[string]string) *errs.Error {
 		if k == "site.theme_color" && v != "" && !themeColorRe.MatchString(v) {
 			return errs.ErrParam.WithMsg("主题色须为 #RRGGBB 格式")
 		}
-		if k == "site.show_admin_entry" && v != "true" && v != "false" {
-			return errs.ErrParam.WithMsg("管理后台入口开关取值仅支持 true/false")
-		}
 		if len(v) > 200 {
 			return errs.ErrParam.WithMsg("配置值过长（≤200 字符）：" + k)
 		}
@@ -75,8 +75,8 @@ func (s *SiteService) SaveBrandConfig(values map[string]string) *errs.Error {
 	return nil
 }
 
-// PublicBrandConfig 官网公开配置（键名去掉 site. 前缀，只含白名单项）。
-func (s *SiteService) PublicBrandConfig() map[string]string {
+// BrandConfigMap 官网 SSR 注入用配置（键名去掉 site. 前缀，只含白名单项；空值不返回）。
+func (s *SiteService) BrandConfigMap() map[string]string {
 	out := make(map[string]string, len(siteConfigKeys))
 	for _, k := range siteConfigKeys {
 		if v, ok := s.cfg.Get(k); ok && v != "" {
@@ -161,27 +161,16 @@ func (s *SiteService) DeleteRelease(id string) *errs.Error {
 	return nil
 }
 
-// PublicReleases 官网下载页用：每个平台取最新一条，附下载地址。
-func (s *SiteService) PublicReleases() map[string]any {
+// LatestReleases 官网下载页 SSR 用：每个平台最新一条发布物。
+func (s *SiteService) LatestReleases() map[string]model.AppRelease {
 	var rows []model.AppRelease
-	// 取每平台最新一条：按 created_at 倒序扫全量去重（数据量小，无需窗口函数）
 	if err := s.db.Order("created_at DESC").Find(&rows).Error; err != nil {
-		return map[string]any{}
+		return map[string]model.AppRelease{}
 	}
-	seen := map[string]bool{}
-	out := map[string]any{}
+	out := map[string]model.AppRelease{}
 	for _, r := range rows {
-		if seen[r.Platform] {
-			continue
-		}
-		seen[r.Platform] = true
-		out[r.Platform] = map[string]any{
-			"id":         r.ID,
-			"version":    r.Version,
-			"size":       r.Size,
-			"name":       r.Name,
-			"updated_at": r.CreatedAt.Format("2006-01-02"),
-			"url":        "/api/public/download/app/" + r.ID,
+		if _, ok := out[r.Platform]; !ok {
+			out[r.Platform] = r
 		}
 	}
 	return out

@@ -26,9 +26,9 @@
 
 ```
 物业管理平台/
-├── backend/                # Go 后端（cmd/server 入口；internal/{config,middleware,module,pkg,router}）
+├── backend/                # Go 后端（cmd/server 入口；internal/{config,middleware,module,pkg,router,template}）
 │   ├── .air.toml           # air 配置（Windows 挂载卷下启用轮询）
-│   └── internal/router/website/  # 品牌官网静态站点（go:embed 随二进制分发）
+│   └── internal/template/  # 页面模板与静态资源（官网 website/、pdfjs/、点位 H5；go:embed 随二进制分发）
 ├── frontend/               # Vue3 管理后台（部署在 /admin 子路径）
 ├── miniprogram/            # 微信小程序端（预留）
 ├── docs/                   # 方案/需求/接口/数据库/UI 文档
@@ -108,12 +108,12 @@ app 容器由根目录唯一 `Dockerfile` 的 `prod` target 多阶段构建：no
 手动构建示例：`docker build --target prod -t anxuncloud-app .`（dev 镜像对应 `--target backend-dev` / `--target frontend-dev`）。
 后端单端口托管全部页面：
 
-- `/` **品牌官网**（产品介绍，源码在 `backend/internal/router/website/`，go:embed 随二进制分发，改完重启即生效）
+- `/` **品牌官网**（产品介绍，模板源码在 `backend/internal/template/website/`，go:embed 随二进制分发，改完重启即生效）
 - `/download` **App 下载页**（Android APK / HarmonyOS HAP / iOS IPA / 微信小程序码四个渠道；发布物在后台「系统管理 → 品牌官网 → 下载渠道」上传，官网自动开放对应渠道，无需改文件重启）
 - `/admin/` **管理后台**（前端 history 路由刷新不 404）
 - `/api`、`/uploads`、`/p/{code}`（点位短链接）正常走后端
 
-官网内容与发布物均可在后台「系统管理 → 品牌官网」配置：标语、主题色、联系电话/邮箱、页脚文案、是否显示管理后台入口（默认隐藏，不暴露后台地址），以及各平台安装包/小程序码的上传与删除（文件走统一文件层，scene=app，上限 512MB）。
+官网内容与发布物均可在后台「系统管理 → 品牌官网」配置：标语、主题色、公司名称、电话/邮箱/微信/地址、ICP 备案号、页脚文案，以及各平台安装包/小程序码的上传与删除（文件走统一文件层，scene=app，上限 512MB）。官网为服务端渲染（Go 模板注入配置），带完整 SEO/GEO（meta/OG/JSON-LD/robots.txt/sitemap.xml），首页不暴露管理后台地址。
 
 **构建加速**：Dockerfile 已内置国内镜像源（Go 模块 `goproxy.cn`、npm `npmmirror.com`、apk 阿里云镜像），可用 build-arg 覆盖：`GOPROXY` / `NPM_REGISTRY` / `ALPINE_MIRROR`（如 `--build-arg GOPROXY=direct`）。基础镜像（golang/node/alpine）拉取慢则在服务器 `/etc/docker/daemon.json` 配 `registry-mirrors`（如 `https://docker.m.daocloud.io`）后 `systemctl restart docker`。
 

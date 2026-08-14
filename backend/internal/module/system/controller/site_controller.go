@@ -101,18 +101,6 @@ func (ctl *SiteController) Delete(c *gin.Context) {
 
 // ========== 官网公开接口 ==========
 
-// PublicConfig GET /api/public/site-config（仅白名单 site.* 配置）
-func (ctl *SiteController) PublicConfig(c *gin.Context) {
-	c.Header("Cache-Control", "public, max-age=60")
-	response.OK(c, ctl.svc.PublicBrandConfig())
-}
-
-// PublicReleases GET /api/public/download/releases（每平台最新一条）
-func (ctl *SiteController) PublicReleases(c *gin.Context) {
-	c.Header("Cache-Control", "public, max-age=60")
-	response.OK(c, ctl.svc.PublicReleases())
-}
-
 // Download GET /api/public/download/app/:id（安装包附件下载 / 小程序码图片内联预览）
 func (ctl *SiteController) Download(c *gin.Context) {
 	rel, be := ctl.svc.ReleaseFile(c.Param("id"))

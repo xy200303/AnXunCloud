@@ -364,7 +364,10 @@ func seedConfigs(tx *gorm.DB) error {
 		{Key: "site.contact_email", Name: "联系邮箱", Value: "", ConfigGroup: "site", Remark: "官网页脚展示，留空不显示"},
 		{Key: "site.theme_color", Name: "官网主题色", Value: "#2b5aed", ConfigGroup: "site", Remark: "官网按钮/强调色，十六进制色值"},
 		{Key: "site.footer_note", Name: "页脚文案", Value: "安巡云 AnXunCloud · 让每一次巡检都有据可查", ConfigGroup: "site", Remark: "官网页脚底部一行文案"},
-		{Key: "site.show_admin_entry", Name: "显示管理后台入口", Value: "false", ConfigGroup: "site", Remark: "true 时官网导航/页脚显示「管理后台」链接，默认隐藏不暴露后台地址"},
+		{Key: "site.company_name", Name: "公司名称", Value: "", ConfigGroup: "site", Remark: "官网联系区块与结构化数据展示"},
+		{Key: "site.contact_wechat", Name: "微信号", Value: "", ConfigGroup: "site", Remark: "官网联系区块展示，留空不显示"},
+		{Key: "site.address", Name: "公司地址", Value: "", ConfigGroup: "site", Remark: "官网联系区块与结构化数据展示，留空不显示"},
+		{Key: "site.icp", Name: "ICP 备案号", Value: "", ConfigGroup: "site", Remark: "官网页脚展示（如 鄂ICP备2024xxxxxx号-1），留空不显示"},
 		// 公章自 v16 起由 sign_asset 签章资产表管理，不再使用 report.seal_file_key 配置项
 		// auth.register_enabled 由迁移 v7 统一插入（覆盖新库与存量库），seed 不再重复
 	}

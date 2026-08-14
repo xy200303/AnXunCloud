@@ -2,7 +2,6 @@
 package router
 
 import (
-	"embed"
 	"io/fs"
 	"net/http"
 	"os"
@@ -29,6 +28,7 @@ import (
 	reportsvc "anxuncloud/internal/module/report/service"
 	statsctl "anxuncloud/internal/module/stats/controller"
 	statssvc "anxuncloud/internal/module/stats/service"
+	sitetpl "anxuncloud/internal/template"
 	systemctl "anxuncloud/internal/module/system/controller"
 	systemsvc "anxuncloud/internal/module/system/service"
 	workorderctl "anxuncloud/internal/module/workorder/controller"
@@ -39,16 +39,6 @@ import (
 	"anxuncloud/internal/pkg/storage"
 	"anxuncloud/internal/pkg/watermark"
 )
-
-// pointPageHTML NFC/二维码短链接 H5 点位信息页（免登录，内嵌资源随二进制分发）。
-//
-//go:embed point_page.html
-var pointPageHTML string
-
-// pdfjsAssets 内嵌 pdf.js 精简查看器（App 端 web-view 内渲染报告 PDF，随二进制分发）。
-//
-//go:embed pdfjs
-var pdfjsAssets embed.FS
 
 // New 构建 HTTP 引擎并注册全部路由；返回引擎与巡检调度器（由 main 启停）。
 func New(cfg *config.Config, db *gorm.DB, rdb *redis.Client) (*gin.Engine, *inspectionsvc.Scheduler) {
@@ -97,7 +87,8 @@ func New(cfg *config.Config, db *gorm.DB, rdb *redis.Client) (*gin.Engine, *insp
 	messageCtl := systemctl.NewMessageController(messageSvc)
 	uploadCtl := systemctl.NewUploadController(uploadSvc)
 	signAssetCtl := systemctl.NewSignAssetController(signAssetSvc)
-	siteCtl := systemctl.NewSiteController(systemsvc.NewSiteService(db, store, configSvc), store)
+	siteSvc := systemsvc.NewSiteService(db, store, configSvc)
+	siteCtl := systemctl.NewSiteController(siteSvc, store)
 	communityCtl := communityctl.NewCommunityController(communitySvc)
 	inspectionCtl := inspectionctl.NewInspectionController(pointSvc, planSvc, taskSvc)
 	templateCtl := inspectionctl.NewTemplateController(templateSvc)
@@ -123,12 +114,12 @@ func New(cfg *config.Config, db *gorm.DB, rdb *redis.Client) (*gin.Engine, *insp
 	// 短链接公开入口（免登录）：H5 点位信息页 + 脱敏摘要 API
 	r.GET("/p/:code", func(c *gin.Context) {
 		c.Header("Cache-Control", "no-cache")
-		c.Data(200, "text/html; charset=utf-8", []byte(pointPageHTML))
+		c.Data(200, "text/html; charset=utf-8", []byte(sitetpl.PointPageHTML))
 	})
 	r.GET("/api/public/point/:code", mpCtl.PublicPoint)
 
 	// pdf.js 内嵌查看器静态资源（App web-view 打开 /pdfjs/viewer.html?file=... 渲染报告）
-	pdfjsSub, err := fs.Sub(pdfjsAssets, "pdfjs")
+	pdfjsSub, err := fs.Sub(sitetpl.PdfjsFS, "pdfjs")
 	if err != nil {
 		panic(err)
 	}
@@ -399,8 +390,8 @@ func New(cfg *config.Config, db *gorm.DB, rdb *redis.Client) (*gin.Engine, *insp
 		}
 	}
 
-	// 品牌官网（/、/download、/site/*）与 App 下载公开接口
-	registerSiteRoutes(r, cfg, siteCtl)
+	// 品牌官网（SSR：/、/download、/robots.txt、/sitemap.xml、/site/*）与 App 下载公开接口
+	registerSiteRoutes(r, cfg, siteSvc, siteCtl)
 
 	// 生产单端口 SPA：管理后台托管在 /admin 子路径，非 /api、/uploads 路径 fallback 到 index.html
 	registerSPA(r, cfg.SPA.DistPath)

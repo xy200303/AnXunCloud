@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=3.0, user-scalable=yes">
+<title>报告预览</title>
+<style>
+  html, body { margin: 0; padding: 0; background: #525659; }
+  #viewer { display: flex; flex-direction: column; align-items: center; padding: 8px 0; }
+  canvas { display: block; margin-bottom: 8px; box-shadow: 0 2px 8px rgba(0,0,0,.35); background: #fff; max-width: 100%; }
+  #status { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center;
+            color: #e8e8e8; font: 14px/1.6 -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+            text-align: center; padding: 0 32px; }
+</style>
+</head>
+<body>
+<div id="status">正在加载报告…</div>
+<div id="viewer"></div>
+<script src="/pdfjs/pdf.min.js"></script>
+<script>
+(function () {
+  var statusEl = document.getElementById('status');
+  var viewer = document.getElementById('viewer');
+  function fail(msg) { statusEl.textContent = msg; statusEl.style.display = 'flex'; }
+
+  var file = '';
+  try {
+    file = new URLSearchParams(location.search).get('file') || '';
+  } catch (e) {}
+  if (!file) { fail('缺少文件参数'); return; }
+
+  pdfjsLib.GlobalWorkerOptions.workerSrc = '/pdfjs/pdf.worker.min.js';
+
+  pdfjsLib.getDocument({ url: file }).promise.then(function (pdf) {
+    statusEl.style.display = 'none';
+    // 渲染宽度按设备屏宽（留边），高清屏按 devicePixelRatio 提升清晰度
+    var cssW = Math.min(document.documentElement.clientWidth - 16, 900);
+    var scaleRatio = Math.min(window.devicePixelRatio || 1, 2);
+    var chain = Promise.resolve();
+    var _loop = function (n) {
+      if (n > pdf.numPages) return;
+      chain = chain.then(function () {
+        return pdf.getPage(n).then(function (page) {
+          var vp1 = page.getViewport({ scale: 1 });
+          var scale = cssW / vp1.width;
+          var viewport = page.getViewport({ scale: scale * scaleRatio });
+          var canvas = document.createElement('canvas');
+          canvas.width = viewport.width;
+          canvas.height = viewport.height;
+          canvas.style.width = cssW + 'px';
+          canvas.style.height = (cssW * viewport.height / viewport.width) + 'px';
+          viewer.appendChild(canvas);
+          return page.render({ canvasContext: canvas.getContext('2d'), viewport: viewport }).promise;
+        }).then(function () { _loop(n + 1); });
+      });
+    };
+    _loop(1);
+    return chain;
+  }).catch(function (e) {
+    fail('报告加载失败：' + (e && e.message ? e.message : '未知错误'));
+  });
+})();
+</script>
+</body>
+</html>

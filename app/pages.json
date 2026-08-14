@@ -60,6 +60,12 @@
       }
     },
     {
+      "path": "pages/reports/pdf",
+      "style": {
+        "navigationBarTitleText": "报告预览"
+      }
+    },
+    {
       "path": "pages/tasks/detail",
       "style": {
         "navigationBarTitleText": "任务明细",

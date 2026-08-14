@@ -145,3 +145,34 @@ func (ctl *ReportController) PDF(c *gin.Context) {
 	c.Header("Content-Disposition", fmt.Sprintf("attachment; filename*=UTF-8''%s", url.PathEscape(filename)))
 	c.Data(http.StatusOK, "application/pdf", data)
 }
+
+// PDFTicket POST /reports/:id/pdf-ticket（App web-view 预览用：签发限时 ticket，判定同 PDF 接口）
+func (ctl *ReportController) PDFTicket(c *gin.Context) {
+	id, be := pathID(c)
+	if be != nil {
+		response.Fail(c, be)
+		return
+	}
+	ticket, be := ctl.svc.PDFTicket(c, id)
+	if be != nil {
+		response.Fail(c, be)
+		return
+	}
+	response.OK(c, gin.H{"ticket": ticket})
+}
+
+// PDFByTicket GET /api/public/report-pdf/:id?ticket=（免登录，仅凭 ticket；inline 供 web-view 内渲染）
+func (ctl *ReportController) PDFByTicket(c *gin.Context) {
+	id, be := pathID(c)
+	if be != nil {
+		response.Fail(c, be)
+		return
+	}
+	data, filename, be := ctl.svc.PDFByTicket(c, id, c.Query("ticket"))
+	if be != nil {
+		response.Fail(c, be)
+		return
+	}
+	c.Header("Content-Disposition", fmt.Sprintf("inline; filename*=UTF-8''%s", url.PathEscape(filename)))
+	c.Data(http.StatusOK, "application/pdf", data)
+}

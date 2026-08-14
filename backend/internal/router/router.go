@@ -2,7 +2,9 @@
 package router
 
 import (
-	_ "embed"
+	"embed"
+	"io/fs"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
@@ -41,6 +43,11 @@ import (
 //go:embed point_page.html
 var pointPageHTML string
 
+// pdfjsAssets 内嵌 pdf.js 精简查看器（App 端 web-view 内渲染报告 PDF，随二进制分发）。
+//
+//go:embed pdfjs
+var pdfjsAssets embed.FS
+
 // New 构建 HTTP 引擎并注册全部路由；返回引擎与巡检调度器（由 main 启停）。
 func New(cfg *config.Config, db *gorm.DB, rdb *redis.Client) (*gin.Engine, *inspectionsvc.Scheduler) {
 	gin.SetMode(cfg.Server.Mode)
@@ -71,7 +78,7 @@ func New(cfg *config.Config, db *gorm.DB, rdb *redis.Client) (*gin.Engine, *insp
 	reviewSvc := inspectionsvc.NewReviewService(db)
 	orderSvc := workordersvc.NewOrderService(db, rdb, store)
 	statsSvc := statssvc.NewStatsService(db, store)
-	reportSvc := reportsvc.NewReportService(db, store, configSvc.Get)
+	reportSvc := reportsvc.NewReportService(db, rdb, store, configSvc.Get)
 	mpSvc := mpsvc.NewMPService(db, rdb, sess, jwtm, cfg.Wechat, orderSvc)
 	checkinSvc := mpsvc.NewCheckinService(db, rdb, store, orderSvc, configSvc.Get)
 	uploadSvc := mpsvc.NewUploadService(db, store, cfg.Upload, cfg.OSS)
@@ -107,6 +114,15 @@ func New(cfg *config.Config, db *gorm.DB, rdb *redis.Client) (*gin.Engine, *insp
 		c.Data(200, "text/html; charset=utf-8", []byte(pointPageHTML))
 	})
 	r.GET("/api/public/point/:code", mpCtl.PublicPoint)
+
+	// pdf.js 内嵌查看器静态资源（App web-view 打开 /pdfjs/viewer.html?file=... 渲染报告）
+	pdfjsSub, err := fs.Sub(pdfjsAssets, "pdfjs")
+	if err != nil {
+		panic(err)
+	}
+	r.StaticFS("/pdfjs", http.FS(pdfjsSub))
+	// 报告 PDF 公开下载（仅凭一次性 ticket；ticket 由登录接口签发，见 /api/app/reports/:id/pdf-ticket）
+	r.GET("/api/public/report-pdf/:id", reportCtl.PDFByTicket)
 
 	admin := r.Group("/api/admin")
 	{
@@ -347,6 +363,7 @@ func New(cfg *config.Config, db *gorm.DB, rdb *redis.Client) (*gin.Engine, *insp
 				appReports.POST("/:id/sign-supervisor", middleware.RequirePerm("report:sign:supervisor"), middleware.OperLog(db, "report", "sign_supervisor"), reportCtl.SignSupervisor)
 				appReports.POST("/:id/sign-manager", middleware.RequirePerm("report:sign:manager"), middleware.OperLog(db, "report", "sign_manager"), reportCtl.SignManager)
 				appReports.GET("/:id/pdf", reportCtl.PDF) // 同 PC：service 内判定（report:download 或报告相关人）
+				appReports.POST("/:id/pdf-ticket", reportCtl.PDFTicket) // 签发 web-view 预览用一次性 ticket
 			}
 		}
 	}
@@ -370,7 +387,7 @@ func registerSPA(r *gin.Engine, distPath string) {
 	index := filepath.Join(root, "index.html")
 	r.NoRoute(func(c *gin.Context) {
 		p := c.Request.URL.Path
-		if strings.HasPrefix(p, "/api/") || strings.HasPrefix(p, "/uploads/") {
+		if strings.HasPrefix(p, "/api/") || strings.HasPrefix(p, "/uploads/") || strings.HasPrefix(p, "/pdfjs/") {
 			c.JSON(404, gin.H{"code": 40400, "message": "接口不存在", "data": nil})
 			return
 		}

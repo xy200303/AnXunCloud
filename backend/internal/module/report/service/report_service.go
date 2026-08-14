@@ -12,6 +12,8 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
+	"github.com/redis/go-redis/v9"
 	"gorm.io/gorm"
 
 	"anxuncloud/internal/middleware"
@@ -35,12 +37,13 @@ import (
 // ReportService 月度报告服务。
 type ReportService struct {
 	db     *gorm.DB
+	rdb    *redis.Client
 	store  *storage.Storage
 	getCfg func(key string) (string, bool) // 读取系统参数（report.company_name；公章自 v16 起走 sign_asset 资产表）
 }
 
-func NewReportService(db *gorm.DB, store *storage.Storage, getCfg func(string) (string, bool)) *ReportService {
-	return &ReportService{db: db, store: store, getCfg: getCfg}
+func NewReportService(db *gorm.DB, rdb *redis.Client, store *storage.Storage, getCfg func(string) (string, bool)) *ReportService {
+	return &ReportService{db: db, rdb: rdb, store: store, getCfg: getCfg}
 }
 
 // cfgString 读取系统参数（未配置返回空串）。
@@ -343,6 +346,20 @@ func (s *ReportService) List(c *gin.Context, q *dto.ReportListQuery) (*response.
 			db = db.Where(`(status = 'pending_inspector' AND inspector_ids @> ?::jsonb)
 				OR (status = 'pending_supervisor' AND supervisor_ids @> ?::jsonb)
 				OR (status = 'pending_manager' AND manager_ids @> ?::jsonb)`, j, j, j)
+		}
+	}
+	// 我签过的：三级任一签署留痕含当前用户。1/true 含已归档（签完不消失，可回看完整报告）；
+	// doing 只取流程未走完的（App「进行中」选项卡）。
+	if q.SignedMine != "" {
+		if identity := middleware.CurrentIdentity(c); identity != nil {
+			uid := identity.UserID
+			j := fmt.Sprintf(`[{"user_id":"%s"}]`, uid)
+			signedCond := `inspector_signed @> ?::jsonb OR supervisor_by = ? OR manager_by = ?`
+			if q.SignedMine == "doing" {
+				db = db.Where(`status <> 'approved' AND (`+signedCond+`)`, j, uid, uid)
+			} else if q.SignedMine == "1" || q.SignedMine == "true" {
+				db = db.Where(`status = 'approved' OR `+signedCond, j, uid, uid)
+			}
 		}
 	}
 	var total int64
@@ -887,23 +904,33 @@ func (s *ReportService) PDF(c *gin.Context, id string) ([]byte, string, *errs.Er
 	if be != nil {
 		return nil, "", be
 	}
+	if be := s.checkPDFAccess(c, r); be != nil {
+		return nil, "", be
+	}
+	return s.pdfBytes(r)
+}
+
+// checkPDFAccess PDF 访问判定：超管 / report:download 权限点 / 报告相关人（三级签字名单任一）。
+func (s *ReportService) checkPDFAccess(c *gin.Context, r *model.InspectionReport) *errs.Error {
 	identity := middleware.CurrentIdentity(c)
 	if identity == nil {
-		return nil, "", errs.ErrUnauthorized
+		return errs.ErrUnauthorized
 	}
-	allowed := identity.SuperAdmin
-	if !allowed {
-		if ok, err := authz.EnforceAny(identity.UserID, "report:download"); err == nil && ok {
-			allowed = true
-		}
+	if identity.SuperAdmin {
+		return nil
 	}
-	if !allowed {
-		uid := identity.UserID
-		allowed = r.InspectorIDs.Contains(uid) || r.SupervisorIDs.Contains(uid) || r.ManagerIDs.Contains(uid)
+	if ok, err := authz.EnforceAny(identity.UserID, "report:download"); err == nil && ok {
+		return nil
 	}
-	if !allowed {
-		return nil, "", errs.ErrNoPerm.WithMsg("仅报告相关人或有下载权限的账号可查看报告")
+	uid := identity.UserID
+	if r.InspectorIDs.Contains(uid) || r.SupervisorIDs.Contains(uid) || r.ManagerIDs.Contains(uid) {
+		return nil
 	}
+	return errs.ErrNoPerm.WithMsg("仅报告相关人或有下载权限的账号可查看报告")
+}
+
+// pdfBytes 取报告 PDF 字节：已归档读归档文件，否则即时生成临时版。
+func (s *ReportService) pdfBytes(r *model.InspectionReport) ([]byte, string, *errs.Error) {
 	filename := r.Title + ".pdf"
 	if r.FileKey != "" && s.store.IsDev() {
 		data, err := os.ReadFile(s.store.LocalPath(r.FileKey))
@@ -918,6 +945,42 @@ func (s *ReportService) PDF(c *gin.Context, id string) ([]byte, string, *errs.Er
 		return nil, "", errs.ErrInternal
 	}
 	return data, filename, nil
+}
+
+// PDFTicketTTL PDF 预览 ticket 有效期（有效期内可重复取：pdf.js 可能对大文件分段拉取）。
+const PDFTicketTTL = 5 * time.Minute
+
+// PDFTicket 签发报告 PDF 预览 ticket（App web-view 无法带 Authorization 头，凭 ticket 走公开通道）。
+// 访问判定与 PDF 接口一致（report:download 或报告相关人 + 小区数据范围）。
+func (s *ReportService) PDFTicket(c *gin.Context, id string) (string, *errs.Error) {
+	r, be := s.getWithScope(c, id)
+	if be != nil {
+		return "", be
+	}
+	if be := s.checkPDFAccess(c, r); be != nil {
+		return "", be
+	}
+	ticket := uuid.NewString()
+	if err := s.rdb.Set(c.Request.Context(), "pdftkt:"+ticket, r.ID, PDFTicketTTL).Err(); err != nil {
+		return "", errs.ErrInternal
+	}
+	return ticket, nil
+}
+
+// PDFByTicket 凭 ticket 取报告 PDF（免登录公开通道；ticket 由 PDFTicket 签发，过期需重新打开）。
+func (s *ReportService) PDFByTicket(c *gin.Context, id string, ticket string) ([]byte, string, *errs.Error) {
+	if ticket == "" {
+		return nil, "", errs.ErrUnauthorized
+	}
+	reportID, err := s.rdb.Get(c.Request.Context(), "pdftkt:"+ticket).Result()
+	if err != nil || reportID != id {
+		return nil, "", errs.ErrUnauthorized.WithMsg("预览凭证无效或已过期，请重新打开")
+	}
+	var r model.InspectionReport
+	if err := s.db.First(&r, "id = ?", id).Error; err != nil {
+		return nil, "", errs.ErrNotFound
+	}
+	return s.pdfBytes(&r)
 }
 
 // loadPhoto 按 file_key 读取照片字节与图片类型（dev 读本地文件；oss HTTP 下载）。

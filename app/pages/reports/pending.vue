@@ -63,7 +63,7 @@
 import { Colors, ColorTokens } from '@/utils/theme'
 import { apiReports, ReportListItem } from '@/services/api'
 
-type TabKey = 'pending' | 'done'
+type TabKey = 'pending' | 'doing' | 'done'
 
 type PendingData = {
   colors: ColorTokens
@@ -75,7 +75,8 @@ type PendingData = {
 }
 
 const TABS: { key: TabKey; label: string }[] = [
-  { key: 'pending', label: '待我签字' },
+  { key: 'pending', label: '等待签字' },
+  { key: 'doing', label: '进行中' },
   { key: 'done', label: '已完成' }
 ]
 
@@ -109,12 +110,14 @@ export default {
       return TABS
     },
     emptyTitle(): string {
-      return this.tab == 'pending' ? '暂无待签报告' : '暂无已完成报告'
+      if (this.tab == 'pending') return '暂无待签报告'
+      if (this.tab == 'doing') return '暂无进行中报告'
+      return '暂无已完成报告'
     },
     emptySub(): string {
-      return this.tab == 'pending'
-        ? '月度报告到达你的签字节点时会出现在这里'
-        : '签字流程走完归档后的月度报告会保留在这里，可随时查看完整内容'
+      if (this.tab == 'pending') return '月度报告到达你的签字节点时会出现在这里'
+      if (this.tab == 'doing') return '你已签字、仍在审批流程中的报告会显示在这里'
+      return '已归档的月度报告会保留在这里，可随时查看完整内容'
     }
   },
   onLoad() {
@@ -137,8 +140,15 @@ export default {
     },
     load() {
       this.loading = !this.loaded
-      // 待我签：pending_mine=1；已完成：status=approved。报告量小，单页放大 page_size 一次取全
-      const req = this.tab == 'pending' ? apiReports(1, 50, true) : apiReports(1, 50, false, 'approved')
+      // 等待签字：pending_mine=1；进行中：signed_mine=doing（我签过未归档）；已完成：status=approved
+      let req: Promise<any>
+      if (this.tab == 'pending') {
+        req = apiReports(1, 50, true)
+      } else if (this.tab == 'doing') {
+        req = apiReports(1, 50, false, '', 'doing')
+      } else {
+        req = apiReports(1, 50, false, 'approved')
+      }
       req
         .then((res) => {
           this.loading = false

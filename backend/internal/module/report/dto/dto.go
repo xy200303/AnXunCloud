@@ -9,6 +9,8 @@ type ReportListQuery struct {
 	Period      string `form:"period"` // YYYY-MM
 	Status      string `form:"status"`
 	PendingMine string `form:"pending_mine"` // 1/true = 只看待我签（当前用户在当前级签字人名单内）
+	// 1/true = 我签过的 + 已归档；doing = 我签过但流程未走完（进行中）
+	SignedMine string `form:"signed_mine"`
 }
 
 type GenerateReq struct {

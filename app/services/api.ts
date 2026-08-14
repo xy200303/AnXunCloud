@@ -3,7 +3,7 @@
  * 参照 docs/接口文档.md §1.3 信封、§3 移动端接口；/api/app 组与 /api/mp 同形（技术方案 §4）。
  */
 
-import { httpGet, httpPost, httpPut, refreshSession, getBaseUrl } from '@/services/request'
+import { httpGet, httpPost, httpPut, refreshSession, getBaseUrl, getPublicOrigin } from '@/services/request'
 import { getAccessToken } from '@/utils/storage'
 
 // ---- 类型定义（与后端 JSON 蛇形字段对齐；ID 字段全系统 v2 起为 UUIDv7 string） ----
@@ -928,10 +928,11 @@ export function apiOfflineSync(items: CheckinReqPayload[]): Promise<OfflineSyncR
 
 // ---- 月报签字接口 ----------------------------------------------------------------
 
-/** 报告列表 GET /reports（pendingMine=true 只看待我签：当前用户在当前级签字人名单内；status 按状态过滤如 approved） */
-export function apiReports(page: number, pageSize: number, pendingMine: boolean, status?: string): Promise<ReportListPage> {
+/** 报告列表 GET /reports（pendingMine=true 只看待我签；signedMine: '1'=我签过的+已归档 'doing'=我签过未归档；status 按状态过滤） */
+export function apiReports(page: number, pageSize: number, pendingMine: boolean, status?: string, signedMine?: string): Promise<ReportListPage> {
   let path = '/reports?page=' + page + '&page_size=' + pageSize
   if (pendingMine) path += '&pending_mine=1'
+  if (signedMine != null && signedMine != '') path += '&signed_mine=' + signedMine
   if (status != null && status != '') path += '&status=' + encodeURIComponent(status)
   return new Promise<ReportListPage>((resolve, reject) => {
     httpGet<any>(path)
@@ -1033,11 +1034,42 @@ export function apiSignManager(id: string, req: ReportSignReq): Promise<{ status
   })
 }
 
+/** 签发报告 PDF 预览 ticket POST /reports/:id/pdf-ticket（web-view 无法带登录头，凭 ticket 走限时公开通道） */
+export function apiReportPdfTicket(id: string): Promise<string> {
+  return new Promise<string>((resolve, reject) => {
+    httpPost<any>('/reports/' + id + '/pdf-ticket', null, true)
+      .then((d) => {
+        if (d == null || d.ticket == null || d.ticket == '') {
+          reject(new Error('预览凭证签发失败'))
+          return
+        }
+        resolve(String(d.ticket))
+      })
+      .catch(reject)
+  })
+}
+
 /**
- * 查看报告 PDF：带登录态下载后调系统阅读器打开。
- * 后端 GET /reports/:id/pdf 返回 PDF 文件流（report:download 权限或报告相关人可见）。
+ * 查看报告 PDF。
+ * - App 端：签 ticket → web-view 页内嵌 pdf.js 直接渲染（不依赖系统 PDF 阅读器）；
+ * - 小程序端：web-view 需业务域名白名单，暂用下载 + 微信内置 openDocument。
  */
 export function openReportPdf(id: string) {
+  // #ifdef APP-PLUS
+  uni.showLoading({ title: '正在加载报告…', mask: true })
+  apiReportPdfTicket(id)
+    .then((ticket) => {
+      uni.hideLoading()
+      const file = '/api/public/report-pdf/' + encodeURIComponent(id) + '?ticket=' + encodeURIComponent(ticket)
+      const viewer = getPublicOrigin() + '/pdfjs/viewer.html?file=' + encodeURIComponent(file)
+      uni.navigateTo({ url: '/pages/reports/pdf?src=' + encodeURIComponent(viewer) })
+    })
+    .catch((e: Error) => {
+      uni.hideLoading()
+      uni.showToast({ title: e.message, icon: 'none' })
+    })
+  // #endif
+  // #ifndef APP-PLUS
   const token = getAccessToken()
   uni.showLoading({ title: '正在加载报告…', mask: true })
   uni.downloadFile({
@@ -1063,6 +1095,7 @@ export function openReportPdf(id: string) {
       uni.showToast({ title: '下载失败：' + (e.errMsg || ''), icon: 'none' })
     }
   })
+  // #endif
 }
 
 // ---- 消息 / 公告接口 ---------------------------------------------------------------

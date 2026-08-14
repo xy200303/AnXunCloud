@@ -7,9 +7,11 @@ import (
 	"bytes"
 	"fmt"
 	"image"
-	// 解码 JPEG/PNG 图片尺寸（DecodeConfig）
+	"image/color"
+	"image/draw"
+	// 解码 JPEG 图片尺寸（DecodeConfig）
 	_ "image/jpeg"
-	_ "image/png"
+	"image/png"
 	"strings"
 	"time"
 
@@ -266,6 +268,10 @@ func dataRow(p *gofpdf.Fpdf, widths []float64, cells []string, h, size float64) 
 }
 
 // registerImage 加载并注册图片，返回等比缩放后的尺寸（受 maxW/maxH 约束）；失败 ok=false。
+// PNG 统一重新编码后再嵌入：带 alpha 的（手写签名/公章）先压平白底；即使像素全不透明，
+// RGBA 色型的 PNG 也会让 gofpdf 生成带 SMask 的图像，而 pdf.js 在部分 WebView 中无法完成
+// SMask 解码（控制台刷 "Dependent image isn't ready yet"），表现为图片不渲染。
+// Go png 编码器对不透明图像自动输出真彩色（无 alpha 通道），重编码后不再产生 SMask。
 func registerImage(p *gofpdf.Fpdf, loader func(string) ([]byte, string, error), key, uniq string, maxW, maxH float64) (name string, w, h float64, ok bool) {
 	if loader == nil || key == "" {
 		return "", 0, 0, false
@@ -277,6 +283,21 @@ func registerImage(p *gofpdf.Fpdf, loader func(string) ([]byte, string, error), 
 	cfg, _, err := image.DecodeConfig(bytes.NewReader(data))
 	if err != nil || cfg.Width == 0 {
 		return "", 0, 0, false
+	}
+	if imgType == "PNG" {
+		if img, _, derr := image.Decode(bytes.NewReader(data)); derr == nil {
+			out := img
+			if o, is := img.(interface{ Opaque() bool }); is && !o.Opaque() {
+				flat := image.NewRGBA(image.Rect(0, 0, cfg.Width, cfg.Height))
+				draw.Draw(flat, flat.Bounds(), image.NewUniform(color.White), image.Point{}, draw.Src)
+				draw.Draw(flat, flat.Bounds(), img, image.Point{}, draw.Over)
+				out = flat
+			}
+			var buf bytes.Buffer
+			if png.Encode(&buf, out) == nil {
+				data = buf.Bytes()
+			}
+		}
 	}
 	name = uniq
 	p.RegisterImageOptionsReader(name, gofpdf.ImageOptions{ImageType: imgType, ReadDpi: true}, bytes.NewReader(data))

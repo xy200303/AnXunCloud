@@ -93,19 +93,19 @@ func (s *UploadService) SaveLocal(userID string, scene, filename string, size in
 	if size > s.store.MaxFileSize() {
 		return nil, errs.ErrUploadTooLarge
 	}
-	key, url, err := s.store.SaveLocal(scene, userID, ext, r)
+	key, url, data, md5, err := s.store.Save(scene, userID, ext, r)
 	if err != nil {
 		return nil, errs.ErrInternal
 	}
 	// JPEG 尝试解析 EXIF 拍摄时间（失败不阻塞）
 	var exifTime *time.Time
 	if ext == "jpg" || ext == "jpeg" {
-		exifTime = exifutil.ReadShotTime(s.store.LocalPath(key))
+		exifTime = exifutil.ReadShotTimeBytes(data)
 	}
 	rec := sysmodel.UploadFile{
 		FileKey: key, Scene: scene, UserID: userID, Size: size,
 		MimeType: "image/" + ext, URL: url, ExifTime: exifTime,
-		Name: filepath.Base(filename), MD5: storage.FileMD5(s.store.LocalPath(key)), Storage: s.store.DriverName(),
+		Name: filepath.Base(filename), MD5: md5, Storage: s.store.DriverName(),
 	}
 	if err := s.db.Create(&rec).Error; err != nil {
 		return nil, errs.ErrInternal
@@ -133,7 +133,7 @@ func (s *UploadService) SaveAdminLocal(userID string, scene, filename string, si
 	if size > s.store.MaxFileSize() {
 		return nil, errs.ErrUploadTooLarge
 	}
-	key, url, err := s.store.SaveLocal(scene, userID, ext, r)
+	key, url, _, md5, err := s.store.Save(scene, userID, ext, r)
 	if err != nil {
 		return nil, errs.ErrInternal
 	}
@@ -144,7 +144,7 @@ func (s *UploadService) SaveAdminLocal(userID string, scene, filename string, si
 	rec := sysmodel.UploadFile{
 		FileKey: key, Scene: scene, UserID: userID, Size: size,
 		MimeType: mime, URL: url,
-		Name: filepath.Base(filename), MD5: storage.FileMD5(s.store.LocalPath(key)), Storage: s.store.DriverName(),
+		Name: filepath.Base(filename), MD5: md5, Storage: s.store.DriverName(),
 	}
 	if err := s.db.Create(&rec).Error; err != nil {
 		return nil, errs.ErrInternal

@@ -2,6 +2,7 @@
 package storage
 
 import (
+	"bytes"
 	"crypto"
 	"crypto/hmac"
 	"crypto/rsa"
@@ -14,7 +15,6 @@ import (
 	"io"
 	"net/http"
 	"net/url"
-	"os"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -26,7 +26,7 @@ import (
 	"anxuncloud/internal/pkg/errs"
 )
 
-// Storage 存储服务（门面对象：驱动 + 上传策略；驱动实现见 driver.go，COS 接入时实现 Driver 即可）。
+// Storage 存储服务（门面对象：驱动 + 上传策略；驱动实现见 driver.go）。
 type Storage struct {
 	cfg     config.UploadConfig
 	oss     config.OSSConfig
@@ -35,9 +35,9 @@ type Storage struct {
 	driver  Driver
 }
 
-func New(up config.UploadConfig, oss config.OSSConfig, baseURL string) *Storage {
+func New(up config.UploadConfig, oss config.OSSConfig, cos config.COSConfig, baseURL string) *Storage {
 	s := &Storage{cfg: up, oss: oss, baseURL: strings.TrimRight(baseURL, "/"), httpc: &http.Client{Timeout: 10 * time.Second}}
-	s.driver = newDriver(up.Mode, up.LocalDir, s.baseURL, oss.Bucket, oss.Endpoint)
+	s.driver = newDriver(up, oss, cos, s.baseURL)
 	return s
 }
 
@@ -47,8 +47,8 @@ func (s *Storage) DriverName() string { return s.driver.Name() }
 // ReadFile 按 file_key 读取文件字节（统一文件层用；本地读盘，云存储走 HTTP）。
 func (s *Storage) ReadFile(fileKey string) ([]byte, error) { return s.driver.Read(fileKey) }
 
-// IsDev 是否本地开发模式。
-func (s *Storage) IsDev() bool { return s.cfg.Mode != "oss" }
+// IsDev 是否本地磁盘驱动。
+func (s *Storage) IsDev() bool { return s.driver.Name() == "local" }
 
 // MaxFileSize 单文件上限。
 func (s *Storage) MaxFileSize() int64 { return s.cfg.MaxFileSize }
@@ -83,33 +83,25 @@ func (s *Storage) LocalPath(fileKey string) string {
 	return filepath.Join(s.cfg.LocalDir, filepath.FromSlash(fileKey))
 }
 
-// SaveLocal dev 模式保存上传文件，返回 file_key 与访问 URL。
-func (s *Storage) SaveLocal(scene string, uid string, ext string, r io.Reader) (string, string, error) {
+// Save 保存上传文件：按驱动分发（local 写盘 / cos 签名直写 / oss 走 STS 直传不经此路径）。
+// 返回 file_key、访问 URL、内容字节与 MD5（EXIF 解析与元数据登记由调用方完成）。
+func (s *Storage) Save(scene string, uid string, ext string, r io.Reader) (string, string, []byte, string, error) {
 	key := s.NewFileKey(scene, uid, ext)
-	path := s.LocalPath(key)
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return "", "", err
-	}
-	f, err := os.Create(path)
+	data, err := io.ReadAll(io.LimitReader(r, s.cfg.MaxFileSize+1))
 	if err != nil {
-		return "", "", err
+		return "", "", nil, "", err
 	}
-	defer f.Close()
-	if _, err := io.Copy(f, r); err != nil {
-		return "", "", err
+	if err := s.driver.Put(key, bytes.NewReader(data)); err != nil {
+		return "", "", nil, "", err
 	}
-	return key, s.URL(key), nil
+	return key, s.URL(key), data, MD5Hex(data), nil
 }
 
 // SaveGenerated 保存服务端生成的文件（二维码包、报表），scene 固定 export。
-// 文件名前缀随机段：/uploads 为免鉴权静态目录，随机段使导出文件 URL 不可预测（防穷举下载）。
+// 文件名前缀随机段：生成文件 URL 不可预测（防穷举下载）；按驱动分发写入。
 func (s *Storage) SaveGenerated(subdir, filename string, data []byte) (string, string, error) {
 	key := fmt.Sprintf("export/%s/%s/%s_%s", subdir, time.Now().Format("20060102"), uuid.NewString()[:8], filename)
-	path := s.LocalPath(key)
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return "", "", err
-	}
-	if err := os.WriteFile(path, data, 0o644); err != nil {
+	if err := s.driver.Put(key, bytes.NewReader(data)); err != nil {
 		return "", "", err
 	}
 	return key, s.URL(key), nil

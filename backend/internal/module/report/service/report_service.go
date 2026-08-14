@@ -936,15 +936,16 @@ func (s *ReportService) checkPDFAccess(c *gin.Context, r *model.InspectionReport
 	return errs.ErrNoPerm.WithMsg("仅报告相关人或有下载权限的账号可查看报告")
 }
 
-// pdfBytes 取报告 PDF 字节：已归档读归档文件，否则即时生成临时版。
+// pdfBytes 取报告 PDF 字节：已归档读归档文件（按驱动读取，local 读盘 / 云存储 HTTP），否则即时生成临时版。
 func (s *ReportService) pdfBytes(r *model.InspectionReport) ([]byte, string, *errs.Error) {
 	filename := r.Title + ".pdf"
-	if r.FileKey != "" && s.store.IsDev() {
-		data, err := os.ReadFile(s.store.LocalPath(r.FileKey))
+	if r.FileKey != "" {
+		data, err := s.store.ReadFile(r.FileKey)
 		if err != nil {
-			return nil, "", errs.ErrInternal
+			logger.L.Warn("月报归档文件读取失败，回退即时生成", zap.String("report_id", r.ID), zap.Error(err))
+		} else {
+			return data, filename, nil
 		}
-		return data, filename, nil
 	}
 	data, err := pdf.GenerateMonthly(s.pdfData(r))
 	if err != nil {

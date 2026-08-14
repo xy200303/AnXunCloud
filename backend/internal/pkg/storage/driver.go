@@ -1,15 +1,20 @@
 package storage
 
 import (
+	"crypto/hmac"
 	"crypto/md5"
+	"crypto/sha1"
 	"encoding/hex"
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
 	"time"
+
+	"anxuncloud/internal/config"
 )
 
 // Driver 存储驱动抽象：local 本地磁盘 / oss 阿里云 OSS / cos 腾讯云 COS（后续接入）。
@@ -92,6 +97,95 @@ func (d *ossDriver) URL(key string) string {
 	return fmt.Sprintf("https://%s.%s/%s", d.bucket, d.endpoint, key)
 }
 
+// ========== 腾讯云 COS 驱动 ==========
+
+type cosDriver struct {
+	secretID  string
+	secretKey string
+	bucket    string // bucketname-appid
+	region    string
+	expireSec int
+	httpc     *http.Client
+}
+
+func (d *cosDriver) Name() string { return "cos" }
+
+func (d *cosDriver) host() string {
+	return fmt.Sprintf("%s.cos.%s.myqcloud.com", d.bucket, d.region)
+}
+
+// URL 对象访问地址（桶需公共读；私有读改签名 GET 为后续项）。
+func (d *cosDriver) URL(key string) string {
+	return "https://" + d.host() + "/" + key
+}
+
+func (d *cosDriver) Read(key string) ([]byte, error) {
+	resp, err := d.httpc.Get(d.URL(key))
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("COS 读取失败: %s", resp.Status)
+	}
+	return io.ReadAll(io.LimitReader(resp.Body, 64<<20))
+}
+
+// Put 服务端签名直写（COS XML API Put Object，q-sign-algorithm=sha1 鉴权）。
+// 客户端直传（预签名 URL/STS）为后续优化项；当前上传经服务端中转，功能完整可用。
+func (d *cosDriver) Put(key string, r io.Reader) error {
+	data, err := io.ReadAll(io.LimitReader(r, 64<<20))
+	if err != nil {
+		return err
+	}
+	u := &url.URL{Scheme: "https", Host: d.host(), Path: "/" + key}
+	req, err := http.NewRequest(http.MethodPut, u.String(), strings.NewReader(string(data)))
+	if err != nil {
+		return err
+	}
+	req.ContentLength = int64(len(data))
+	req.Header.Set("Authorization", d.authHeader(http.MethodPut, u.EscapedPath()))
+	resp, err := d.httpc.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 4<<10))
+		return fmt.Errorf("COS 写入失败: %s %s", resp.Status, strings.TrimSpace(string(body)))
+	}
+	return nil
+}
+
+// authHeader COS XML API 鉴权头（HMAC-SHA1 方案；仅签 host 头、无 url 参数）。
+// 公式：SignKey=HMAC-SHA1(SecretKey, KeyTime)；StringToSign=sha1\nKeyTime\nSHA1(HttpString)\n；
+// HttpString=method\nuriPathname\nparams\nheaders\n。
+func (d *cosDriver) authHeader(method, uriPath string) string {
+	now := time.Now().Unix()
+	expire := d.expireSec
+	if expire <= 0 {
+		expire = 3600
+	}
+	keyTime := fmt.Sprintf("%d;%d", now, now+int64(expire))
+	signKey := hmacHexSHA1([]byte(d.secretKey), keyTime)
+	httpString := strings.ToLower(method) + "\n" + uriPath + "\n\nhost=" + url.QueryEscape(d.host()) + "\n"
+	stringToSign := "sha1\n" + keyTime + "\n" + sha1Hex(httpString) + "\n"
+	signature := hmacHexSHA1([]byte(signKey), stringToSign)
+	return fmt.Sprintf("q-sign-algorithm=sha1&q-ak=%s&q-sign-time=%s&q-key-time=%s&q-header-list=host&q-url-param-list=&q-signature=%s",
+		d.secretID, keyTime, keyTime, signature)
+}
+
+func hmacHexSHA1(key []byte, data string) string {
+	mac := hmac.New(sha1.New, key)
+	mac.Write([]byte(data))
+	return hex.EncodeToString(mac.Sum(nil))
+}
+
+func sha1Hex(s string) string {
+	sum := sha1.Sum([]byte(s))
+	return hex.EncodeToString(sum[:])
+}
+
 // ========== 摘要工具 ==========
 
 // MD5Hex 计算内容 MD5（十六进制小写），用于完整性校验与同内容去重查询。
@@ -114,10 +208,16 @@ func FileMD5(path string) string {
 	return hex.EncodeToString(h.Sum(nil))
 }
 
-// newDriver 按模式装配驱动（cos 配置位预留）。
-func newDriver(mode, localDir, baseURL string, ossBucket, ossEndpoint string) Driver {
-	if mode == "oss" {
-		return &ossDriver{bucket: ossBucket, endpoint: ossEndpoint, httpc: &http.Client{Timeout: 15 * time.Second}}
+// newDriver 按模式装配驱动。
+func newDriver(up config.UploadConfig, oss config.OSSConfig, cos config.COSConfig, baseURL string) Driver {
+	switch up.Mode {
+	case "oss":
+		return &ossDriver{bucket: oss.Bucket, endpoint: oss.Endpoint, httpc: &http.Client{Timeout: 15 * time.Second}}
+	case "cos":
+		return &cosDriver{
+			secretID: cos.SecretID, secretKey: cos.SecretKey, bucket: cos.Bucket,
+			region: cos.Region, expireSec: cos.ExpireSeconds, httpc: &http.Client{Timeout: 30 * time.Second},
+		}
 	}
-	return &localDriver{dir: localDir, baseURL: strings.TrimRight(baseURL, "/")}
+	return &localDriver{dir: up.LocalDir, baseURL: strings.TrimRight(baseURL, "/")}
 }

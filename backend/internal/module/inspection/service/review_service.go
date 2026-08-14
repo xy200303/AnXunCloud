@@ -48,7 +48,7 @@ func NewReviewService(db *gorm.DB) *ReviewService {
 	var opts []ai.Option
 	var store *storage.Storage
 	if cfg, err := config.Load(); err == nil {
-		store = storage.New(cfg.Upload, cfg.OSS, cfg.App.BaseURL)
+		store = storage.New(cfg.Upload, cfg.OSS, cfg.COS, cfg.App.BaseURL)
 		opts = append(opts, ai.WithStorage(store))
 	}
 	return &ReviewService{db: db, aiCli: ai.NewClient(getCfg, opts...), store: store}

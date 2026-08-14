@@ -2,6 +2,8 @@
 package exifutil
 
 import (
+	"bytes"
+	"io"
 	"os"
 	"time"
 
@@ -15,7 +17,16 @@ func ReadShotTime(path string) *time.Time {
 		return nil
 	}
 	defer f.Close()
-	x, err := exif.Decode(f)
+	return readShotTime(f)
+}
+
+// ReadShotTimeBytes 从字节读取 JPEG 拍摄时间（云驱动下文件不落本地盘时用）。
+func ReadShotTimeBytes(data []byte) *time.Time {
+	return readShotTime(bytes.NewReader(data))
+}
+
+func readShotTime(r io.Reader) *time.Time {
+	x, err := exif.Decode(r)
 	if err != nil {
 		return nil
 	}

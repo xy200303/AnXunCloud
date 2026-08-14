@@ -25,6 +25,7 @@ type Config struct {
 	Wechat    WechatConfig    `mapstructure:"wechat"`
 	Upload    UploadConfig    `mapstructure:"upload"`
 	OSS       OSSConfig       `mapstructure:"oss"`
+	COS       COSConfig       `mapstructure:"cos"`
 	Watermark WatermarkConfig `mapstructure:"watermark"`
 	Admin     AdminConfig     `mapstructure:"admin"`
 	SPA       SPAConfig       `mapstructure:"spa"`
@@ -95,6 +96,15 @@ type OSSConfig struct {
 	Bucket          string `mapstructure:"bucket"`
 	Endpoint        string `mapstructure:"endpoint"`
 	ExpireSeconds   int    `mapstructure:"expire_seconds"`
+}
+
+// COSConfig 腾讯云 COS 配置（upload.mode=cos 时启用；服务端签名直写，预签名/STS 直传为后续优化）。
+type COSConfig struct {
+	SecretID      string `mapstructure:"secret_id"`
+	SecretKey     string `mapstructure:"secret_key"`
+	Bucket        string `mapstructure:"bucket"` // 形如 bucketname-1234567890
+	Region        string `mapstructure:"region"` // 如 ap-guangzhou
+	ExpireSeconds int    `mapstructure:"expire_seconds"`
 }
 
 type WatermarkConfig struct {
@@ -180,6 +190,11 @@ func registerDefaults(v *viper.Viper) {
 		"oss.bucket":             "",
 		"oss.endpoint":           "",
 		"oss.expire_seconds":     3600,
+		"cos.secret_id":          "",
+		"cos.secret_key":         "",
+		"cos.bucket":             "",
+		"cos.region":             "",
+		"cos.expire_seconds":     3600,
 		"watermark.font_path":    "",
 		"watermark.logo_path":    "",
 		"admin.username":         "admin",

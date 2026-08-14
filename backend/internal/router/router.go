@@ -59,7 +59,7 @@ func New(cfg *config.Config, db *gorm.DB, rdb *redis.Client) (*gin.Engine, *insp
 	// 依赖装配
 	jwtm := jwtutil.NewManager(cfg.JWT.Secret, cfg.JWT.AccessTTL, cfg.JWT.RefreshTTL)
 	sess := session.NewStore(rdb)
-	store := storage.New(cfg.Upload, cfg.OSS, cfg.App.BaseURL)
+	store := storage.New(cfg.Upload, cfg.OSS, cfg.COS, cfg.App.BaseURL)
 	watermark.Init(cfg.Watermark.FontPath, cfg.Watermark.LogoPath)
 
 	configSvc := systemsvc.NewConfigService(db, rdb)

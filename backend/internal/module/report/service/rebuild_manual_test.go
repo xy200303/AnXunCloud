@@ -42,7 +42,7 @@ func TestRebuildPDFManual(t *testing.T) {
 		t.Fatalf("连接 Redis 失败: %v", err)
 	}
 	configSvc := systemsvc.NewConfigService(db, rdb)
-	svc := NewReportService(db, rdb, storage.New(cfg.Upload, cfg.OSS, cfg.App.BaseURL), configSvc.Get)
+	svc := NewReportService(db, rdb, storage.New(cfg.Upload, cfg.OSS, cfg.COS, cfg.App.BaseURL), configSvc.Get)
 	if err := svc.RebuildPDF(id); err != nil {
 		t.Fatalf("重渲染失败: %v", err)
 	}

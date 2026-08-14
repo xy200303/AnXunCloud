@@ -74,7 +74,7 @@ func (s *FileService) Upload(c *gin.Context, scene, filename string, size int64,
 		return nil, errs.ErrUploadTooLarge
 	}
 	uid := middleware.CurrentUserID(c)
-	key, url, err := s.store.SaveLocal(scene, uid, ext, r)
+	key, url, data, md5, err := s.store.Save(scene, uid, ext, r)
 	if err != nil {
 		return nil, errs.ErrInternal
 	}
@@ -84,12 +84,12 @@ func (s *FileService) Upload(c *gin.Context, scene, filename string, size int64,
 	}
 	var exifTime *time.Time
 	if ext == "jpg" || ext == "jpeg" {
-		exifTime = exifutil.ReadShotTime(s.store.LocalPath(key))
+		exifTime = exifutil.ReadShotTimeBytes(data)
 	}
 	rec := sysmodel.UploadFile{
 		FileKey: key, Scene: scene, UserID: uid, Size: size,
 		MimeType: mime, URL: url, ExifTime: exifTime,
-		Name: filepath.Base(filename), MD5: storage.FileMD5(s.store.LocalPath(key)), Storage: s.store.DriverName(),
+		Name: filepath.Base(filename), MD5: md5, Storage: s.store.DriverName(),
 	}
 	if err := s.db.Create(&rec).Error; err != nil {
 		return nil, errs.ErrInternal

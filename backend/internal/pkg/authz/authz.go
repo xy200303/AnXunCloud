@@ -13,10 +13,12 @@ package authz
 import (
 	_ "embed"
 	"fmt"
+	"strings"
 	"sync"
 
 	"github.com/casbin/casbin/v3"
 	"github.com/casbin/casbin/v3/model"
+	"github.com/casbin/casbin/v3/persist"
 	gormadapter "github.com/casbin/gorm-adapter/v3"
 	"gorm.io/gorm"
 
@@ -42,18 +44,48 @@ func Init(db *gorm.DB) error {
 	if err != nil {
 		return fmt.Errorf("casbin adapter 初始化失败: %w", err)
 	}
-	m, err := model.NewModelFromString(modelText)
+	e, err := newEnforcer(adapter)
 	if err != nil {
-		return fmt.Errorf("casbin 模型解析失败: %w", err)
-	}
-	e, err := casbin.NewEnforcer(m, adapter)
-	if err != nil {
-		return fmt.Errorf("casbin enforcer 初始化失败: %w", err)
+		return err
 	}
 	mu.Lock()
 	enforcer = e
 	mu.Unlock()
 	return nil
+}
+
+// newEnforcer 从内置模型创建 enforcer 并注册自定义函数（Init 与单测共用）。
+func newEnforcer(adapter persist.Adapter) (*casbin.Enforcer, error) {
+	m, err := model.NewModelFromString(modelText)
+	if err != nil {
+		return nil, fmt.Errorf("casbin 模型解析失败: %w", err)
+	}
+	var e *casbin.Enforcer
+	if adapter != nil {
+		e, err = casbin.NewEnforcer(m, adapter)
+	} else {
+		e, err = casbin.NewEnforcer(m)
+	}
+	if err != nil {
+		return nil, fmt.Errorf("casbin enforcer 初始化失败: %w", err)
+	}
+	e.AddFunction("permMatch", func(args ...interface{}) (interface{}, error) {
+		return permMatch(fmt.Sprint(args[0]), fmt.Sprint(args[1])), nil
+	})
+	return e, nil
+}
+
+// permMatch 权限点匹配：等值命中；策略以 ":*" 结尾时前缀通配（system:user:* 匹配 system:user:list）。
+// 不用 casbin keyMatch2：它把 ':' 后内容当作路径参数通配，report:sign:inspector 会误匹配
+// report:sign:supervisor / report:sign:manager（缺陷曾导致巡检员被圈进主管/经理签字人名单）。
+func permMatch(reqObj, polObj string) bool {
+	if reqObj == polObj {
+		return true
+	}
+	if strings.HasSuffix(polObj, ":*") {
+		return strings.HasPrefix(reqObj, strings.TrimSuffix(polObj, "*"))
+	}
+	return false
 }
 
 // EnforceAny 校验用户是否拥有任一权限点（完整字符串等值/通配匹配）。

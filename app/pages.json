@@ -49,7 +49,7 @@
     {
       "path": "pages/reports/pending",
       "style": {
-        "navigationBarTitleText": "待我签",
+        "navigationBarTitleText": "月度报告",
         "enablePullDownRefresh": true
       }
     },

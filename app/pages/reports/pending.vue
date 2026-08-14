@@ -1,5 +1,21 @@
 <template>
   <view class="page" :style="{ backgroundColor: colors.bgPage }">
+    <!-- 选项卡：待我签字 / 已完成 -->
+    <view class="tabs" :style="{ backgroundColor: colors.bgCard }">
+      <view
+        v-for="t in tabs"
+        :key="t.key"
+        class="tab"
+        @click="switchTab(t.key)"
+      >
+        <text
+          class="tab-text"
+          :style="{ color: tab == t.key ? colors.primary : colors.textRegular, fontWeight: tab == t.key ? 600 : 400 }"
+        >{{ t.label }}</text>
+        <view v-if="tab == t.key" class="tab-line" :style="{ backgroundColor: colors.primary }"></view>
+      </view>
+    </view>
+
     <!-- 骨架屏 -->
     <view v-if="loading" class="skeleton">
       <view class="sk-block" :style="{ backgroundColor: colors.border }"></view>
@@ -9,11 +25,11 @@
 
     <!-- 空态 -->
     <view v-else-if="loaded && list.length == 0" class="empty">
-      <text class="empty-title" :style="{ color: colors.textRegular }">暂无待签报告</text>
-      <text class="empty-sub" :style="{ color: colors.textSecondary }">月度报告到达你的签字节点时会出现在这里</text>
+      <text class="empty-title" :style="{ color: colors.textRegular }">{{ emptyTitle }}</text>
+      <text class="empty-sub" :style="{ color: colors.textSecondary }">{{ emptySub }}</text>
     </view>
 
-    <!-- 待签列表 -->
+    <!-- 报告列表 -->
     <view v-else-if="loaded" class="content">
       <view
         v-for="r in list"
@@ -47,13 +63,21 @@
 import { Colors, ColorTokens } from '@/utils/theme'
 import { apiReports, ReportListItem } from '@/services/api'
 
+type TabKey = 'pending' | 'done'
+
 type PendingData = {
   colors: ColorTokens
+  tab: TabKey
   loading: boolean
   loaded: boolean
   errorMsg: string
   list: ReportListItem[]
 }
+
+const TABS: { key: TabKey; label: string }[] = [
+  { key: 'pending', label: '待我签字' },
+  { key: 'done', label: '已完成' }
+]
 
 /** 当前签字节点文案（对齐报告状态机） */
 function nodeTextOf(status: string): string {
@@ -73,27 +97,49 @@ export default {
   data(): PendingData {
     return {
       colors: Colors,
+      tab: 'pending',
       loading: true,
       loaded: false,
       errorMsg: '',
       list: [] as ReportListItem[]
     }
   },
+  computed: {
+    tabs(): { key: TabKey; label: string }[] {
+      return TABS
+    },
+    emptyTitle(): string {
+      return this.tab == 'pending' ? '暂无待签报告' : '暂无已完成报告'
+    },
+    emptySub(): string {
+      return this.tab == 'pending'
+        ? '月度报告到达你的签字节点时会出现在这里'
+        : '签字流程走完归档后的月度报告会保留在这里，可随时查看完整内容'
+    }
+  },
   onLoad() {
     this.load()
   },
   onShow() {
-    // 签字返回后刷新（已签的报告会从待我签消失）
+    // 签字返回后刷新（待我签列表会剔除已签报告，已完成列表能看到归档结果）
     if (this.loaded) this.load()
   },
   onPullDownRefresh() {
     this.load()
   },
   methods: {
+    switchTab(key: TabKey) {
+      if (this.tab == key) return
+      this.tab = key
+      this.loaded = false
+      this.list = []
+      this.load()
+    },
     load() {
       this.loading = !this.loaded
-      // 待我签主场景：pending_mine=1；报告量小，单页放大 page_size 一次取全
-      apiReports(1, 50, true)
+      // 待我签：pending_mine=1；已完成：status=approved。报告量小，单页放大 page_size 一次取全
+      const req = this.tab == 'pending' ? apiReports(1, 50, true) : apiReports(1, 50, false, 'approved')
+      req
         .then((res) => {
           this.loading = false
           this.loaded = true
@@ -122,6 +168,31 @@ export default {
   padding: 24rpx;
 }
 
+.tabs {
+  flex-direction: row;
+  border-radius: 24rpx; /* Radius.card */
+  margin-bottom: 24rpx;
+  padding: 0 32rpx;
+}
+
+.tab {
+  flex: 1;
+  align-items: center;
+  padding-top: 24rpx;
+}
+
+.tab-text {
+  font-size: 30rpx;
+}
+
+.tab-line {
+  width: 48rpx;
+  height: 6rpx;
+  border-radius: 3rpx;
+  margin-top: 16rpx;
+  margin-bottom: 18rpx;
+}
+
 .skeleton {
   padding-top: 8rpx;
 }
@@ -139,7 +210,7 @@ export default {
 
 .empty {
   align-items: center;
-  padding-top: 192rpx;
+  padding-top: 160rpx;
 }
 
 .empty-title {

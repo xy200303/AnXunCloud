@@ -120,6 +120,11 @@
         </view>
       </view>
 
+      <!-- 完整报告 PDF：报告相关人（含巡检员）均可查看，签字完成后仍可回看 -->
+      <view class="btn" :style="{ backgroundColor: colors.primaryLight }" @click="openPdf">
+        <text class="btn-text" :style="{ color: colors.primary }">查看完整报告 PDF</text>
+      </view>
+
       <!-- 操作区：按当前环节 + 指定签字人名单显隐（与 PC 同口径） -->
       <view v-if="showInspectorSign || showProxySign || showSupervisorSign || showManagerSign || showRejectBtn || separationHint != ''" class="card" :style="{ backgroundColor: colors.bgCard }">
         <view
@@ -242,6 +247,7 @@ import {
   apiSignManager,
   apiUploadLocal,
   apiUpdateProfile,
+  openReportPdf,
   hasPerm,
   ReportDetail,
   ReportInspector
@@ -450,6 +456,10 @@ export default {
     previewImage(url: string | null) {
       if (url == null || url == '') return
       uni.previewImage({ urls: [url] })
+    },
+    openPdf() {
+      if (this.reportId == '') return
+      openReportPdf(this.reportId)
     },
 
     // ===== 签字时的手写签名补齐：已配置签名直接执行（sigKey 空串，后端取资产快照）；否则先弹签名板 =====

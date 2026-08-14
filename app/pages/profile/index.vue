@@ -36,7 +36,7 @@
     <!-- 功能入口 -->
     <view class="card menu-card" :style="{ backgroundColor: colors.bgCard }">
       <view class="row" @click="goPendingReports">
-        <text class="row-text" :style="{ color: colors.textRegular }">待我签报告</text>
+        <text class="row-text" :style="{ color: colors.textRegular }">月度报告</text>
         <text class="row-arrow" :style="{ color: colors.textSecondary }">></text>
       </view>
       <view class="row" @click="openSignaturePad">

@@ -880,10 +880,29 @@ func (s *ReportService) sign(c *gin.Context, id string, req *dto.SignReq, expect
 }
 
 // PDF 返回报告 PDF 字节与文件名；file_key 已归档则直接读归档文件，否则即时生成临时版。
+// 访问控制（路由层不再挂权限点，由此处统一判定）：持 report:download 权限，
+// 或为报告相关人（应签巡检员/指定主管/经理签字人）——巡检员有权查看自己参与的完整报告。
 func (s *ReportService) PDF(c *gin.Context, id string) ([]byte, string, *errs.Error) {
 	r, be := s.getWithScope(c, id)
 	if be != nil {
 		return nil, "", be
+	}
+	identity := middleware.CurrentIdentity(c)
+	if identity == nil {
+		return nil, "", errs.ErrUnauthorized
+	}
+	allowed := identity.SuperAdmin
+	if !allowed {
+		if ok, err := authz.EnforceAny(identity.UserID, "report:download"); err == nil && ok {
+			allowed = true
+		}
+	}
+	if !allowed {
+		uid := identity.UserID
+		allowed = r.InspectorIDs.Contains(uid) || r.SupervisorIDs.Contains(uid) || r.ManagerIDs.Contains(uid)
+	}
+	if !allowed {
+		return nil, "", errs.ErrNoPerm.WithMsg("仅报告相关人或有下载权限的账号可查看报告")
 	}
 	filename := r.Title + ".pdf"
 	if r.FileKey != "" && s.store.IsDev() {

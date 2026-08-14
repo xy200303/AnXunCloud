@@ -928,10 +928,11 @@ export function apiOfflineSync(items: CheckinReqPayload[]): Promise<OfflineSyncR
 
 // ---- 月报签字接口 ----------------------------------------------------------------
 
-/** 报告列表 GET /reports（pendingMine=true 只看待我签：当前用户在当前级签字人名单内） */
-export function apiReports(page: number, pageSize: number, pendingMine: boolean): Promise<ReportListPage> {
+/** 报告列表 GET /reports（pendingMine=true 只看待我签：当前用户在当前级签字人名单内；status 按状态过滤如 approved） */
+export function apiReports(page: number, pageSize: number, pendingMine: boolean, status?: string): Promise<ReportListPage> {
   let path = '/reports?page=' + page + '&page_size=' + pageSize
   if (pendingMine) path += '&pending_mine=1'
+  if (status != null && status != '') path += '&status=' + encodeURIComponent(status)
   return new Promise<ReportListPage>((resolve, reject) => {
     httpGet<any>(path)
       .then((d) => {
@@ -1029,6 +1030,38 @@ export function apiSignManager(id: string, req: ReportSignReq): Promise<{ status
         resolve({ status: d?.status ?? '' })
       })
       .catch(reject)
+  })
+}
+
+/**
+ * 查看报告 PDF：带登录态下载后调系统阅读器打开。
+ * 后端 GET /reports/:id/pdf 返回 PDF 文件流（report:download 权限或报告相关人可见）。
+ */
+export function openReportPdf(id: string) {
+  const token = getAccessToken()
+  uni.showLoading({ title: '正在加载报告…', mask: true })
+  uni.downloadFile({
+    url: getBaseUrl() + '/reports/' + encodeURIComponent(id) + '/pdf',
+    header: { Authorization: 'Bearer ' + token },
+    success: (res) => {
+      uni.hideLoading()
+      if (res.statusCode != 200) {
+        uni.showToast({ title: '报告加载失败（' + res.statusCode + '）', icon: 'none' })
+        return
+      }
+      uni.openDocument({
+        filePath: res.tempFilePath,
+        fileType: 'pdf',
+        showMenu: true, // 右上角菜单：可转发/保存
+        fail: (e) => {
+          uni.showToast({ title: '打开失败：' + (e.errMsg || '请安装 PDF 阅读器'), icon: 'none' })
+        }
+      })
+    },
+    fail: (e) => {
+      uni.hideLoading()
+      uni.showToast({ title: '下载失败：' + (e.errMsg || ''), icon: 'none' })
+    }
   })
 }
 

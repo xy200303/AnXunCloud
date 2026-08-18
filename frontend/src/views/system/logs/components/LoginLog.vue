@@ -93,6 +93,7 @@ import { listLoginLogs, type LogQuery } from '@/api/log'
 import { downloadFile } from '@/utils/download'
 import type { LoginLog } from '@/api/types'
 
+
 const loading = ref(false)
 const list = ref<LoginLog[]>([])
 const total = ref(0)
@@ -133,6 +134,7 @@ function handleReset() {
 }
 
 onMounted(fetchList)
+
 
 const exporting = ref(false)
 

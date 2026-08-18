@@ -34,7 +34,23 @@ export async function getRegisterConfig(): Promise<RegisterConfig> {
   }
 }
 
-// 注册（免登录）
-export function register(data: { username: string; password: string; name: string; phone: string }) {
+// 注册可选公司列表（免登录，仅注册开关开启时可用，否则 40303）
+export interface TenantOption {
+  code: string
+  name: string
+}
+
+export async function getRegisterTenants(): Promise<TenantOption[]> {
+  try {
+    // 裸调：开关关闭（40303）或接口不可用时静默按空列表处理，不弹错误提示
+    const resp = await axios.get('/api/admin/auth/register-tenants')
+    return resp.data?.data ?? []
+  } catch {
+    return []
+  }
+}
+
+// 注册（免登录）；tenant_code 选填：多租户时由"所属公司"下拉传入，不传 = 默认租户
+export function register(data: { username: string; password: string; name: string; phone: string; tenant_code?: string }) {
   return request<null>({ url: '/auth/register', method: 'post', data })
 }

@@ -380,11 +380,11 @@ export default {
       if (!hasPerm(useAuthStore().userInfo, 'report:sign:proxy')) return false
       return d.inspectors.some((p) => !p.signed)
     },
+    // 主管/经理签字不挂权限点：显隐以报告名单成员身份为准（与后端 service 校验同口径）
     showSupervisorSign(): boolean {
       return (
         this.d != null &&
         this.d.status == 'pending_supervisor' &&
-        hasPerm(useAuthStore().userInfo, 'report:sign:supervisor') &&
         !this.signedLevel1 &&
         this.inSupervisorList
       )
@@ -393,7 +393,6 @@ export default {
       return (
         this.d != null &&
         this.d.status == 'pending_manager' &&
-        hasPerm(useAuthStore().userInfo, 'report:sign:manager') &&
         !this.isLevel2Signer &&
         this.inManagerList
       )
@@ -401,21 +400,19 @@ export default {
     // 驳回不受职责分离限制（负向动作），但须在本级指定签字人名单内（与后端同口径）
     showRejectBtn(): boolean {
       const d = this.d
-      const u = useAuthStore().userInfo
       if (d == null) return false
-      if (d.status == 'pending_supervisor') return hasPerm(u, 'report:sign:supervisor') && this.inSupervisorList
-      if (d.status == 'pending_manager') return hasPerm(u, 'report:sign:manager') && this.inManagerList
+      if (d.status == 'pending_supervisor') return this.inSupervisorList
+      if (d.status == 'pending_manager') return this.inManagerList
       return false
     },
     separationHint(): string {
       const d = this.d
-      const u = useAuthStore().userInfo
       if (d == null) return ''
-      if (d.status == 'pending_supervisor' && hasPerm(u, 'report:sign:supervisor')) {
+      if (d.status == 'pending_supervisor') {
         if (this.signedLevel1) return '你已完成巡检员确认，主管审批须由其他人员操作'
         if (!this.inSupervisorList) return '你不在本报告主管签字人名单内'
       }
-      if (d.status == 'pending_manager' && hasPerm(u, 'report:sign:manager')) {
+      if (d.status == 'pending_manager') {
         if (this.isLevel2Signer) return '你已完成主管审批，终审须由其他人员操作'
         if (!this.inManagerList) return '你不在本报告经理签字人名单内'
       }

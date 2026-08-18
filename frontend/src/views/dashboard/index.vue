@@ -59,7 +59,7 @@
           <div class="stat-value" :class="{ danger: (data?.pending_workorders ?? 0) > 0 }">
             {{ data?.pending_workorders ?? '--' }}
           </div>
-          <div class="stat-desc">待派单工单</div>
+          <div class="stat-desc">未闭环工单（待分诊/待派单/处理中/待验收）</div>
         </div>
       </el-col>
       <el-col :xs="12" :md="6">
@@ -276,11 +276,17 @@ function priorityLabel(p: string) {
 }
 
 function woStatusLabel(s: string) {
-  return { pending: '待派单', assigned: '已派单', processing: '处理中', review: '待复核', closed: '已关闭', rejected: '已驳回' }[s] || s
+  return {
+    reported: '待分诊', pending_dispatch: '待派单', processing: '处理中',
+    pending_confirm: '待验收', closed: '已闭环', closed_invalid: '已作废'
+  }[s] || s
 }
 
 function woStatusType(s: string) {
-  return ({ pending: 'warning', assigned: 'primary', processing: 'primary', review: 'warning', closed: 'info', rejected: 'danger' } as Record<string, any>)[s] || 'info'
+  return ({
+    reported: 'danger', pending_dispatch: 'warning', processing: 'primary',
+    pending_confirm: 'warning', closed: 'success', closed_invalid: 'info'
+  } as Record<string, any>)[s] || 'info'
 }
 </script>
 

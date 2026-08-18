@@ -16,6 +16,11 @@
             <el-option v-for="u in inspectors" :key="u.id" :label="u.name" :value="u.id" />
           </el-select>
         </el-form-item>
+        <el-form-item label="巡查类型">
+          <el-select v-model="query.patrol_type" placeholder="全部" clearable style="width: 140px" @change="fetchList">
+            <el-option v-for="o in PATROL_TYPE_OPTIONS" :key="o.value" :label="o.label" :value="o.value" />
+          </el-select>
+        </el-form-item>
         <el-form-item>
           <el-button type="primary" :icon="Search" @click="fetchList">查询</el-button>
           <el-button :icon="Refresh" @click="handleReset">重置</el-button>
@@ -45,6 +50,7 @@
           <div v-for="task in list" :key="task.id" class="task-card" @click="goDetail(task)">
             <div class="task-card-head">
               <span class="task-name">{{ task.community_name }} · {{ task.plan_name }}</span>
+              <el-tag size="small" effect="plain">{{ patrolTypeLabel(task.patrol_type) }}</el-tag>
               <span class="task-inspector">{{ task.inspector_name }}</span>
               <el-tag :type="statusType(task)" size="small">
                 <el-icon class="status-icon"><component :is="statusIcon(task)" /></el-icon>
@@ -103,6 +109,7 @@ import { listTasks, generateTasks, type TaskQuery } from '@/api/task'
 import { listCommunities } from '@/api/community'
 import { listUsers } from '@/api/user'
 import type { TaskItem, CommunityItem } from '@/api/biz-types'
+import { PATROL_TYPE_OPTIONS, patrolTypeLabel } from '@/api/biz-types'
 import type { UserItem } from '@/api/types'
 
 const router = useRouter()
@@ -113,13 +120,13 @@ const communities = ref<CommunityItem[]>([])
 const inspectors = ref<UserItem[]>([])
 const activeTab = ref('all')
 
-const query = reactive<TaskQuery>({ page: 1, page_size: 20, task_date: '', community_id: undefined, inspector_id: undefined })
+const query = reactive<TaskQuery>({ page: 1, page_size: 20, task_date: '', community_id: undefined, inspector_id: undefined, patrol_type: '' })
 
 async function fetchList() {
   loading.value = true
   try {
     // Tab 与 status/filter 参数映射（接口文档 §2.13.1）
-    const params: TaskQuery = { ...query, task_date: query.task_date || undefined }
+    const params: TaskQuery = { ...query, task_date: query.task_date || undefined, patrol_type: query.patrol_type || undefined }
     if (activeTab.value === 'doing') params.status = 'doing'
     else if (activeTab.value === 'done') params.status = 'done'
     else if (activeTab.value !== 'all') params.filter = activeTab.value as TaskQuery['filter']
@@ -135,6 +142,7 @@ function handleReset() {
   query.task_date = ''
   query.community_id = undefined
   query.inspector_id = undefined
+  query.patrol_type = ''
   activeTab.value = 'all'
   query.page = 1
   fetchList()

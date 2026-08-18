@@ -46,7 +46,7 @@ services:
       POSTGRES_PORT: "5432"
       REDIS_ADDR: redis:6379
     ports:
-      - "8090:8090"
+      - "8091:8090"           # 主机侧避开 8090（与其他项目 dev 容器冲突）
     volumes:
       - ./backend:/app                 # 挂载源码，air 监听变更热编译
       - gomodcache:/go/pkg/mod         # 依赖缓存，加速重编译
@@ -66,7 +66,7 @@ services:
     environment:
       VITE_PROXY_TARGET: http://backend:8090   # vite dev server 代理到 backend 容器
     ports:
-      - "5180:5180"                 # 与 vite.config.ts 的 dev 端口一致
+      - "5181:5180"                 # 容器内与 vite.config.ts 的 dev 端口一致；主机侧 5181 避开冲突
     volumes:
       - ./frontend:/app             # 挂载源码，vite HMR
       - /app/node_modules           # 匿名卷保留容器内依赖

@@ -8,6 +8,7 @@ export interface TaskQuery {
   community_id?: string
   inspector_id?: string
   plan_id?: string
+  patrol_type?: string
   task_date?: string
   start_date?: string
   end_date?: string

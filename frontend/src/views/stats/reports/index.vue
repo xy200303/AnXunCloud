@@ -354,7 +354,7 @@
             :loading="candidatesLoading"
             style="width: 100%"
           >
-            <el-option v-for="p in candidates.supervisors" :key="p.id" :label="p.name" :value="p.id">
+            <el-option v-for="p in candidateUsers" :key="p.id" :label="p.name" :value="p.id">
               <span>{{ p.name }}</span>
               <span v-if="!p.has_signature" class="candidate-warn">未配置签名</span>
             </el-option>
@@ -370,14 +370,14 @@
             :loading="candidatesLoading"
             style="width: 100%"
           >
-            <el-option v-for="p in candidates.managers" :key="p.id" :label="p.name" :value="p.id">
+            <el-option v-for="p in candidateUsers" :key="p.id" :label="p.name" :value="p.id">
               <span>{{ p.name }}</span>
               <span v-if="!p.has_signature" class="candidate-warn">未配置签名</span>
             </el-option>
           </el-select>
         </el-form-item>
         <div class="signer-tip text-secondary">
-          默认圈选全部候选人（持有对应签字权限且管辖该小区的人员）；清空某级则该级自动跳过，PDF 签字栏留空。签字人须先配置手写签名方可签字。
+          默认圈选职责槽位名单（小区编制页「职责槽位绑定」推导：项目级覆盖 → 平台默认 → 编制在职成员），为空则该级默认跳过；可从全部启用用户中手动调整，清空某级则该级自动跳过，PDF 签字栏留空。签字人须先配置手写签名方可签字。
         </div>
       </el-form>
       <template #footer>
@@ -624,51 +624,29 @@ const showInspectorSign = computed(() => {
   return !!uid && d.inspector_ids.includes(uid)
 })
 
-// 职责分离：已完成上一级签字（含代签）的用户不再显示本级通过按钮，改提示
-const signedLevel1 = computed(() => {
-  const uid = userStore.info?.id
-  return !!uid && !!detail.value?.inspector_signed.some((e) => e.user_id === uid || e.proxy_by === uid)
-})
-const isLevel2Signer = computed(
-  () => !!userStore.info?.id && detail.value?.supervisor_by === userStore.info.id
-)
-
+// 签字按钮显隐：授权以报告生成时圈定的名单成员身份为准（不再要求签字权限点，也不限制多级由不同人完成）
 const showSupervisorSign = computed(
-  () =>
-    detail.value?.status === 'pending_supervisor' &&
-    userStore.hasPerm('report:sign:supervisor') &&
-    !signedLevel1.value &&
-    inSupervisorList.value
+  () => detail.value?.status === 'pending_supervisor' && inSupervisorList.value
 )
 const showManagerSign = computed(
-  () =>
-    detail.value?.status === 'pending_manager' &&
-    userStore.hasPerm('report:sign:manager') &&
-    !isLevel2Signer.value &&
-    inManagerList.value
+  () => detail.value?.status === 'pending_manager' && inManagerList.value
 )
 
-// 签字按钮被隐藏时的原因说明（职责分离 / 不在指定名单）
+// 签字按钮被隐藏时的原因说明（不在指定名单）
 const separationHint = computed(() => {
   const d = detail.value
   if (!d) return ''
-  if (d.status === 'pending_supervisor' && userStore.hasPerm('report:sign:supervisor')) {
-    if (signedLevel1.value) return '你已完成巡检员确认，主管审批须由其他人员操作'
-    if (!inSupervisorList.value) return '你不在本报告主管签字人名单内'
-  }
-  if (d.status === 'pending_manager' && userStore.hasPerm('report:sign:manager')) {
-    if (isLevel2Signer.value) return '你已完成主管审批，终审须由其他人员操作'
-    if (!inManagerList.value) return '你不在本报告经理签字人名单内'
-  }
+  if (d.status === 'pending_supervisor' && !inSupervisorList.value) return '你不在本报告主管签字人名单内'
+  if (d.status === 'pending_manager' && !inManagerList.value) return '你不在本报告经理签字人名单内'
   return ''
 })
 
-// 驳回不受职责分离限制（负向动作），但须在本级指定签字人名单内（与后端同口径）
+// 驳回须在本级指定签字人名单内（与后端同口径）
 const showRejectBtn = computed(() => {
   const d = detail.value
   if (!d) return false
-  if (d.status === 'pending_supervisor') return userStore.hasPerm('report:sign:supervisor') && inSupervisorList.value
-  if (d.status === 'pending_manager') return userStore.hasPerm('report:sign:manager') && inManagerList.value
+  if (d.status === 'pending_supervisor') return inSupervisorList.value
+  if (d.status === 'pending_manager') return inManagerList.value
   return false
 })
 
@@ -879,26 +857,21 @@ const generateRules: FormRules = {
   period: [{ required: true, message: '请选择月份', trigger: 'change' }]
 }
 
-// 签字候选人（选定小区后加载，默认全选；清空某级 = 该级跳过）
+// 签字候选人（选定小区后加载；主管/经理两级共用全部启用用户池；默认值取职责槽位名单，空数组 = 该级默认跳过，不回退全选）
 const candidatesLoading = ref(false)
-const candidates = reactive<{ supervisors: SignCandidate[]; managers: SignCandidate[] }>({
-  supervisors: [],
-  managers: []
-})
+const candidateUsers = ref<SignCandidate[]>([])
 
 async function loadCandidates() {
-  candidates.supervisors = []
-  candidates.managers = []
+  candidateUsers.value = []
   generateForm.supervisor_ids = []
   generateForm.manager_ids = []
   if (!generateForm.community_id) return
   candidatesLoading.value = true
   try {
     const data = await getSignCandidates(generateForm.community_id)
-    candidates.supervisors = data.supervisors
-    candidates.managers = data.managers
-    generateForm.supervisor_ids = data.supervisors.map((p) => p.id)
-    generateForm.manager_ids = data.managers.map((p) => p.id)
+    candidateUsers.value = data.users
+    generateForm.supervisor_ids = data.default_supervisor_ids
+    generateForm.manager_ids = data.default_manager_ids
   } finally {
     candidatesLoading.value = false
   }
@@ -926,7 +899,7 @@ async function submitGenerate() {
     generateVisible.value = false
     handleSearch()
   } catch {
-    // 拦截器已提示（如「已通过报告不可重算」「签字人须在候选池内」）
+    // 拦截器已提示（如「已通过报告不可重算」「签字人须为存在且启用的用户」）
   } finally {
     generating.value = false
   }

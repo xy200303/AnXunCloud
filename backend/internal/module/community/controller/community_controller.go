@@ -51,7 +51,7 @@ func (ctl *CommunityController) Create(c *gin.Context) {
 		response.Fail(c, be)
 		return
 	}
-	id, be := ctl.svc.CreateCommunity(&req)
+	id, be := ctl.svc.CreateCommunity(c, &req)
 	write(c, gin.H{"id": id}, be)
 }
 

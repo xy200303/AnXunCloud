@@ -28,7 +28,6 @@ import (
 	reportsvc "anxuncloud/internal/module/report/service"
 	statsctl "anxuncloud/internal/module/stats/controller"
 	statssvc "anxuncloud/internal/module/stats/service"
-	sitetpl "anxuncloud/internal/template"
 	systemctl "anxuncloud/internal/module/system/controller"
 	systemsvc "anxuncloud/internal/module/system/service"
 	workorderctl "anxuncloud/internal/module/workorder/controller"
@@ -38,6 +37,7 @@ import (
 	"anxuncloud/internal/pkg/session"
 	"anxuncloud/internal/pkg/storage"
 	"anxuncloud/internal/pkg/watermark"
+	sitetpl "anxuncloud/internal/template"
 )
 
 // New 构建 HTTP 引擎并注册全部路由；返回引擎与巡检调度器（由 main 启停）。
@@ -49,6 +49,8 @@ func New(cfg *config.Config, db *gorm.DB, rdb *redis.Client) (*gin.Engine, *insp
 	// 依赖装配
 	jwtm := jwtutil.NewManager(cfg.JWT.Secret, cfg.JWT.AccessTTL, cfg.JWT.RefreshTTL)
 	sess := session.NewStore(rdb)
+	// 租户级挂点预留（P3 设计方案 §9.2）：文件存储后端按租户路由（tenant_config 预留 COS 覆盖 key）
+	// 后续在此经 ConfigService.Resolve(tenantID, ...) 取值，本期统一用平台默认配置，行为不变。
 	store := storage.New(cfg.Upload, cfg.OSS, cfg.COS, cfg.App.BaseURL)
 	watermark.Init(cfg.Watermark.FontPath, cfg.Watermark.LogoPath)
 
@@ -57,12 +59,14 @@ func New(cfg *config.Config, db *gorm.DB, rdb *redis.Client) (*gin.Engine, *insp
 	signAssetSvc := systemsvc.NewSignAssetService(db, store)
 	userSvc := systemsvc.NewUserService(db, authSvc.KillUserSessions, store, signAssetSvc)
 	roleSvc := systemsvc.NewRoleService(db)
+	tenantSvc := systemsvc.NewTenantService(db, authSvc.KillUserSessions, configSvc)
 	menuSvc := systemsvc.NewMenuService(db)
 	dictSvc := systemsvc.NewDictService(db)
 	logSvc := systemsvc.NewLogService(db)
 	noticeSvc := systemsvc.NewNoticeService(db)
 	messageSvc := systemsvc.NewMessageService(db)
 	communitySvc := communitysvc.NewCommunityService(db)
+	staffSvc := communitysvc.NewStaffService(db)
 	pointSvc := inspectionsvc.NewPointService(db, store, configSvc.Get)
 	planSvc := inspectionsvc.NewPlanService(db, rdb)
 	taskSvc := inspectionsvc.NewTaskService(db, store)
@@ -77,19 +81,24 @@ func New(cfg *config.Config, db *gorm.DB, rdb *redis.Client) (*gin.Engine, *insp
 	scheduler := inspectionsvc.NewScheduler(db, planSvc, reportSvc, configSvc.Get)
 
 	authCtl := authctl.NewAuthController(authSvc)
-	userCtl := systemctl.NewUserController(userSvc)
-	roleCtl := systemctl.NewRoleController(roleSvc)
+	userCtl := systemctl.NewUserController(userSvc, db)
+	roleCtl := systemctl.NewRoleController(roleSvc, db)
+	tenantCtl := systemctl.NewTenantController(tenantSvc, db)
 	menuCtl := systemctl.NewMenuController(menuSvc)
 	dictCtl := systemctl.NewDictController(dictSvc)
 	configCtl := systemctl.NewConfigController(configSvc)
-	logCtl := systemctl.NewLogController(logSvc)
-	noticeCtl := systemctl.NewNoticeController(noticeSvc)
+	logCtl := systemctl.NewLogController(logSvc, db)
+	noticeCtl := systemctl.NewNoticeController(noticeSvc, db)
 	messageCtl := systemctl.NewMessageController(messageSvc)
 	uploadCtl := systemctl.NewUploadController(uploadSvc)
-	signAssetCtl := systemctl.NewSignAssetController(signAssetSvc)
+	signAssetCtl := systemctl.NewSignAssetController(signAssetSvc, db)
+	postSvc := systemsvc.NewPostService(db)
+	postCtl := systemctl.NewPostController(postSvc, db)
+	postTmplCtl := systemctl.NewPostTemplateController(postSvc)
 	siteSvc := systemsvc.NewSiteService(db, store, configSvc)
 	siteCtl := systemctl.NewSiteController(siteSvc, store)
 	communityCtl := communityctl.NewCommunityController(communitySvc)
+	staffCtl := communityctl.NewStaffController(staffSvc)
 	inspectionCtl := inspectionctl.NewInspectionController(pointSvc, planSvc, taskSvc)
 	templateCtl := inspectionctl.NewTemplateController(templateSvc)
 	reviewCtl := inspectionctl.NewReviewController(reviewSvc)
@@ -140,6 +149,7 @@ func New(cfg *config.Config, db *gorm.DB, rdb *redis.Client) (*gin.Engine, *insp
 		admin.POST("/auth/login", authCtl.Login) // 登录不写操作日志，由 sys_login_log 覆盖
 		admin.POST("/auth/refresh", authCtl.Refresh)
 		admin.GET("/auth/register-config", authCtl.RegisterConfig)
+		admin.GET("/auth/register-tenants", authCtl.RegisterTenants)
 		admin.POST("/auth/register", authCtl.Register) // 注册不写操作日志，避免匿名噪声行
 	}
 
@@ -159,8 +169,17 @@ func New(cfg *config.Config, db *gorm.DB, rdb *redis.Client) (*gin.Engine, *insp
 		secured.GET("/system/messages", messageCtl.List)
 		secured.PUT("/system/messages/:id/read", messageCtl.MarkRead)
 
+		// 租户管理（P3 多租户，仅超管；tenant:* 权限点只授 super_admin）
+		secured.GET("/tenants", middleware.RequirePerm("tenant:list"), tenantCtl.List)
+		secured.POST("/tenants", middleware.RequirePerm("tenant:create"), middleware.OperLog(db, "tenant", "create"), tenantCtl.Create)
+		secured.PUT("/tenants/:id", middleware.RequirePerm("tenant:update"), middleware.OperLog(db, "tenant", "update"), tenantCtl.Update)
+		secured.PUT("/tenants/:id/status", middleware.RequirePerm("tenant:update"), middleware.OperLog(db, "tenant", "update_status"), tenantCtl.SetStatus)
+		// 租户配置覆盖（品牌类白名单 key；租户管理员管自己租户，超管可带 ?tenant_id= 管任意租户）
+		secured.GET("/tenant-config", middleware.RequirePerm("tenant:config"), tenantCtl.GetConfig)
+		secured.PUT("/tenant-config", middleware.RequirePerm("tenant:config"), middleware.OperLog(db, "tenant", "config_save"), tenantCtl.SaveConfig)
+
 		sys := secured.Group("/system")
-		registerSystemRoutes(sys, db, userCtl, roleCtl, menuCtl, dictCtl, configCtl, logCtl, noticeCtl, uploadCtl, signAssetCtl)
+		registerSystemRoutes(sys, db, userCtl, roleCtl, menuCtl, dictCtl, configCtl, logCtl, noticeCtl, uploadCtl, signAssetCtl, postCtl, postTmplCtl)
 
 		// 品牌官网管理（页面配置 + 下载渠道发布物）
 		site := sys.Group("/site")
@@ -184,6 +203,15 @@ func New(cfg *config.Config, db *gorm.DB, rdb *redis.Client) (*gin.Engine, *insp
 		secured.GET("/buildings/:id", middleware.RequirePerm("community:building:list", "community:list"), communityCtl.BuildingDetail)
 		secured.PUT("/buildings/:id", middleware.RequirePerm("community:building:update", "community:update"), middleware.OperLog(db, "community", "update"), communityCtl.UpdateBuilding)
 		secured.DELETE("/buildings/:id", middleware.RequirePerm("community:building:delete", "community:delete"), middleware.OperLog(db, "community", "delete"), communityCtl.DeleteBuilding)
+
+		// 项目岗位编制与职责槽位绑定（名单制授权的配置入口）
+		secured.GET("/post-dict", middleware.RequirePerm("community:staff:list"), staffCtl.PostDict)
+		secured.GET("/communities/:id/staff", middleware.RequirePerm("community:staff:list"), staffCtl.List)
+		secured.POST("/communities/:id/staff", middleware.RequirePerm("community:staff:edit"), middleware.OperLog(db, "community", "staff_create"), staffCtl.Create)
+		secured.PUT("/communities/:id/staff/:staffId", middleware.RequirePerm("community:staff:edit"), middleware.OperLog(db, "community", "staff_update"), staffCtl.Update)
+		secured.DELETE("/communities/:id/staff/:staffId", middleware.RequirePerm("community:staff:edit"), middleware.OperLog(db, "community", "staff_delete"), staffCtl.Delete)
+		secured.GET("/communities/:id/duty-bindings", middleware.RequirePerm("community:staff:list"), staffCtl.DutyBindings)
+		secured.PUT("/communities/:id/duty-bindings", middleware.RequirePerm("community:duty:edit"), middleware.OperLog(db, "community", "duty_binding_save"), staffCtl.SaveDutyBindings)
 
 		// 巡检管理：点位
 		points := secured.Group("/inspection/points")
@@ -241,7 +269,7 @@ func New(cfg *config.Config, db *gorm.DB, rdb *redis.Client) (*gin.Engine, *insp
 			review.POST("/:id/reopen", middleware.RequirePerm("inspection:checkin:review"), middleware.OperLog(db, "inspection", "review_reopen"), reviewCtl.Reopen)
 		}
 
-		// 异常工单
+		// 异常工单（P2 闭环：分诊→派单/抢单→完工→验收）
 		orders := secured.Group("/workorders")
 		{
 			orders.GET("", middleware.RequirePerm("workorder:list"), orderCtl.List)
@@ -249,9 +277,10 @@ func New(cfg *config.Config, db *gorm.DB, rdb *redis.Client) (*gin.Engine, *insp
 			orders.GET("/:id", middleware.RequirePerm("workorder:list"), orderCtl.Detail)
 			orders.PUT("/:id", middleware.RequirePerm("workorder:update"), middleware.OperLog(db, "workorder", "update"), orderCtl.Update)
 			orders.DELETE("/:id", middleware.RequirePerm("workorder:delete"), middleware.OperLog(db, "workorder", "delete"), orderCtl.Delete)
-			orders.POST("/:id/assign", middleware.RequirePerm("workorder:assign"), middleware.OperLog(db, "workorder", "assign"), orderCtl.Assign)
+			orders.POST("/:id/triage", middleware.RequirePerm("workorder:triage"), middleware.OperLog(db, "workorder", "triage"), orderCtl.Triage)
+			orders.POST("/:id/dispatch", middleware.RequirePerm("workorder:dispatch"), middleware.OperLog(db, "workorder", "dispatch"), orderCtl.Dispatch)
+			orders.POST("/:id/confirm", middleware.RequirePerm("workorder:confirm"), middleware.OperLog(db, "workorder", "confirm"), orderCtl.Confirm)
 			orders.POST("/:id/finish", middleware.RequirePerm("workorder:finish"), middleware.OperLog(db, "workorder", "finish"), orderCtl.Finish)
-			orders.POST("/:id/review", middleware.RequirePerm("workorder:review"), middleware.OperLog(db, "workorder", "review"), orderCtl.Review)
 		}
 
 		// 统计报表
@@ -268,12 +297,13 @@ func New(cfg *config.Config, db *gorm.DB, rdb *redis.Client) (*gin.Engine, *insp
 		{
 			reports.GET("", middleware.RequirePerm("report:list"), reportCtl.List)
 			reports.POST("/generate", middleware.RequirePerm("report:generate"), middleware.OperLog(db, "report", "generate"), reportCtl.Generate)
-		reports.POST("/:id/rebuild", middleware.RequirePerm("report:generate"), middleware.OperLog(db, "report", "rebuild"), reportCtl.Rebuild)
+			reports.POST("/:id/rebuild", middleware.RequirePerm("report:generate"), middleware.OperLog(db, "report", "rebuild"), reportCtl.Rebuild)
 			reports.GET("/sign-candidates", middleware.RequirePerm("report:generate"), reportCtl.SignCandidates)
 			reports.GET("/:id", middleware.RequirePerm("report:list"), reportCtl.Detail)
 			reports.POST("/:id/sign-inspector", middleware.RequirePerm("report:sign:inspector", "report:sign:proxy"), middleware.OperLog(db, "report", "sign_inspector"), reportCtl.SignInspector)
-			reports.POST("/:id/sign-supervisor", middleware.RequirePerm("report:sign:supervisor"), middleware.OperLog(db, "report", "sign_supervisor"), reportCtl.SignSupervisor)
-			reports.POST("/:id/sign-manager", middleware.RequirePerm("report:sign:manager"), middleware.OperLog(db, "report", "sign_manager"), reportCtl.SignManager)
+			// 主管/经理签字不挂权限点：授权以报告生成时圈定的名单成员身份为准（service 内校验）
+			reports.POST("/:id/sign-supervisor", middleware.OperLog(db, "report", "sign_supervisor"), reportCtl.SignSupervisor)
+			reports.POST("/:id/sign-manager", middleware.OperLog(db, "report", "sign_manager"), reportCtl.SignManager)
 			reports.GET("/:id/pdf", reportCtl.PDF) // 权限在 service 内判定：report:download 或报告相关人
 		}
 	}
@@ -284,6 +314,7 @@ func New(cfg *config.Config, db *gorm.DB, rdb *redis.Client) (*gin.Engine, *insp
 		mp.POST("/login", mpCtl.Login)
 		mp.POST("/refresh", mpCtl.Refresh)
 		mp.GET("/auth/register-config", authCtl.RegisterConfig)
+		mp.GET("/auth/register-tenants", authCtl.RegisterTenants)
 		mp.POST("/auth/register", authCtl.Register)
 		mp.POST("/upload/callback", mpCtl.Callback) // OSS 服务端间回调（验签，无 JWT）
 
@@ -292,15 +323,18 @@ func New(cfg *config.Config, db *gorm.DB, rdb *redis.Client) (*gin.Engine, *insp
 			mpAuth.GET("/tasks/today", mpCtl.TodayTasks)
 			mpAuth.GET("/tasks/:id", mpCtl.TaskDetail)
 			mpAuth.GET("/points/by-code/:code", mpCtl.PointByCode)
+			mpAuth.GET("/points", mpCtl.Points)
 			mpAuth.POST("/checkin", mpCtl.Checkin)
 			mpAuth.POST("/checkin/offline-sync", mpCtl.OfflineSync)
 			mpAuth.POST("/upload/sts", mpCtl.STS)
 			mpAuth.POST("/upload/local", mpCtl.Local) // dev 模式本地上传
 			mpAuth.GET("/workorders/mine", mpCtl.MyOrders)
 			mpAuth.GET("/workorders/mine/counts", mpCtl.OrderCounts)
+			mpAuth.POST("/workorders", mpCtl.OrderReport) // 问题上报（任何移动端用户）
 			mpAuth.GET("/workorders/:id", mpCtl.OrderDetail)
-			mpAuth.POST("/workorders/:id/accept", mpCtl.OrderAccept)
+			mpAuth.POST("/workorders/:id/grab", mpCtl.OrderGrab)
 			mpAuth.POST("/workorders/:id/finish", mpCtl.OrderFinish)
+			mpAuth.POST("/workorders/:id/confirm", mpCtl.OrderConfirm)
 			mpAuth.GET("/messages", mpCtl.Messages)
 			mpAuth.PUT("/messages/:id/read", mpCtl.MarkRead)
 			mpAuth.GET("/announcements", mpCtl.Announcements)
@@ -329,6 +363,7 @@ func New(cfg *config.Config, db *gorm.DB, rdb *redis.Client) (*gin.Engine, *insp
 			appAuth.GET("/tasks/today", mpCtl.TodayTasks)
 			appAuth.GET("/tasks/:id", mpCtl.TaskDetail)
 			appAuth.GET("/points/by-code/:code", mpCtl.PointByCode)
+			appAuth.GET("/points", mpCtl.Points)
 			appAuth.POST("/checkin", mpCtl.Checkin)
 			appAuth.POST("/checkin/offline-sync", mpCtl.OfflineSync)
 			appAuth.POST("/upload/sts", mpCtl.STS)
@@ -336,9 +371,11 @@ func New(cfg *config.Config, db *gorm.DB, rdb *redis.Client) (*gin.Engine, *insp
 			// 工单 / 消息 / 公告
 			appAuth.GET("/workorders/mine", mpCtl.MyOrders)
 			appAuth.GET("/workorders/mine/counts", mpCtl.OrderCounts)
+			appAuth.POST("/workorders", mpCtl.OrderReport) // 问题上报（任何移动端用户）
 			appAuth.GET("/workorders/:id", mpCtl.OrderDetail)
-			appAuth.POST("/workorders/:id/accept", mpCtl.OrderAccept)
+			appAuth.POST("/workorders/:id/grab", mpCtl.OrderGrab)
 			appAuth.POST("/workorders/:id/finish", mpCtl.OrderFinish)
+			appAuth.POST("/workorders/:id/confirm", mpCtl.OrderConfirm)
 			appAuth.GET("/messages", mpCtl.Messages)
 			appAuth.PUT("/messages/:id/read", mpCtl.MarkRead)
 			appAuth.GET("/announcements", mpCtl.Announcements)
@@ -347,7 +384,7 @@ func New(cfg *config.Config, db *gorm.DB, rdb *redis.Client) (*gin.Engine, *insp
 			// ===== 管理功能（App 端）：复用 PC 控制器 + 同一套权限点，入口由 App 按 perms 显隐 =====
 			appAuth.GET("/dashboard", statsCtl.Dashboard)
 			appAuth.GET("/communities/tree", middleware.RequirePerm("community:list", "inspection:point:list"), communityCtl.Tree)
-			appAuth.GET("/system/users", middleware.RequirePerm("system:user:list", "workorder:assign"), userCtl.List)
+			appAuth.GET("/system/users", middleware.RequirePerm("system:user:list", "workorder:dispatch"), userCtl.List)
 			// 点位管理（现场建点：GPS 录坐标 + NFC 写卡；删除仅 PC 端）
 			appPoints := appAuth.Group("/inspection/points")
 			{
@@ -369,13 +406,14 @@ func New(cfg *config.Config, db *gorm.DB, rdb *redis.Client) (*gin.Engine, *insp
 				appReview.POST("/:id/pass", middleware.RequirePerm("inspection:checkin:review"), middleware.OperLog(db, "inspection", "review_pass"), reviewCtl.Pass)
 				appReview.POST("/:id/reject", middleware.RequirePerm("inspection:checkin:review"), middleware.OperLog(db, "inspection", "review_reject"), reviewCtl.Reject)
 			}
-			// 工单管理（派单/验收）：与巡检员「我的工单」路径隔离
+			// 工单管理（分诊/派单/验收）：与巡检员「我的工单」路径隔离
 			appOrders := appAuth.Group("/manage/workorders")
 			{
 				appOrders.GET("", middleware.RequirePerm("workorder:list"), orderCtl.List)
 				appOrders.GET("/:id", middleware.RequirePerm("workorder:list"), orderCtl.Detail)
-				appOrders.POST("/:id/assign", middleware.RequirePerm("workorder:assign"), middleware.OperLog(db, "workorder", "assign"), orderCtl.Assign)
-				appOrders.POST("/:id/review", middleware.RequirePerm("workorder:review"), middleware.OperLog(db, "workorder", "review"), orderCtl.Review)
+				appOrders.POST("/:id/triage", middleware.RequirePerm("workorder:triage"), middleware.OperLog(db, "workorder", "triage"), orderCtl.Triage)
+				appOrders.POST("/:id/dispatch", middleware.RequirePerm("workorder:dispatch"), middleware.OperLog(db, "workorder", "dispatch"), orderCtl.Dispatch)
+				appOrders.POST("/:id/confirm", middleware.RequirePerm("workorder:confirm"), middleware.OperLog(db, "workorder", "confirm"), orderCtl.Confirm)
 			}
 			// 月报签字（权限点与 PC 完全一致；待我签用 ?pending_mine=1）
 			appReports := appAuth.Group("/reports")
@@ -383,9 +421,10 @@ func New(cfg *config.Config, db *gorm.DB, rdb *redis.Client) (*gin.Engine, *insp
 				appReports.GET("", middleware.RequirePerm("report:list"), reportCtl.List)
 				appReports.GET("/:id", middleware.RequirePerm("report:list"), reportCtl.Detail)
 				appReports.POST("/:id/sign-inspector", middleware.RequirePerm("report:sign:inspector", "report:sign:proxy"), middleware.OperLog(db, "report", "sign_inspector"), reportCtl.SignInspector)
-				appReports.POST("/:id/sign-supervisor", middleware.RequirePerm("report:sign:supervisor"), middleware.OperLog(db, "report", "sign_supervisor"), reportCtl.SignSupervisor)
-				appReports.POST("/:id/sign-manager", middleware.RequirePerm("report:sign:manager"), middleware.OperLog(db, "report", "sign_manager"), reportCtl.SignManager)
-				appReports.GET("/:id/pdf", reportCtl.PDF) // 同 PC：service 内判定（report:download 或报告相关人）
+				// 主管/经理签字不挂权限点：同 PC，授权以报告名单成员身份为准
+				appReports.POST("/:id/sign-supervisor", middleware.OperLog(db, "report", "sign_supervisor"), reportCtl.SignSupervisor)
+				appReports.POST("/:id/sign-manager", middleware.OperLog(db, "report", "sign_manager"), reportCtl.SignManager)
+				appReports.GET("/:id/pdf", reportCtl.PDF)               // 同 PC：service 内判定（report:download 或报告相关人）
 				appReports.POST("/:id/pdf-ticket", reportCtl.PDFTicket) // 签发 web-view 预览用一次性 ticket
 			}
 		}
@@ -450,7 +489,8 @@ func registerSPA(r *gin.Engine, distPath string) {
 func registerSystemRoutes(sys *gin.RouterGroup, db *gorm.DB,
 	userCtl *systemctl.UserController, roleCtl *systemctl.RoleController, menuCtl *systemctl.MenuController,
 	dictCtl *systemctl.DictController, configCtl *systemctl.ConfigController, logCtl *systemctl.LogController,
-	noticeCtl *systemctl.NoticeController, uploadCtl *systemctl.UploadController, signAssetCtl *systemctl.SignAssetController) {
+	noticeCtl *systemctl.NoticeController, uploadCtl *systemctl.UploadController, signAssetCtl *systemctl.SignAssetController,
+	postCtl *systemctl.PostController, postTmplCtl *systemctl.PostTemplateController) {
 
 	// 管理端图片上传（登录即可：签名/公章/头像）
 	sys.POST("/upload", middleware.OperLog(db, "system", "upload"), uploadCtl.Local)
@@ -461,6 +501,26 @@ func registerSystemRoutes(sys *gin.RouterGroup, db *gorm.DB,
 		signAssets.GET("", middleware.RequirePerm("system:signasset:list"), signAssetCtl.List)
 		signAssets.POST("", middleware.RequirePerm("system:signasset:create"), middleware.OperLog(db, "system", "sign_asset_create"), signAssetCtl.Create)
 		signAssets.POST("/:id/revoke", middleware.RequirePerm("system:signasset:revoke"), middleware.OperLog(db, "system", "sign_asset_revoke"), signAssetCtl.Revoke)
+	}
+
+	// 岗位管理（系统管理，租户上下文）与岗位模板库（平台管理，仅超管）
+	posts := sys.Group("/posts")
+	{
+		posts.GET("", middleware.RequirePerm("system:post:list"), postCtl.List)
+		posts.POST("", middleware.RequirePerm("system:post:create"), middleware.OperLog(db, "system", "post_create"), postCtl.Create)
+		posts.PUT("/:id", middleware.RequirePerm("system:post:update"), middleware.OperLog(db, "system", "post_update"), postCtl.Update)
+		posts.DELETE("/:id", middleware.RequirePerm("system:post:delete"), middleware.OperLog(db, "system", "post_delete"), postCtl.Delete)
+		posts.GET("/duty-bindings", middleware.RequirePerm("system:post:list"), postCtl.DutyBindings)
+		posts.PUT("/duty-bindings", middleware.RequirePerm("system:post:duty"), middleware.OperLog(db, "system", "post_duty_save"), postCtl.SaveDutyBindings)
+	}
+	postTmpls := sys.Group("/post-templates")
+	{
+		postTmpls.GET("", middleware.RequirePerm("platform:post:list"), postTmplCtl.List)
+		postTmpls.POST("", middleware.RequirePerm("platform:post:create"), middleware.OperLog(db, "system", "post_tmpl_create"), postTmplCtl.Create)
+		postTmpls.PUT("/:id", middleware.RequirePerm("platform:post:update"), middleware.OperLog(db, "system", "post_tmpl_update"), postTmplCtl.Update)
+		postTmpls.DELETE("/:id", middleware.RequirePerm("platform:post:delete"), middleware.OperLog(db, "system", "post_tmpl_delete"), postTmplCtl.Delete)
+		postTmpls.GET("/duty-bindings", middleware.RequirePerm("platform:post:list"), postTmplCtl.DutyBindings)
+		postTmpls.PUT("/duty-bindings", middleware.RequirePerm("platform:post:update"), middleware.OperLog(db, "system", "post_tmpl_duty_save"), postTmplCtl.SaveDutyBindings)
 	}
 
 	users := sys.Group("/users")

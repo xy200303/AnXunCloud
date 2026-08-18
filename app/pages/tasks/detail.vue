@@ -21,7 +21,10 @@
           <text class="card-title" :style="{ color: colors.textPrimary }">{{ planName }}</text>
           <text class="card-tag" :style="{ color: statusColor }">{{ statusText }}</text>
         </view>
-        <text class="card-sub" :style="{ color: colors.textSecondary }">{{ communityName }}</text>
+        <view class="card-sub-row">
+          <text v-if="patrolText != ''" class="type-tag" :style="{ color: colors.primary, borderColor: colors.primary }">{{ patrolText }}</text>
+          <text class="card-sub" :style="{ color: colors.textSecondary }">{{ communityName }}</text>
+        </view>
         <text class="card-sub" :style="{ color: colors.textSecondary }">{{ taskDate }} · {{ timeWindow }}</text>
         <view class="progress" :style="{ backgroundColor: colors.border }">
           <view class="progress-inner" :style="{ width: progressWidth, backgroundColor: colors.primary }"></view>
@@ -85,6 +88,8 @@ type DetailData = {
   errorMsg: string
   planName: string
   communityName: string
+  /** 巡查类型中文标签（空 = 不展示） */
+  patrolText: string
   taskDate: string
   timeWindow: string
   statusText: string
@@ -114,6 +119,15 @@ function credentialTextOf(c: string): string {
   if (c == 'nfc') return 'NFC'
   if (c == 'any') return '二维码/NFC'
   return '无凭证'
+}
+
+/** 巡查类型文案（对齐后端 Patrol* 枚举） */
+function patrolTextOf(t: string): string {
+  if (t == 'safety') return '安全巡查'
+  if (t == 'equipment') return '设备专项'
+  if (t == 'environment') return '环境巡查'
+  if (t == 'building') return '楼栋巡查'
+  return ''
 }
 
 function toPointView(p: TaskPoint): PointView {
@@ -152,6 +166,7 @@ export default {
       errorMsg: '',
       planName: '',
       communityName: '',
+      patrolText: '',
       taskDate: '',
       timeWindow: '',
       statusText: '',
@@ -187,6 +202,7 @@ export default {
           this.loaded = true
           this.planName = res.plan_name
           this.communityName = res.community_name
+          this.patrolText = patrolTextOf(res.patrol_type)
           this.taskDate = res.task_date
           this.timeWindow = res.time_window
           this.statusText = statusTextOf(res.status)
@@ -304,6 +320,25 @@ export default {
 .card-sub {
   font-size: 26rpx;
   margin-top: 8rpx;
+}
+
+.card-sub-row {
+  flex-direction: row;
+  align-items: center;
+  margin-top: 8rpx;
+}
+
+.card-sub-row .card-sub {
+  margin-top: 0;
+}
+
+.type-tag {
+  font-size: 22rpx;
+  border-width: 2rpx;
+  border-style: solid;
+  border-radius: 12rpx; /* Radius.tag */
+  padding: 4rpx 16rpx;
+  margin-right: 16rpx;
 }
 
 .progress {

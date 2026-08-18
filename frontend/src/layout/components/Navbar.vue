@@ -13,6 +13,9 @@
     </div>
 
     <div class="navbar-right">
+      <!-- 全局租户切换器：仅超管且租户数 > 1 时显示 -->
+      <tenant-context-bar />
+
       <!-- 全屏 -->
       <el-tooltip content="全屏" placement="bottom">
         <el-icon class="action-icon" :size="18" @click="toggleFullscreen">
@@ -100,6 +103,7 @@ import type { RouteMenu } from '@/api/types'
 import { listMessages, markMessageRead, type MessageItem } from '@/api/message'
 import { fileUrl } from '@/api/upload'
 import PasswordDialog from '@/components/PasswordDialog.vue'
+import TenantContextBar from '@/components/TenantContextBar.vue'
 
 const route = useRoute()
 const router = useRouter()

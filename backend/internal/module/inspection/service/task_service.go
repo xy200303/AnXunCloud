@@ -49,6 +49,9 @@ func (s *TaskService) List(c *gin.Context, q *dto.TaskListQuery) (*response.Page
 	if q.PlanID != "" {
 		db = db.Where("plan_id = ?", q.PlanID)
 	}
+	if q.PatrolType != "" {
+		db = db.Where("patrol_type = ?", q.PatrolType)
+	}
 	if q.Status != "" {
 		db = db.Where("status = ?", q.Status)
 	}
@@ -149,6 +152,7 @@ func (s *TaskService) toItem(t *model.InspectionTask, cnt taskCounters) gin.H {
 		"id": t.ID, "plan_id": t.PlanID, "plan_name": planName,
 		"community_id": t.CommunityID, "community_name": commName,
 		"inspector_id": t.InspectorID, "inspector_name": inspectorName,
+		"patrol_type": t.PatrolType,
 		"task_date": t.TaskDate.Format("2006-01-02"), "time_window": timeWindow,
 		"status": t.Status, "total_points": t.TotalPoints, "done_points": t.DonePoints,
 		"progress": progress, "abnormal_count": cnt.abnormal, "suspect_count": cnt.suspect,
@@ -163,7 +167,7 @@ func (s *TaskService) Detail(c *gin.Context, id string) (gin.H, *errs.Error) {
 	if err := s.db.First(&t, "id = ?", id).Error; err != nil {
 		return nil, errs.ErrNotFound
 	}
-	if be := middleware.CheckCommunity(c, t.CommunityID); be != nil {
+	if be := middleware.CheckCommunity(s.db, c, t.CommunityID); be != nil {
 		return nil, be
 	}
 	// 计划可能已删除（删计划只级联清理未开始任务）：Unscoped 读取保留名称与路线，保证历史任务可查
@@ -223,6 +227,7 @@ func (s *TaskService) Detail(c *gin.Context, id string) (gin.H, *errs.Error) {
 		"task": gin.H{
 			"id": t.ID, "plan_name": planName, "community_name": commName,
 			"inspector_id": t.InspectorID, "inspector_name": inspectorName,
+			"patrol_type": t.PatrolType,
 			"task_date": t.TaskDate.Format("2006-01-02"), "time_window": plan.TimeWindow,
 			"status": t.Status, "total_points": t.TotalPoints, "done_points": t.DonePoints,
 			"progress": progress, "started_at": timefmt.TP(t.StartedAt), "finished_at": timefmt.TP(t.FinishedAt),
@@ -371,7 +376,7 @@ func (s *TaskService) CheckinDetail(c *gin.Context, id string) (gin.H, *errs.Err
 	if err := s.db.Where("id = ?", id).First(&r).Error; err != nil {
 		return nil, errs.ErrNotFound
 	}
-	if be := middleware.CheckCommunity(c, r.CommunityID); be != nil {
+	if be := middleware.CheckCommunity(s.db, c, r.CommunityID); be != nil {
 		return nil, be
 	}
 	planName := ""
@@ -489,7 +494,7 @@ func (s *TaskService) Remind(c *gin.Context, id string) *errs.Error {
 	if err := s.db.First(&t, "id = ?", id).Error; err != nil {
 		return errs.ErrNotFound
 	}
-	if be := middleware.CheckCommunity(c, t.CommunityID); be != nil {
+	if be := middleware.CheckCommunity(s.db, c, t.CommunityID); be != nil {
 		return be
 	}
 	if t.Status == model.TaskDone {

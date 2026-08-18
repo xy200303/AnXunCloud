@@ -1,6 +1,6 @@
 <template>
   <view class="page" :style="{ backgroundColor: colors.bgPage }">
-    <!-- 类型 tab：全部 / 我上报的 / 指派给我（有待接单时红点提示） -->
+    <!-- 类型 tab：派给我的 / 我上报的 / 工单池（有待办时红点提示；工单池按 counts.pool 显隐） -->
     <view class="tabs" :style="{ backgroundColor: colors.bgCard, borderBottomColor: colors.border }">
       <view
         v-for="t in tabs"
@@ -14,7 +14,7 @@
             :style="{ color: type == t.value ? colors.primary : colors.textRegular }"
           >{{ t.label }}</text>
           <view
-            v-if="t.value == 'assigned' && assignedNew > 0"
+            v-if="tabBadge(t.value) > 0"
             class="tab-dot"
             :style="{ backgroundColor: colors.danger }"
           ></view>
@@ -26,8 +26,8 @@
       </view>
     </view>
 
-    <!-- 状态筛选 chips（横向滚动，带数量角标） -->
-    <scroll-view scroll-x class="chips" :show-scrollbar="false">
+    <!-- 状态筛选 chips（横向滚动，带数量角标；工单池均为待派单，不展示） -->
+    <scroll-view v-if="type != 'pool'" scroll-x class="chips" :show-scrollbar="false">
       <view class="chips-inner">
         <view
           v-for="c in statusChips"
@@ -128,12 +128,12 @@ type ListData = {
   colors: ColorTokens
   type: string
   status: string
-  tabs: Array<{ label: string; value: string }>
-  statusChips: Array<{ label: string; value: string }>
   /** 当前类型下各状态工单数（chip 角标） */
   counts: Record<string, number>
-  /** 指派给我且待接单数量（tab 红点） */
-  assignedNew: number
+  /** 各 tab 待办数（tab 红点：assigned=待我处理 / reported=待我验收 / pool=可抢） */
+  badgeAssigned: number
+  badgeReported: number
+  badgePool: number
   loading: boolean
   loadingMore: boolean
   loaded: boolean
@@ -143,24 +143,24 @@ type ListData = {
   list: OrderView[]
 }
 
-/** 工单状态文案（对齐后端 model.Order* 枚举） */
+/** 工单状态文案（P2 六态，对齐后端 model.Order* 枚举） */
 function statusTextOf(s: string): string {
-  if (s == 'pending') return '待派单'
-  if (s == 'assigned') return '待接单'
+  if (s == 'reported') return '待分诊'
+  if (s == 'pending_dispatch') return '待派单'
   if (s == 'processing') return '处理中'
-  if (s == 'review') return '待审核'
-  if (s == 'closed') return '已完成'
-  if (s == 'rejected') return '已驳回'
+  if (s == 'pending_confirm') return '待验收'
+  if (s == 'closed') return '已闭环'
+  if (s == 'closed_invalid') return '已作废'
   return s
 }
 
 function statusColorOf(s: string): string {
-  if (s == 'pending') return Colors.info
-  if (s == 'assigned') return Colors.warning
+  if (s == 'reported') return Colors.info
+  if (s == 'pending_dispatch') return Colors.warning
   if (s == 'processing') return Colors.primary
-  if (s == 'review') return Colors.warning
+  if (s == 'pending_confirm') return Colors.warning
   if (s == 'closed') return Colors.success
-  if (s == 'rejected') return Colors.danger
+  if (s == 'closed_invalid') return Colors.danger
   return Colors.info
 }
 
@@ -184,32 +184,41 @@ function toOrderView(o: MyOrderItem): OrderView {
     status_color: statusColorOf(o.status),
     priority_text: priorityTextOf(o.priority),
     priority_color: priorityColorOf(o.priority),
-    role_text: o.my_role == 'assignee' ? '指派给我' : '我上报的'
+    role_text: o.my_role == 'assignee' ? '派给我' : (o.my_role == 'reporter' ? '我上报的' : '可抢单')
   })
+}
+
+/** 各 tab 的状态筛选 chips（后端 status 支持逗号多值） */
+const STATUS_CHIPS: Record<string, Array<{ label: string; value: string }>> = {
+  assigned: [
+    { label: '全部状态', value: '' },
+    { label: '处理中', value: 'processing' },
+    { label: '待验收', value: 'pending_confirm' },
+    { label: '已闭环', value: 'closed' },
+    { label: '已作废', value: 'closed_invalid' }
+  ],
+  reported: [
+    { label: '全部状态', value: '' },
+    { label: '待分诊', value: 'reported' },
+    { label: '待派单', value: 'pending_dispatch' },
+    { label: '处理中', value: 'processing' },
+    { label: '待验收', value: 'pending_confirm' },
+    { label: '已闭环', value: 'closed' },
+    { label: '已作废', value: 'closed_invalid' }
+  ],
+  pool: []
 }
 
 export default {
   data(): ListData {
     return {
       colors: Colors,
-      type: '',
+      type: 'assigned',
       status: '',
-      tabs: [
-        { label: '全部', value: '' },
-        { label: '我上报的', value: 'reported' },
-        { label: '指派给我', value: 'assigned' }
-      ],
-      // 状态精简：待派单+待接单合并为「待处理」（后端 status 支持逗号多值）
-      statusChips: [
-        { label: '全部状态', value: '' },
-        { label: '待处理', value: 'pending,assigned' },
-        { label: '处理中', value: 'processing' },
-        { label: '待审核', value: 'review' },
-        { label: '已完成', value: 'closed' },
-        { label: '已驳回', value: 'rejected' }
-      ],
       counts: {},
-      assignedNew: 0,
+      badgeAssigned: 0,
+      badgeReported: 0,
+      badgePool: 0,
       loading: true,
       loadingMore: false,
       loaded: false,
@@ -220,6 +229,21 @@ export default {
     }
   },
   computed: {
+    /** tab 列表：工单池仅在可抢数 >0（或正处于该 tab）时显示 */
+    tabs(): Array<{ label: string; value: string }> {
+      const arr = [
+        { label: '派给我的', value: 'assigned' },
+        { label: '我上报的', value: 'reported' }
+      ]
+      if (this.badgePool > 0 || this.type == 'pool') {
+        arr.push({ label: '工单池', value: 'pool' })
+      }
+      return arr
+    },
+    /** 当前 tab 的状态筛选 chips */
+    statusChips(): Array<{ label: string; value: string }> {
+      return STATUS_CHIPS[this.type] ?? []
+    },
     /** 是否已加载完全部 */
     noMore(): boolean {
       return this.loaded && this.list.length >= this.total
@@ -227,21 +251,23 @@ export default {
     /** 空态标题：状态筛选中 > 按 tab 区分 */
     emptyTitle(): string {
       if (this.status != '') return '该状态下暂无工单'
-      if (this.type == 'assigned') return '暂无指派给你的工单'
+      if (this.type == 'assigned') return '暂无派给你的工单'
       if (this.type == 'reported') return '暂无你上报的工单'
+      if (this.type == 'pool') return '工单池暂无可抢工单'
       return '暂无工单'
     },
     emptySub(): string {
       if (this.status != '') return '切换其他状态看看'
-      if (this.type == 'assigned') return '主管派单后会第一时间通知你'
-      return '巡检异常会自动生成工单'
+      if (this.type == 'assigned') return '派单或抢单后会第一时间通知你'
+      if (this.type == 'pool') return '项目开启抢单后，新工单会出现在这里'
+      return '可通过首页「问题上报」主动提交问题'
     }
   },
   onLoad() {
     this.reload()
   },
   onShow() {
-    // 详情页接单/完工返回后刷新列表
+    // 详情页抢单/完工/验收返回后刷新列表
     if (this.loaded) this.reload()
   },
   onPullDownRefresh() {
@@ -251,10 +277,11 @@ export default {
     this.loadMore()
   },
   methods: {
-    /** 切类型 tab（重置分页） */
+    /** 切类型 tab（重置分页与状态筛选） */
     switchType(v: string) {
       if (this.type == v) return
       this.type = v
+      this.status = ''
       this.reload()
     },
     /** 切状态筛选（重置分页） */
@@ -269,7 +296,14 @@ export default {
       this.fetchPage(false)
       this.fetchCounts()
     },
-    /** chip 角标数量（待处理 = 待派单+待接单；全部状态不显示角标） */
+    /** tab 红点数量：assigned=待我处理 / reported=待我验收 / pool=可抢 */
+    tabBadge(v: string): number {
+      if (v == 'assigned') return this.badgeAssigned
+      if (v == 'reported') return this.badgeReported
+      if (v == 'pool') return this.badgePool
+      return 0
+    },
+    /** chip 角标数量（全部状态不显示角标） */
     chipCount(v: string): number {
       if (v == '') return 0
       let n = 0
@@ -279,21 +313,24 @@ export default {
       }
       return n
     },
-    /** 拉取状态计数：当前类型（chip 角标）+ 指派给我待接单（tab 红点）；失败静默不影响列表 */
+    /**
+     * 拉取状态计数：assigned/reported 各一次（chip 角标 + tab 红点），
+     * 两次响应均带 pool 可抢池数量；失败静默不影响列表。
+     */
     fetchCounts() {
-      apiMyOrderCounts(this.type)
+      apiMyOrderCounts('assigned')
         .then((d) => {
-          this.counts = d
-          if (this.type == 'assigned') this.assignedNew = d['assigned'] ?? 0
+          this.badgeAssigned = d['processing'] ?? 0
+          this.badgePool = d['pool'] ?? 0
+          if (this.type == 'assigned') this.counts = d
         })
         .catch((_e) => {})
-      if (this.type != 'assigned') {
-        apiMyOrderCounts('assigned')
-          .then((d) => {
-            this.assignedNew = d['assigned'] ?? 0
-          })
-          .catch((_e) => {})
-      }
+      apiMyOrderCounts('reported')
+        .then((d) => {
+          this.badgeReported = d['pending_confirm'] ?? 0
+          if (this.type == 'reported') this.counts = d
+        })
+        .catch((_e) => {})
     },
     /** 上拉加载更多 */
     loadMore() {

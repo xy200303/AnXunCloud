@@ -7,7 +7,7 @@ import "anxuncloud/internal/pkg/response"
 type ReportQuery struct {
 	StartDate   string `form:"start_date" binding:"required"`
 	EndDate     string `form:"end_date" binding:"required"`
-	CommunityID int64  `form:"community_id"`
+	CommunityID string `form:"community_id"`
 }
 
 type PerformanceQuery struct {
@@ -22,5 +22,5 @@ type ExportReq struct {
 	Format      string `json:"format" binding:"required,oneof=excel pdf"`
 	StartDate   string `json:"start_date" binding:"required"`
 	EndDate     string `json:"end_date" binding:"required"`
-	CommunityID int64  `json:"community_id"`
+	CommunityID string `json:"community_id"`
 }

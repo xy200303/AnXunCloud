@@ -3,6 +3,7 @@ package controller
 import (
 	"github.com/gin-gonic/gin"
 
+	"anxuncloud/internal/middleware"
 	"anxuncloud/internal/module/system/dto"
 	"anxuncloud/internal/module/system/service"
 	"anxuncloud/internal/pkg/bind"
@@ -25,7 +26,7 @@ func (ctl *MenuController) Tree(c *gin.Context) {
 		response.Fail(c, be)
 		return
 	}
-	tree, be := ctl.svc.Tree(&q)
+	tree, be := ctl.svc.Tree(&q, middleware.CurrentIdentity(c).SuperAdmin)
 	if be != nil {
 		response.Fail(c, be)
 		return

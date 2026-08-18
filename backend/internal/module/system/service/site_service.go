@@ -76,10 +76,13 @@ func (s *SiteService) SaveBrandConfig(values map[string]string) *errs.Error {
 }
 
 // BrandConfigMap 官网 SSR 注入用配置（键名去掉 site. 前缀，只含白名单项；空值不返回）。
+// 租户解析（P3）：公开接口无登录态，统一按默认租户解析（私有化 = 默认租户）；
+// SaaS 按域名/来源解析租户的方案后续迭代（届时在此替换 tenantID 来源）。
 func (s *SiteService) BrandConfigMap() map[string]string {
+	tenantID := s.cfg.DefaultTenantID()
 	out := make(map[string]string, len(siteConfigKeys))
 	for _, k := range siteConfigKeys {
-		if v, ok := s.cfg.Get(k); ok && v != "" {
+		if v, ok := s.cfg.Resolve(tenantID, k); ok && v != "" {
 			out[strings.TrimPrefix(k, "site.")] = v
 		}
 	}

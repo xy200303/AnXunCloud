@@ -121,7 +121,8 @@ export function generateReport(data: { community_id: string; period: string; sup
   })
 }
 
-// 生成报告时的可选签字人（持有对应签字权限且管辖该小区的启用用户；has_signature=是否已配置手写签名）
+// 生成报告时的可选签字人：users 为全部启用用户（主管/经理两级共用此池，可手动圈选，名单即授权）；
+// default_*_ids 为职责槽位默认名单（项目级覆盖 → 平台默认绑定 → 编制在职成员；空数组 = 该级默认跳过，不回退全选）
 export interface SignCandidate {
   id: string
   name: string
@@ -129,7 +130,11 @@ export interface SignCandidate {
 }
 
 export function getSignCandidates(communityId: string) {
-  return request<{ supervisors: SignCandidate[]; managers: SignCandidate[] }>({
+  return request<{
+    users: SignCandidate[]
+    default_supervisor_ids: string[]
+    default_manager_ids: string[]
+  }>({
     url: '/reports/sign-candidates',
     method: 'get',
     params: { community_id: communityId }

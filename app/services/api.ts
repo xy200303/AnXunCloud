@@ -23,7 +23,8 @@ export type UserInfo = {
   perms: string[]
   /** 角色 code 数组，如 ['inspector'] / ['repair'] */
   roles: string[]
-  community_ids: string[]
+  /** 我的在职项目（project_staff 推导；name 可空，前端自行解析） */
+  projects: Array<{ id: string; name?: string }>
 }
 
 export type LoginResult = {
@@ -38,6 +39,8 @@ export type TodayTask = {
   id: string
   plan_name: string
   community_name: string
+  /** 巡查类型：safety 安全 / equipment 设备专项 / environment 环境 / building 楼栋 */
+  patrol_type: string
   task_date: string
   time_window: string
   /** pending 待开始 / doing 进行中 / done 已完成 / overdue 已逾期 */
@@ -127,6 +130,8 @@ export type TaskDetail = {
   id: string
   plan_name: string
   community_name: string
+  /** 巡查类型：safety/equipment/environment/building */
+  patrol_type: string
   task_date: string
   time_window: string
   status: string
@@ -172,9 +177,9 @@ export type CheckinResult = {
   }
 }
 
-// ---- 工单（/workorders，对齐后端 MyOrders / GetForMP / Accept / Finish） ----------
+// ---- 工单（/workorders，对齐后端 MyOrders / GetForMP / Finish） ----------
 
-/** 我的工单列表项（对齐 MPService.MyOrders 返回） */
+/** 我的工单列表项（对齐 MPService.MyOrders 返回；type=pool 时为 OrderService.toItem 同名字段） */
 export type MyOrderItem = {
   id: string
   order_no: string
@@ -183,11 +188,10 @@ export type MyOrderItem = {
   point_name: string
   /** low/normal/high/urgent */
   priority: string
-  /** pending/assigned/processing/review/closed/rejected */
+  /** P2 六态：reported/pending_dispatch/processing/pending_confirm/closed/closed_invalid */
   status: string
-  /** reporter=我上报的 / assignee=指派给我 */
+  /** reporter=我上报的 / assignee=指派给我（pool 列表无此字段，为空串） */
   my_role: string
-  review_remark: string
   created_at: string
 }
 
@@ -216,7 +220,7 @@ export type WorkOrderDetail = {
   point_id: string | null
   point_name: string
   description: string
-  /** 上报时照片（before） */
+  /** 上报时照片 */
   photos: OrderPhoto[]
   /** 异常项快照 */
   items: Array<{
@@ -225,17 +229,34 @@ export type WorkOrderDetail = {
     before_photo_urls: string[]
     after_photo_urls: string[]
   }>
+  /** 来源：inspection 巡检转单 / active 主动上报 / frontdesk 前台代录 */
+  source: string
+  /** 工单分类（分诊时填写，可为空） */
+  category: string
   reporter_id: string
   reporter_name: string
   assignee_id: string | null
   assignee_name: string
+  dispatcher_name: string
   priority: string
+  /** P2 六态：reported/pending_dispatch/processing/pending_confirm/closed/closed_invalid */
   status: string
-  fix_photos: OrderPhoto[]
-  fix_remark: string
-  finished_at: string
-  reviewed_by: string | null
-  review_remark: string | null
+  triage_by_name: string
+  triage_at: string
+  triage_note: string
+  dispatch_at: string
+  accept_at: string
+  finish_photos: OrderPhoto[]
+  finish_note: string
+  finish_at: string
+  confirm_by_name: string
+  confirm_at: string
+  confirm_note: string
+  /** 最近一次驳回原因（分诊驳回 / 验收退回） */
+  reject_reason: string
+  /** SLA 期望完成时间（按优先级推算，仅展示） */
+  sla_deadline: string
+  sla_overdue: boolean
   created_at: string
   logs: Array<{
     action: string
@@ -243,6 +264,29 @@ export type WorkOrderDetail = {
     detail: string
     created_at: string
   }>
+}
+
+/** 问题上报请求（对齐 wodto.OrderReportReq；point_id 选填，须属于该小区） */
+export type OrderReportPayload = {
+  community_id: string
+  point_id?: string
+  title: string
+  description: string
+  photos: Array<{ file_key: string }>
+  /** low/normal/high/urgent，默认 normal */
+  priority: string
+}
+
+/** 项目启用点位选项（GET /points?community_id=，问题上报关联点位用） */
+export type PointOption = { id: string; name: string }
+
+/** GET /points?community_id= → 项目启用点位列表（须为该项目在职编制成员） */
+export function apiListPoints(communityId: string): Promise<PointOption[]> {
+  return new Promise((resolve, reject) => {
+    httpGet<Array<{ id: string; name: string }>>('/points?community_id=' + communityId)
+      .then((d) => resolve((d || []).map((p) => ({ id: p.id, name: p.name ?? '' }))))
+      .catch(reject)
+  })
 }
 
 /** 完工反馈请求（对齐 wodto.FinishReq，维修照片至少 1 张 file_key） */
@@ -418,7 +462,7 @@ type RawUser = {
   signature_url?: string
   perms?: string[]
   roles?: RoleEntry[]
-  community_ids?: Array<string | number>
+  projects?: Array<{ id?: string | number; name?: string }>
 }
 
 type RawLoginData = {
@@ -457,6 +501,7 @@ type RawTaskDetail = {
   id?: string | number
   plan_name?: string
   community_name?: string
+  patrol_type?: string
   task_date?: string
   time_window?: string
   status?: string
@@ -528,7 +573,7 @@ export function toUserInfo(raw: RawUser): UserInfo {
     roles: (raw.roles ?? [])
       .map((r) => (typeof r == 'string' ? r : r.code ?? ''))
       .filter((c) => c != ''),
-    community_ids: (raw.community_ids ?? []).map((c) => String(c))
+    projects: (raw.projects ?? []).map((p) => ({ id: toId(p.id), name: p.name }))
   }
 }
 
@@ -541,10 +586,10 @@ export function hasPerm(u: UserInfo | null, perm: string): boolean {
 
 // ---- 认证 ------------------------------------------------------------------------
 
-/** 登录 POST /login {username, password} */
-export function apiLogin(username: string, password: string): Promise<LoginResult> {
+/** 登录 POST /login {username, password, tenant_code?}（用户名跨租户重名时传所选公司 code 消歧） */
+export function apiLogin(username: string, password: string, tenantCode?: string): Promise<LoginResult> {
   return new Promise<LoginResult>((resolve, reject) => {
-    httpPost<RawLoginData>('/login', { username: username, password: password }, false)
+    httpPost<RawLoginData>('/login', { username: username, password: password, tenant_code: tenantCode || undefined }, false)
       .then((d) => {
         if (d == null) {
           reject(new Error('登录响应异常'))
@@ -577,13 +622,25 @@ export function apiRegisterConfig(): Promise<boolean> {
   })
 }
 
-/** 注册 POST /auth/register {username,password,name,phone} */
-export function apiRegister(username: string, password: string, name: string, phone: string): Promise<null> {
+/** 注册可选公司列表 GET /auth/register-tenants → [{code, name}]（免登录，注册开关关闭时 40303） */
+export function apiRegisterTenants(): Promise<Array<{ code: string; name: string }>> {
+  return new Promise((resolve, reject) => {
+    httpGet<Array<{ code?: string; name?: string }>>('/auth/register-tenants', false)
+      .then((d) => {
+        resolve((d ?? []).map((t) => ({ code: t.code ?? '', name: t.name ?? '' })))
+      })
+      .catch(reject)
+  })
+}
+
+/** 注册 POST /auth/register {username,password,name,phone,tenant_code?}（tenant_code 选填：多租户时传所选公司 code，不传 = 默认租户） */
+export function apiRegister(username: string, password: string, name: string, phone: string, tenantCode?: string): Promise<null> {
   return httpPost<null>('/auth/register', {
     username: username,
     password: password,
     name: name,
-    phone: phone
+    phone: phone,
+    tenant_code: tenantCode || undefined
   }, false)
 }
 
@@ -700,6 +757,7 @@ export function apiTaskDetail(id: string): Promise<TaskDetail> {
           id: toId(d.id),
           plan_name: d.plan_name ?? '',
           community_name: d.community_name ?? '',
+          patrol_type: d.patrol_type ?? '',
           task_date: d.task_date ?? '',
           time_window: d.time_window ?? '',
           status: d.status ?? '',
@@ -815,7 +873,7 @@ export function apiUploadLocal(
 
 // ---- 工单接口 --------------------------------------------------------------------
 
-/** 我的工单 GET /workorders/mine（type: ''=全部 / reported=我上报的 / assigned=指派给我；status 支持逗号多值） */
+/** 我的工单 GET /workorders/mine（type: ''=全部 / reported=我上报的 / assigned=派给我的 / pool=可抢工单池；status 支持逗号多值） */
 export function apiMyOrders(
   page: number,
   pageSize: number,
@@ -839,7 +897,7 @@ export function apiMyOrders(
   })
 }
 
-/** 我的工单按状态计数 GET /workorders/mine/counts?type= → {status: count}（chip 角标/红点用） */
+/** 我的工单按状态计数 GET /workorders/mine/counts?type= → {status: count, pool: 可抢池数量}（chip 角标/红点/工单池入口用） */
 export function apiMyOrderCounts(type: string): Promise<Record<string, number>> {
   let path = '/workorders/mine/counts'
   if (type != '') path += '?type=' + type
@@ -882,13 +940,25 @@ export function apiOrderDetail(id: string): Promise<WorkOrderDetail> {
           reporter_name: d.reporter_name ?? '',
           assignee_id: d.assignee_id ?? null,
           assignee_name: d.assignee_name ?? '',
+          dispatcher_name: d.dispatcher_name ?? '',
           priority: d.priority ?? '',
           status: d.status ?? '',
-          fix_photos: (d.fix_photos ?? []) as OrderPhoto[],
-          fix_remark: d.fix_remark ?? '',
-          finished_at: d.finished_at ?? '',
-          reviewed_by: d.reviewed_by ?? null,
-          review_remark: d.review_remark ?? null,
+          source: d.source ?? '',
+          category: d.category ?? '',
+          triage_by_name: d.triage_by_name ?? '',
+          triage_at: d.triage_at ?? '',
+          triage_note: d.triage_note ?? '',
+          dispatch_at: d.dispatch_at ?? '',
+          accept_at: d.accept_at ?? '',
+          finish_photos: (d.finish_photos ?? []) as OrderPhoto[],
+          finish_note: d.finish_note ?? '',
+          finish_at: d.finish_at ?? '',
+          confirm_by_name: d.confirm_by_name ?? '',
+          confirm_at: d.confirm_at ?? '',
+          confirm_note: d.confirm_note ?? '',
+          reject_reason: d.reject_reason ?? '',
+          sla_deadline: d.sla_deadline ?? '',
+          sla_overdue: d.sla_overdue ?? false,
           created_at: d.created_at ?? '',
           logs: (d.logs ?? []).map((l: any) => ({
             action: l.action ?? '',
@@ -902,12 +972,38 @@ export function apiOrderDetail(id: string): Promise<WorkOrderDetail> {
   })
 }
 
-/** 接单 POST /workorders/:id/accept → {status:'processing'} */
-export function apiAcceptOrder(id: string): Promise<null> {
-  return httpPost<null>('/workorders/' + id + '/accept', null, true)
+/** 问题上报 POST /workorders → {id, order_no, status}（上报人须为该项目在职编制成员） */
+export function apiReportOrder(req: OrderReportPayload): Promise<{ id: string; order_no: string; status: string }> {
+  return new Promise((resolve, reject) => {
+    httpPost<any>('/workorders', req as unknown as Record<string, any>, true)
+      .then((d) => {
+        if (d == null) {
+          reject(new Error('上报响应异常'))
+          return
+        }
+        resolve({ id: d.id ?? '', order_no: d.order_no ?? '', status: d.status ?? '' })
+      })
+      .catch(reject)
+  })
 }
 
-/** 完工反馈 POST /workorders/:id/finish → {status:'review'} */
+/** 抢单 POST /workorders/:id/grab → {status:'processing'}（项目开启抢单且本人在接单名单） */
+export function apiGrabOrder(id: string): Promise<null> {
+  return httpPost<null>('/workorders/' + id + '/grab', null, true)
+}
+
+/** 验收 POST /workorders/:id/confirm {result: pass|reject, confirm_note}（reject 时原因必填；验收权：报单人本人或分诊名单成员） */
+export function apiConfirmOrder(id: string, result: 'pass' | 'reject', confirmNote: string): Promise<{ status: string }> {
+  return new Promise((resolve, reject) => {
+    httpPost<any>('/workorders/' + id + '/confirm', { result: result, confirm_note: confirmNote }, true)
+      .then((d) => {
+        resolve({ status: d?.status ?? '' })
+      })
+      .catch(reject)
+  })
+}
+
+/** 完工反馈 POST /workorders/:id/finish → pending_confirm（维修照片至少 1 张 file_key） */
 export function apiFinishOrder(id: string, req: FinishReqPayload): Promise<null> {
   return httpPost<null>('/workorders/' + id + '/finish', req as unknown as Record<string, any>, true)
 }
@@ -1328,7 +1424,7 @@ export type ManageOrderItem = {
   created_at: string
 }
 
-/** 管理端工单列表响应（status_counts 为四档聚合计数：processing 含 assigned+processing，closed 含 closed+rejected） */
+/** 管理端工单列表响应（status_counts 为六态计数：reported/pending_dispatch/processing/pending_confirm/closed/closed_invalid） */
 export type ManageOrdersPage = {
   status_counts: Record<string, number>
   list: ManageOrderItem[]
@@ -1513,7 +1609,7 @@ export function apiReviewReject(id: string, reason: string): Promise<null> {
 
 /**
  * 管理端工单列表 GET /manage/workorders。
- * status 为 tab 档位：pending / processing（实际下传 assigned,processing）/ review / closed（closed,rejected），由调用方展开为多值。
+ * status 支持逗号多值（P2 六态：reported/pending_dispatch/processing/pending_confirm/closed/closed_invalid）。
  */
 export function apiManageOrders(page: number, pageSize: number, status: string): Promise<ManageOrdersPage> {
   let path = '/manage/workorders?page=' + page + '&page_size=' + pageSize
@@ -1548,14 +1644,19 @@ export function apiManageOrderDetail(id: string): Promise<WorkOrderDetail> {
   })
 }
 
-/** 派单 POST /manage/workorders/:id/assign {assignee_id, remark?} */
-export function apiAssignOrder(id: string, assigneeId: string, remark: string): Promise<null> {
-  return httpPost<null>('/manage/workorders/' + id + '/assign', { assignee_id: assigneeId, remark: remark }, true)
+/** 分诊 POST /manage/workorders/:id/triage {result: pass|reject, note}（reject 时 note 必填 → 作废） */
+export function apiTriageOrder(id: string, result: 'pass' | 'reject', note: string): Promise<null> {
+  return httpPost<null>('/manage/workorders/' + id + '/triage', { result: result, note: note }, true)
 }
 
-/** 验收 POST /manage/workorders/:id/review {result: pass|reject, review_remark}（reject 时 remark 后端强制必填） */
-export function apiReviewOrder(id: string, result: 'pass' | 'reject', reviewRemark: string): Promise<null> {
-  return httpPost<null>('/manage/workorders/' + id + '/review', { result: result, review_remark: reviewRemark }, true)
+/** 派单 POST /manage/workorders/:id/dispatch {assignee_id, remark?}（仅待派单可操作；处理人须在本项目接单名单内） */
+export function apiDispatchOrder(id: string, assigneeId: string, remark: string): Promise<null> {
+  return httpPost<null>('/manage/workorders/' + id + '/dispatch', { assignee_id: assigneeId, remark: remark }, true)
+}
+
+/** 验收 POST /manage/workorders/:id/confirm {result: pass|reject, confirm_note}（reject 时原因后端强制必填；通过 → 已闭环，退回 → 处理中） */
+export function apiConfirmManageOrder(id: string, result: 'pass' | 'reject', confirmNote: string): Promise<null> {
+  return httpPost<null>('/manage/workorders/' + id + '/confirm', { result: result, confirm_note: confirmNote }, true)
 }
 
 /** 派单选人 GET /system/users（启用用户；维修员候选由前端按角色过滤，见 StaffUser.roles 字段说明） */

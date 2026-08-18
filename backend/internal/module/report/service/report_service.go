@@ -17,6 +17,7 @@ import (
 	"gorm.io/gorm"
 
 	"anxuncloud/internal/middleware"
+	communitysvc "anxuncloud/internal/module/community/service"
 	insmodel "anxuncloud/internal/module/inspection/model"
 	"anxuncloud/internal/module/report/dto"
 	"anxuncloud/internal/module/report/model"
@@ -122,14 +123,14 @@ func (s *ReportService) buildStats(communityID, period string) (types.JSONMap, t
 		Where("community_id = ? AND checkin_time >= ? AND checkin_time < ?", communityID, start, end).
 		Select("COUNT(*) FILTER (WHERE result = 'abnormal') AS abnormal, COUNT(*) FILTER (WHERE is_suspect) AS suspect").Scan(&ckSum)
 
-	// 工单：当月新建 / 其中已关闭
+	// 工单：当月新建（closed_invalid 已作废不计入分母）/ 其中已闭环
 	var woSum struct {
 		Created int64
 		Closed  int64
 	}
 	s.db.Model(&womodel.WorkOrder{}).
 		Where("community_id = ? AND created_at >= ? AND created_at < ?", communityID, start, end).
-		Select("COUNT(*) AS created, COUNT(*) FILTER (WHERE status = 'closed') AS closed").Scan(&woSum)
+		Select("COUNT(*) FILTER (WHERE status <> 'closed_invalid') AS created, COUNT(*) FILTER (WHERE status = 'closed') AS closed").Scan(&woSum)
 
 	// 逐日明细：任务（日期/任务/完成）+ 当日异常打卡
 	type taskDay struct {
@@ -336,7 +337,13 @@ func (s *ReportService) recordsWithURLs(rows []gin.H) []gin.H {
 // List 报告分页列表（含小区名与签字概要）。
 func (s *ReportService) List(c *gin.Context, q *dto.ReportListQuery) (*response.Page, *errs.Error) {
 	db := s.db.Model(&model.InspectionReport{})
-	db = middleware.ApplyCommunityFilter(db, c, "inspection_report.community_id")
+	if identity := middleware.CurrentIdentity(c); identity != nil && identity.ScopeSelf {
+		// self 档（纯一线岗位）：仅本人相关报告（三级签字名单任一含本人）
+		j := fmt.Sprintf(`["%s"]`, identity.UserID)
+		db = db.Where(`inspector_ids @> ?::jsonb OR supervisor_ids @> ?::jsonb OR manager_ids @> ?::jsonb`, j, j, j)
+	} else {
+		db = middleware.ApplyCommunityFilter(db, c, "inspection_report.community_id")
+	}
 	if q.CommunityID != "" {
 		db = db.Where("community_id = ?", q.CommunityID)
 	}
@@ -435,36 +442,37 @@ func (s *ReportService) Detail(c *gin.Context, id string) (gin.H, *errs.Error) {
 		"period": r.Period, "title": r.Title, "status": r.Status, "stats": r.Stats,
 		"records":       s.recordsWithURLs(s.reportRecords(r)),
 		"inspector_ids": r.InspectorIDs, "inspectors": inspectors,
-		"inspector_signed":  r.InspectorSigned,
-		"supervisor_ids":    r.SupervisorIDs,
-		"supervisors":       s.signerItems(r.SupervisorIDs, r.SupervisorBy),
-		"manager_ids":       r.ManagerIDs,
-		"managers":          s.signerItems(r.ManagerIDs, r.ManagerBy),
-		"supervisor_by":     r.SupervisorBy,
-		"supervisor_name":   s.userNamePtr(r.SupervisorBy),
-		"supervisor_at":     timefmt.TP(r.SupervisorAt),
-		"supervisor_remark": r.SupervisorRemark,
+		"inspector_signed":         r.InspectorSigned,
+		"supervisor_ids":           r.SupervisorIDs,
+		"supervisors":              s.signerItems(r.SupervisorIDs, r.SupervisorBy),
+		"manager_ids":              r.ManagerIDs,
+		"managers":                 s.signerItems(r.ManagerIDs, r.ManagerBy),
+		"supervisor_by":            r.SupervisorBy,
+		"supervisor_name":          s.userNamePtr(r.SupervisorBy),
+		"supervisor_at":            timefmt.TP(r.SupervisorAt),
+		"supervisor_remark":        r.SupervisorRemark,
 		"supervisor_signature_url": s.sigURL(r.SupervisorSignatureKey),
-		"manager_by":        r.ManagerBy,
-		"manager_name":      s.userNamePtr(r.ManagerBy),
-		"manager_at":        timefmt.TP(r.ManagerAt),
-		"manager_remark":    r.ManagerRemark,
-		"manager_signature_url": s.sigURL(r.ManagerSignatureKey),
-		"reject_reason":     r.RejectReason,
-		"file_key":          r.FileKey,
-		"file_url":          fileURL,
-		"created_at":        timefmt.T(r.CreatedAt),
-		"updated_at":        timefmt.T(r.UpdatedAt),
+		"manager_by":               r.ManagerBy,
+		"manager_name":             s.userNamePtr(r.ManagerBy),
+		"manager_at":               timefmt.TP(r.ManagerAt),
+		"manager_remark":           r.ManagerRemark,
+		"manager_signature_url":    s.sigURL(r.ManagerSignatureKey),
+		"reject_reason":            r.RejectReason,
+		"file_key":                 r.FileKey,
+		"file_url":                 fileURL,
+		"created_at":               timefmt.T(r.CreatedAt),
+		"updated_at":               timefmt.T(r.UpdatedAt),
 	}, nil
 }
 
 // Generate 手动生成/重算报告（approved 不可重算；已存在则重算 stats 并重置签字流程）。
-// 签字人名单：req 未传（nil）自动圈选全部候选人；显式传数组按名单（须候选池内），空数组该级跳过。
+// 签字人名单：req 未传（nil）取槽位默认名单（项目级槽位绑定 → 平台默认 → 编制在职成员）；
+// 显式传数组按名单（仅校验用户存在且启用），空数组该级跳过。
 func (s *ReportService) Generate(c *gin.Context, req *dto.GenerateReq) (gin.H, *errs.Error) {
 	if _, _, be := periodRange(req.Period); be != nil {
 		return nil, be
 	}
-	if be := middleware.CheckCommunity(c, req.CommunityID); be != nil {
+	if be := middleware.CheckCommunity(s.db, c, req.CommunityID); be != nil {
 		return nil, be
 	}
 	name := s.commName(req.CommunityID)
@@ -475,11 +483,11 @@ func (s *ReportService) Generate(c *gin.Context, req *dto.GenerateReq) (gin.H, *
 	if be != nil {
 		return nil, be
 	}
-	supervisorIDs, be := s.resolveSigners(req.CommunityID, "report:sign:supervisor", req.SupervisorIDs)
+	supervisorIDs, be := s.resolveSigners(req.CommunityID, sysmodel.SlotReportSignSupervisor, req.SupervisorIDs)
 	if be != nil {
 		return nil, be
 	}
-	managerIDs, be := s.resolveSigners(req.CommunityID, "report:sign:manager", req.ManagerIDs)
+	managerIDs, be := s.resolveSigners(req.CommunityID, sysmodel.SlotReportSignManager, req.ManagerIDs)
 	if be != nil {
 		return nil, be
 	}
@@ -498,12 +506,12 @@ func (s *ReportService) Generate(c *gin.Context, req *dto.GenerateReq) (gin.H, *
 			"title": title, "status": initialStatus,
 			"stats": stats, "inspector_ids": inspectorIDs,
 			"inspector_signed": types.SignArray{},
-			"supervisor_ids": supervisorIDs, "manager_ids": managerIDs,
-			"supervisor_by":    nil, "supervisor_at": nil, "supervisor_remark": "",
+			"supervisor_ids":   supervisorIDs, "manager_ids": managerIDs,
+			"supervisor_by": nil, "supervisor_at": nil, "supervisor_remark": "",
 			"supervisor_signature_key": "",
-			"manager_by": nil, "manager_at": nil, "manager_remark": "",
+			"manager_by":               nil, "manager_at": nil, "manager_remark": "",
 			"manager_signature_key": "",
-			"reject_reason": "", "file_key": "", "seal_file_key": "",
+			"reject_reason":         "", "file_key": "", "seal_file_key": "",
 		}
 		if err := s.db.Model(&r).Updates(updates).Error; err != nil {
 			return nil, errs.ErrInternal
@@ -515,6 +523,7 @@ func (s *ReportService) Generate(c *gin.Context, req *dto.GenerateReq) (gin.H, *
 	}
 	r = model.InspectionReport{
 		CommunityID: req.CommunityID, Period: req.Period, Title: title,
+		TenantID: middleware.CommunityTenantID(s.db, req.CommunityID), // 冗余列（=所属小区租户）
 		Status: initialStatus, Stats: stats,
 		InspectorIDs: inspectorIDs, InspectorSigned: types.SignArray{},
 		SupervisorIDs: supervisorIDs, ManagerIDs: managerIDs,
@@ -528,7 +537,8 @@ func (s *ReportService) Generate(c *gin.Context, req *dto.GenerateReq) (gin.H, *
 	return gin.H{"id": r.ID, "title": title, "status": r.Status, "regenerated": false}, nil
 }
 
-// GenerateMonthlyAll 定时任务：为每个启用小区生成指定期间报告（已存在则跳过，幂等；签字人全部自动圈选）。
+// GenerateMonthlyAll 定时任务：为每个启用小区生成指定期间报告（已存在则跳过，幂等；
+// 签字人取槽位默认名单，无绑定或无人员该级自动跳过）。
 func (s *ReportService) GenerateMonthlyAll(period string) (int, error) {
 	var comms []sysmodel.Community
 	if err := s.db.Where("status = ?", sysmodel.StatusEnabled).Find(&comms).Error; err != nil {
@@ -546,16 +556,17 @@ func (s *ReportService) GenerateMonthlyAll(period string) (int, error) {
 		if be != nil {
 			return created, be
 		}
-		supervisorIDs, be := s.resolveSigners(comm.ID, "report:sign:supervisor", nil)
+		supervisorIDs, be := s.resolveSigners(comm.ID, sysmodel.SlotReportSignSupervisor, nil)
 		if be != nil {
 			return created, be
 		}
-		managerIDs, be := s.resolveSigners(comm.ID, "report:sign:manager", nil)
+		managerIDs, be := s.resolveSigners(comm.ID, sysmodel.SlotReportSignManager, nil)
 		if be != nil {
 			return created, be
 		}
 		initialStatus := firstSignStatus(inspectorIDs, supervisorIDs, managerIDs)
 		r := model.InspectionReport{
+			TenantID: &comm.TenantID, // 冗余列（=所属小区租户）
 			CommunityID: comm.ID, Period: period, Title: reportTitle(comm.Name, period),
 			Status: initialStatus, Stats: stats,
 			InspectorIDs: inspectorIDs, InspectorSigned: types.SignArray{},
@@ -586,68 +597,32 @@ func firstSignStatus(inspectorIDs, supervisorIDs, managerIDs types.IDArray) stri
 	}
 }
 
-// signCandidates 签字候选人：启用用户 ∧ 持有对应签字权限点 ∧ 数据范围覆盖该小区；排除超管（避免无专人时超管兜底自签）。
-func (s *ReportService) signCandidates(communityID, perm string) []sysmodel.SysUser {
-	var users []sysmodel.SysUser
-	if err := s.db.Select("id", "name", "role_ids", "community_ids").
-		Where("status = ?", sysmodel.StatusEnabled).Find(&users).Error; err != nil {
-		return nil
-	}
-	var roles []sysmodel.SysRole
-	if err := s.db.Select("id", "code", "data_scope").
-		Where("status = ?", sysmodel.StatusEnabled).Find(&roles).Error; err != nil {
-		return nil
-	}
-	roleByID := make(map[string]sysmodel.SysRole, len(roles))
-	for _, r := range roles {
-		roleByID[r.ID] = r
-	}
-	out := make([]sysmodel.SysUser, 0, len(users))
-	for _, u := range users {
-		scopeAll, isSuper := false, false
-		for _, rid := range u.RoleIDs {
-			r, ok := roleByID[rid]
-			if !ok {
-				continue
-			}
-			if r.Code == sysmodel.SuperAdminCode {
-				isSuper = true
-				break
-			}
-			if r.DataScope == sysmodel.ScopeAll {
-				scopeAll = true
-			}
-		}
-		if isSuper || (!scopeAll && !u.CommunityIDs.Contains(communityID)) {
-			continue
-		}
-		if ok, err := authz.EnforceAny(u.ID, perm); err != nil || !ok {
-			continue
-		}
-		out = append(out, u)
-	}
-	return out
-}
-
-// resolveSigners 生成报告时的签字人名单：picked 为 nil 自动圈选全部候选人；显式名单逐个校验须在候选池内（去重）。
-func (s *ReportService) resolveSigners(communityID, perm string, picked []string) (types.IDArray, *errs.Error) {
-	candidates := s.signCandidates(communityID, perm)
+// resolveSigners 生成报告时的签字人名单（名单制授权，设计方案 §5.3）：
+// picked 为 nil 时取槽位默认名单——duty_binding 槽位绑定（项目级覆盖 → 平台默认）→ 绑定岗位在该项目编制内的在职启用成员；
+// 槽位无绑定或无人员 → 该级为空（跳过）；显式名单仅校验用户存在且启用（授权以报告名单为准，不限角色/权限点/岗位，去重）；
+// picked 为空数组表示该级跳过（与 nil 区分）。
+func (s *ReportService) resolveSigners(communityID, slot string, picked []string) (types.IDArray, *errs.Error) {
 	if picked == nil {
-		ids := make(types.IDArray, 0, len(candidates))
-		for _, u := range candidates {
-			ids = append(ids, u.ID)
-		}
-		return ids, nil
+		return communitysvc.SlotUserIDs(s.db, communityID, slot), nil
 	}
-	pool := make(map[string]bool, len(candidates))
-	for _, u := range candidates {
-		pool[u.ID] = true
+	if len(picked) == 0 {
+		return types.IDArray{}, nil
+	}
+	enabled := map[string]bool{}
+	var valid []string
+	if err := s.db.Model(&sysmodel.SysUser{}).
+		Where("id IN ? AND status = ?", picked, sysmodel.StatusEnabled).
+		Pluck("id", &valid).Error; err != nil {
+		return nil, errs.ErrInternal
+	}
+	for _, id := range valid {
+		enabled[id] = true
 	}
 	ids := make(types.IDArray, 0, len(picked))
 	seen := map[string]bool{}
 	for _, id := range picked {
-		if !pool[id] {
-			return nil, errs.ErrParam.WithMsg("签字人须为持有对应签字权限且管辖该小区的启用用户")
+		if !enabled[id] {
+			return nil, errs.ErrParam.WithMsg("签字人须为存在且启用的用户")
 		}
 		if !seen[id] {
 			seen[id] = true
@@ -657,16 +632,24 @@ func (s *ReportService) resolveSigners(communityID, perm string, picked []string
 	return ids, nil
 }
 
-// SignCandidates 生成报告时的可选签字人（含是否已配置手写签名，供前端默认全选/提示）。
+// SignCandidates 生成报告弹窗的签字人选项（名单制授权）：
+// default_supervisor_ids/default_manager_ids 为槽位默认名单（项目级覆盖 → 平台默认绑定 → 编制在职成员）；
+// users 为全部启用用户（供生成时手动增删调整，授权以报告名单为准，不限岗位/权限点）。
 func (s *ReportService) SignCandidates(c *gin.Context, communityID string) (gin.H, *errs.Error) {
-	if be := middleware.CheckCommunity(c, communityID); be != nil {
+	if be := middleware.CheckCommunity(s.db, c, communityID); be != nil {
 		return nil, be
 	}
-	supervisors := s.signCandidates(communityID, "report:sign:supervisor")
-	managers := s.signCandidates(communityID, "report:sign:manager")
+	defaultSupervisorIDs := communitysvc.SlotUserIDs(s.db, communityID, sysmodel.SlotReportSignSupervisor)
+	defaultManagerIDs := communitysvc.SlotUserIDs(s.db, communityID, sysmodel.SlotReportSignManager)
+	var users []sysmodel.SysUser
+	if err := s.db.Select("id", "name").
+		Where("status = ?", sysmodel.StatusEnabled).Order("id ASC").Find(&users).Error; err != nil {
+		return nil, errs.ErrInternal
+	}
 	return gin.H{
-		"supervisors": s.candidateItems(supervisors),
-		"managers":    s.candidateItems(managers),
+		"users":                  s.candidateItems(users),
+		"default_supervisor_ids": defaultSupervisorIDs,
+		"default_manager_ids":    defaultManagerIDs,
 	}, nil
 }
 
@@ -850,18 +833,6 @@ func (s *ReportService) sign(c *gin.Context, id string, req *dto.SignReq, expect
 		return nil, sbe
 	}
 
-	// 职责分离（仅约束通过）：主管审批人不能是巡检员确认人（含代签人）；经理终审人不能是主管审批人
-	if expectStatus == model.StatusPendingSupervisor {
-		for _, e := range r.InspectorSigned {
-			if e.UserID == identity.UserID || e.ProxyBy == identity.UserID {
-				return nil, errs.ErrReportSignerConflict.WithMsg("你已完成巡检员确认，主管审批须由其他人员操作")
-			}
-		}
-	}
-	if expectStatus == model.StatusPendingManager && r.SupervisorBy != nil && *r.SupervisorBy == identity.UserID {
-		return nil, errs.ErrReportSignerConflict.WithMsg("你已完成主管审批，终审须由其他人员操作")
-	}
-
 	switch expectStatus {
 	case model.StatusPendingSupervisor:
 		updates := map[string]any{
@@ -873,7 +844,7 @@ func (s *ReportService) sign(c *gin.Context, id string, req *dto.SignReq, expect
 			updates["status"] = model.StatusPendingManager
 		} else {
 			updates["status"] = model.StatusApproved
-			updates["seal_file_key"] = s.activeSealKey()
+			updates["seal_file_key"] = s.activeSealKey(r.CommunityID)
 		}
 		if err := s.db.Model(r).Updates(updates).Error; err != nil {
 			return nil, errs.ErrInternal
@@ -892,8 +863,8 @@ func (s *ReportService) sign(c *gin.Context, id string, req *dto.SignReq, expect
 			"status":     model.StatusApproved,
 			"manager_by": identity.UserID, "manager_at": now, "manager_remark": req.Remark,
 			"manager_signature_key": sigKey,
-			// 公章快照：固化终审时点的 active 公章，后续换章不影响已归档报告
-			"seal_file_key": s.activeSealKey(),
+			// 公章快照：固化终审时点的 active 公章（按报告小区所属租户取章），后续换章不影响已归档报告
+			"seal_file_key": s.activeSealKey(r.CommunityID),
 		}
 		if err := s.db.Model(r).Updates(updates).Error; err != nil {
 			return nil, errs.ErrInternal
@@ -1079,13 +1050,19 @@ func (s *ReportService) notify(userID, msgType, title, content string, bizID *st
 	s.db.Create(&sysmodel.SysMessage{UserID: userID, Type: msgType, Title: title, Content: content, BizID: bizID})
 }
 
-// getWithScope 取报告并做数据权限校验。
+// getWithScope 取报告并做数据权限校验（self 档用户放宽到本人相关报告：三级签字名单任一含本人）。
 func (s *ReportService) getWithScope(c *gin.Context, id string) (*model.InspectionReport, *errs.Error) {
 	var r model.InspectionReport
 	if err := s.db.First(&r, "id = ?", id).Error; err != nil {
 		return nil, errs.ErrNotFound
 	}
-	if be := middleware.CheckCommunity(c, r.CommunityID); be != nil {
+	if be := middleware.CheckCommunity(s.db, c, r.CommunityID); be != nil {
+		if identity := middleware.CurrentIdentity(c); identity != nil && identity.ScopeSelf {
+			uid := identity.UserID
+			if r.InspectorIDs.Contains(uid) || r.SupervisorIDs.Contains(uid) || r.ManagerIDs.Contains(uid) {
+				return &r, nil
+			}
+		}
 		return nil, be
 	}
 	return &r, nil
@@ -1157,11 +1134,16 @@ func (s *ReportService) signatureAssetOf(userID string) (fileKey, assetID string
 	return a.FileKey, a.ID
 }
 
-// activeSealKey 当前 active 公章资产 file_key（无则空串）。
-func (s *ReportService) activeSealKey() string {
+// activeSealKey 报告所属租户当前 active 公章资产 file_key（无则空串）。
+// 租户按报告归属小区解析（CommunityTenantID）：私有化下与操作者同租户，SaaS 下必须盖报告归属公司的章。
+func (s *ReportService) activeSealKey(communityID string) string {
+	tenantID := middleware.CommunityTenantID(s.db, communityID)
+	if tenantID == nil {
+		return ""
+	}
 	var a sysmodel.SignAsset
 	if err := s.db.Select("file_key").
-		Where("asset_type = ? AND status = ?", sysmodel.SignAssetTypeCompanySeal, sysmodel.SignAssetStatusActive).
+		Where("tenant_id = ? AND asset_type = ? AND status = ?", *tenantID, sysmodel.SignAssetTypeCompanySeal, sysmodel.SignAssetStatusActive).
 		First(&a).Error; err != nil {
 		return ""
 	}

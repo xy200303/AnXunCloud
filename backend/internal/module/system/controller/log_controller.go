@@ -4,6 +4,7 @@ import (
 	"strconv"
 
 	"github.com/gin-gonic/gin"
+	"gorm.io/gorm"
 
 	"anxuncloud/internal/module/system/dto"
 	"anxuncloud/internal/module/system/service"
@@ -12,13 +13,14 @@ import (
 	"anxuncloud/internal/pkg/response"
 )
 
-// LogController 日志检索接口（只读）。
+// LogController 日志检索接口（只读）。db 用于解析租户上下文（middleware.EffectiveTenantID）。
 type LogController struct {
 	svc *service.LogService
+	db  *gorm.DB
 }
 
-func NewLogController(svc *service.LogService) *LogController {
-	return &LogController{svc: svc}
+func NewLogController(svc *service.LogService, db *gorm.DB) *LogController {
+	return &LogController{svc: svc, db: db}
 }
 
 // Operations GET /system/logs/operations
@@ -28,7 +30,12 @@ func (ctl *LogController) Operations(c *gin.Context) {
 		response.Fail(c, be)
 		return
 	}
-	page, be := ctl.svc.OperationList(&q)
+	tid, be := middleware.EffectiveTenantID(c, ctl.db)
+	if be != nil {
+		response.Fail(c, be)
+		return
+	}
+	page, be := ctl.svc.OperationList(&q, tid)
 	if be != nil {
 		response.Fail(c, be)
 		return
@@ -54,7 +61,12 @@ func (ctl *LogController) Logins(c *gin.Context) {
 		response.Fail(c, be)
 		return
 	}
-	page, be := ctl.svc.LoginList(&q)
+	tid, be := middleware.EffectiveTenantID(c, ctl.db)
+	if be != nil {
+		response.Fail(c, be)
+		return
+	}
+	page, be := ctl.svc.LoginList(&q, tid)
 	if be != nil {
 		response.Fail(c, be)
 		return

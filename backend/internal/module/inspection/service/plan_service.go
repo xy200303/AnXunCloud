@@ -44,6 +44,9 @@ func (s *PlanService) List(c *gin.Context, q *dto.PlanListQuery) (*response.Page
 	if q.CycleType != "" {
 		db = db.Where("cycle_type = ?", q.CycleType)
 	}
+	if q.PatrolType != "" {
+		db = db.Where("patrol_type = ?", q.PatrolType)
+	}
 	if status, ok, _ := bind.StatusFilter(q.Status); ok {
 		db = db.Where("status = ?", status)
 	}
@@ -80,7 +83,7 @@ func (s *PlanService) toItem(p *model.InspectionPlan) gin.H {
 	}
 	return gin.H{
 		"id": p.ID, "community_id": p.CommunityID, "community_name": commName,
-		"name": p.Name, "point_count": len(p.PointIDs),
+		"name": p.Name, "patrol_type": p.PatrolType, "point_count": len(p.PointIDs),
 		"cycle_type": p.CycleType, "cycle_config": p.CycleConfig,
 		"inspector_ids": p.InspectorIDs, "inspector_names": inspectorNames,
 		"start_date": p.StartDate.Format("2006-01-02"), "end_date": endDate,
@@ -95,7 +98,7 @@ func (s *PlanService) Detail(c *gin.Context, id string) (gin.H, *errs.Error) {
 	if err := s.db.First(&p, "id = ?", id).Error; err != nil {
 		return nil, errs.ErrNotFound
 	}
-	if be := middleware.CheckCommunity(c, p.CommunityID); be != nil {
+	if be := middleware.CheckCommunity(s.db, c, p.CommunityID); be != nil {
 		return nil, be
 	}
 	item := s.toItem(&p)
@@ -121,10 +124,14 @@ func (s *PlanService) Detail(c *gin.Context, id string) (gin.H, *errs.Error) {
 
 // Create 新增计划。
 func (s *PlanService) Create(c *gin.Context, req *dto.PlanSaveReq) (string, *errs.Error) {
-	if be := middleware.CheckCommunity(c, req.CommunityID); be != nil {
+	if be := middleware.CheckCommunity(s.db, c, req.CommunityID); be != nil {
 		return "", be
 	}
 	start, end, be := s.validate(req)
+	if be != nil {
+		return "", be
+	}
+	patrolType, be := resolvePatrolType(req.PatrolType)
 	if be != nil {
 		return "", be
 	}
@@ -137,8 +144,10 @@ func (s *PlanService) Create(c *gin.Context, req *dto.PlanSaveReq) (string, *err
 		cfg = types.JSONMap{}
 	}
 	p := model.InspectionPlan{
+		TenantID:     middleware.CommunityTenantID(s.db, req.CommunityID), // 冗余列（=所属小区租户）
 		CommunityID:  req.CommunityID,
 		Name:         req.Name,
+		PatrolType:   patrolType,
 		PointIDs:     req.PointIDs,
 		CycleType:    req.CycleType,
 		CycleConfig:  cfg,
@@ -161,10 +170,14 @@ func (s *PlanService) Update(c *gin.Context, id string, req *dto.PlanSaveReq) *e
 	if err := s.db.First(&p, "id = ?", id).Error; err != nil {
 		return errs.ErrNotFound
 	}
-	if be := middleware.CheckCommunity(c, p.CommunityID); be != nil {
+	if be := middleware.CheckCommunity(s.db, c, p.CommunityID); be != nil {
 		return be
 	}
 	start, end, be := s.validate(req)
+	if be != nil {
+		return be
+	}
+	patrolType, be := resolvePatrolType(req.PatrolType)
 	if be != nil {
 		return be
 	}
@@ -173,7 +186,7 @@ func (s *PlanService) Update(c *gin.Context, id string, req *dto.PlanSaveReq) *e
 		cfg = types.JSONMap{}
 	}
 	updates := map[string]any{
-		"community_id": req.CommunityID, "name": req.Name,
+		"community_id": req.CommunityID, "name": req.Name, "patrol_type": patrolType,
 		"point_ids": types.IDArray(req.PointIDs), "cycle_type": req.CycleType,
 		"cycle_config": cfg, "inspector_ids": types.IDArray(req.InspectorIDs),
 		"start_date": start, "end_date": end, "time_window": req.TimeWindow, "remark": req.Remark,
@@ -193,7 +206,7 @@ func (s *PlanService) Delete(c *gin.Context, id string) *errs.Error {
 	if err := s.db.First(&p, "id = ?", id).Error; err != nil {
 		return errs.ErrNotFound
 	}
-	if be := middleware.CheckCommunity(c, p.CommunityID); be != nil {
+	if be := middleware.CheckCommunity(s.db, c, p.CommunityID); be != nil {
 		return be
 	}
 	err := s.db.Transaction(func(tx *gorm.DB) error {
@@ -215,7 +228,7 @@ func (s *PlanService) SetStatus(c *gin.Context, id string, status int) *errs.Err
 	if err := s.db.First(&p, "id = ?", id).Error; err != nil {
 		return errs.ErrNotFound
 	}
-	if be := middleware.CheckCommunity(c, p.CommunityID); be != nil {
+	if be := middleware.CheckCommunity(s.db, c, p.CommunityID); be != nil {
 		return be
 	}
 	if err := s.db.Model(&p).Update("status", sysmodel.StatusStr(status)).Error; err != nil {
@@ -266,11 +279,7 @@ func (s *PlanService) validate(req *dto.PlanSaveReq) (time.Time, *time.Time, *er
 			}
 		}
 	case "monthly":
-		// 兼容接口文档的 days 与数据库设计文档的 monthdays 两种键
 		days := cfg.Ints("days")
-		if len(days) == 0 {
-			days = cfg.Ints("monthdays")
-		}
 		if len(days) == 0 {
 			return start, nil, errs.ErrPlanCycleInvalid.WithMsg("monthly 周期须配置 days（1-31，-1 为月末）")
 		}
@@ -291,6 +300,18 @@ func (s *PlanService) validate(req *dto.PlanSaveReq) (time.Time, *time.Time, *er
 		return start, nil, errs.ErrParam.WithMsg("inspector_ids 中存在无效或已停用的巡检员")
 	}
 	return start, end, nil
+}
+
+// resolvePatrolType 巡查类型解析：缺省 safety（安全巡查），非法取值报参数错误。
+// 执行人仍按计划 inspector_ids 手动指定，类型仅作维度标记与筛选（不发明自动派单）。
+func resolvePatrolType(t string) (string, *errs.Error) {
+	if t == "" {
+		return model.PatrolSafety, nil
+	}
+	if !model.ValidPatrolType(t) {
+		return "", errs.ErrParam.WithMsg("patrol_type 取值非法（safety/equipment/environment/building）")
+	}
+	return t, nil
 }
 
 // ShouldRunOn 判断计划在某日期是否应生成任务。
@@ -321,9 +342,6 @@ func ShouldRunOn(p *model.InspectionPlan, date time.Time) bool {
 		return false
 	case "monthly":
 		days := p.CycleConfig.Ints("days")
-		if len(days) == 0 {
-			days = p.CycleConfig.Ints("monthdays")
-		}
 		last := time.Date(date.Year(), date.Month()+1, 0, 0, 0, 0, 0, time.Local).Day()
 		for _, d := range days {
 			if d == date.Day() || (d == -1 && date.Day() == last) {
@@ -371,9 +389,11 @@ func (s *PlanService) GenerateForDate(ctx context.Context, date time.Time) (int,
 				continue
 			}
 			task := model.InspectionTask{
+				TenantID:    plans[i].TenantID, // 冗余列随计划快照（=所属小区租户）
 				PlanID:      plans[i].ID,
 				CommunityID: plans[i].CommunityID,
 				InspectorID: inspectorID,
+				PatrolType:  plans[i].PatrolType, // 巡查类型随任务快照，计划后续改类型不影响已生成任务
 				TaskDate:    date,
 				Status:      model.TaskPending,
 				TotalPoints: len(plans[i].PointIDs),

@@ -24,6 +24,7 @@ import (
 
 	sysmodel "anxuncloud/internal/module/system/model"
 	"anxuncloud/internal/pkg/logger"
+	"anxuncloud/internal/pkg/types"
 	"go.uber.org/zap"
 )
 
@@ -77,7 +78,7 @@ func newEnforcer(adapter persist.Adapter) (*casbin.Enforcer, error) {
 
 // permMatch 权限点匹配：等值命中；策略以 ":*" 结尾时前缀通配（system:user:* 匹配 system:user:list）。
 // 不用 casbin keyMatch2：它把 ':' 后内容当作路径参数通配，report:sign:inspector 会误匹配
-// report:sign:supervisor / report:sign:manager（缺陷曾导致巡检员被圈进主管/经理签字人名单）。
+// report:sign:proxy（同前缀串权曾导致巡检员被圈进上级签字人名单）。
 func permMatch(reqObj, polObj string) bool {
 	if reqObj == polObj {
 		return true
@@ -159,14 +160,29 @@ func SyncAll(db *gorm.DB) error {
 			roleCodeByID[r.ID] = r.Code
 		}
 	}
+	granted := map[string]bool{} // 去重键：userID + "|" + roleCode
+	addGrant := func(userID, roleID string) {
+		code, ok := roleCodeByID[roleID]
+		if !ok {
+			return
+		}
+		key := userID + "|" + code
+		if granted[key] {
+			return
+		}
+		granted[key] = true
+		rules = append(rules, []string{"g", "user:" + userID, "role:" + code, DefaultDomain})
+	}
 	for _, u := range users {
 		for _, rid := range u.RoleIDs {
-			code, ok := roleCodeByID[rid]
-			if !ok {
-				continue
-			}
-			rules = append(rules, []string{"g", "user:" + u.ID, "role:" + code, DefaultDomain})
+			addGrant(u.ID, rid)
 		}
+	}
+	// 岗位并集角色一并展开（菜单归位方案 §3 有效角色并集）：
+	// EnforceAny 走此处离线同步的 g 规则，用户在职编制岗位绑定的角色不在 sys_user.role_ids 里，
+	// 不展开则接口鉴权会漏。岗位/编制/角色绑定变更由业务方触发 SyncAllQuiet 重建。
+	if err := expandPostBoundGrants(db, addGrant); err != nil {
+		return err
 	}
 
 	// 全量替换：ClearPolicy + SavePolicy（gorm-adapter SavePolicy 为全量重写，无脏策略）
@@ -202,4 +218,57 @@ func SyncAllQuiet(db *gorm.DB) {
 	if err := SyncAll(db); err != nil {
 		logger.L.Warn("casbin 策略同步失败", zap.Error(err))
 	}
+}
+
+// expandPostBoundGrants 展开「在职编制岗位绑定角色」为 g 规则（与 middleware.EffectiveRoleIDs 同口径）：
+// 启用用户的启用编制 → 项目所属租户 → 该租户 post_dict 行（role_id 非空）→ 角色。
+func expandPostBoundGrants(db *gorm.DB, addGrant func(userID, roleID string)) error {
+	// 在职编制（用户 + 岗位 + 项目所属租户）
+	type staffRow struct {
+		UserID   string
+		Posts    types.StringArray
+		TenantID string
+	}
+	var staffs []staffRow
+	if err := db.Model(&sysmodel.ProjectStaff{}).
+		Select("project_staff.user_id, project_staff.posts, community.tenant_id").
+		Joins("JOIN community ON community.id = project_staff.project_id AND community.deleted_at IS NULL").
+		Where("project_staff.status = ?", sysmodel.StatusEnabled).
+		Scan(&staffs).Error; err != nil {
+		return err
+	}
+	if len(staffs) == 0 {
+		return nil
+	}
+	// 绑定了角色的岗位行（按 租户+code 索引）
+	var posts []sysmodel.PostDict
+	if err := db.Select("tenant_id", "code", "role_id").
+		Where("tenant_id IS NOT NULL AND role_id IS NOT NULL").
+		Find(&posts).Error; err != nil {
+		return err
+	}
+	roleByTenantCode := map[string]map[string]string{}
+	for _, p := range posts {
+		if p.TenantID == nil || p.RoleID == nil {
+			continue
+		}
+		m := roleByTenantCode[*p.TenantID]
+		if m == nil {
+			m = map[string]string{}
+			roleByTenantCode[*p.TenantID] = m
+		}
+		m[p.Code] = *p.RoleID
+	}
+	for _, st := range staffs {
+		bindings := roleByTenantCode[st.TenantID]
+		if len(bindings) == 0 {
+			continue
+		}
+		for _, code := range st.Posts {
+			if rid, ok := bindings[code]; ok {
+				addGrant(st.UserID, rid)
+			}
+		}
+	}
+	return nil
 }

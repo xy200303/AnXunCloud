@@ -39,10 +39,10 @@ func (s *ReportService) pdfData(r *model.InspectionReport) pdf.MonthlyReportData
 		},
 	}
 	if d.Approved {
-		// 公章：优先用终审时固化的快照；存量报告无快照回退当前 active 公章资产
+		// 公章：优先用终审时固化的快照；存量报告无快照回退报告所属租户当前 active 公章资产
 		d.SealKey = r.SealFileKey
 		if d.SealKey == "" {
-			d.SealKey = s.activeSealKey()
+			d.SealKey = s.activeSealKey(r.CommunityID)
 		}
 		if r.ManagerAt != nil {
 			d.ApproveDate = r.ManagerAt.Format("2006-01-02")
@@ -98,8 +98,8 @@ func (s *ReportService) pdfData(r *model.InspectionReport) pdf.MonthlyReportData
 		if orders[i].AssigneeID != nil {
 			inspectorIDSet[*orders[i].AssigneeID] = true
 		}
-		if orders[i].ReviewedBy != nil {
-			inspectorIDSet[*orders[i].ReviewedBy] = true
+		if orders[i].ConfirmBy != nil {
+			inspectorIDSet[*orders[i].ConfirmBy] = true
 		}
 	}
 	userNames := s.userNamesOf(inspectorIDSet)
@@ -279,11 +279,11 @@ func (s *ReportService) pdfData(r *model.InspectionReport) pdf.MonthlyReportData
 				row.ProblemPhotos = append(row.ProblemPhotos, k)
 			}
 		}
-		row.FixText = o.FixRemark
+		row.FixText = o.FinishNote
 		if row.FixText == "" {
 			row.FixText = orderStatusCN(o.Status)
 		}
-		for _, ph := range o.FixPhotos {
+		for _, ph := range o.FinishPhotos {
 			if k := photoFileKey(ph.URL); k != "" {
 				row.FixPhotos = append(row.FixPhotos, k)
 			}
@@ -428,18 +428,18 @@ func orderProblem(o womodel.WorkOrder) string {
 // orderStatusCN 工单状态中文。
 func orderStatusCN(status string) string {
 	switch status {
-	case womodel.OrderPending:
-		return "待处理"
-	case womodel.OrderAssigned:
-		return "已指派"
+	case womodel.OrderReported:
+		return "待分诊"
+	case womodel.OrderPendingDispatch:
+		return "待派单"
 	case womodel.OrderProcessing:
 		return "处理中"
-	case womodel.OrderReview:
-		return "待复查"
+	case womodel.OrderPendingConfirm:
+		return "待验收"
 	case womodel.OrderClosed:
 		return "已闭环"
-	case womodel.OrderRejected:
-		return "已驳回"
+	case womodel.OrderClosedInvalid:
+		return "已作废"
 	}
 	return status
 }

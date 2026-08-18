@@ -60,7 +60,7 @@ func (ctl *OrderController) List(c *gin.Context) {
 	})
 }
 
-// Create POST /workorders
+// Create POST /workorders（前台代录，source=frontdesk）
 func (ctl *OrderController) Create(c *gin.Context) {
 	var req dto.OrderCreateReq
 	if be := bind.JSON(c, &req); be != nil {
@@ -107,26 +107,42 @@ func (ctl *OrderController) Delete(c *gin.Context) {
 	write(c, nil, ctl.svc.Delete(c, id))
 }
 
-// Assign POST /workorders/:id/assign
-func (ctl *OrderController) Assign(c *gin.Context) {
+// Triage POST /workorders/:id/triage（分诊：通过=可选优先级+分类 / 驳回=原因）
+func (ctl *OrderController) Triage(c *gin.Context) {
 	id, be := pathID(c)
 	if be != nil {
 		response.Fail(c, be)
 		return
 	}
-	var req dto.AssignReq
+	var req dto.TriageReq
 	if be := bind.JSON(c, &req); be != nil {
 		response.Fail(c, be)
 		return
 	}
-	if be := ctl.svc.Assign(c, id, &req); be != nil {
+	status, be := ctl.svc.Triage(c, id, &req)
+	write(c, gin.H{"status": status}, be)
+}
+
+// Dispatch POST /workorders/:id/dispatch（派单：assignee 须为 order_accept 槽位成员）
+func (ctl *OrderController) Dispatch(c *gin.Context) {
+	id, be := pathID(c)
+	if be != nil {
 		response.Fail(c, be)
 		return
 	}
-	response.OK(c, gin.H{"status": "assigned"})
+	var req dto.DispatchReq
+	if be := bind.JSON(c, &req); be != nil {
+		response.Fail(c, be)
+		return
+	}
+	if be := ctl.svc.Dispatch(c, id, &req); be != nil {
+		response.Fail(c, be)
+		return
+	}
+	response.OK(c, gin.H{"status": "processing"})
 }
 
-// Finish POST /workorders/:id/finish（后台代录）
+// Finish POST /workorders/:id/finish（后台代录完工）
 func (ctl *OrderController) Finish(c *gin.Context) {
 	id, be := pathID(c)
 	if be != nil {
@@ -147,21 +163,26 @@ func (ctl *OrderController) Finish(c *gin.Context) {
 		response.Fail(c, be)
 		return
 	}
-	response.OK(c, gin.H{"status": "review"})
+	response.OK(c, gin.H{"status": "pending_confirm"})
 }
 
-// Review POST /workorders/:id/review
-func (ctl *OrderController) Review(c *gin.Context) {
+// Confirm POST /workorders/:id/confirm（验收：通过=闭环 / 不通过=退回处理中）
+func (ctl *OrderController) Confirm(c *gin.Context) {
 	id, be := pathID(c)
 	if be != nil {
 		response.Fail(c, be)
 		return
 	}
-	var req dto.ReviewReq
+	var req dto.ConfirmReq
 	if be := bind.JSON(c, &req); be != nil {
 		response.Fail(c, be)
 		return
 	}
-	status, be := ctl.svc.Review(c, id, &req)
+	o, be := ctl.svc.GetChecked(c, id)
+	if be != nil {
+		response.Fail(c, be)
+		return
+	}
+	status, be := ctl.svc.Confirm(middleware.CurrentUserID(c), o, req.Result, req.ConfirmNote)
 	write(c, gin.H{"status": status}, be)
 }

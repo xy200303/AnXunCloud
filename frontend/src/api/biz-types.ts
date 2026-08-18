@@ -8,11 +8,60 @@ export interface CommunityItem {
   address: string
   manager_id: string | null
   manager_name: string
+  // 工单分诊开关：关闭后上报直接进待派单（跳过待分诊）
+  wo_triage_enabled: boolean
+  // 工单抢单开关：开启后维修工可从工单池抢单
+  wo_grab_enabled: boolean
   building_count: number
   point_count: number
   status: number
   created_at: string
 }
+
+// ===== 项目岗位编制 / 职责槽位绑定（设计方案 §3.2；名单制授权） =====
+export interface PostDictItem {
+  id: string
+  code: string
+  name: string
+  line: string // 业务线（safety/engineering/environment/service/general）
+  is_supervisor: boolean
+  status: number // 1 启用 / 0 停用（sysmodel.StatusInt）
+  remark: string
+}
+
+export interface StaffItem {
+  id: string
+  project_id: string
+  user_id: string
+  user_name: string
+  phone: string
+  avatar: string
+  posts: string[] // post_dict.code
+  post_names: string[]
+  building_ids: string[]
+  building_names: string[]
+  status: number
+  created_at: string
+}
+
+export interface StaffForm {
+  user_id: string
+  posts: string[]
+  building_ids?: string[]
+  status?: number
+}
+
+// 职责槽位绑定视图：source=platform 平台默认 / project 项目级覆盖
+export interface DutyBindingItem {
+  slot: string
+  name: string
+  post_codes: string[]
+  post_names: string[]
+  source: 'platform' | 'project'
+}
+
+// 楼管员岗位 code（选此岗位时需圈定责任楼栋）
+export const POST_BUILDING_MANAGER = 'building_manager'
 
 export interface BuildingItem {
   id: string
@@ -98,11 +147,26 @@ export interface PointForm {
 }
 
 // ===== 巡检计划 =====
+// 巡查类型（字典 patrol_type；任务生成时从计划快照）
+export type PatrolType = 'safety' | 'equipment' | 'environment' | 'building'
+
+export const PATROL_TYPE_OPTIONS: { value: PatrolType; label: string }[] = [
+  { value: 'safety', label: '安全巡查' },
+  { value: 'equipment', label: '设备设施专项' },
+  { value: 'environment', label: '环境巡查' },
+  { value: 'building', label: '楼栋巡查' }
+]
+
+export function patrolTypeLabel(t: string) {
+  return PATROL_TYPE_OPTIONS.find((o) => o.value === t)?.label || t || '安全巡查'
+}
+
 export interface PlanItem {
   id: string
   community_id: string
   community_name: string
   name: string
+  patrol_type: PatrolType
   point_count: number
   cycle_type: 'daily' | 'weekly' | 'monthly'
   cycle_config: { weekdays?: number[]; days?: number[] }
@@ -122,6 +186,7 @@ export interface PlanDetail extends Omit<PlanItem, 'point_count'> {
 export interface PlanForm {
   community_id: string | null
   name: string
+  patrol_type: PatrolType
   point_ids: string[]
   cycle_type: string
   cycle_config: { weekdays?: number[]; days?: number[] }
@@ -141,6 +206,7 @@ export interface TaskItem {
   community_name: string
   inspector_id: string
   inspector_name: string
+  patrol_type: PatrolType
   task_date: string
   time_window: string
   status: 'pending' | 'doing' | 'done' | 'overdue'
@@ -240,7 +306,20 @@ export interface CheckinDetail extends CheckinItem {
   created_at: string
 }
 
-// ===== 异常工单 =====
+// ===== 异常工单（P2 闭环状态机：reported → pending_dispatch → processing → pending_confirm → closed；closed_invalid 已作废） =====
+export type WorkOrderStatus =
+  | 'reported' // 待分诊
+  | 'pending_dispatch' // 待派单
+  | 'processing' // 处理中
+  | 'pending_confirm' // 待验收
+  | 'closed' // 已闭环
+  | 'closed_invalid' // 已作废（分诊驳回）
+
+// 工单来源（字典 order_source）：inspection 巡检异常转单 / active 主动上报 / frontdesk 前台代录
+export type WorkOrderSource = 'inspection' | 'active' | 'frontdesk'
+
+export type WorkOrderPriority = 'low' | 'normal' | 'high' | 'urgent'
+
 export interface WorkOrderItem {
   id: string
   order_no: string
@@ -249,12 +328,17 @@ export interface WorkOrderItem {
   community_name: string
   point_id: string | null
   point_name: string
-  priority: 'low' | 'normal' | 'high' | 'urgent'
-  status: 'pending' | 'assigned' | 'processing' | 'review' | 'closed' | 'rejected'
+  source: WorkOrderSource
+  category: string
+  priority: WorkOrderPriority
+  status: WorkOrderStatus
   reporter_id: string
   reporter_name: string
   assignee_id: string | null
   assignee_name: string | null
+  // SLA 期望完成时间 / 是否超时（后端按优先级简化计算，仅展示）
+  sla_deadline: string | null
+  sla_overdue: boolean
   created_at: string
 }
 
@@ -277,11 +361,28 @@ export interface WorkOrderDetail extends WorkOrderItem {
   checkin_id: string | null
   description: string
   photos: { url: string; watermarked_url: string | null }[]
-  fix_photos: { url: string; watermarked_url: string | null }[]
-  fix_remark: string
-  finished_at: string | null
-  reviewed_by: string | null
-  review_remark: string | null
+  // 派单人（抢单工单为空）
+  dispatcher_id: string | null
+  dispatcher_name: string | null
+  // 分诊
+  triage_by: string | null
+  triage_by_name: string | null
+  triage_at: string | null
+  triage_note: string | null
+  // 派单/接单（派单即视为接单，两时间同时写入）
+  dispatch_at: string | null
+  accept_at: string | null
+  // 完工
+  finish_photos: { url: string; watermarked_url: string | null }[]
+  finish_note: string | null
+  finish_at: string | null
+  // 验收
+  confirm_by: string | null
+  confirm_by_name: string | null
+  confirm_at: string | null
+  confirm_note: string | null
+  // 最近一次驳回原因（分诊驳回 / 验收退回）
+  reject_reason: string | null
   logs: WorkOrderLog[]
   // 不合格项快照（可空，旧工单无此字段）
   items?: WorkOrderCheckItem[]

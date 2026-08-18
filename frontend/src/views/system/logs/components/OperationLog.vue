@@ -123,6 +123,7 @@ import { listOperationLogs, type LogQuery } from '@/api/log'
 import { downloadFile } from '@/utils/download'
 import type { OperationLog } from '@/api/types'
 
+
 // 动作枚举：登录类（login/logout/refresh/register）已由后端从操作日志剔除，见登录日志 Tab
 const actionOptions = [
   { label: '新增', value: 'create' },
@@ -133,8 +134,8 @@ const actionOptions = [
   { label: '重置密码', value: 'reset_password' },
   { label: '修改密码', value: 'change_password' },
   { label: '生成任务', value: 'generate' },
-  { label: '派单', value: 'assign' },
-  { label: '复核', value: 'review' }
+  { label: '派单', value: 'dispatch' },
+  { label: '验收', value: 'confirm' }
 ]
 
 const moduleOptions = [
@@ -188,6 +189,7 @@ function handleReset() {
 }
 
 onMounted(fetchList)
+
 
 // ===== 详情 =====
 const detailVisible = ref(false)

@@ -54,6 +54,12 @@
             <el-form-item label="确认密码" prop="confirm_password">
               <el-input v-model="form.confirm_password" type="password" show-password placeholder="请再次输入密码" :prefix-icon="Lock" />
             </el-form-item>
+            <!-- 所属公司：多租户时必选一个；仅 1 个租户时隐藏（默认租户自动归属） -->
+            <el-form-item v-if="tenantOptions.length > 1" label="所属公司" prop="tenant_code">
+              <el-select v-model="form.tenant_code" placeholder="请选择所属公司" style="width: 100%">
+                <el-option v-for="t in tenantOptions" :key="t.code" :label="t.name" :value="t.code" />
+              </el-select>
+            </el-form-item>
             <el-form-item>
               <el-button class="register-btn" type="primary" :loading="submitting" @click="handleRegister">
                 注 册
@@ -74,7 +80,7 @@ import { onMounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, type FormInstance, type FormRules } from 'element-plus'
 import { User, Lock, Postcard, Iphone, CircleCheck } from '@element-plus/icons-vue'
-import { getRegisterConfig, register } from '@/api/auth'
+import { getRegisterConfig, getRegisterTenants, register, type TenantOption } from '@/api/auth'
 
 // 品牌资源走 public 目录，需带上部署子路径（/admin/）
 const brandMark = `${import.meta.env.BASE_URL}brand/anxuncloud-mark-reverse.svg`
@@ -84,13 +90,16 @@ const formRef = ref<FormInstance>()
 const submitting = ref(false)
 const configLoading = ref(true)
 const enabled = ref(false)
+// 注册可选公司列表（注册开关开启时拉取；≤1 个租户时"所属公司"下拉不显示）
+const tenantOptions = ref<TenantOption[]>([])
 
 const form = reactive({
   username: '',
   name: '',
   phone: '',
   password: '',
-  confirm_password: ''
+  confirm_password: '',
+  tenant_code: ''
 })
 
 // 进入页面时拉取开关；接口不可用按未开放处理
@@ -98,6 +107,9 @@ onMounted(async () => {
   try {
     const cfg = await getRegisterConfig()
     enabled.value = !!cfg.enabled
+    if (enabled.value) {
+      tenantOptions.value = await getRegisterTenants()
+    }
   } finally {
     configLoading.value = false
   }
@@ -128,7 +140,14 @@ const rules: FormRules = {
   confirm_password: [
     { required: true, message: '请再次输入密码', trigger: 'blur' },
     { validator: validateConfirm, trigger: 'blur' }
-  ]
+  ],
+  tenant_code: [{
+    validator: (_rule, value, callback) => {
+      if (tenantOptions.value.length > 1 && !value) callback(new Error('请选择所属公司'))
+      else callback()
+    },
+    trigger: 'change'
+  }]
 }
 
 async function handleRegister() {
@@ -139,7 +158,9 @@ async function handleRegister() {
       username: form.username,
       password: form.password,
       name: form.name,
-      phone: form.phone
+      phone: form.phone,
+      // 多租户时必传所选公司；单租户/无列表时不传（默认租户）
+      tenant_code: tenantOptions.value.length > 1 ? form.tenant_code : undefined
     })
     ElMessage.success('注册成功，请登录')
     // 跳登录页并回填账号

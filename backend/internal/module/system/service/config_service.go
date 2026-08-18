@@ -147,6 +147,31 @@ func (s *ConfigService) Get(key string) (string, bool) {
 	return v, ok
 }
 
+// Resolve 租户级配置解析（P3 多租户，设计方案 §9.1 就近优先）：
+// 租户覆盖（tenant_config）→ 平台默认（sys_config）；tenantID 为空或租户无覆盖时用平台默认。
+// 密钥类配置（ai.* / 存储密钥等）永不下放租户，不走此函数；tenant_config 可写 key 由白名单控制（见 TenantService）。
+func (s *ConfigService) Resolve(tenantID, key string) (string, bool) {
+	if tenantID != "" {
+		var value string
+		err := s.db.Model(&model.TenantConfig{}).Select("value").
+			Where("tenant_id = ? AND key = ?", tenantID, key).Limit(1).Pluck("value", &value).Error
+		if err == nil && value != "" {
+			return value, true
+		}
+	}
+	return s.Get(key)
+}
+
+// DefaultTenantID 默认租户 ID（code=default；公开品牌接口等无登录态场景按默认租户解析）。
+func (s *ConfigService) DefaultTenantID() string {
+	var id string
+	if err := s.db.Model(&model.Tenant{}).Select("id").Where("code = ?", model.DefaultTenantCode).
+		Limit(1).Pluck("id", &id).Error; err != nil {
+		return ""
+	}
+	return id
+}
+
 // SetValue 按 key 更新参数值（不存在则报错；写后失效缓存）。供品牌官网等按 key 定向保存的场景使用。
 func (s *ConfigService) SetValue(key, value string) *errs.Error {
 	res := s.db.Model(&model.SysConfig{}).Where("key = ?", key).Update("value", value)

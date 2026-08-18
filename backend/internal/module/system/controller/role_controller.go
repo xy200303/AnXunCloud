@@ -2,30 +2,38 @@ package controller
 
 import (
 	"github.com/gin-gonic/gin"
+	"gorm.io/gorm"
 
+	"anxuncloud/internal/middleware"
 	"anxuncloud/internal/module/system/dto"
 	"anxuncloud/internal/module/system/service"
 	"anxuncloud/internal/pkg/bind"
 	"anxuncloud/internal/pkg/response"
 )
 
-// RoleController 角色管理接口。
+// RoleController 角色管理接口。db 用于解析租户上下文（middleware.EffectiveTenantID）。
 type RoleController struct {
 	svc *service.RoleService
+	db  *gorm.DB
 }
 
-func NewRoleController(svc *service.RoleService) *RoleController {
-	return &RoleController{svc: svc}
+func NewRoleController(svc *service.RoleService, db *gorm.DB) *RoleController {
+	return &RoleController{svc: svc, db: db}
 }
 
-// List GET /system/roles
+// List GET /system/roles（内置角色 + 上下文租户自建角色）
 func (ctl *RoleController) List(c *gin.Context) {
 	var q dto.RoleListQuery
 	if be := bind.Query(c, &q); be != nil {
 		response.Fail(c, be)
 		return
 	}
-	page, be := ctl.svc.List(&q)
+	tid, be := middleware.EffectiveTenantID(c, ctl.db)
+	if be != nil {
+		response.Fail(c, be)
+		return
+	}
+	page, be := ctl.svc.List(&q, middleware.CurrentIdentity(c), tid)
 	if be != nil {
 		response.Fail(c, be)
 		return
@@ -40,7 +48,12 @@ func (ctl *RoleController) Create(c *gin.Context) {
 		response.Fail(c, be)
 		return
 	}
-	id, be := ctl.svc.Create(&req)
+	tid, be := middleware.EffectiveTenantID(c, ctl.db)
+	if be != nil {
+		response.Fail(c, be)
+		return
+	}
+	id, be := ctl.svc.Create(&req, middleware.CurrentIdentity(c), tid)
 	if be != nil {
 		response.Fail(c, be)
 		return
@@ -55,7 +68,7 @@ func (ctl *RoleController) Detail(c *gin.Context) {
 		response.Fail(c, be)
 		return
 	}
-	detail, be := ctl.svc.Detail(id)
+	detail, be := ctl.svc.Detail(id, middleware.CurrentIdentity(c))
 	if be != nil {
 		response.Fail(c, be)
 		return
@@ -75,7 +88,7 @@ func (ctl *RoleController) Update(c *gin.Context) {
 		response.Fail(c, be)
 		return
 	}
-	if be := ctl.svc.Update(id, &req); be != nil {
+	if be := ctl.svc.Update(id, &req, middleware.CurrentIdentity(c)); be != nil {
 		response.Fail(c, be)
 		return
 	}
@@ -89,7 +102,7 @@ func (ctl *RoleController) Delete(c *gin.Context) {
 		response.Fail(c, be)
 		return
 	}
-	if be := ctl.svc.Delete(id); be != nil {
+	if be := ctl.svc.Delete(id, middleware.CurrentIdentity(c)); be != nil {
 		response.Fail(c, be)
 		return
 	}
@@ -108,7 +121,7 @@ func (ctl *RoleController) AssignMenus(c *gin.Context) {
 		response.Fail(c, be)
 		return
 	}
-	if be := ctl.svc.AssignMenus(id, &req); be != nil {
+	if be := ctl.svc.AssignMenus(id, &req, middleware.CurrentIdentity(c)); be != nil {
 		response.Fail(c, be)
 		return
 	}

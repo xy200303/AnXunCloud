@@ -54,7 +54,7 @@ func parseRange(start, end string) (time.Time, time.Time, *errs.Error) {
 func (s *StatsService) taskScope(c *gin.Context, q *dto.ReportQuery) *gorm.DB {
 	db := s.db.Model(&insmodel.InspectionTask{}).
 		Where("task_date >= ? AND task_date <= ?", q.StartDate, q.EndDate)
-	if q.CommunityID > 0 {
+	if q.CommunityID != "" {
 		db = db.Where("community_id = ?", q.CommunityID)
 	}
 	return middleware.ApplyCommunityFilter(db, c, "inspection_task.community_id")
@@ -85,7 +85,7 @@ func (s *StatsService) Coverage(c *gin.Context, q *dto.ReportQuery) (gin.H, *err
 	// 异常/疑似打卡数
 	ck := s.db.Model(&insmodel.CheckinRecord{}).
 		Where("checkin_time >= ? AND checkin_time < ?", q.StartDate, q.EndDate+" 23:59:59")
-	if q.CommunityID > 0 {
+	if q.CommunityID != "" {
 		ck = ck.Where("community_id = ?", q.CommunityID)
 	}
 	ck = middleware.ApplyCommunityFilter(ck, c, "checkin_record.community_id")
@@ -384,10 +384,10 @@ func (s *StatsService) Export(c *gin.Context, req *dto.ExportReq) (gin.H, *errs.
 }
 
 // Dashboard 工作台总览（数据权限自动按所辖小区过滤）。
-func (s *StatsService) Dashboard(c *gin.Context, communityID int64) (gin.H, *errs.Error) {
+func (s *StatsService) Dashboard(c *gin.Context, communityID string) (gin.H, *errs.Error) {
 	today := time.Now().Format("2006-01-02")
 	taskQ := s.db.Model(&insmodel.InspectionTask{}).Where("task_date = ?", today)
-	if communityID > 0 {
+	if communityID != "" {
 		taskQ = taskQ.Where("community_id = ?", communityID)
 	}
 	taskQ = middleware.ApplyCommunityFilter(taskQ, c, "inspection_task.community_id")
@@ -401,7 +401,7 @@ func (s *StatsService) Dashboard(c *gin.Context, communityID int64) (gin.H, *err
 		Select("COALESCE(SUM(total_points),0) AS total, COALESCE(SUM(done_points),0) AS done, COUNT(*) FILTER (WHERE status = 'doing') AS doing, COUNT(*) FILTER (WHERE status = 'overdue') AS overdue").
 		Scan(&todaySum)
 
-	woQ := s.db.Model(&womodel.WorkOrder{}).Where("status IN ?", []string{womodel.OrderPending, womodel.OrderAssigned, womodel.OrderProcessing})
+	woQ := s.db.Model(&womodel.WorkOrder{}).Where("status IN ?", []string{womodel.OrderReported, womodel.OrderPendingDispatch, womodel.OrderProcessing, womodel.OrderPendingConfirm})
 	woQ = middleware.ApplyCommunityFilter(woQ, c, "work_order.community_id")
 	var pendingWO int64
 	woQ.Session(&gorm.Session{}).Count(&pendingWO)

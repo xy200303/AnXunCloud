@@ -30,6 +30,7 @@
           处理人：{{ order.assignee_name != null && order.assignee_name != '' ? order.assignee_name : '未指派' }}
         </text>
         <text v-if="order.description != ''" class="info-line" :style="{ color: colors.textRegular }">描述：{{ order.description }}</text>
+        <text v-if="order.category != ''" class="info-line" :style="{ color: colors.textRegular }">工单分类：{{ order.category }}</text>
       </view>
 
       <!-- 异常项快照 -->
@@ -76,11 +77,17 @@
         </view>
       </view>
 
-      <!-- 维修反馈 -->
-      <view v-if="order.fix_remark != '' || fixPhotoUrls.length > 0" class="card" :style="{ backgroundColor: colors.bgCard }">
-        <text class="sec-title" :style="{ color: colors.textPrimary }">维修反馈</text>
-        <text v-if="order.fix_remark != ''" class="info-line" :style="{ color: colors.textRegular }">{{ order.fix_remark }}</text>
-        <text v-if="order.finished_at != ''" class="info-line" :style="{ color: colors.textSecondary }">完工时间：{{ order.finished_at }}</text>
+      <!-- 驳回/退回原因（分诊驳回作废 或 验收退回返工时展示） -->
+      <view v-if="showRejectReason" class="card" :style="{ backgroundColor: colors.bgCard }">
+        <text class="sec-title" :style="{ color: colors.danger }">{{ order.status == 'closed_invalid' ? '作废原因' : '退回原因' }}</text>
+        <text class="info-line" :style="{ color: colors.textRegular }">{{ order.reject_reason }}</text>
+      </view>
+
+      <!-- 处理结果（完工后展示） -->
+      <view v-if="order.finish_note != '' || fixPhotoUrls.length > 0" class="card" :style="{ backgroundColor: colors.bgCard }">
+        <text class="sec-title" :style="{ color: colors.textPrimary }">处理结果</text>
+        <text v-if="order.finish_note != ''" class="info-line" :style="{ color: colors.textRegular }">{{ order.finish_note }}</text>
+        <text v-if="order.finish_at != ''" class="info-line" :style="{ color: colors.textSecondary }">完工时间：{{ order.finish_at }}</text>
         <view v-if="fixPhotoUrls.length > 0" class="photos">
           <image
             v-for="(u, pi) in fixPhotoUrls"
@@ -93,10 +100,13 @@
         </view>
       </view>
 
-      <!-- 验收意见 -->
-      <view v-if="order.review_remark != null && order.review_remark != ''" class="card" :style="{ backgroundColor: colors.bgCard }">
+      <!-- 验收意见（验收后展示） -->
+      <view v-if="order.confirm_note != ''" class="card" :style="{ backgroundColor: colors.bgCard }">
         <text class="sec-title" :style="{ color: colors.textPrimary }">验收意见</text>
-        <text class="info-line" :style="{ color: colors.textRegular }">{{ order.review_remark }}</text>
+        <text class="info-line" :style="{ color: colors.textRegular }">{{ order.confirm_note }}</text>
+        <text v-if="order.confirm_at != ''" class="info-line" :style="{ color: colors.textSecondary }">
+          验收人：{{ order.confirm_by_name }} · {{ order.confirm_at }}
+        </text>
       </view>
 
       <!-- 流转记录 -->
@@ -109,17 +119,25 @@
         </view>
       </view>
 
-      <!-- 底部操作：按状态 + 权限显示 -->
-      <view v-if="canAssign || canReviewAct" class="bottom-actions" :style="{ backgroundColor: colors.bgCard, borderTopColor: colors.border }">
+      <!-- 底部操作：按状态 + 权限显示（分诊 → 派单 → 验收） -->
+      <view v-if="canTriage || canDispatch || canConfirmAct" class="bottom-actions" :style="{ backgroundColor: colors.bgCard, borderTopColor: colors.border }">
+        <template v-if="canTriage">
+          <view class="btn-action btn-action-outline" :style="{ borderColor: colors.danger }" @click="onTriageRejectTap">
+            <text class="btn-action-text" :style="{ color: colors.danger }">分诊驳回</text>
+          </view>
+          <view class="btn-action" :style="{ backgroundColor: colors.primary }" @click="onTriagePass">
+            <text class="btn-action-text" :style="{ color: colors.white }">分诊通过</text>
+          </view>
+        </template>
         <view
-          v-if="canAssign"
+          v-if="canDispatch"
           class="btn-action"
           :style="{ backgroundColor: colors.primary }"
           @click="openAssign"
         >
           <text class="btn-action-text" :style="{ color: colors.white }">派单</text>
         </view>
-        <template v-if="canReviewAct">
+        <template v-if="canConfirmAct">
           <view class="btn-action btn-action-outline" :style="{ borderColor: colors.danger }" @click="onRejectTap">
             <text class="btn-action-text" :style="{ color: colors.danger }">验收退回</text>
           </view>
@@ -192,6 +210,24 @@
         </view>
       </view>
     </view>
+
+    <!-- 分诊驳回原因弹层（驳回后工单作废） -->
+    <view v-if="triaging" class="mask mask-center" :style="{ backgroundColor: colors.mask }" @click="triaging = false">
+      <view class="dialog" :style="{ backgroundColor: colors.bgCard }" @click.stop="">
+        <text class="dialog-title" :style="{ color: colors.textPrimary }">驳回原因（必填）</text>
+        <textarea
+          v-model="triageReason"
+          class="dialog-input"
+          :style="{ borderColor: colors.border, color: colors.textPrimary }"
+          placeholder="请填写驳回原因，工单将作废并通知上报人"
+          :maxlength="200"
+        />
+        <view class="dialog-actions">
+          <text class="dialog-btn" :style="{ color: colors.textSecondary }" @click="triaging = false">取消</text>
+          <text class="dialog-btn" :style="{ color: colors.danger }" @click="onTriageRejectConfirm">确认驳回</text>
+        </view>
+      </view>
+    </view>
   </view>
 </template>
 
@@ -199,8 +235,9 @@
 import { Colors, ColorTokens } from '@/utils/theme'
 import {
   apiManageOrderDetail,
-  apiAssignOrder,
-  apiReviewOrder,
+  apiDispatchOrder,
+  apiConfirmManageOrder,
+  apiTriageOrder,
   apiOrderUsers,
   WorkOrderDetail,
   StaffUser
@@ -224,6 +261,9 @@ type DetailData = {
   assignRemark: string
   rejecting: boolean
   rejectReason: string
+  /** 分诊驳回弹层 */
+  triaging: boolean
+  triageReason: string
   acting: boolean
 }
 
@@ -240,39 +280,52 @@ function emptyOrder(): WorkOrderDetail {
     description: '',
     photos: [],
     items: [],
+    source: '',
+    category: '',
     reporter_id: '',
     reporter_name: '',
     assignee_id: null,
     assignee_name: '',
+    dispatcher_name: '',
     priority: '',
     status: '',
-    fix_photos: [],
-    fix_remark: '',
-    finished_at: '',
-    reviewed_by: null,
-    review_remark: null,
+    triage_by_name: '',
+    triage_at: '',
+    triage_note: '',
+    dispatch_at: '',
+    accept_at: '',
+    finish_photos: [],
+    finish_note: '',
+    finish_at: '',
+    confirm_by_name: '',
+    confirm_at: '',
+    confirm_note: '',
+    reject_reason: '',
+    sla_deadline: '',
+    sla_overdue: false,
     created_at: '',
     logs: []
   }
 }
 
+/** 工单状态文案（P2 六态，对齐后端 model.Order* 枚举） */
 function statusTextOf(s: string): string {
-  if (s == 'pending') return '待派单'
-  if (s == 'assigned') return '待接单'
+  if (s == 'reported') return '待分诊'
+  if (s == 'pending_dispatch') return '待派单'
   if (s == 'processing') return '处理中'
-  if (s == 'review') return '待验收'
-  if (s == 'closed') return '已完成'
-  if (s == 'rejected') return '已驳回'
+  if (s == 'pending_confirm') return '待验收'
+  if (s == 'closed') return '已闭环'
+  if (s == 'closed_invalid') return '已作废'
   return s
 }
 
 function statusColorOf(s: string): string {
-  if (s == 'pending') return Colors.info
-  if (s == 'assigned') return Colors.warning
+  if (s == 'reported') return Colors.info
+  if (s == 'pending_dispatch') return Colors.warning
   if (s == 'processing') return Colors.primary
-  if (s == 'review') return Colors.warning
+  if (s == 'pending_confirm') return Colors.warning
   if (s == 'closed') return Colors.success
-  if (s == 'rejected') return Colors.danger
+  if (s == 'closed_invalid') return Colors.danger
   return Colors.info
 }
 
@@ -305,6 +358,8 @@ export default {
       assignRemark: '',
       rejecting: false,
       rejectReason: '',
+      triaging: false,
+      triageReason: '',
       acting: false
     }
   },
@@ -318,20 +373,28 @@ export default {
     priorityText(): string {
       return priorityTextOf(this.order.priority)
     },
-    /** 派单入口：待派单/已驳回可派（后端 Assign 允许 pending/rejected），且需 workorder:assign 权限 */
-    canAssign(): boolean {
-      const s = this.order.status
-      return (s == 'pending' || s == 'rejected') && useAuthStore().hasPerm('workorder:assign')
+    /** 分诊入口：待分诊 + workorder:triage 权限（通过 → 待派单；驳回 → 已作废） */
+    canTriage(): boolean {
+      return this.order.status == 'reported' && useAuthStore().hasPerm('workorder:triage')
     },
-    /** 验收入口：待验收 + workorder:review 权限 */
-    canReviewAct(): boolean {
-      return this.order.status == 'review' && useAuthStore().hasPerm('workorder:review')
+    /** 派单入口：待派单 + workorder:dispatch 权限（处理人须在本项目接单名单内，后端兜底校验） */
+    canDispatch(): boolean {
+      return this.order.status == 'pending_dispatch' && useAuthStore().hasPerm('workorder:dispatch')
+    },
+    /** 验收入口：待验收 + workorder:confirm 权限 */
+    canConfirmAct(): boolean {
+      return this.order.status == 'pending_confirm' && useAuthStore().hasPerm('workorder:confirm')
+    },
+    /** 展示驳回/退回原因：作废（分诊驳回）或处理中（验收退回返工） */
+    showRejectReason(): boolean {
+      if (this.order.reject_reason == '') return false
+      return this.order.status == 'closed_invalid' || this.order.status == 'processing'
     },
     reportPhotoUrls(): string[] {
       return this.order.photos.map(photoUrl)
     },
     fixPhotoUrls(): string[] {
-      return this.order.fix_photos.map(photoUrl)
+      return this.order.finish_photos.map(photoUrl)
     }
   },
   onLoad(options: any) {
@@ -369,14 +432,67 @@ export default {
     preview(urls: string[], idx: number) {
       uni.previewImage({ urls: urls, current: urls[idx] })
     },
+    /** 流转动作文案（对齐后端 model.Action* 枚举） */
     logActionText(a: string): string {
-      if (a == 'create') return '创建工单'
-      if (a == 'assign') return '派单'
-      if (a == 'accept') return '接单'
-      if (a == 'finish') return '提交完工'
-      if (a == 'review_pass') return '验收通过'
-      if (a == 'review_reject') return '验收退回'
+      if (a == 'create') return '上报工单'
+      if (a == 'triage_pass') return '分诊通过'
+      if (a == 'triage_reject') return '分诊驳回'
+      if (a == 'dispatch') return '派单'
+      if (a == 'grab') return '抢单'
+      if (a == 'finish') return '完工提交'
+      if (a == 'confirm_pass') return '验收通过'
+      if (a == 'confirm_reject') return '验收退回'
       return a
+    },
+    /** 分诊通过（二次确认）→ 待派单 */
+    onTriagePass() {
+      if (this.acting) return
+      uni.showModal({
+        title: '分诊通过',
+        content: '确认该问题属实有效？通过后工单进入待派单。',
+        confirmText: '通过',
+        success: (res) => {
+          if (!res.confirm) return
+          this.acting = true
+          apiTriageOrder(this.orderId, 'pass', '')
+            .then(() => {
+              uni.showToast({ title: '分诊通过，请派单', icon: 'none' })
+              this.load()
+            })
+            .catch((e: Error) => {
+              uni.showToast({ title: e.message, icon: 'none' })
+            })
+            .finally(() => {
+              this.acting = false
+            })
+        }
+      })
+    },
+    onTriageRejectTap() {
+      this.triageReason = ''
+      this.triaging = true
+    },
+    /** 分诊驳回（原因必填）→ 已作废 */
+    onTriageRejectConfirm() {
+      if (this.acting) return
+      const reason = this.triageReason.trim()
+      if (reason == '') {
+        uni.showToast({ title: '请填写驳回原因', icon: 'none' })
+        return
+      }
+      this.acting = true
+      apiTriageOrder(this.orderId, 'reject', reason)
+        .then(() => {
+          uni.showToast({ title: '已驳回，工单作废', icon: 'none' })
+          this.triaging = false
+          this.load()
+        })
+        .catch((e: Error) => {
+          uni.showToast({ title: e.message, icon: 'none' })
+        })
+        .finally(() => {
+          this.acting = false
+        })
     },
     /** 打开派单弹层并加载候选人：优先维修角色，无则显示全部启用用户并提示 */
     openAssign() {
@@ -412,7 +528,7 @@ export default {
         return
       }
       this.acting = true
-      apiAssignOrder(this.orderId, this.assigneeId, this.assignRemark.trim())
+      apiDispatchOrder(this.orderId, this.assigneeId, this.assignRemark.trim())
         .then(() => {
           uni.showToast({ title: '已派单', icon: 'none' })
           this.assigning = false
@@ -434,7 +550,7 @@ export default {
         success: (res) => {
           if (!res.confirm) return
           this.acting = true
-          apiReviewOrder(this.orderId, 'pass', '')
+          apiConfirmManageOrder(this.orderId, 'pass', '')
             .then(() => {
               uni.showToast({ title: '验收通过，工单已闭环', icon: 'none' })
               this.load()
@@ -460,7 +576,7 @@ export default {
         return
       }
       this.acting = true
-      apiReviewOrder(this.orderId, 'reject', reason)
+      apiConfirmManageOrder(this.orderId, 'reject', reason)
         .then(() => {
           uni.showToast({ title: '已退回处理人', icon: 'none' })
           this.rejecting = false

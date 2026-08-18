@@ -80,6 +80,8 @@ func OperLog(db *gorm.DB, module, action string) gin.HandlerFunc {
 		if identity := CurrentIdentity(c); identity != nil {
 			log.UserID = &identity.UserID
 			log.Username = identity.Username
+			// 租户隔离：日志管理按租户上下文过滤，写入即带操作者所属租户
+			log.TenantID = &identity.TenantID
 		}
 		// 异步落库，避免阻塞请求；用 Background 防止请求结束取消写入
 		go func(rec model.SysOperationLog) {

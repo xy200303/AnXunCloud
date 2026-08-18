@@ -21,8 +21,9 @@ type LogService struct {
 func NewLogService(db *gorm.DB) *LogService { return &LogService{db: db} }
 
 // OperationList 操作日志分页查询。
-func (s *LogService) OperationList(q *dto.OperationLogQuery) (*response.Page, *errs.Error) {
-	db := s.db.Model(&model.SysOperationLog{})
+// 租户上下文（菜单归位方案 §2）：按 tenantID（EffectiveTenantID 解析）过滤，不做跨租户混合列表。
+func (s *LogService) OperationList(q *dto.OperationLogQuery, tenantID string) (*response.Page, *errs.Error) {
+	db := s.db.Model(&model.SysOperationLog{}).Where("tenant_id = ?", tenantID)
 	if q.Username != "" {
 		db = db.Where("username LIKE ?", "%"+q.Username+"%")
 	}
@@ -91,9 +92,9 @@ func (s *LogService) MyLoginLogs(userID string, limit int) ([]gin.H, *errs.Error
 	return list, nil
 }
 
-// LoginList 登录日志分页查询。
-func (s *LogService) LoginList(q *dto.LoginLogQuery) (*response.Page, *errs.Error) {
-	db := s.db.Model(&model.SysLoginLog{})
+// LoginList 登录日志分页查询（租户过滤口径同 OperationList）。
+func (s *LogService) LoginList(q *dto.LoginLogQuery, tenantID string) (*response.Page, *errs.Error) {
+	db := s.db.Model(&model.SysLoginLog{}).Where("tenant_id = ?", tenantID)
 	if q.Username != "" {
 		db = db.Where("username LIKE ?", "%"+q.Username+"%")
 	}

@@ -64,9 +64,9 @@ export const useAuthStore = defineStore('auth', {
     restore() {
       this.userInfo = loadCachedUser()
     },
-    login(username: string, password: string): Promise<void> {
+    login(username: string, password: string, tenantCode?: string): Promise<void> {
       return new Promise<void>((resolve, reject) => {
-        apiLogin(username, password)
+        apiLogin(username, password, tenantCode)
           .then((res) => {
             this.token = res.access_token
             this.refreshToken = res.refresh_token

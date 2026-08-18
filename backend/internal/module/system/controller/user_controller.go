@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"gorm.io/gorm"
 
 	"anxuncloud/internal/middleware"
 	"anxuncloud/internal/module/system/dto"
@@ -21,23 +22,29 @@ import (
 // 导入文件大小上限 5MB。
 const importMaxFileSize = 5 << 20
 
-// UserController 用户管理接口。
+// UserController 用户管理接口。db 用于解析租户上下文（middleware.EffectiveTenantID）。
 type UserController struct {
 	svc *service.UserService
+	db  *gorm.DB
 }
 
-func NewUserController(svc *service.UserService) *UserController {
-	return &UserController{svc: svc}
+func NewUserController(svc *service.UserService, db *gorm.DB) *UserController {
+	return &UserController{svc: svc, db: db}
 }
 
-// List GET /system/users
+// List GET /system/users（租户上下文：?tenant_id= 或 X-Tenant-Id，仅超管可切换）
 func (ctl *UserController) List(c *gin.Context) {
 	var q dto.UserListQuery
 	if be := bind.Query(c, &q); be != nil {
 		response.Fail(c, be)
 		return
 	}
-	page, be := ctl.svc.List(&q)
+	tid, be := middleware.EffectiveTenantID(c, ctl.db)
+	if be != nil {
+		response.Fail(c, be)
+		return
+	}
+	page, be := ctl.svc.List(&q, middleware.CurrentIdentity(c), tid)
 	if be != nil {
 		response.Fail(c, be)
 		return
@@ -52,7 +59,12 @@ func (ctl *UserController) Create(c *gin.Context) {
 		response.Fail(c, be)
 		return
 	}
-	id, be := ctl.svc.Create(&req, middleware.CurrentIdentity(c).SuperAdmin)
+	tid, be := middleware.EffectiveTenantID(c, ctl.db)
+	if be != nil {
+		response.Fail(c, be)
+		return
+	}
+	id, be := ctl.svc.Create(&req, middleware.CurrentIdentity(c), tid)
 	if be != nil {
 		response.Fail(c, be)
 		return
@@ -67,7 +79,7 @@ func (ctl *UserController) Detail(c *gin.Context) {
 		response.Fail(c, be)
 		return
 	}
-	detail, be := ctl.svc.Detail(id)
+	detail, be := ctl.svc.Detail(id, middleware.CurrentIdentity(c))
 	if be != nil {
 		response.Fail(c, be)
 		return
@@ -87,7 +99,7 @@ func (ctl *UserController) Update(c *gin.Context) {
 		response.Fail(c, be)
 		return
 	}
-	if be := ctl.svc.Update(id, &req, middleware.CurrentIdentity(c).SuperAdmin); be != nil {
+	if be := ctl.svc.Update(id, &req, middleware.CurrentIdentity(c)); be != nil {
 		response.Fail(c, be)
 		return
 	}
@@ -106,7 +118,7 @@ func (ctl *UserController) ResetPassword(c *gin.Context) {
 		response.Fail(c, be)
 		return
 	}
-	if be := ctl.svc.ResetPassword(c.Request.Context(), id, req.NewPassword, middleware.CurrentIdentity(c).SuperAdmin); be != nil {
+	if be := ctl.svc.ResetPassword(c.Request.Context(), id, req.NewPassword, middleware.CurrentIdentity(c)); be != nil {
 		response.Fail(c, be)
 		return
 	}
@@ -125,7 +137,7 @@ func (ctl *UserController) SetStatus(c *gin.Context) {
 		response.Fail(c, be)
 		return
 	}
-	if be := ctl.svc.SetStatus(c.Request.Context(), id, req.Status, middleware.CurrentUserID(c)); be != nil {
+	if be := ctl.svc.SetStatus(c.Request.Context(), id, req.Status, middleware.CurrentIdentity(c)); be != nil {
 		response.Fail(c, be)
 		return
 	}
@@ -139,7 +151,7 @@ func (ctl *UserController) Delete(c *gin.Context) {
 		response.Fail(c, be)
 		return
 	}
-	if be := ctl.svc.Delete(c.Request.Context(), id, middleware.CurrentUserID(c)); be != nil {
+	if be := ctl.svc.Delete(c.Request.Context(), id, middleware.CurrentIdentity(c)); be != nil {
 		response.Fail(c, be)
 		return
 	}
@@ -183,7 +195,12 @@ func (ctl *UserController) Import(c *gin.Context) {
 		return
 	}
 	defer f.Close()
-	result, msg, be := ctl.svc.Import(f, middleware.CurrentIdentity(c).SuperAdmin)
+	tid, be := middleware.EffectiveTenantID(c, ctl.db)
+	if be != nil {
+		response.Fail(c, be)
+		return
+	}
+	result, msg, be := ctl.svc.Import(f, middleware.CurrentIdentity(c), tid)
 	if be != nil {
 		response.Fail(c, be)
 		return
@@ -198,7 +215,12 @@ func (ctl *UserController) Export(c *gin.Context) {
 		response.Fail(c, be)
 		return
 	}
-	rows, be := ctl.svc.Export(&q)
+	tid, be := middleware.EffectiveTenantID(c, ctl.db)
+	if be != nil {
+		response.Fail(c, be)
+		return
+	}
+	rows, be := ctl.svc.Export(&q, middleware.CurrentIdentity(c), tid)
 	if be != nil {
 		response.Fail(c, be)
 		return
@@ -244,7 +266,7 @@ func (ctl *UserController) UpdateProfile(c *gin.Context) {
 		return
 	}
 	// 返回最新用户信息（与 /auth/info 同构的用户字段子集）
-	detail, be := ctl.svc.Detail(uid)
+	detail, be := ctl.svc.Detail(uid, middleware.CurrentIdentity(c))
 	if be != nil {
 		response.Fail(c, be)
 		return

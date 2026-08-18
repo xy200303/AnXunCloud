@@ -30,6 +30,7 @@ export interface SignAssetListQuery {
   status?: SignAssetStatus | ''
 }
 
+// 租户上下文：由请求拦截器统一携带 X-Tenant-Id 头（超管切换后生效），api 层不再传 tenant_id
 export function listSignAssets(params: SignAssetListQuery) {
   return request<PageResult<SignAssetItem>>({ url: '/system/sign-assets', method: 'get', params })
 }

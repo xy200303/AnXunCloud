@@ -8,6 +8,8 @@
             <h2 class="page-title wo-title">{{ detail.order_no }} · {{ detail.title }}</h2>
             <el-tag :type="statusType(detail.status)">{{ statusLabel(detail.status) }}</el-tag>
             <el-tag :type="priorityType(detail.priority)" effect="plain">{{ priorityLabel(detail.priority) }}</el-tag>
+            <el-tag :type="sourceType(detail.source)" effect="plain">{{ sourceLabel(detail.source) }}</el-tag>
+            <el-tag v-if="detail.sla_overdue" type="danger">已超时</el-tag>
           </div>
           <div class="wo-meta">
             <span>{{ detail.community_name }}<template v-if="detail.point_name"> · {{ detail.point_name }}</template></span>
@@ -15,9 +17,13 @@
             <span>上报：{{ detail.reporter_name }} {{ detail.created_at }}</span>
             <span class="wo-meta-sep" />
             <span>处理人：{{ detail.assignee_name || '待派单' }}</span>
-            <template v-if="detail.finished_at">
+            <template v-if="detail.category">
               <span class="wo-meta-sep" />
-              <span>完成：{{ detail.finished_at }}</span>
+              <span>分类：{{ detail.category }}</span>
+            </template>
+            <template v-if="detail.sla_deadline && detail.status !== 'closed' && detail.status !== 'closed_invalid'">
+              <span class="wo-meta-sep" />
+              <span :class="{ 'danger-text': detail.sla_overdue }">期望完成：{{ detail.sla_deadline }}</span>
             </template>
           </div>
         </div>
@@ -86,20 +92,42 @@
             </div>
           </div>
 
-          <div v-if="detail.fix_remark || detail.fix_photos?.length" class="wo-section">
-            <h3 class="card-title">处理反馈</h3>
+          <!-- 分诊信息（已分诊工单展示） -->
+          <div v-if="detail.triage_at" class="wo-section">
+            <h3 class="card-title">分诊信息</h3>
             <el-descriptions :column="1" border>
-              <el-descriptions-item label="处理说明">{{ detail.fix_remark }}</el-descriptions-item>
-              <el-descriptions-item v-if="detail.finished_at" label="完成时间">{{ detail.finished_at }}</el-descriptions-item>
+              <el-descriptions-item label="分诊人">{{ detail.triage_by_name || '—' }}</el-descriptions-item>
+              <el-descriptions-item label="分诊时间">{{ detail.triage_at }}</el-descriptions-item>
+              <el-descriptions-item v-if="detail.triage_note" label="分诊备注">{{ detail.triage_note }}</el-descriptions-item>
+            </el-descriptions>
+          </div>
+
+          <!-- 完工信息（维修工提交或后台代录） -->
+          <div v-if="detail.finish_note || detail.finish_photos?.length" class="wo-section">
+            <h3 class="card-title">完工信息</h3>
+            <el-descriptions :column="1" border>
+              <el-descriptions-item label="完工说明">{{ detail.finish_note }}</el-descriptions-item>
+              <el-descriptions-item v-if="detail.finish_at" label="完工时间">{{ detail.finish_at }}</el-descriptions-item>
             </el-descriptions>
             <div class="fix-photos">
-              <photo-viewer :photos="detail.fix_photos || []" />
+              <photo-viewer :photos="detail.finish_photos || []" />
             </div>
           </div>
 
-          <div v-if="detail.review_remark" class="wo-section wo-section-last">
-            <h3 class="card-title">复核意见</h3>
-            <el-alert :title="detail.review_remark" :type="detail.status === 'closed' ? 'success' : 'error'" :closable="false" show-icon />
+          <!-- 验收信息 -->
+          <div v-if="detail.confirm_at || detail.confirm_note" class="wo-section">
+            <h3 class="card-title">验收信息</h3>
+            <el-descriptions :column="1" border>
+              <el-descriptions-item label="验收人">{{ detail.confirm_by_name || '—' }}</el-descriptions-item>
+              <el-descriptions-item v-if="detail.confirm_at" label="验收时间">{{ detail.confirm_at }}</el-descriptions-item>
+              <el-descriptions-item v-if="detail.confirm_note" label="验收意见">{{ detail.confirm_note }}</el-descriptions-item>
+            </el-descriptions>
+          </div>
+
+          <!-- 最近一次驳回原因（分诊驳回 / 验收退回） -->
+          <div v-if="detail.reject_reason" class="wo-section wo-section-last">
+            <h3 class="card-title">驳回原因</h3>
+            <el-alert :title="detail.reject_reason" type="error" :closable="false" show-icon />
           </div>
         </div>
 
@@ -124,21 +152,26 @@
             </el-timeline-item>
           </el-timeline>
 
-          <!-- 操作按钮按状态渲染 -->
+          <!-- 操作按钮按状态渲染（权限点控制显隐；名单校验在后端，被拦下按返回错误提示） -->
           <div v-if="hasActions" class="wo-actions">
             <el-button
-              v-if="(detail.status === 'pending' || detail.status === 'rejected') && userStore.hasPerm('workorder:assign')"
+              v-if="detail.status === 'reported' && userStore.hasPerm('workorder:triage')"
               type="primary"
-              @click="assignVisible = true"
+              @click="openTriage"
+            >分诊</el-button>
+            <el-button
+              v-if="detail.status === 'pending_dispatch' && userStore.hasPerm('workorder:dispatch')"
+              type="primary"
+              @click="openDispatch"
             >派单</el-button>
             <el-button
-              v-if="(detail.status === 'assigned' || detail.status === 'processing') && userStore.hasPerm('workorder:finish')"
+              v-if="detail.status === 'processing' && userStore.hasPerm('workorder:finish')"
               type="primary"
               @click="finishVisible = true"
-            >代录处理反馈</el-button>
-            <template v-if="detail.status === 'review' && userStore.hasPerm('workorder:review')">
-              <el-button type="success" :loading="reviewing" @click="handleReviewPass">复核通过</el-button>
-              <el-button type="danger" @click="rejectVisible = true">驳回</el-button>
+            >代录完工</el-button>
+            <template v-if="detail.status === 'pending_confirm' && userStore.hasPerm('workorder:confirm')">
+              <el-button type="success" :loading="confirming" @click="handleConfirmPass">验收通过</el-button>
+              <el-button type="danger" @click="confirmRejectVisible = true">验收退回</el-button>
             </template>
           </div>
         </div>
@@ -152,28 +185,70 @@
       </template>
     </el-result>
 
-    <!-- 派单对话框 -->
-    <el-dialog v-model="assignVisible" title="派单" width="440px" :close-on-click-modal="false">
-      <el-form ref="assignFormRef" :model="assignForm" :rules="assignRules" label-width="88px">
-        <el-form-item label="处理人" prop="assignee_id">
-          <el-select v-model="assignForm.assignee_id" filterable placeholder="选择维修人员/巡检员" style="width: 100%">
-            <el-option v-for="u in assigneeOptions" :key="u.id" :label="u.name" :value="u.id" />
-          </el-select>
+    <!-- 分诊对话框：通过（可定优先级/分类）或驳回（原因必填 → 作废） -->
+    <el-dialog v-model="triageVisible" title="工单分诊" width="480px" :close-on-click-modal="false">
+      <el-form ref="triageFormRef" :model="triageForm" :rules="triageRules" label-width="88px">
+        <el-form-item label="分诊结果" prop="result">
+          <el-radio-group v-model="triageForm.result">
+            <el-radio value="pass">通过（进入待派单）</el-radio>
+            <el-radio value="reject">驳回（工单作废）</el-radio>
+          </el-radio-group>
         </el-form-item>
-        <el-form-item label="备注">
-          <el-input v-model="assignForm.remark" placeholder="如：今天内处理" />
+        <template v-if="triageForm.result === 'pass'">
+          <el-form-item label="优先级">
+            <el-select v-model="triageForm.priority" style="width: 100%">
+              <el-option label="一般" value="normal" />
+              <el-option label="紧急" value="urgent" />
+              <el-option label="高" value="high" />
+              <el-option label="低" value="low" />
+            </el-select>
+          </el-form-item>
+          <el-form-item label="工单分类">
+            <el-input v-model="triageForm.category" placeholder="选填，如：水电 / 电梯 / 门禁" maxlength="32" />
+          </el-form-item>
+          <el-form-item label="分诊备注">
+            <el-input v-model="triageForm.note" type="textarea" :rows="2" placeholder="选填" maxlength="512" />
+          </el-form-item>
+        </template>
+        <el-form-item v-else label="驳回原因" prop="note">
+          <el-input v-model="triageForm.note" type="textarea" :rows="3" placeholder="必填，说明无效原因" maxlength="512" />
         </el-form-item>
       </el-form>
       <template #footer>
-        <el-button @click="assignVisible = false">取消</el-button>
-        <el-button type="primary" :loading="assigning" @click="handleAssign">确认派单</el-button>
+        <el-button @click="triageVisible = false">取消</el-button>
+        <el-button :type="triageForm.result === 'pass' ? 'primary' : 'danger'" :loading="triaging" @click="handleTriage">
+          {{ triageForm.result === 'pass' ? '分诊通过' : '确认驳回' }}
+        </el-button>
       </template>
     </el-dialog>
 
-    <!-- 处理反馈对话框（后台代录） -->
-    <el-dialog v-model="finishVisible" title="代录处理反馈" width="560px" :close-on-click-modal="false">
+    <!-- 派单对话框 -->
+    <el-dialog v-model="dispatchVisible" title="派单" width="440px" :close-on-click-modal="false">
+      <el-form ref="dispatchFormRef" :model="dispatchForm" :rules="dispatchRules" label-width="88px">
+        <el-form-item label="维修工" prop="assignee_id">
+          <el-select v-model="dispatchForm.assignee_id" filterable placeholder="选择维修工" style="width: 100%" :loading="staffLoading">
+            <el-option v-for="s in assigneeOptions" :key="s.user_id" :label="s.user_name" :value="s.user_id" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="备注">
+          <el-input v-model="dispatchForm.remark" placeholder="如：今天内处理" />
+        </el-form-item>
+        <el-alert
+          type="info"
+          :closable="false"
+          title="派单对象须为本项目「工单接单」槽位名单成员（候选人取该项目编制中维修工岗位的在职成员；槽位绑定如被项目覆盖，以编制页为准）"
+        />
+      </el-form>
+      <template #footer>
+        <el-button @click="dispatchVisible = false">取消</el-button>
+        <el-button type="primary" :loading="dispatching" @click="handleDispatch">确认派单</el-button>
+      </template>
+    </el-dialog>
+
+    <!-- 代录完工对话框 -->
+    <el-dialog v-model="finishVisible" title="代录完工" width="560px" :close-on-click-modal="false">
       <el-form ref="finishFormRef" :model="finishForm" :rules="finishRules" label-width="88px">
-        <el-form-item label="处理说明" prop="fix_remark">
+        <el-form-item label="完工说明" prop="fix_remark">
           <el-input v-model="finishForm.fix_remark" type="textarea" :rows="3" placeholder="处理结果说明" />
         </el-form-item>
         <!-- 不合格项逐项补传整改后照片（有 items 快照时展示） -->
@@ -199,20 +274,20 @@
       </el-form>
       <template #footer>
         <el-button @click="finishVisible = false">取消</el-button>
-        <el-button type="primary" :loading="finishing" @click="handleFinish">提交反馈</el-button>
+        <el-button type="primary" :loading="finishing" @click="handleFinish">提交完工</el-button>
       </template>
     </el-dialog>
 
-    <!-- 复核驳回对话框：原因必填 -->
-    <el-dialog v-model="rejectVisible" title="驳回复核" width="440px" :close-on-click-modal="false">
-      <el-form ref="rejectFormRef" :model="rejectForm" :rules="rejectRules" label-width="88px">
-        <el-form-item label="驳回原因" prop="review_remark">
-          <el-input v-model="rejectForm.review_remark" type="textarea" :rows="3" placeholder="必填，说明需整改的内容" />
+    <!-- 验收退回对话框：原因必填 -->
+    <el-dialog v-model="confirmRejectVisible" title="验收退回" width="440px" :close-on-click-modal="false">
+      <el-form ref="confirmRejectFormRef" :model="confirmRejectForm" :rules="confirmRejectRules" label-width="88px">
+        <el-form-item label="退回原因" prop="confirm_note">
+          <el-input v-model="confirmRejectForm.confirm_note" type="textarea" :rows="3" placeholder="必填，说明需整改的内容" maxlength="512" />
         </el-form-item>
       </el-form>
       <template #footer>
-        <el-button @click="rejectVisible = false">取消</el-button>
-        <el-button type="danger" :loading="reviewing" @click="handleReviewReject">确认驳回</el-button>
+        <el-button @click="confirmRejectVisible = false">取消</el-button>
+        <el-button type="danger" :loading="confirming" @click="handleConfirmReject">确认退回</el-button>
       </template>
     </el-dialog>
   </div>
@@ -224,21 +299,19 @@ import { useRoute } from 'vue-router'
 import { ElMessage, ElMessageBox, type FormInstance, type FormRules, type UploadRequestOptions } from 'element-plus'
 import { Close } from '@element-plus/icons-vue'
 import {
-  getWorkOrder, assignWorkOrder, finishWorkOrder, reviewWorkOrder
+  getWorkOrder, triageWorkOrder, dispatchWorkOrder, finishWorkOrder, confirmWorkOrder
 } from '@/api/workorder'
-import { listUsers } from '@/api/user'
+import { listStaff } from '@/api/community'
 import { uploadImage, fileUrl } from '@/api/upload'
 import { useUserStore } from '@/store/user'
 import PhotoViewer from '@/components/PhotoViewer.vue'
-import type { WorkOrderDetail, WorkOrderCheckItem } from '@/api/biz-types'
-import type { UserItem } from '@/api/types'
+import type { WorkOrderDetail, WorkOrderCheckItem, StaffItem } from '@/api/biz-types'
 
 const route = useRoute()
 const userStore = useUserStore()
 const loading = ref(false)
 const loadError = ref(false)
 const detail = ref<WorkOrderDetail | null>(null)
-const assigneeOptions = ref<UserItem[]>([])
 
 async function fetchDetail() {
   loading.value = true
@@ -251,18 +324,20 @@ async function fetchDetail() {
   }
 }
 
-onMounted(async () => {
-  fetchDetail()
-  const uData = await listUsers({ page: 1, page_size: 100, status: 1 })
-  assigneeOptions.value = uData.list
-})
+onMounted(fetchDetail)
 
 function statusLabel(s: string) {
-  return { pending: '待派单', assigned: '已派单', processing: '处理中', review: '待复核', closed: '已关闭', rejected: '已驳回' }[s] || s
+  return {
+    reported: '待分诊', pending_dispatch: '待派单', processing: '处理中',
+    pending_confirm: '待验收', closed: '已闭环', closed_invalid: '已作废'
+  }[s] || s
 }
 
 function statusType(s: string) {
-  return ({ pending: 'warning', assigned: 'primary', processing: 'primary', review: 'warning', closed: 'success', rejected: 'danger' } as Record<string, any>)[s] || 'info'
+  return ({
+    reported: 'danger', pending_dispatch: 'warning', processing: 'primary',
+    pending_confirm: 'warning', closed: 'success', closed_invalid: 'info'
+  } as Record<string, any>)[s] || 'info'
 }
 
 function priorityLabel(p: string) {
@@ -273,24 +348,39 @@ function priorityType(p: string) {
   return ({ urgent: 'danger', high: 'warning', normal: 'warning', low: 'info' } as Record<string, any>)[p] || 'info'
 }
 
+function sourceLabel(s: string) {
+  return { inspection: '巡检转单', active: '主动上报', frontdesk: '前台代录' }[s] || s
+}
+
+function sourceType(s: string) {
+  return ({ inspection: 'warning', active: 'primary', frontdesk: 'info' } as Record<string, any>)[s] || 'info'
+}
+
 // 时间线动作
 function actionLabel(a: string) {
   return {
-    report: '上报', create: '建单', assign: '派单', accept: '接单',
-    finish: '处理反馈', review_pass: '复核通过', review_reject: '复核驳回', close: '关闭'
+    create: '建单',
+    triage_pass: '分诊通过', triage_reject: '分诊驳回',
+    dispatch: '派单', grab: '抢单',
+    finish: '完工提交',
+    confirm_pass: '验收通过', confirm_reject: '验收退回'
   }[a] || a
 }
 
 function logType(a: string) {
-  return ({ review_reject: 'danger', review_pass: 'success', close: 'info', finish: 'primary' } as Record<string, any>)[a] || 'primary'
+  return ({
+    triage_reject: 'danger', confirm_reject: 'danger',
+    triage_pass: 'primary', confirm_pass: 'success',
+    finish: 'primary'
+  } as Record<string, any>)[a] || 'primary'
 }
 
 // 下一待办提示
 const nextStepText = computed(() => {
   const s = detail.value?.status
   return ({
-    pending: '待派单', assigned: '等待处理人接单', processing: '等待处理反馈',
-    review: '待复核', rejected: '已驳回，可重新派单'
+    reported: '待分诊', pending_dispatch: '待派单', processing: '等待维修工完工提交',
+    pending_confirm: '待验收（报单人或分诊名单成员）'
   } as Record<string, string>)[s || ''] || ''
 })
 
@@ -298,41 +388,108 @@ const nextStepText = computed(() => {
 const hasActions = computed(() => {
   const s = detail.value?.status
   return (
-    ((s === 'pending' || s === 'rejected') && userStore.hasPerm('workorder:assign')) ||
-    ((s === 'assigned' || s === 'processing') && userStore.hasPerm('workorder:finish')) ||
-    (s === 'review' && userStore.hasPerm('workorder:review'))
+    (s === 'reported' && userStore.hasPerm('workorder:triage')) ||
+    (s === 'pending_dispatch' && userStore.hasPerm('workorder:dispatch')) ||
+    (s === 'processing' && userStore.hasPerm('workorder:finish')) ||
+    (s === 'pending_confirm' && userStore.hasPerm('workorder:confirm'))
   )
 })
 
-// 是否展示"整改后"列：已有整改回传（处理反馈已提交或该项已有整改后照片）
+// 是否展示"整改后"列：已有整改回传（完工已提交或该项已有整改后照片）
 function hasAfterPhotos(item: WorkOrderCheckItem) {
-  return !!item.after_photo_urls?.length || !!detail.value?.finished_at || ['review', 'closed'].includes(detail.value?.status || '')
+  return !!item.after_photo_urls?.length || !!detail.value?.finish_at || ['pending_confirm', 'closed'].includes(detail.value?.status || '')
 }
 
-// ===== 派单 =====
-const assignVisible = ref(false)
-const assigning = ref(false)
-const assignFormRef = ref<FormInstance>()
-const assignForm = reactive({ assignee_id: null as string | null, remark: '' })
+// ===== 分诊 =====
+const triageVisible = ref(false)
+const triaging = ref(false)
+const triageFormRef = ref<FormInstance>()
+const triageForm = reactive({
+  result: 'pass' as 'pass' | 'reject',
+  priority: 'normal',
+  category: '',
+  note: ''
+})
 
-const assignRules: FormRules = {
-  assignee_id: [{ required: true, message: '请选择处理人', trigger: 'change' }]
+// 驳回时原因必填（动态校验）
+const triageRules: FormRules = {
+  note: [{
+    validator: (_r, v, cb) => {
+      if (triageForm.result === 'reject' && !String(v || '').trim()) cb(new Error('驳回必须填写原因'))
+      else cb()
+    },
+    trigger: 'blur'
+  }]
 }
 
-async function handleAssign() {
-  await assignFormRef.value?.validate()
-  assigning.value = true
+function openTriage() {
+  triageFormRef.value?.clearValidate()
+  Object.assign(triageForm, { result: 'pass', priority: detail.value?.priority || 'normal', category: detail.value?.category || '', note: '' })
+  triageVisible.value = true
+}
+
+async function handleTriage() {
+  await triageFormRef.value?.validate()
+  triaging.value = true
   try {
-    await assignWorkOrder(detail.value!.id, { assignee_id: assignForm.assignee_id!, remark: assignForm.remark || undefined })
-    ElMessage.success('已派单')
-    assignVisible.value = false
+    await triageWorkOrder(detail.value!.id, {
+      result: triageForm.result,
+      priority: triageForm.result === 'pass' ? triageForm.priority : undefined,
+      category: triageForm.result === 'pass' ? triageForm.category || undefined : undefined,
+      note: triageForm.note || undefined
+    })
+    ElMessage.success(triageForm.result === 'pass' ? '分诊通过，工单进入待派单' : '已驳回，工单作废')
+    triageVisible.value = false
     fetchDetail()
   } finally {
-    assigning.value = false
+    triaging.value = false
   }
 }
 
-// ===== 处理反馈（代录） =====
+// ===== 派单 =====
+const dispatchVisible = ref(false)
+const dispatching = ref(false)
+const dispatchFormRef = ref<FormInstance>()
+const dispatchForm = reactive({ assignee_id: null as string | null, remark: '' })
+// 候选人：本项目编制中「维修工」岗位的在职成员（接单槽位名单默认绑定维修工岗位）
+const staffList = ref<StaffItem[]>([])
+const staffLoading = ref(false)
+const assigneeOptions = computed(() =>
+  staffList.value.filter((s) => s.status === 1 && s.posts?.includes('repairman'))
+)
+
+const dispatchRules: FormRules = {
+  assignee_id: [{ required: true, message: '请选择维修工', trigger: 'change' }]
+}
+
+async function openDispatch() {
+  dispatchFormRef.value?.clearValidate()
+  Object.assign(dispatchForm, { assignee_id: null, remark: '' })
+  dispatchVisible.value = true
+  if (!staffList.value.length && detail.value) {
+    staffLoading.value = true
+    try {
+      staffList.value = await listStaff(detail.value.community_id)
+    } finally {
+      staffLoading.value = false
+    }
+  }
+}
+
+async function handleDispatch() {
+  await dispatchFormRef.value?.validate()
+  dispatching.value = true
+  try {
+    await dispatchWorkOrder(detail.value!.id, { assignee_id: dispatchForm.assignee_id!, remark: dispatchForm.remark || undefined })
+    ElMessage.success('已派单，工单进入处理中')
+    dispatchVisible.value = false
+    fetchDetail()
+  } finally {
+    dispatching.value = false
+  }
+}
+
+// ===== 完工（代录） =====
 const finishVisible = ref(false)
 const finishing = ref(false)
 const finishFormRef = ref<FormInstance>()
@@ -341,7 +498,7 @@ const finishForm = reactive({ fix_remark: '', after_photos: {} as Record<string,
 const afterUploading = reactive<Record<string, boolean>>({})
 
 const finishRules: FormRules = {
-  fix_remark: [{ required: true, message: '请填写处理说明', trigger: 'blur' }]
+  fix_remark: [{ required: true, message: '请填写完工说明', trigger: 'blur' }]
 }
 
 // 整改后照片上传：scene 用 workorder（与小程序端一致）
@@ -372,7 +529,7 @@ async function handleFinish() {
       fix_remark: finishForm.fix_remark,
       ...(Object.keys(after_photos).length ? { after_photos } : {})
     })
-    ElMessage.success('处理反馈已提交，工单进入待复核')
+    ElMessage.success('完工已提交，工单进入待验收')
     finishVisible.value = false
     finishForm.fix_remark = ''
     finishForm.after_photos = {}
@@ -382,44 +539,44 @@ async function handleFinish() {
   }
 }
 
-// ===== 复核 =====
-const reviewing = ref(false)
-const rejectVisible = ref(false)
-const rejectFormRef = ref<FormInstance>()
-const rejectForm = reactive({ review_remark: '' })
+// ===== 验收 =====
+const confirming = ref(false)
+const confirmRejectVisible = ref(false)
+const confirmRejectFormRef = ref<FormInstance>()
+const confirmRejectForm = reactive({ confirm_note: '' })
 
-const rejectRules: FormRules = {
-  review_remark: [{ required: true, message: '驳回必须填写原因', trigger: 'blur' }]
+const confirmRejectRules: FormRules = {
+  confirm_note: [{ required: true, message: '退回必须填写原因', trigger: 'blur' }]
 }
 
-async function handleReviewPass() {
-  const ok = await ElMessageBox.confirm('复核通过后工单将关闭，并通知巡检员与处理人，确定通过吗？', '复核通过', {
-    confirmButtonText: '复核通过',
+async function handleConfirmPass() {
+  const ok = await ElMessageBox.confirm('验收通过后工单将闭环归档，确定通过吗？', '验收通过', {
+    confirmButtonText: '验收通过',
     cancelButtonText: '取消',
     type: 'success'
   }).then(() => true).catch(() => false)
   if (!ok) return
-  reviewing.value = true
+  confirming.value = true
   try {
-    await reviewWorkOrder(detail.value!.id, { result: 'pass' })
-    ElMessage.success('复核通过，工单已关闭')
+    await confirmWorkOrder(detail.value!.id, { result: 'pass' })
+    ElMessage.success('验收通过，工单已闭环')
     fetchDetail()
   } finally {
-    reviewing.value = false
+    confirming.value = false
   }
 }
 
-async function handleReviewReject() {
-  await rejectFormRef.value?.validate()
-  reviewing.value = true
+async function handleConfirmReject() {
+  await confirmRejectFormRef.value?.validate()
+  confirming.value = true
   try {
-    await reviewWorkOrder(detail.value!.id, { result: 'reject', review_remark: rejectForm.review_remark })
-    ElMessage.success('已驳回，可重新派单')
-    rejectVisible.value = false
-    rejectForm.review_remark = ''
+    await confirmWorkOrder(detail.value!.id, { result: 'reject', confirm_note: confirmRejectForm.confirm_note })
+    ElMessage.success('已退回，工单返回处理中')
+    confirmRejectVisible.value = false
+    confirmRejectForm.confirm_note = ''
     fetchDetail()
   } finally {
-    reviewing.value = false
+    confirming.value = false
   }
 }
 </script>
@@ -578,6 +735,10 @@ async function handleReviewReject() {
     gap: $spacing-sm;
     flex-wrap: wrap;
   }
+}
+
+.danger-text {
+  color: $color-danger;
 }
 
 .error-result {

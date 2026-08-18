@@ -33,8 +33,9 @@ func NewSignAssetService(db *gorm.DB, store *storage.Storage) *SignAssetService 
 }
 
 // List 签章资产分页列表（含 URL、归属人姓名、sha256 短码）。
-func (s *SignAssetService) List(q *dto.SignAssetQuery) (*response.Page, *errs.Error) {
-	db := s.db.Model(&model.SignAsset{})
+// 租户隔离：仅看操作者所属租户的资产（含超管，本阶段不做跨租户查看）。
+func (s *SignAssetService) List(q *dto.SignAssetQuery, tenantID string) (*response.Page, *errs.Error) {
+	db := s.db.Model(&model.SignAsset{}).Where("tenant_id = ?", tenantID)
 	if q.AssetType != "" {
 		db = db.Where("asset_type = ?", q.AssetType)
 	}
@@ -110,9 +111,10 @@ func (s *SignAssetService) toItem(a *model.SignAsset, names map[string]string) d
 	return item
 }
 
-// Create 新增签章资产（创建即 active；同 type+owner 原 active 同事务置 replaced）。
-func (s *SignAssetService) Create(operatorID string, req *dto.SignAssetCreateReq) (*dto.SignAssetItem, *errs.Error) {
-	asset, be := s.create(operatorID, req.AssetType, req.OwnerID, strings.TrimSpace(req.FileKey), req.Remark)
+// Create 新增签章资产（创建即 active；同租户+type+owner 原 active 同事务置 replaced）。
+// tenantID 取操作者所属租户（个人签名/公章同规则）。
+func (s *SignAssetService) Create(operatorID, tenantID string, req *dto.SignAssetCreateReq) (*dto.SignAssetItem, *errs.Error) {
+	asset, be := s.create(operatorID, tenantID, req.AssetType, req.OwnerID, strings.TrimSpace(req.FileKey), req.Remark)
 	if be != nil {
 		return nil, be
 	}
@@ -126,10 +128,13 @@ func (s *SignAssetService) Create(operatorID string, req *dto.SignAssetCreateReq
 	return &item, nil
 }
 
-// create 核心创建逻辑（个人签名替换与后台新增共用）。
-func (s *SignAssetService) create(operatorID, assetType string, ownerID *string, fileKey, remark string) (*model.SignAsset, *errs.Error) {
+// create 核心创建逻辑（个人签名替换与后台新增共用）；tenantID 为资产归属租户。
+func (s *SignAssetService) create(operatorID, tenantID, assetType string, ownerID *string, fileKey, remark string) (*model.SignAsset, *errs.Error) {
 	if fileKey == "" {
 		return nil, errs.ErrParam.WithMsg("file_key 为必填项")
+	}
+	if tenantID == "" {
+		return nil, errs.ErrParam.WithMsg("租户上下文缺失")
 	}
 	var owner *string
 	switch assetType {
@@ -144,7 +149,7 @@ func (s *SignAssetService) create(operatorID, assetType string, ownerID *string,
 		}
 		owner = ownerID
 	case model.SignAssetTypeCompanySeal:
-		owner = nil // 公章全局唯一 active，忽略传入的 owner_id
+		owner = nil // 公章按租户唯一 active，忽略传入的 owner_id
 	default:
 		return nil, errs.ErrParam.WithMsg("asset_type 取值非法（user_signature/company_seal）")
 	}
@@ -152,9 +157,9 @@ func (s *SignAssetService) create(operatorID, assetType string, ownerID *string,
 	sha := s.sha256Of(fileKey)
 	var asset model.SignAsset
 	err := s.db.Transaction(func(tx *gorm.DB) error {
-		// 同 type+owner 的查询基座（每次重建，避免 statement 条件残留）
+		// 同租户+type+owner 的查询基座（每次重建，避免 statement 条件残留）
 		base := func() *gorm.DB {
-			q := tx.Model(&model.SignAsset{}).Where("asset_type = ?", assetType)
+			q := tx.Model(&model.SignAsset{}).Where("tenant_id = ? AND asset_type = ?", tenantID, assetType)
 			if owner != nil {
 				return q.Where("owner_id = ?", *owner)
 			}
@@ -170,6 +175,7 @@ func (s *SignAssetService) create(operatorID, assetType string, ownerID *string,
 			return err
 		}
 		asset = model.SignAsset{
+			TenantID:  &tenantID,
 			AssetType: assetType,
 			OwnerID:   owner,
 			FileKey:   fileKey,
@@ -187,14 +193,17 @@ func (s *SignAssetService) create(operatorID, assetType string, ownerID *string,
 	return &asset, nil
 }
 
-// Revoke 作废签章（仅 active 可作废，reason 必填）。
-func (s *SignAssetService) Revoke(id, reason string) *errs.Error {
+// Revoke 作废签章（仅 active 可作废，reason 必填）；跨租户资产按 404 处理（不暴露存在性）。
+func (s *SignAssetService) Revoke(id, reason, tenantID string) *errs.Error {
 	reason = strings.TrimSpace(reason)
 	if reason == "" {
 		return errs.ErrParam.WithMsg("reason 为必填项")
 	}
 	var asset model.SignAsset
 	if err := s.db.First(&asset, "id = ?", id).Error; err != nil {
+		return errs.ErrNotFound
+	}
+	if asset.TenantID == nil || *asset.TenantID != tenantID {
 		return errs.ErrNotFound
 	}
 	if asset.Status != model.SignAssetStatusActive {
@@ -211,7 +220,7 @@ func (s *SignAssetService) Revoke(id, reason string) *errs.Error {
 	return nil
 }
 
-// SetUserSignature 个人中心换签名：fileKey 非空创建/替换当前用户 active 签名资产；
+// SetUserSignature 个人中心换签名：fileKey 非空创建/替换当前用户 active 签名资产（tenant_id 取该用户所属租户）；
 // 空串表示移除签名（当前 active 置 revoked 留痕）。
 func (s *SignAssetService) SetUserSignature(uid, fileKey string) *errs.Error {
 	if fileKey == "" {
@@ -230,7 +239,12 @@ func (s *SignAssetService) SetUserSignature(uid, fileKey string) *errs.Error {
 		}
 		return nil
 	}
-	_, be := s.create(uid, model.SignAssetTypeUserSignature, &uid, fileKey, "")
+	// 租户取签名归属用户的所属租户（与操作者租户一致，个人中心场景二者同人）
+	var u model.SysUser
+	if err := s.db.Select("tenant_id").First(&u, "id = ?", uid).Error; err != nil {
+		return errs.ErrNotFound
+	}
+	_, be := s.create(uid, u.TenantID, model.SignAssetTypeUserSignature, &uid, fileKey, "")
 	return be
 }
 
@@ -246,11 +260,14 @@ func (s *SignAssetService) ActiveSignature(userID string) (fileKey, assetID stri
 	return a.FileKey, a.ID
 }
 
-// ActiveSealKey 当前 active 公章 file_key（无则空串）。
-func (s *SignAssetService) ActiveSealKey() string {
+// ActiveSealKey 指定租户当前 active 公章 file_key（tenantID 为空或无 active 公章返回空串）。
+func (s *SignAssetService) ActiveSealKey(tenantID *string) string {
+	if tenantID == nil || *tenantID == "" {
+		return ""
+	}
 	var a model.SignAsset
 	if err := s.db.Select("file_key").
-		Where("asset_type = ? AND status = ?", model.SignAssetTypeCompanySeal, model.SignAssetStatusActive).
+		Where("tenant_id = ? AND asset_type = ? AND status = ?", *tenantID, model.SignAssetTypeCompanySeal, model.SignAssetStatusActive).
 		First(&a).Error; err != nil {
 		return ""
 	}

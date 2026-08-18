@@ -4,6 +4,7 @@ import (
 	"gorm.io/gorm"
 
 	"anxuncloud/internal/module/system/model"
+	systemsvc "anxuncloud/internal/module/system/service"
 	"anxuncloud/internal/pkg/password"
 	"anxuncloud/internal/pkg/types"
 )
@@ -19,6 +20,10 @@ func Seed(db *gorm.DB, adminUsername, adminPassword, adminName string) error {
 		return nil
 	}
 	return db.Transaction(func(tx *gorm.DB) error {
+		tenantID, err := seedTenant(tx)
+		if err != nil {
+			return err
+		}
 		roleIDs, err := seedRoles(tx)
 		if err != nil {
 			return err
@@ -30,23 +35,52 @@ func Seed(db *gorm.DB, adminUsername, adminPassword, adminName string) error {
 		if err := seedRoleMenus(tx, roleIDs, menuIDs); err != nil {
 			return err
 		}
-		if err := seedAdmin(tx, roleIDs["super_admin"], adminUsername, adminPassword, adminName); err != nil {
+		if err := seedAdmin(tx, roleIDs["super_admin"], tenantID, adminUsername, adminPassword, adminName); err != nil {
 			return err
 		}
 		if err := seedDicts(tx); err != nil {
 			return err
 		}
-		return seedConfigs(tx)
+		if err := seedConfigs(tx); err != nil {
+			return err
+		}
+		if err := seedPosts(tx, roleIDs); err != nil {
+			return err
+		}
+		if err := seedDutyBindings(tx); err != nil {
+			return err
+		}
+		// 默认租户同样需要一份岗位与槽位默认（模板只读于开通/初始化那一刻，与开通租户同一复制逻辑）
+		return systemsvc.CopyPostTemplatesToTenant(tx, tenantID)
 	})
 }
 
-// seedRoles 预置四个内置角色，返回 code → id 映射。
+// seedTenant 确保默认租户存在（P3 多租户：私有化部署 = 只有默认租户的同一套系统）。
+// 迁移 00020 已插入默认租户，此处兜底查询/创建，返回租户 ID 供超管账号归属。
+func seedTenant(tx *gorm.DB) (string, error) {
+	var t model.Tenant
+	if err := tx.Where("code = ?", model.DefaultTenantCode).First(&t).Error; err == nil {
+		return t.ID, nil
+	}
+	t = model.Tenant{
+		Code:   model.DefaultTenantCode,
+		Name:   "默认租户",
+		Status: model.StatusEnabled,
+		Remark: "系统预置默认租户（私有化部署 = 只有该租户的同一套系统）",
+	}
+	if err := tx.Create(&t).Error; err != nil {
+		return "", err
+	}
+	return t.ID, nil
+}
+
+// seedRoles 预置四个内置角色（权限模板，见设计方案 §3.1），返回 code → id 映射。
 func seedRoles(tx *gorm.DB) (map[string]string, error) {
 	roles := []model.SysRole{
 		{Code: "super_admin", Name: "超级管理员", DataScope: model.ScopeAll, Remark: "拥有全部权限", IsBuiltin: true},
-		{Code: "manager", Name: "物业主管", DataScope: model.ScopeCustom, Remark: "按所辖小区查看数据", IsBuiltin: true},
-		{Code: "inspector", Name: "巡检员", DataScope: model.ScopeCustom, Remark: "小程序端打卡巡检", IsBuiltin: true},
-		{Code: "repair", Name: "维修人员", DataScope: model.ScopeCustom, Remark: "小程序端处理工单", IsBuiltin: true},
+		{Code: "tenant_admin", Name: "租户管理员", DataScope: model.ScopeAll, Remark: "物业公司负责人：租户内全部业务功能与租户级系统管理", IsBuiltin: true},
+		{Code: "project_admin", Name: "项目管理员", DataScope: model.ScopeProject, Remark: "项目经理/主管等项目级后台使用人员：业务菜单全开", IsBuiltin: true},
+		{Code: "field_staff", Name: "一线人员", DataScope: model.ScopeSelf, Remark: "巡检员/维修工/楼管员/前台等移动端使用人员：打卡、任务、工单、月报确认", IsBuiltin: true},
 	}
 	ids := make(map[string]string, len(roles))
 	for i := range roles {
@@ -68,6 +102,7 @@ type menuSeed struct {
 	perms    string
 	sort     int
 	hidden   bool // 侧边栏不显示（路由仍注册，如个人中心从顶栏头像进入）
+	platform bool // 平台级菜单（平台管理目录）：整棵子树继承，仅超管可见可授权
 	children []menuSeed
 }
 
@@ -109,10 +144,11 @@ func seedMenus(tx *gorm.DB) (map[string]string, error) {
 				{title: "新建工单", typ: model.MenuTypeButton, perms: "workorder:create", sort: 1},
 				{title: "编辑工单", typ: model.MenuTypeButton, perms: "workorder:update", sort: 2},
 				{title: "删除工单", typ: model.MenuTypeButton, perms: "workorder:delete", sort: 3},
-				{title: "派单", typ: model.MenuTypeButton, perms: "workorder:assign", sort: 4},
 				{title: "处理反馈", typ: model.MenuTypeButton, perms: "workorder:finish", sort: 5},
-				{title: "复核", typ: model.MenuTypeButton, perms: "workorder:review", sort: 6},
 				{title: "导出", typ: model.MenuTypeButton, perms: "workorder:export", sort: 7},
+				{title: "工单分诊", typ: model.MenuTypeButton, perms: "workorder:triage", sort: 8},
+				{title: "工单派单", typ: model.MenuTypeButton, perms: "workorder:dispatch", sort: 9},
+				{title: "工单验收", typ: model.MenuTypeButton, perms: "workorder:confirm", sort: 10},
 			}},
 		}},
 		{title: "统计分析", path: "/stats", icon: "DataAnalysis", typ: model.MenuTypeDir, sort: 40, children: []menuSeed{
@@ -123,8 +159,6 @@ func seedMenus(tx *gorm.DB) (map[string]string, error) {
 			{title: "月度报告", path: "/stats/reports", icon: "Notebook", typ: model.MenuTypeMenu, perms: "report:list", sort: 5, children: []menuSeed{
 				{title: "生成报告", typ: model.MenuTypeButton, perms: "report:generate", sort: 1},
 				{title: "巡检员确认", typ: model.MenuTypeButton, perms: "report:sign:inspector", sort: 2},
-				{title: "主管签字", typ: model.MenuTypeButton, perms: "report:sign:supervisor", sort: 3},
-				{title: "经理终审", typ: model.MenuTypeButton, perms: "report:sign:manager", sort: 4},
 				{title: "下载PDF", typ: model.MenuTypeButton, perms: "report:download", sort: 5},
 				{title: "代签", typ: model.MenuTypeButton, perms: "report:sign:proxy", sort: 6},
 			}},
@@ -137,8 +171,13 @@ func seedMenus(tx *gorm.DB) (map[string]string, error) {
 			{title: "新增楼栋", typ: model.MenuTypeButton, perms: "community:building:create", sort: 5},
 			{title: "编辑楼栋", typ: model.MenuTypeButton, perms: "community:building:update", sort: 6},
 			{title: "删除楼栋", typ: model.MenuTypeButton, perms: "community:building:delete", sort: 7},
+			{title: "编制名单", typ: model.MenuTypeButton, perms: "community:staff:list", sort: 8},
+			{title: "编制维护", typ: model.MenuTypeButton, perms: "community:staff:edit", sort: 9},
+			{title: "职责绑定", typ: model.MenuTypeButton, perms: "community:duty:edit", sort: 10},
 		}},
-		{title: "系统管理", path: "/system", icon: "Setting", typ: model.MenuTypeDir, sort: 60, children: []menuSeed{
+		// 系统管理（租户级，《管理后台信息架构与菜单归位方案》第一章）：租户管理员管本公司内部事务，
+		// 全部数据操作处在「租户上下文」（middleware.EffectiveTenantID）中
+		{title: "系统管理", path: "/system", icon: "Suitcase", typ: model.MenuTypeDir, sort: 60, children: []menuSeed{
 			{title: "用户管理", path: "/system/users", icon: "User", typ: model.MenuTypeMenu, perms: "system:user:list", sort: 1, children: []menuSeed{
 				{title: "新增用户", typ: model.MenuTypeButton, perms: "system:user:create", sort: 1},
 				{title: "编辑用户", typ: model.MenuTypeButton, perms: "system:user:update", sort: 2},
@@ -153,59 +192,84 @@ func seedMenus(tx *gorm.DB) (map[string]string, error) {
 				{title: "删除角色", typ: model.MenuTypeButton, perms: "system:role:delete", sort: 3},
 				{title: "分配权限", typ: model.MenuTypeButton, perms: "system:role:assign", sort: 4},
 			}},
-			{title: "菜单管理", path: "/system/menus", icon: "Menu", typ: model.MenuTypeMenu, perms: "system:menu:list", sort: 3, children: []menuSeed{
-				{title: "新增菜单", typ: model.MenuTypeButton, perms: "system:menu:create", sort: 1},
-				{title: "编辑菜单", typ: model.MenuTypeButton, perms: "system:menu:update", sort: 2},
-				{title: "删除菜单", typ: model.MenuTypeButton, perms: "system:menu:delete", sort: 3},
+			// 岗位管理（方案第三章）：本租户岗位 + 岗位绑角色 + 租户级职责槽位默认绑定
+			{title: "岗位管理", path: "/system/posts", icon: "Postcard", typ: model.MenuTypeMenu, perms: "system:post:list", sort: 3, children: []menuSeed{
+				{title: "新增岗位", typ: model.MenuTypeButton, perms: "system:post:create", sort: 1},
+				{title: "编辑岗位", typ: model.MenuTypeButton, perms: "system:post:update", sort: 2},
+				{title: "删除岗位", typ: model.MenuTypeButton, perms: "system:post:delete", sort: 3},
+				{title: "职责绑定", typ: model.MenuTypeButton, perms: "system:post:duty", sort: 4},
 			}},
-			{title: "字典管理", path: "/system/dicts", icon: "Collection", typ: model.MenuTypeMenu, perms: "system:dict:list", sort: 4, children: []menuSeed{
-				{title: "新增字典", typ: model.MenuTypeButton, perms: "system:dict:create", sort: 1},
-				{title: "编辑字典", typ: model.MenuTypeButton, perms: "system:dict:update", sort: 2},
-				{title: "删除字典", typ: model.MenuTypeButton, perms: "system:dict:delete", sort: 3},
+			{title: "签章管理", path: "/system/sign-assets", icon: "Stamp", typ: model.MenuTypeMenu, perms: "system:signasset:list", sort: 4, children: []menuSeed{
+				{title: "新增签章", typ: model.MenuTypeButton, perms: "system:signasset:create", sort: 1},
+				{title: "作废签章", typ: model.MenuTypeButton, perms: "system:signasset:revoke", sort: 2},
 			}},
-			{title: "系统配置", path: "/system/configs", icon: "Operation", typ: model.MenuTypeMenu, perms: "system:config:list", sort: 5, children: []menuSeed{
-				{title: "新增参数", typ: model.MenuTypeButton, perms: "system:config:create", sort: 1},
-				{title: "编辑参数", typ: model.MenuTypeButton, perms: "system:config:update", sort: 2},
-				{title: "删除参数", typ: model.MenuTypeButton, perms: "system:config:delete", sort: 3},
+			{title: "日志管理", path: "/system/logs", icon: "Tickets", typ: model.MenuTypeMenu, perms: "system:log:list", sort: 5, children: []menuSeed{
+				{title: "操作日志", typ: model.MenuTypeButton, perms: "system:log:operation", sort: 1},
+				{title: "登录日志", typ: model.MenuTypeButton, perms: "system:log:login", sort: 2},
+				{title: "日志导出", typ: model.MenuTypeButton, perms: "system:log:export", sort: 3},
 			}},
 			{title: "通知公告", path: "/system/notices", icon: "Bell", typ: model.MenuTypeMenu, perms: "system:notice:list", sort: 6, children: []menuSeed{
 				{title: "新增公告", typ: model.MenuTypeButton, perms: "system:notice:create", sort: 1},
 				{title: "编辑公告", typ: model.MenuTypeButton, perms: "system:notice:update", sort: 2},
 				{title: "删除公告", typ: model.MenuTypeButton, perms: "system:notice:delete", sort: 3},
 			}},
-			{title: "日志管理", path: "/system/logs", icon: "Tickets", typ: model.MenuTypeMenu, perms: "system:log:list", sort: 7, children: []menuSeed{
-				{title: "操作日志", typ: model.MenuTypeButton, perms: "system:log:operation", sort: 1},
-				{title: "登录日志", typ: model.MenuTypeButton, perms: "system:log:login", sort: 2},
-				{title: "日志导出", typ: model.MenuTypeButton, perms: "system:log:export", sort: 3},
+			// 企业品牌（tenant:config）：租户管理员管理本租户的品牌覆盖配置，授 super_admin + tenant_admin
+			{title: "企业品牌", path: "/system/brand", icon: "Brush", typ: model.MenuTypeMenu, perms: "tenant:config", sort: 7},
+		}},
+		// 平台管理（平台级，仅超管）：整棵子树 is_platform=true，租户角色不可见不可授权
+		{title: "平台管理", path: "/platform", icon: "Setting", typ: model.MenuTypeDir, sort: 70, platform: true, children: []menuSeed{
+			{title: "租户管理", path: "/platform/tenants", icon: "OfficeBuilding", typ: model.MenuTypeMenu, perms: "tenant:list", sort: 1, children: []menuSeed{
+				{title: "新增租户", typ: model.MenuTypeButton, perms: "tenant:create", sort: 1},
+				{title: "编辑租户", typ: model.MenuTypeButton, perms: "tenant:update", sort: 2},
 			}},
-			{title: "签章管理", path: "/system/sign-assets", icon: "Stamp", typ: model.MenuTypeMenu, perms: "system:signasset:list", sort: 8, children: []menuSeed{
-				{title: "新增签章", typ: model.MenuTypeButton, perms: "system:signasset:create", sort: 1},
-				{title: "作废签章", typ: model.MenuTypeButton, perms: "system:signasset:revoke", sort: 2},
+			{title: "菜单管理", path: "/platform/menus", icon: "Menu", typ: model.MenuTypeMenu, perms: "system:menu:list", sort: 2, children: []menuSeed{
+				{title: "新增菜单", typ: model.MenuTypeButton, perms: "system:menu:create", sort: 1},
+				{title: "编辑菜单", typ: model.MenuTypeButton, perms: "system:menu:update", sort: 2},
+				{title: "删除菜单", typ: model.MenuTypeButton, perms: "system:menu:delete", sort: 3},
 			}},
-			{title: "品牌官网", path: "/system/site", icon: "Platform", typ: model.MenuTypeMenu, perms: "system:site:list", sort: 9, children: []menuSeed{
+			{title: "字典管理", path: "/platform/dicts", icon: "Collection", typ: model.MenuTypeMenu, perms: "system:dict:list", sort: 3, children: []menuSeed{
+				{title: "新增字典", typ: model.MenuTypeButton, perms: "system:dict:create", sort: 1},
+				{title: "编辑字典", typ: model.MenuTypeButton, perms: "system:dict:update", sort: 2},
+				{title: "删除字典", typ: model.MenuTypeButton, perms: "system:dict:delete", sort: 3},
+			}},
+			{title: "系统配置", path: "/platform/configs", icon: "Operation", typ: model.MenuTypeMenu, perms: "system:config:list", sort: 4, children: []menuSeed{
+				{title: "新增参数", typ: model.MenuTypeButton, perms: "system:config:create", sort: 1},
+				{title: "编辑参数", typ: model.MenuTypeButton, perms: "system:config:update", sort: 2},
+				{title: "删除参数", typ: model.MenuTypeButton, perms: "system:config:delete", sort: 3},
+			}},
+			{title: "品牌官网", path: "/platform/site", icon: "Platform", typ: model.MenuTypeMenu, perms: "system:site:list", sort: 5, children: []menuSeed{
 				{title: "保存页面配置", typ: model.MenuTypeButton, perms: "system:site:update", sort: 1},
 				{title: "上传发布物", typ: model.MenuTypeButton, perms: "system:site:upload", sort: 2},
 				{title: "删除发布物", typ: model.MenuTypeButton, perms: "system:site:delete", sort: 3},
 			}},
+			// 岗位模板库（方案第三章）：平台模板岗位 + 平台默认槽位绑定，仅作开通租户时的初始拷贝源
+			{title: "岗位模板库", path: "/platform/post-templates", icon: "CopyDocument", typ: model.MenuTypeMenu, perms: "platform:post:list", sort: 6, children: []menuSeed{
+				{title: "新增模板岗位", typ: model.MenuTypeButton, perms: "platform:post:create", sort: 1},
+				{title: "编辑模板岗位", typ: model.MenuTypeButton, perms: "platform:post:update", sort: 2},
+				{title: "删除模板岗位", typ: model.MenuTypeButton, perms: "platform:post:delete", sort: 3},
+				{title: "默认职责绑定", typ: model.MenuTypeButton, perms: "platform:post:duty", sort: 4},
+			}},
 		}},
-		{title: "个人中心", path: "/profile", icon: "UserFilled", typ: model.MenuTypeMenu, perms: "profile:view", sort: 70, hidden: true},
+		{title: "个人中心", path: "/profile", icon: "UserFilled", typ: model.MenuTypeMenu, perms: "profile:view", sort: 80, hidden: true},
 	}
 
 	ids := make(map[string]string)
-	var walk func(nodes []menuSeed, parentID *string) error
-	walk = func(nodes []menuSeed, parentID *string) error {
+	var walk func(nodes []menuSeed, parentID *string, platform bool) error
+	walk = func(nodes []menuSeed, parentID *string, platform bool) error {
 		for _, n := range nodes {
+			np := platform || n.platform // 平台级目录的整棵子树继承标记（兄弟节点互不影响）
 			m := model.SysMenu{
-				ParentID:  parentID,
-				Title:     n.title,
-				Path:      n.path,
-				Icon:      n.icon,
-				Type:      n.typ,
-				Perms:     n.perms,
-				Sort:      n.sort,
-				Visible:   n.typ != model.MenuTypeButton && !n.hidden,
-				Status:    model.StatusEnabled,
-				IsBuiltin: true,
+				ParentID:   parentID,
+				Title:      n.title,
+				Path:       n.path,
+				Icon:       n.icon,
+				Type:       n.typ,
+				Perms:      n.perms,
+				Sort:       n.sort,
+				Visible:    n.typ != model.MenuTypeButton && !n.hidden,
+				Status:     model.StatusEnabled,
+				IsBuiltin:  true,
+				IsPlatform: np,
 			}
 			if err := tx.Create(&m).Error; err != nil {
 				return err
@@ -216,36 +280,55 @@ func seedMenus(tx *gorm.DB) (map[string]string, error) {
 			if n.path != "" {
 				ids[n.path] = m.ID
 			}
-			if err := walk(n.children, &m.ID); err != nil {
+			if err := walk(n.children, &m.ID, np); err != nil {
 				return err
 			}
 		}
 		return nil
 	}
-	return ids, walk(tree, nil)
+	return ids, walk(tree, nil, false)
 }
 
-// seedRoleMenus 分配角色菜单：超管全量；主管含工作台/巡检/工单/统计/个人中心。
+// seedRoleMenus 分配角色菜单：超管全量；租户管理员为全部非平台级菜单（is_platform=false，即系统管理 + 业务模块）；
+// 项目管理员含工作台/巡检/工单/统计/小区编制/个人中心。
 func seedRoleMenus(tx *gorm.DB, roleIDs, menuIDs map[string]string) error {
-	var allMenuIDs []string
-	if err := tx.Model(&model.SysMenu{}).Pluck("id", &allMenuIDs).Error; err != nil {
+	var allMenus []model.SysMenu
+	if err := tx.Select("id", "perms", "path", "is_platform").Find(&allMenus).Error; err != nil {
 		return err
 	}
-	// 主管可见的权限点（目录按 path 收录，保证侧边栏结构完整）
-	managerPerms := []string{
+	var allMenuIDs, tenantAdminMenuIDs []string
+	for _, m := range allMenus {
+		allMenuIDs = append(allMenuIDs, m.ID)
+		// 平台级菜单（is_platform：平台管理目录整棵子树）不下放租户管理员
+		if m.IsPlatform {
+			continue
+		}
+		tenantAdminMenuIDs = append(tenantAdminMenuIDs, m.ID)
+	}
+	// 项目管理员可见的权限点（目录按 path 收录，保证侧边栏结构完整）
+	projectAdminPerms := []string{
 		"/dashboard",
 		"/inspection", "inspection:point:list", "inspection:point:create", "inspection:point:update", "inspection:point:delete", "inspection:point:qrcode", "inspection:point:import",
 		"inspection:plan:list", "inspection:plan:create", "inspection:plan:update", "inspection:plan:disable",
 		"inspection:task:monitor", "inspection:task:list", "inspection:record:list", "inspection:checkin:list",
 		"inspection:template:list", "inspection:checkin:review", "inspection:checkin:spotcheck",
 		"/workorders", "workorder:list", "workorder:create", "workorder:update", "workorder:delete",
-		"workorder:assign", "workorder:finish", "workorder:review", "workorder:export",
+		"workorder:finish", "workorder:export",
+		"workorder:triage", "workorder:dispatch", "workorder:confirm",
 		"/stats", "stats:inspection", "stats:performance", "stats:report", "stats:export",
-		"report:list", "report:generate", "report:sign:supervisor", "report:sign:manager", "report:download",
+		"report:list", "report:generate", "report:download",
+		"/community", "community:list", "community:staff:list", "community:staff:edit", "community:duty:edit",
 		"/profile",
 	}
 	assign := func(roleID string, ids []string) error {
+		// 去重：path 与 perms 两个键可能映射到同一菜单行（如小区管理 /community + community:list），
+		// 同一角色重复绑定同一菜单会撞 sys_role_menu 主键
+		seen := make(map[string]bool, len(ids))
 		for _, mid := range ids {
+			if seen[mid] {
+				continue
+			}
+			seen[mid] = true
 			if err := tx.Create(&model.SysRoleMenu{RoleID: roleID, MenuID: mid}).Error; err != nil {
 				return err
 			}
@@ -255,45 +338,48 @@ func seedRoleMenus(tx *gorm.DB, roleIDs, menuIDs map[string]string) error {
 	if err := assign(roleIDs["super_admin"], allMenuIDs); err != nil {
 		return err
 	}
-	var managerMenuIDs []string
-	for _, key := range managerPerms {
-		if id, ok := menuIDs[key]; ok {
-			managerMenuIDs = append(managerMenuIDs, id)
-		}
-	}
-	// 巡检员授予「月度报告」菜单（report:list）+ 巡检员确认按钮（report:sign:inspector）：
-	// 月报三级签字的第一级"巡检员确认"要求应签巡检员本人调用（代签走 report:sign:proxy 留痕代签），
-	// 否则报告永远停在 pending_inspector。PC 后台报告页即为其确认入口（生成/下载/上级签字按钮无权限点自动隐藏）；
-	// 小程序端调同一组签字接口，两端规则一致。
-	inspectorMenuKeys := []string{"report:list", "report:sign:inspector"}
-	var inspectorMenuIDs []string
-	for _, key := range inspectorMenuKeys {
-		if id, ok := menuIDs[key]; ok {
-			inspectorMenuIDs = append(inspectorMenuIDs, id)
-		}
-	}
-	if err := assign(roleIDs["inspector"], inspectorMenuIDs); err != nil {
+	// 租户管理员：租户内全部菜单（剔除 is_platform 平台级菜单；tenant:config 企业品牌保留）
+	if err := assign(roleIDs["tenant_admin"], tenantAdminMenuIDs); err != nil {
 		return err
 	}
-	// 维修工仅有小程序接口权限点，无后台菜单，不分配
-	return assign(roleIDs["manager"], managerMenuIDs)
+	var projectAdminMenuIDs []string
+	for _, key := range projectAdminPerms {
+		if id, ok := menuIDs[key]; ok {
+			projectAdminMenuIDs = append(projectAdminMenuIDs, id)
+		}
+	}
+	if err := assign(roleIDs["project_admin"], projectAdminMenuIDs); err != nil {
+		return err
+	}
+	// 一线人员授予「月度报告」菜单（report:list）+ 巡检员确认按钮（report:sign:inspector）：
+	// 月报三级签字的第一级"巡检员确认"要求应签巡检员本人调用（代签走 report:sign:proxy 留痕代签），
+	// 否则报告永远停在 pending_inspector。PC 后台报告页即为其确认入口（生成/下载/上级签字按钮无权限点自动隐藏）；
+	// 移动端调同一组签字接口，两端规则一致。
+	fieldStaffMenuKeys := []string{"report:list", "report:sign:inspector"}
+	var fieldStaffMenuIDs []string
+	for _, key := range fieldStaffMenuKeys {
+		if id, ok := menuIDs[key]; ok {
+			fieldStaffMenuIDs = append(fieldStaffMenuIDs, id)
+		}
+	}
+	return assign(roleIDs["field_staff"], fieldStaffMenuIDs)
 }
 
-// seedAdmin 写入超级管理员账号（凭据来自配置，bcrypt 入库）。
-func seedAdmin(tx *gorm.DB, superRoleID string, username, pwd, name string) error {
+// seedAdmin 写入超级管理员账号（凭据来自配置，bcrypt 入库；P3 起归属默认租户）。
+func seedAdmin(tx *gorm.DB, superRoleID, tenantID, username, pwd, name string) error {
 	hash, err := password.Hash(pwd)
 	if err != nil {
 		return err
 	}
 	admin := model.SysUser{
-		Username: username,
-		Password: hash,
-		Name:     name,
+		TenantID:  tenantID,
+		Username:  username,
+		Password:  hash,
+		Name:      name,
 		IsBuiltin: true, // 唯一超管账号：禁止删除/停用/移除超管角色
-		RoleIDs:  types.IDArray{superRoleID},
-		UserType: "admin",
-		Status:   model.StatusEnabled,
-		Remark:   "系统预置超管，首次登录请修改密码",
+		RoleIDs:   types.IDArray{superRoleID},
+		Status:    model.StatusEnabled,
+		Remark:    "系统预置超管，首次登录请修改密码",
 	}
 	return tx.Create(&admin).Error
 }
@@ -306,8 +392,7 @@ func seedDicts(tx *gorm.DB) error {
 		items [][2]string // label, value
 	}{
 		{"common_status", "通用状态", [][2]string{{"启用", "enabled"}, {"停用", "disabled"}}},
-		{"user_type", "用户类型", [][2]string{{"后台管理员", "admin"}, {"巡检员", "inspector"}, {"维修工", "repair"}}},
-		{"data_scope", "数据范围", [][2]string{{"全部数据", "all"}, {"按小区", "custom"}}},
+		{"data_scope", "数据范围", [][2]string{{"全部数据", "all"}, {"所在项目", "project"}, {"仅本人", "self"}}},
 		{"menu_type", "菜单类型", [][2]string{{"目录", "dir"}, {"菜单", "menu"}, {"按钮", "button"}}},
 		{"building_type", "楼栋类型", [][2]string{{"楼栋", "building"}, {"区域", "area"}}},
 		{"point_type", "点位类型", [][2]string{{"普通点位", "common"}, {"配电房", "power_room"}, {"消防控制室", "fire_control"}, {"水泵房", "pump_room"}, {"电梯机房", "elevator"}, {"地下车库", "garage"}}},
@@ -316,7 +401,9 @@ func seedDicts(tx *gorm.DB) error {
 		{"checkin_type", "打卡类型", [][2]string{{"扫码", "qrcode"}, {"围栏", "fence"}, {"离线补传", "offline"}, {"NFC", "nfc"}}},
 		{"checkin_result", "打卡结果", [][2]string{{"正常", "normal"}, {"异常", "abnormal"}}},
 		{"order_priority", "工单优先级", [][2]string{{"低", "low"}, {"普通", "normal"}, {"高", "high"}, {"紧急", "urgent"}}},
-		{"work_order_status", "工单状态", [][2]string{{"待派单", "pending"}, {"已派单", "assigned"}, {"处理中", "processing"}, {"待复核", "review"}, {"已关闭", "closed"}, {"已驳回", "rejected"}}},
+		{"work_order_status", "工单状态", [][2]string{{"待分诊", "reported"}, {"待派单", "pending_dispatch"}, {"处理中", "processing"}, {"待验收", "pending_confirm"}, {"已闭环", "closed"}, {"已作废", "closed_invalid"}}},
+		{"order_source", "工单来源", [][2]string{{"巡检异常转单", "inspection"}, {"主动上报", "active"}, {"前台代录", "frontdesk"}}},
+		{"patrol_type", "巡查类型", [][2]string{{"安全巡查", "safety"}, {"设备设施专项巡查", "equipment"}, {"环境巡查", "environment"}, {"楼栋巡查", "building"}}},
 	}
 	for _, d := range dicts {
 		t := model.SysDictType{Code: d.code, Name: d.name, Remark: "系统预置"}
@@ -368,11 +455,76 @@ func seedConfigs(tx *gorm.DB) error {
 		{Key: "site.contact_wechat", Name: "微信号", Value: "", ConfigGroup: "site", Remark: "官网联系区块展示，留空不显示"},
 		{Key: "site.address", Name: "公司地址", Value: "", ConfigGroup: "site", Remark: "官网联系区块与结构化数据展示，留空不显示"},
 		{Key: "site.icp", Name: "ICP 备案号", Value: "", ConfigGroup: "site", Remark: "官网页脚展示（如 鄂ICP备2024xxxxxx号-1），留空不显示"},
+		{Key: "auth.register_enabled", Name: "开放注册开关", Value: "false", ConfigGroup: "security", Remark: "开启后登录页显示注册入口，注册需选择所属公司"},
 		// 公章自 v16 起由 sign_asset 签章资产表管理，不再使用 report.seal_file_key 配置项
-		// auth.register_enabled 由迁移 v7 统一插入（覆盖新库与存量库），seed 不再重复
 	}
 	for i := range configs {
 		if err := tx.Create(&configs[i]).Error; err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// seedPosts 预置平台模板岗位（post_dict.tenant_id 空，菜单归位方案 §3）。
+// 仅作开通租户时的复制源；role_id 绑定内置共享角色（有效角色实时并集的来源之一）。
+func seedPosts(tx *gorm.DB, roleIDs map[string]string) error {
+	type postSeed struct {
+		code         string
+		name         string
+		line         string
+		isSupervisor bool
+		roleCode     string // 空 = 不绑角色
+		sort         int
+		status       string
+		remark       string
+	}
+	posts := []postSeed{
+		{"project_manager", "项目经理", "general", false, "project_admin", 1, model.StatusEnabled, "项目第一负责人，月报终审，全员管理"},
+		{"safety_supervisor", "安全主管", "safety", true, "project_admin", 2, model.StatusEnabled, "管理巡检员，安全/秩序巡查，月报主管审批"},
+		{"inspector", "巡检员", "safety", false, "field_staff", 3, model.StatusEnabled, "按计划执行巡查打卡"},
+		{"engineering_supervisor", "工程主管", "engineering", true, "project_admin", 4, model.StatusEnabled, "管理维修工，设备设施专项巡查，工单派单"},
+		{"repairman", "维修工", "engineering", false, "field_staff", 5, model.StatusEnabled, "设备设施专项巡查 + 接工单维修"},
+		{"environment_supervisor", "环境主管", "environment", true, "project_admin", 6, model.StatusEnabled, "环境卫生/绿化巡查管理"},
+		{"cleaner", "保洁员", "environment", false, "field_staff", 7, model.StatusDisabled, "预留岗位，本期不进系统"},
+		{"service_supervisor", "客服主管", "service", true, "project_admin", 8, model.StatusEnabled, "管理前台接待和楼管员，报单分诊"},
+		{"building_manager", "楼管员", "service", false, "field_staff", 9, model.StatusEnabled, "负责若干楼栋，日常巡查、主动报单"},
+		{"receptionist", "前台接待", "service", false, "field_staff", 10, model.StatusEnabled, "前台接报、录入报单"},
+	}
+	for _, p := range posts {
+		row := model.PostDict{
+			Code: p.code, Name: p.name, Line: p.line, IsSupervisor: p.isSupervisor,
+			Sort: p.sort, Status: p.status, Remark: p.remark,
+		}
+		if p.roleCode != "" {
+			if rid, ok := roleIDs[p.roleCode]; ok && rid != "" {
+				row.RoleID = &rid
+			}
+		}
+		if err := tx.Create(&row).Error; err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// seedDutyBindings 预置平台默认职责槽位绑定（duty_binding：project_id/tenant_id 均空 = 平台默认）。
+// 三级回落的最末一级；租户级/项目级绑定开通或配置时复制/覆盖。
+func seedDutyBindings(tx *gorm.DB) error {
+	bindings := []struct {
+		slot  string
+		codes types.StringArray
+	}{
+		{model.SlotReportSignSupervisor, types.StringArray{"safety_supervisor"}},
+		{model.SlotReportSignManager, types.StringArray{"project_manager"}},
+		{model.SlotOrderTriage, types.StringArray{"service_supervisor"}},
+		{model.SlotOrderDispatch, types.StringArray{"engineering_supervisor"}},
+		{model.SlotOrderAccept, types.StringArray{"repairman"}},
+		{model.SlotPatrolExecute, types.StringArray{"inspector"}},
+		{model.SlotPatrolReportLine, types.StringArray{"safety_supervisor"}},
+	}
+	for _, b := range bindings {
+		if err := tx.Create(&model.DutyBinding{Slot: b.slot, PostCodes: b.codes}).Error; err != nil {
 			return err
 		}
 	}

@@ -2,7 +2,7 @@
 import { request, type PageResult } from '@/utils/request'
 import type { PlanItem, PlanDetail, PlanForm } from './biz-types'
 
-export function listPlans(params: { page?: number; page_size?: number; community_id?: string; name?: string; cycle_type?: string; status?: number | '' }) {
+export function listPlans(params: { page?: number; page_size?: number; community_id?: string; name?: string; cycle_type?: string; patrol_type?: string; status?: number | '' }) {
   return request<PageResult<PlanItem>>({ url: '/inspection/plans', method: 'get', params })
 }
 

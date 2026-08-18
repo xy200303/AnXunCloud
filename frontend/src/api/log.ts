@@ -11,6 +11,7 @@ export interface LogQuery {
   end_time?: string
 }
 
+// 租户上下文：由请求拦截器统一携带 X-Tenant-Id 头（超管切换后生效），api 层不再传 tenant_id
 export function listOperationLogs(params: LogQuery & { module?: string; action?: string }) {
   return request<PageResult<OperationLog>>({ url: '/system/logs/operations', method: 'get', params })
 }

@@ -50,11 +50,6 @@
             {{ row.roles?.map((r: RoleBrief) => r.name).join('、') || '--' }}
           </template>
         </el-table-column>
-        <el-table-column label="所属小区" min-width="140" show-overflow-tooltip>
-          <template #default="{ row }">
-            {{ row.community_names?.join('、') || '全部小区' }}
-          </template>
-        </el-table-column>
         <el-table-column label="小程序绑定" width="100" align="center">
           <template #default="{ row }">
             <el-tag v-if="row.openid" type="success" size="small">已绑定</el-tag>
@@ -137,15 +132,9 @@
           </el-col>
         </el-row>
         <el-form-item label="角色" prop="role_ids">
-          <el-select v-model="form.role_ids" multiple placeholder="选择角色" style="width: 100%">
+          <el-select v-model="form.role_ids" multiple placeholder="选择角色（可空，权限可由岗位绑定角色获得）" style="width: 100%">
             <el-option v-for="r in roleOptions" :key="r.id" :label="r.name" :value="r.id" />
           </el-select>
-        </el-form-item>
-        <el-form-item label="所属小区">
-          <el-select v-model="form.community_ids" multiple placeholder="不选则为全部小区" style="width: 100%">
-            <el-option v-for="c in communityOptions" :key="c.id" :label="c.name" :value="c.id" />
-          </el-select>
-          <div class="text-secondary">数据权限依据：角色数据范围为「按小区」时生效</div>
         </el-form-item>
         <el-form-item label="状态">
           <el-radio-group v-model="form.status">
@@ -286,10 +275,9 @@ import {
   importUsers, type UserQuery
 } from '@/api/user'
 import { listRoles } from '@/api/role'
-import { listCommunities } from '@/api/community'
 import { downloadFile } from '@/utils/download'
 import { useUserStore } from '@/store/user'
-import type { UserItem, RoleBrief, RoleItem, Community, ImportResult } from '@/api/types'
+import type { UserItem, RoleBrief, RoleItem, ImportResult } from '@/api/types'
 
 const userStore = useUserStore()
 
@@ -300,7 +288,6 @@ const total = ref(0)
 const query = reactive<UserQuery>({ page: 1, page_size: 20, username: '', phone: '', role_id: undefined, status: '' })
 
 const roleOptions = ref<RoleItem[]>([])
-const communityOptions = ref<Community[]>([])
 
 async function fetchList() {
   loading.value = true
@@ -326,15 +313,15 @@ function handleReset() {
   handleSearch()
 }
 
-onMounted(async () => {
-  fetchList()
-  // 角色与小区下拉候选
-  const [rolesData, communitiesData] = await Promise.all([
-    listRoles({ page: 1, page_size: 100 }),
-    listCommunities({ page: 1, page_size: 100, status: 1 })
-  ])
+// 角色下拉候选
+async function fetchRoleOptions() {
+  const rolesData = await listRoles({ page: 1, page_size: 100 })
   roleOptions.value = rolesData.list
-  communityOptions.value = communitiesData.list
+}
+
+onMounted(() => {
+  fetchList()
+  fetchRoleOptions()
 })
 
 // ===== 新增/编辑 =====
@@ -349,7 +336,6 @@ const form = reactive({
   name: '',
   phone: '',
   role_ids: [] as string[],
-  community_ids: [] as string[],
   status: 1
 })
 
@@ -366,8 +352,8 @@ const formRules: FormRules = {
   password: [
     { required: true, message: '请输入初始密码', trigger: 'blur' },
     { pattern: /^(?=.*[a-zA-Z])(?=.*\d).{8,32}$/, message: '8-32 位，须含字母与数字', trigger: 'blur' }
-  ],
-  role_ids: [{ required: true, type: 'array', min: 1, message: '请选择角色', trigger: 'change' }]
+  ]
+  // 角色可空：权限可由岗位绑定角色并集获得（方案 §3）
 }
 
 function openForm(row?: UserItem) {
@@ -380,13 +366,12 @@ function openForm(row?: UserItem) {
       name: row.name,
       phone: row.phone,
       role_ids: row.roles?.map((r) => r.id) || [],
-      community_ids: [...row.community_ids],
       status: row.status
     })
   } else {
     Object.assign(form, {
       id: '', username: '', password: '', name: '', phone: '',
-      role_ids: [], community_ids: [], status: 1
+      role_ids: [], status: 1
     })
   }
   formVisible.value = true
@@ -399,13 +384,14 @@ async function handleSubmit() {
     if (form.id) {
       await updateUser(form.id, {
         name: form.name, phone: form.phone,
-        role_ids: form.role_ids, community_ids: form.community_ids, status: form.status
+        role_ids: form.role_ids, status: form.status
       })
       ElMessage.success('用户已更新')
     } else {
+      // 新增用户由后端自动归属当前上下文租户
       await createUser({
         username: form.username, password: form.password, name: form.name,
-        phone: form.phone, role_ids: form.role_ids, community_ids: form.community_ids, status: form.status
+        phone: form.phone, role_ids: form.role_ids, status: form.status
       })
       ElMessage.success('用户已创建')
     }
@@ -530,7 +516,7 @@ const templateFields = [
   { field: '姓名', required: '*', rule: '真实姓名' },
   { field: '手机号', required: '*', rule: '11 位，作为登录账号，全表不可重复' },
   { field: '角色', required: '*', rule: '多个用英文逗号分隔，如：巡检员,维修人员' },
-  { field: '所属小区', required: '*', rule: '多个用英文逗号分隔，须为已存在的小区名' },
+  { field: '所属小区', required: '—', rule: '选填，多个用英文逗号分隔；填写则导入后加入该项目岗位编制（岗位在小区「编制」页维护）' },
   { field: '初始密码', required: '—', rule: '选填，默认为手机号后 6 位' },
   { field: '状态', required: '—', rule: '启用 / 停用，默认启用' }
 ]

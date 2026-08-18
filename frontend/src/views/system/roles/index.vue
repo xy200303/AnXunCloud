@@ -1,5 +1,6 @@
 <template>
   <div class="app-container">
+
     <!-- 搜索区 -->
     <div class="filter-card">
       <el-form inline @submit.prevent>
@@ -24,14 +25,14 @@
         <el-table-column prop="name" label="角色名称" min-width="140">
           <template #default="{ row }">
             <span style="font-weight: 600">{{ row.name }}</span>
-            <el-tag v-if="row.code === 'super_admin'" type="warning" size="small" style="margin-left: 8px">内置</el-tag>
+            <el-tag v-if="isBuiltinRole(row)" type="warning" size="small" style="margin-left: 8px">内置</el-tag>
           </template>
         </el-table-column>
         <el-table-column prop="code" label="角色编码" min-width="140" show-overflow-tooltip />
         <el-table-column label="数据范围" width="110" align="center">
           <template #default="{ row }">
-            <el-tag :type="row.data_scope === 'all' ? 'success' : 'primary'" size="small">
-              {{ row.data_scope === 'all' ? '全部数据' : '按小区' }}
+            <el-tag :type="dataScopeMetaOf(row.data_scope).type" size="small">
+              {{ dataScopeMetaOf(row.data_scope).label }}
             </el-tag>
           </template>
         </el-table-column>
@@ -51,9 +52,24 @@
         <el-table-column label="操作" width="200">
           <template #default="{ row }">
             <el-button v-perms="'system:role:update'" link type="primary" @click="openPermDrawer(row)">配置权限</el-button>
-            <el-button v-perms="'system:role:update'" link type="primary" @click="openRoleForm(row)">编辑</el-button>
+            <el-tooltip
+              :disabled="!isBuiltinRole(row) || userStore.isSuperAdmin"
+              content="内置角色全平台共享，仅超管可维护"
+              placement="top"
+            >
+              <span>
+                <el-button
+                  v-perms="'system:role:update'"
+                  link
+                  type="primary"
+                  :disabled="isBuiltinRole(row) && !userStore.isSuperAdmin"
+                  @click="openRoleForm(row)"
+                >编辑</el-button>
+              </span>
+            </el-tooltip>
+            <!-- 内置角色后端禁止删除，前端直接不展示删除入口 -->
             <el-button
-              v-if="row.code !== 'super_admin'"
+              v-if="!isBuiltinRole(row)"
               v-perms="'system:role:delete'"
               link
               type="danger"
@@ -90,12 +106,13 @@
           <el-form-item label="数据范围">
             <el-radio-group v-model="permForm.data_scope" :disabled="isReadonly" @change="dirty = true">
               <el-radio value="all">全部数据</el-radio>
-              <el-radio value="custom">按小区</el-radio>
+              <el-radio value="project">所在项目</el-radio>
+              <el-radio value="self">仅本人</el-radio>
             </el-radio-group>
           </el-form-item>
-          <el-form-item v-if="permForm.data_scope === 'custom'" label="小区范围">
+          <el-form-item v-if="permForm.data_scope === 'project'" label="项目范围">
             <span class="text-secondary">
-              按小区过滤时，以各用户「所属小区」为准（在用户管理中维护）
+              按项目过滤时，以各用户在项目「岗位编制」内的在职名单为准（在小区管理 · 编制中维护）
             </span>
           </el-form-item>
           <el-form-item label="菜单权限">
@@ -155,7 +172,8 @@
         <el-form-item label="数据范围" prop="data_scope">
           <el-radio-group v-model="roleForm.data_scope">
             <el-radio value="all">全部数据</el-radio>
-            <el-radio value="custom">按小区</el-radio>
+            <el-radio value="project">所在项目</el-radio>
+            <el-radio value="self">仅本人</el-radio>
           </el-radio-group>
         </el-form-item>
         <el-form-item label="状态">
@@ -182,7 +200,28 @@ import { ElMessage, ElMessageBox, type FormInstance, type FormRules, type TreeIn
 import { Plus, RefreshRight } from '@element-plus/icons-vue'
 import { listRoles, getRole, createRole, updateRole, deleteRole, assignRoleMenus } from '@/api/role'
 import { listMenus } from '@/api/menu'
-import type { RoleItem, MenuNode } from '@/api/types'
+import { useUserStore } from '@/store/user'
+import type { RoleItem, MenuNode, DataScope } from '@/api/types'
+
+const userStore = useUserStore()
+
+// 内置角色编码（tenant_id 为空的平台共享角色，与后端 seed 一致；列表接口不下发 is_builtin，按 code 判定）
+const BUILTIN_ROLE_CODES = ['super_admin', 'tenant_admin', 'project_admin', 'field_staff']
+
+function isBuiltinRole(role: RoleItem) {
+  return BUILTIN_ROLE_CODES.includes(role.code)
+}
+
+// 数据范围三档（all 全部 / project 所在项目 / self 仅本人；迁移后字典同步）
+const dataScopeMeta: Record<DataScope, { label: string; type: 'success' | 'primary' | 'info' }> = {
+  all: { label: '全部数据', type: 'success' },
+  project: { label: '所在项目', type: 'primary' },
+  self: { label: '仅本人', type: 'info' }
+}
+
+function dataScopeMetaOf(scope: string) {
+  return dataScopeMeta[scope as DataScope] || { label: scope, type: 'info' as const }
+}
 
 // ===== 角色列表 =====
 const roleLoading = ref(false)
@@ -211,6 +250,7 @@ onMounted(() => {
   fetchMenuTree()
 })
 
+
 // ===== 权限配置抽屉 =====
 const permVisible = ref(false)
 const detailLoading = ref(false)
@@ -220,10 +260,14 @@ const currentRole = ref<RoleItem | null>(null)
 const menuTree = ref<MenuNode[]>([])
 const menuTreeRef = ref<TreeInstance>()
 const checkedMenuIds = ref<string[]>([])
-const permForm = reactive({ data_scope: 'all' as 'all' | 'custom' })
+const permForm = reactive({ data_scope: 'all' as DataScope })
 
-// 内置角色（超管）权限树只读，防误锁死；接口无 builtin 字段，按 code 判断
-const isReadonly = computed(() => currentRole.value?.code === 'super_admin')
+// 超管角色权限树恒只读（后端禁止改，防误锁死）；其余内置角色仅超管可维护，非超管只读
+const isReadonly = computed(() => {
+  const role = currentRole.value
+  if (!role) return false
+  return role.code === 'super_admin' || (isBuiltinRole(role) && !userStore.isSuperAdmin)
+})
 
 // 全选状态
 const allChecked = computed(() => {
@@ -330,7 +374,7 @@ const roleForm = reactive({
   id: '',
   name: '',
   code: '',
-  data_scope: 'all' as 'all' | 'custom',
+  data_scope: 'all' as DataScope,
   status: 1,
   remark: ''
 })

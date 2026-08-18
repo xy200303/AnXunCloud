@@ -2,6 +2,7 @@
 import { request, type PageResult } from '@/utils/request'
 import type { RoleItem, RoleDetail } from './types'
 
+// 租户上下文：由请求拦截器统一携带 X-Tenant-Id 头（超管切换后生效），api 层不再传 tenant_id
 export function listRoles(params: { page?: number; page_size?: number; name?: string; status?: number | '' }) {
   return request<PageResult<RoleItem>>({ url: '/system/roles', method: 'get', params })
 }

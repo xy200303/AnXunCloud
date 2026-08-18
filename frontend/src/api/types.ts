@@ -4,6 +4,8 @@
 export interface LoginParams {
   username: string
   password: string
+  // 公司代码（P3 多租户：用户名命中多个租户时必填，用于消歧）
+  tenant_code?: string
 }
 
 export interface LoginResult {
@@ -19,6 +21,8 @@ export interface RoleBrief {
   name: string
 }
 
+export type DataScope = 'all' | 'project' | 'self'
+
 export interface UserInfo {
   id: string
   username: string
@@ -26,8 +30,7 @@ export interface UserInfo {
   phone: string
   avatar: string
   roles: RoleBrief[]
-  community_ids: string[]
-  data_scope: 'all' | 'custom'
+  data_scope: DataScope
   perms: string[]
   // 个人中心扩展字段（后端并行开发中，可能缺省）
   signature_url?: string // 手写签名图 URL（月报签字栏用，可空）
@@ -74,8 +77,6 @@ export interface UserItem {
   openid: string
   roles?: RoleBrief[]
   role_ids?: string[]
-  community_ids: string[]
-  community_names?: string[]
   status: number
   is_builtin?: boolean
   last_login_at: string
@@ -88,7 +89,6 @@ export interface UserForm {
   name: string
   phone: string
   role_ids: string[]
-  community_ids: string[]
   status: number
 }
 
@@ -96,7 +96,7 @@ export interface RoleItem {
   id: string
   code: string
   name: string
-  data_scope: 'all' | 'custom'
+  data_scope: DataScope
   remark: string
   status: number
   user_count: number

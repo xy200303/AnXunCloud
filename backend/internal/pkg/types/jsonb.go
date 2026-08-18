@@ -34,7 +34,7 @@ func (m *UUIDModel) BeforeCreate(_ *gorm.DB) error {
 	return nil
 }
 
-// IDArray 映射 jsonb 的 UUID 字符串数组（如 role_ids、community_ids、point_ids）。
+// IDArray 映射 jsonb 的 UUID 字符串数组（如 role_ids、point_ids）。
 type IDArray []string
 
 // Value 实现 driver.Valuer。
@@ -115,7 +115,7 @@ func (m *JSONMap) Scan(src any) error {
 	return json.Unmarshal(data, m)
 }
 
-// Ints 从 JSONMap 读取整数数组字段（如 weekdays/days/monthdays）。
+// Ints 从 JSONMap 读取整数数组字段（如 weekdays/days）。
 func (m JSONMap) Ints(key string) []int {
 	v, ok := m[key]
 	if !ok {

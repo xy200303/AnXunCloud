@@ -25,6 +25,23 @@ const (
 	TaskOverdue = "overdue"
 )
 
+// 巡查类型（patrol_type，字典 patrol_type；任务生成时从计划快照）
+const (
+	PatrolSafety      = "safety"      // 安全巡查（默认，存量数据归此）
+	PatrolEquipment   = "equipment"   // 设备设施专项巡查
+	PatrolEnvironment = "environment" // 环境巡查
+	PatrolBuilding    = "building"    // 楼栋巡查
+)
+
+// ValidPatrolType 巡查类型取值校验。
+func ValidPatrolType(t string) bool {
+	switch t {
+	case PatrolSafety, PatrolEquipment, PatrolEnvironment, PatrolBuilding:
+		return true
+	}
+	return false
+}
+
 // 打卡结果
 const (
 	ResultNormal   = "normal"
@@ -49,6 +66,7 @@ const (
 // CheckTemplate 检查项模板（point_type 空为通用；检查项见 check_template_item 独立表）。
 type CheckTemplate struct {
 	types.UUIDModel
+	TenantID  *string `gorm:"type:uuid" json:"tenant_id"` // 冗余列（查询按点位/项目链路隔离）
 	Name      string `gorm:"size:128" json:"name"`
 	PointType string `gorm:"size:32" json:"point_type"`
 	Sort      int    `json:"sort"`
@@ -79,6 +97,7 @@ func (CheckTemplateItem) TableName() string { return "check_template_item" }
 // Building 楼栋/区域
 type Building struct {
 	types.UUIDModel
+	TenantID    *string        `gorm:"type:uuid" json:"tenant_id"` // 冗余列（=所属小区租户）
 	CommunityID string         `gorm:"type:uuid" json:"community_id"`
 	Name        string         `gorm:"size:128" json:"name"`
 	Type        string         `gorm:"size:16" json:"type"`
@@ -94,6 +113,7 @@ func (Building) TableName() string { return "building" }
 // InspectionPoint 巡检点位
 type InspectionPoint struct {
 	types.UUIDModel
+	TenantID           *string           `gorm:"type:uuid" json:"tenant_id"` // 冗余列（=所属小区租户）
 	CommunityID        string            `gorm:"type:uuid" json:"community_id"`
 	BuildingID         *string           `gorm:"type:uuid" json:"building_id"`
 	Name               string            `gorm:"size:128" json:"name"`
@@ -120,8 +140,10 @@ func (InspectionPoint) TableName() string { return "inspection_point" }
 // InspectionPlan 巡检计划
 type InspectionPlan struct {
 	types.UUIDModel
+	TenantID     *string       `gorm:"type:uuid" json:"tenant_id"` // 冗余列（=所属小区租户）
 	CommunityID  string        `gorm:"type:uuid" json:"community_id"`
 	Name         string        `gorm:"size:128" json:"name"`
+	PatrolType   string        `gorm:"size:16" json:"patrol_type"` // 巡查类型：safety/equipment/environment/building
 	PointIDs     types.IDArray `gorm:"type:jsonb" json:"point_ids"`
 	CycleType    string        `gorm:"size:16" json:"cycle_type"`
 	CycleConfig  types.JSONMap `gorm:"type:jsonb" json:"cycle_config"`
@@ -141,9 +163,11 @@ func (InspectionPlan) TableName() string { return "inspection_plan" }
 // InspectionTask 巡检任务
 type InspectionTask struct {
 	types.UUIDModel
+	TenantID    *string        `gorm:"type:uuid" json:"tenant_id"` // 冗余列（=所属小区租户，生成时从计划带上）
 	PlanID      string         `gorm:"type:uuid" json:"plan_id"`
 	CommunityID string         `gorm:"type:uuid" json:"community_id"`
 	InspectorID string         `gorm:"type:uuid" json:"inspector_id"`
+	PatrolType  string         `gorm:"size:16" json:"patrol_type"` // 巡查类型（生成时从计划快照）
 	TaskDate    time.Time      `gorm:"type:date" json:"task_date"`
 	Status      string         `gorm:"size:16" json:"status"`
 	TotalPoints int            `json:"total_points"`
@@ -160,6 +184,7 @@ func (InspectionTask) TableName() string { return "inspection_task" }
 // CheckinRecord 打卡记录（按月分区；主键 id+created_at；id 支持客户端 UUIDv7 幂等写入）
 type CheckinRecord struct {
 	types.UUIDModel
+	TenantID        *string             `gorm:"type:uuid" json:"tenant_id"` // 冗余列（=所属小区租户，打卡时从任务带上）
 	TaskID          string              `gorm:"type:uuid" json:"task_id"`
 	PointID         string              `gorm:"type:uuid" json:"point_id"`
 	InspectorID     string              `gorm:"type:uuid" json:"inspector_id"`

@@ -29,7 +29,7 @@ func OKMsg(c *gin.Context, msg string, data any) {
 // Fail 输出业务错误响应；非 *errs.Error 一律按 50000 处理。
 func Fail(c *gin.Context, err error) {
 	if be, ok := err.(*errs.Error); ok {
-		c.AbortWithStatusJSON(be.HTTP, body{Code: be.Code, Message: be.Msg, Data: nil})
+		c.AbortWithStatusJSON(be.HTTP, body{Code: be.Code, Message: be.Msg, Data: be.Data})
 		return
 	}
 	c.AbortWithStatusJSON(http.StatusInternalServerError, body{

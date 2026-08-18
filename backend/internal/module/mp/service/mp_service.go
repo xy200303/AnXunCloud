@@ -14,11 +14,13 @@ import (
 	"gorm.io/gorm"
 
 	"anxuncloud/internal/config"
+	"anxuncloud/internal/middleware"
 	authsvc "anxuncloud/internal/module/auth/service"
 	insmodel "anxuncloud/internal/module/inspection/model"
 	"anxuncloud/internal/module/mp/dto"
 	sysmodel "anxuncloud/internal/module/system/model"
 	womodel "anxuncloud/internal/module/workorder/model"
+	wodto "anxuncloud/internal/module/workorder/dto"
 	wosvc "anxuncloud/internal/module/workorder/service"
 	"anxuncloud/internal/pkg/bind"
 	"anxuncloud/internal/pkg/errs"
@@ -26,6 +28,7 @@ import (
 	"anxuncloud/internal/pkg/response"
 	"anxuncloud/internal/pkg/session"
 	"anxuncloud/internal/pkg/timefmt"
+	"anxuncloud/internal/pkg/types"
 )
 
 // ChannelMP 小程序端标记（仅用于登录日志/审计的客户端类型标识）。
@@ -62,7 +65,7 @@ func (s *MPService) Login(ctx context.Context, req *dto.MPLoginReq, ip, ua strin
 		u, be := s.mockLogin(req.Code)
 		if be != nil {
 			s.incrLoginFail(ctx, ip)
-			s.loginLog(nil, "", ip, ua, "fail", be.Msg)
+			s.loginLog(nil, nil, "", ip, ua, "fail", be.Msg)
 			return nil, be
 		}
 		user = u
@@ -70,15 +73,25 @@ func (s *MPService) Login(ctx context.Context, req *dto.MPLoginReq, ip, ua strin
 		u, be := s.wxLogin(ctx, req)
 		if be != nil {
 			s.incrLoginFail(ctx, ip)
-			s.loginLog(nil, "", ip, ua, "fail", be.Msg)
+			s.loginLog(nil, nil, "", ip, ua, "fail", be.Msg)
 			return nil, be
 		}
 		user = u
 	}
 	if user.Status != sysmodel.StatusEnabled {
 		s.incrLoginFail(ctx, ip)
-		s.loginLog(&user.ID, user.Username, ip, ua, "fail", "账号已停用")
+		s.loginLog(&user.ID, &user.TenantID, user.Username, ip, ua, "fail", "账号已停用")
 		return nil, errs.ErrAccountDisabled
+	}
+	// 租户停用拒绝登录（P3 多租户：与后台登录同一规则）
+	enabled, err := middleware.TenantEnabled(s.db, user.TenantID)
+	if err != nil {
+		return nil, errs.ErrInternal
+	}
+	if !enabled {
+		s.incrLoginFail(ctx, ip)
+		s.loginLog(&user.ID, &user.TenantID, user.Username, ip, ua, "fail", "租户已停用")
+		return nil, errs.ErrTenantDisabled
 	}
 	resp, be := s.issueTokens(ctx, user)
 	if be != nil {
@@ -87,7 +100,7 @@ func (s *MPService) Login(ctx context.Context, req *dto.MPLoginReq, ip, ua strin
 	s.rdb.Del(ctx, "limit:login:mp:"+ip)
 	now := time.Now()
 	s.db.Model(&sysmodel.SysUser{}).Where("id = ?", user.ID).Update("last_login_at", now)
-	s.loginLog(&user.ID, user.Username, ip, ua, "success", "小程序登录成功")
+	s.loginLog(&user.ID, &user.TenantID, user.Username, ip, ua, "success", "小程序登录成功")
 	return resp, nil
 }
 
@@ -251,12 +264,18 @@ func (s *MPService) issueTokens(ctx context.Context, user *sysmodel.SysUser) (gi
 	if err != nil {
 		return nil, errs.ErrInternal
 	}
+	// 所属项目由 project_staff 在职编制推导
+	projectIDs, _ := middleware.StaffProjectIDs(s.db, user.ID)
+	projects := make([]gin.H, 0, len(projectIDs))
+	for _, pid := range projectIDs {
+		projects = append(projects, gin.H{"id": pid})
+	}
 	return gin.H{
 		"token_type": "Bearer", "access_token": access, "refresh_token": refresh,
 		"expires_in": int64(s.jwtm.AccessTTL().Seconds()),
 		"user": gin.H{
 			"id": user.ID, "name": user.Name, "avatar": user.Avatar,
-			"roles": roles, "community_ids": user.CommunityIDs,
+			"roles": roles, "projects": projects,
 		},
 	}, nil
 }
@@ -292,8 +311,17 @@ func (s *MPService) Refresh(ctx context.Context, refreshToken string) (gin.H, *e
 }
 
 // loginLog 登录日志（channel=mp）。
-func (s *MPService) loginLog(userID *string, username, ip, ua, status, msg string) {
-	rec := sysmodel.SysLoginLog{UserID: userID, Username: username, Channel: ChannelMP, IP: ip, Status: status, Msg: msg}
+// tenantID 取登录用户所属租户（日志管理按租户上下文过滤）；
+// 无法识别用户时归默认租户，与后台 writeLoginLog 及迁移 00023 存量回填口径一致。
+func (s *MPService) loginLog(userID *string, tenantID *string, username, ip, ua, status, msg string) {
+	if tenantID == nil {
+		var id string
+		if err := s.db.Model(&sysmodel.Tenant{}).Select("id").Where("code = ?", sysmodel.DefaultTenantCode).
+			Limit(1).Pluck("id", &id).Error; err == nil && id != "" {
+			tenantID = &id
+		}
+	}
+	rec := sysmodel.SysLoginLog{TenantID: tenantID, UserID: userID, Username: username, Channel: ChannelMP, IP: ip, Status: status, Msg: msg}
 	if len(ua) > 500 {
 		ua = ua[:500]
 	}
@@ -310,9 +338,9 @@ func (s *MPService) PointByCode(inspectorID, code string) (gin.H, *errs.Error) {
 	if err := s.db.Where("qrcode_no = ? OR UPPER(nfc_id) = ?", code, strings.ToUpper(strings.TrimSpace(code))).First(&pt).Error; err != nil {
 		return nil, errs.ErrNotFound.WithMsg("未找到相关点位信息")
 	}
-	// 数据权限：非全量数据范围的用户须管辖该点位所在小区
+	// 数据权限：非全量数据范围的用户须在该点位所在项目的编制内（任意岗位）
 	var user sysmodel.SysUser
-	if err := s.db.Select("id", "role_ids", "community_ids").First(&user, "id = ?", inspectorID).Error; err != nil {
+	if err := s.db.Select("id", "role_ids").First(&user, "id = ?", inspectorID).Error; err != nil {
 		return nil, errs.ErrUnauthorized
 	}
 	var roles []sysmodel.SysRole
@@ -326,8 +354,14 @@ func (s *MPService) PointByCode(inspectorID, code string) (gin.H, *errs.Error) {
 			break
 		}
 	}
-	if !scopeAll && !user.CommunityIDs.Contains(pt.CommunityID) {
-		return nil, errs.ErrDataScope
+	if !scopeAll {
+		projectIDs, err := middleware.StaffProjectIDs(s.db, inspectorID)
+		if err != nil {
+			return nil, errs.ErrInternal
+		}
+		if !types.IDArray(projectIDs).Contains(pt.CommunityID) {
+			return nil, errs.ErrDataScope
+		}
 	}
 	// 今日任务上下文：我今日包含该点位的任务及打卡状态（多个任务取列表，客户端选最近未完成）
 	today := time.Now().Format("2006-01-02")
@@ -364,6 +398,44 @@ func (s *MPService) PointByCode(inspectorID, code string) (gin.H, *errs.Error) {
 		},
 		"tasks": matched,
 	}, nil
+}
+
+// Points 项目启用点位列表（问题上报关联点位用）。
+// 数据权限：须为该项目在职编制成员（任意岗位），与 OrderReport 同一规则。
+func (s *MPService) Points(userID, communityID string) ([]gin.H, *errs.Error) {
+	if communityID == "" {
+		return nil, errs.ErrParam.WithMsg("community_id 不能为空")
+	}
+	var staffCount int64
+	s.db.Model(&sysmodel.ProjectStaff{}).
+		Where("project_id = ? AND user_id = ? AND status = ?", communityID, userID, sysmodel.StatusEnabled).Count(&staffCount)
+	if staffCount == 0 {
+		return nil, errs.ErrDataScope
+	}
+	var points []insmodel.InspectionPoint
+	if err := s.db.Select("id", "name", "building_id").
+		Where("community_id = ? AND status = ?", communityID, sysmodel.StatusEnabled).
+		Order("sort ASC, created_at ASC").Find(&points).Error; err != nil {
+		return nil, errs.ErrInternal
+	}
+	// 楼栋名称批量取，避免逐点查询
+	buildingNames := map[string]string{}
+	var buildings []insmodel.Building
+	s.db.Select("id", "name").Where("community_id = ?", communityID).Find(&buildings)
+	for _, b := range buildings {
+		buildingNames[b.ID] = b.Name
+	}
+	items := make([]gin.H, 0, len(points))
+	for _, p := range points {
+		name := p.Name
+		if p.BuildingID != nil {
+			if bn := buildingNames[*p.BuildingID]; bn != "" {
+				name = bn + " · " + p.Name
+			}
+		}
+		items = append(items, gin.H{"id": p.ID, "name": name})
+	}
+	return items, nil
 }
 
 // PublicPoint 短链接公开点位摘要（免登录：NFC 贴卡/扫码打开 H5 信息页的数据源）。
@@ -450,6 +522,7 @@ func (s *MPService) TodayTasks(inspectorID string) (gin.H, *errs.Error) {
 		}
 		items = append(items, gin.H{
 			"id": t.ID, "plan_name": planName, "community_name": s.commName(t.CommunityID),
+			"patrol_type": t.PatrolType, // 巡查类型透出，app 端按类型分组展示
 			"task_date": today, "time_window": timeWindow, "status": t.Status,
 			"total_points": t.TotalPoints, "done_points": t.DonePoints,
 			"progress": progressOf(t.DonePoints, t.TotalPoints),
@@ -548,6 +621,7 @@ func (s *MPService) TaskDetail(inspectorID, taskID string) (gin.H, *errs.Error) 
 	}
 	return gin.H{
 		"id": task.ID, "plan_name": plan.Name, "community_name": s.commName(task.CommunityID),
+		"patrol_type": task.PatrolType, // 巡查类型透出，app 端按类型分组展示
 		"task_date": task.TaskDate.Format("2006-01-02"), "time_window": plan.TimeWindow,
 		"status": task.Status, "total_points": task.TotalPoints, "done_points": task.DonePoints,
 		"progress": progressOf(task.DonePoints, task.TotalPoints), "points": points,
@@ -556,8 +630,12 @@ func (s *MPService) TaskDetail(inspectorID, taskID string) (gin.H, *errs.Error) 
 
 // ========== 我的工单 / 消息 ==========
 
-// MyOrders 我的工单（我上报的 + 指派给我的）。
+// MyOrders 我的工单（我上报的 + 指派给我的；type=pool 为可抢工单池）。
 func (s *MPService) MyOrders(userID string, q *dto.MyOrdersQuery) (*response.Page, *errs.Error) {
+	if q.Type == "pool" {
+		// 可抢池：开启抢单项目 + 本人在 order_accept 名单的待派单工单（名单制判定在 OrderService 内）
+		return s.orders.PoolOrders(userID, &wodto.OrderListQuery{PageQuery: q.PageQuery, Status: q.Status})
+	}
 	db := s.db.Model(&womodel.WorkOrder{})
 	switch q.Type {
 	case "reported":
@@ -594,7 +672,7 @@ func (s *MPService) MyOrders(userID string, q *dto.MyOrdersQuery) (*response.Pag
 			"id": o.ID, "order_no": o.OrderNo, "title": o.Title,
 			"community_name": s.commName(o.CommunityID), "point_name": pointName,
 			"priority": o.Priority, "status": o.Status, "my_role": myRole,
-			"review_remark": o.ReviewRemark, "created_at": timefmt.T(o.CreatedAt),
+			"created_at": timefmt.T(o.CreatedAt),
 		})
 	}
 	return &response.Page{List: list, Total: total, Page: q.Page, PageSize: q.PageSize}, nil
@@ -624,6 +702,8 @@ func (s *MPService) MyOrderCounts(userID string, typ string) (gin.H, *errs.Error
 	for _, r := range rows {
 		out[r.Status] = r.Cnt
 	}
+	// 可抢池数量（移动端「可抢」入口角标）
+	out["pool"] = s.orders.PoolCount(userID)
 	return out, nil
 }
 

@@ -43,6 +43,8 @@ type CheckinService struct {
 func NewCheckinService(db *gorm.DB, rdb *redis.Client, store *storage.Storage, orders *wosvc.OrderService, getCfg func(string) (string, bool)) *CheckinService {
 	return &CheckinService{
 		db: db, rdb: rdb, store: store, orders: orders, getCfg: getCfg,
+		// 租户级挂点预留（P3 设计方案 §9.2）：大模型配置的租户级覆盖（tenant_config 预留 ai.* key）
+		// 后续改为 ConfigService.Resolve(tenantID, ...) 取值，本期统一用平台默认，行为不变。
 		aiCli: ai.NewClient(getCfg, ai.WithStorage(store)),
 	}
 }
@@ -204,6 +206,7 @@ func (s *CheckinService) doCheckinLocked(ctx context.Context, inspectorID string
 	}
 	now := time.Now()
 	rec := insmodel.CheckinRecord{
+		TenantID: task.TenantID, // 冗余列随任务快照（=所属小区租户）
 		TaskID: req.TaskID, PointID: req.PointID, InspectorID: inspectorID,
 		CommunityID: task.CommunityID, CheckinTime: now, ClientTime: &clientTime,
 		Longitude: &req.Longitude, Latitude: &req.Latitude, DistanceToPoint: &distance,

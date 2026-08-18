@@ -83,15 +83,15 @@
 docker compose --env-file .env.dev -f docker-compose.dev.yml up -d --build
 ```
 
-- backend：air 监听 `./backend` 源码变更自动重编译（Windows 挂载卷用轮询）；同时托管官网 `http://localhost:8090/` 与下载页 `http://localhost:8090/download`
-- frontend：vite dev server + HMR，`/api`、`/uploads` 代理到 backend 容器；后台访问 `http://localhost:5180/admin/`（base 已改为 /admin 子路径）
+- backend：air 监听 `./backend` 源码变更自动重编译（Windows 挂载卷用轮询）；同时托管官网 `http://localhost:8091/` 与下载页 `http://localhost:8091/download`（主机端口 8091→容器 8090，避开 8090 冲突）
+- frontend：vite dev server + HMR，`/api`、`/uploads` 代理到 backend 容器；后台访问 `http://localhost:5181/admin/`（base 已改为 /admin 子路径；主机端口 5181→容器 5180，避开 5180 冲突）
 - 首次启动自动完成建表迁移 + seed（超管/角色/菜单/字典/参数）
 
 ### 数据库迁移（goose）
 
 结构迁移使用 [goose v3](https://github.com/pressly/goose)（库模式 + embed 内嵌），启动时自动执行，无需单独跑 CLI：
 
-- 迁移文件：`backend/internal/pkg/database/migrations/` 下编号 SQL 文件（`-- +goose Up/Down` 注解）
+- 迁移文件：`backend/internal/pkg/database/migrations/` 下编号 SQL 文件（`-- +goose Up/Down` 注解）。**2026-08-18 起已把早期 25 个迁移 squash 为单一基线 `00001_init.sql`**（全量 schema，pg_dump 导出后清理）；基线只管结构，预置数据（角色/菜单/字典/默认租户/岗位模板/槽位默认/超管）全部由 seed 写入；开发期约定不兼容老数据，老环境重置数据库后由基线 + seed 重建
 - 多副本同时启动由 PG advisory lock 串行化，失败即终止启动，不会带错误结构对外服务
 - 新增迁移：新建下一个编号文件（如 `00002_xxx.sql`），`-- +goose Up` 写变更、`-- +goose Down` 写回滚，重启即生效
 - `checkin_record` / `sys_operation_log` 是按月分区表，月份分区由 `EnsurePartitions` 在启动时和每日调度中滚动创建（不属于 goose 迁移）
@@ -128,7 +128,7 @@ docker run -d --name pi-local-redis -p 26380:6379 redis:7-alpine
 cd backend
 go run ./cmd/server            # 或 air 热更新：go install github.com/air-verse/air@latest && air
 
-# 3. 前端（5180，/api 代理到 http://localhost:8090）
+# 3. 前端（主机 5181→容器 5180，/api 代理到 http://localhost:8091）
 cd frontend
 npm install && npm run dev
 ```
@@ -145,8 +145,8 @@ npm install && npm run dev
 
 | 用途 | 开发 | 生产 | 备注 |
 |---|---|---|---|
-| 后端 API | 8090 | 18080→8080 | prod 唯一对外端口（含 SPA） |
-| 前端 dev server | 5180 | -（由后端托管） | 与 frontend/vite.config.ts 的 server.port 保持一致 |
+| 后端 API | 8091→8090 | 18080→8080 | prod 唯一对外端口（含 SPA） |
+| 前端 dev server | 5181→5180 | -（由后端托管） | 容器内与 frontend/vite.config.ts 的 server.port 保持一致 |
 | PostgreSQL | 25433→5432 | 不对外 | 避开本机 pi-postgres(25432) |
 | Redis | 26380→6379 | 不对外 | 避开本机 pi-redis(26379) |
 
@@ -200,7 +200,7 @@ docker compose --env-file .env.prod -f docker-compose.prod.yml down
 - **compose 报 "project name must not be empty"**：项目目录为中文名，compose 文件已内置项目名（dev 为 `anxuncloud-dev`，prod 为 `anxuncloud-prod`，两者相互独立可同时运行）；旧版本 compose 请自行加 `-p` 参数。
 - **后端起不来，连不上数据库**：dev 容器内必须用服务名 `postgres`/`redis`（compose 已自动覆盖）；本地直跑确认用映射端口 25433/26380。
 - **air 不触发热编译**：Windows 挂载卷已启用轮询（`.air.toml` poll=800ms）；仍无效时重启 backend 容器。
-- **前端 5180 打不开/接口 404**：确认 backend 容器健康（`docker compose ps`）；代理目标由 `VITE_PROXY_TARGET` 注入，改了需重建 frontend 容器。
+- **前端 5181 打不开/接口 404**：确认 backend 容器健康（`docker compose ps`）；代理目标由 `VITE_PROXY_TARGET` 注入，改了需重建 frontend 容器。
 - **prod 访问 / 返回 404**：确认 `SPA_DIST_PATH=/app/dist` 且镜像构建日志中前端 build 成功。
 - **水印不生成**：检查 `WATERMARK_FONT_PATH` 指向的 TTF 存在且支持中文；字体重量缺失时仅跳过水印不影响打卡。
 - **登录报 40105**：确认库已 seed（首次启动日志有"数据库迁移与初始化完成"）；改过 `ADMIN_PASSWORD` 但库已初始化时不会覆盖已有账号，用重置密码接口或清卷重 seed。

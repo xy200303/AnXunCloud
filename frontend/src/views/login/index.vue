@@ -42,6 +42,12 @@
               autocomplete="current-password"
             />
           </el-form-item>
+          <!-- 公司选择：仅当用户名命中多个租户（后端返回 40109）时显示，选项来自 40109 响应的 tenants -->
+          <el-form-item v-if="showTenantCode" prop="tenant_code">
+            <el-select v-model="form.tenant_code" placeholder="请选择所属公司" style="width: 100%">
+              <el-option v-for="t in tenantOptions" :key="t.code" :label="t.name" :value="t.code" />
+            </el-select>
+          </el-form-item>
           <el-form-item>
             <el-button class="login-btn" type="primary" :loading="loading" @click="handleLogin">
               登 录
@@ -65,10 +71,13 @@ import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, type FormInstance, type FormRules } from 'element-plus'
 import { User, Lock, CircleCheck } from '@element-plus/icons-vue'
 import { useUserStore } from '@/store/user'
-import { getRegisterConfig } from '@/api/auth'
+import { getRegisterConfig, type TenantOption } from '@/api/auth'
 
 // 品牌资源走 public 目录，需带上部署子路径（/admin/）
 const brandMark = `${import.meta.env.BASE_URL}brand/anxuncloud-mark-reverse.svg`
+
+// 后端业务错误码：用户名存在于多个租户，需选择公司消歧
+const CODE_TENANT_REQUIRED = 40109
 
 const route = useRoute()
 const router = useRouter()
@@ -77,10 +86,14 @@ const userStore = useUserStore()
 const formRef = ref<FormInstance>()
 const loading = ref(false)
 const registerEnabled = ref(false)
+const showTenantCode = ref(false)
+// 40109 响应 data.tenants 下发的候选公司列表
+const tenantOptions = ref<TenantOption[]>([])
 
 const form = reactive({
   username: '',
-  password: ''
+  password: '',
+  tenant_code: ''
 })
 
 onMounted(async () => {
@@ -95,18 +108,35 @@ onMounted(async () => {
 
 const rules: FormRules = {
   username: [{ required: true, message: '请输入账号', trigger: 'blur' }],
-  password: [{ required: true, message: '请输入密码', trigger: 'blur' }]
+  password: [{ required: true, message: '请输入密码', trigger: 'blur' }],
+  tenant_code: [{
+    validator: (_rule, value, callback) => {
+      if (showTenantCode.value && !value) callback(new Error('请选择所属公司'))
+      else callback()
+    },
+    trigger: 'change'
+  }]
 }
 
 async function handleLogin() {
   await formRef.value?.validate()
   loading.value = true
   try {
-    await userStore.login(form)
+    await userStore.login({
+      username: form.username,
+      password: form.password,
+      tenant_code: showTenantCode.value ? form.tenant_code : undefined
+    })
     ElMessage.success('登录成功')
     // 失败时拦截器已提示具体原因，且不清空账号；默认落 '/' 由布局重定向到首个可用菜单
     const redirect = (route.query.redirect as string) || '/'
     router.push(redirect)
+  } catch (err: any) {
+    // 40109：用户名存在于多家公司（密码已验证）→ 展示公司下拉，选项来自响应 data.tenants
+    if (err?.response?.data?.code === CODE_TENANT_REQUIRED) {
+      tenantOptions.value = err.response.data?.data?.tenants ?? []
+      showTenantCode.value = true
+    }
   } finally {
     loading.value = false
   }

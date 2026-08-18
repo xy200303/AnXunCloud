@@ -53,8 +53,9 @@ func toAttachmentArray(list []NoticeAttachment) types.AttachmentArray {
 }
 
 // List 公告分页列表。
-func (s *NoticeService) List(q *NoticeListQuery) (*response.Page, *errs.Error) {
-	db := s.db.Model(&model.SysNotice{})
+// 租户上下文（菜单归位方案 §2）：公告是发给本租户员工的，按 tenantID（EffectiveTenantID 解析）过滤。
+func (s *NoticeService) List(q *NoticeListQuery, tenantID string) (*response.Page, *errs.Error) {
+	db := s.db.Model(&model.SysNotice{}).Where("tenant_id = ?", tenantID)
 	if q.Title != "" {
 		db = db.Where("title LIKE ?", "%"+q.Title+"%")
 	}
@@ -94,13 +95,14 @@ func noticeItem(n *model.SysNotice) gin.H {
 	}
 }
 
-// Create 新增公告；status=1 立即发布。
-func (s *NoticeService) Create(req *NoticeSaveReq, operatorID string, operatorName string) (string, *errs.Error) {
+// Create 新增公告（归属上下文租户）；status=1 立即发布。
+func (s *NoticeService) Create(req *NoticeSaveReq, operatorID string, operatorName string, tenantID string) (string, *errs.Error) {
 	status := 0
 	if req.Status != nil {
 		status = *req.Status
 	}
 	n := model.SysNotice{
+		TenantID: &tenantID,
 		Title: req.Title, Content: req.Content, Status: status,
 		Attachments: toAttachmentArray(req.Attachments),
 		CreatedBy:   &operatorID, CreatedByName: operatorName,
@@ -113,16 +115,16 @@ func (s *NoticeService) Create(req *NoticeSaveReq, operatorID string, operatorNa
 		return "", errs.ErrInternal
 	}
 	if status == 1 {
-		s.broadcast(&n)
+		s.broadcast(&n, tenantID)
 	}
 	return n.ID, nil
 }
 
-// broadcast 公告发布时给全体启用用户写站内消息（type=announcement），
+// broadcast 公告发布时给本租户全体启用用户写站内消息（type=announcement），
 // 移动端消息列表可见并计入未读徽章；content 截断至 500 字符（sys_message.content 上限 512）。
-func (s *NoticeService) broadcast(n *model.SysNotice) {
+func (s *NoticeService) broadcast(n *model.SysNotice, tenantID string) {
 	var ids []string
-	if err := s.db.Model(&model.SysUser{}).Where("status = ?", model.StatusEnabled).Pluck("id", &ids).Error; err != nil {
+	if err := s.db.Model(&model.SysUser{}).Where("status = ? AND tenant_id = ?", model.StatusEnabled, tenantID).Pluck("id", &ids).Error; err != nil {
 		return
 	}
 	if len(ids) == 0 {
@@ -135,6 +137,7 @@ func (s *NoticeService) broadcast(n *model.SysNotice) {
 	msgs := make([]model.SysMessage, 0, len(ids))
 	for _, uid := range ids {
 		msgs = append(msgs, model.SysMessage{
+			TenantID: &tenantID,
 			UserID: uid, Type: "announcement",
 			Title: "公告：" + n.Title, Content: string(content), BizID: &n.ID,
 		})
@@ -142,10 +145,10 @@ func (s *NoticeService) broadcast(n *model.SysNotice) {
 	s.db.Create(&msgs)
 }
 
-// Update 修改公告（含发布/下线；发布时间仅在首次发布时写入）。
-func (s *NoticeService) Update(id string, req *NoticeSaveReq) *errs.Error {
+// Update 修改公告（含发布/下线；发布时间仅在首次发布时写入）。跨租户公告按 404 处理。
+func (s *NoticeService) Update(id string, req *NoticeSaveReq, tenantID string) *errs.Error {
 	var n model.SysNotice
-	if err := s.db.First(&n, "id = ?", id).Error; err != nil {
+	if err := s.db.First(&n, "id = ? AND tenant_id = ?", id, tenantID).Error; err != nil {
 		return errs.ErrNotFound
 	}
 	updates := map[string]any{"title": req.Title, "content": req.Content}
@@ -167,14 +170,14 @@ func (s *NoticeService) Update(id string, req *NoticeSaveReq) *errs.Error {
 	}
 	if republish {
 		n.Title, n.Content = req.Title, req.Content
-		s.broadcast(&n)
+		s.broadcast(&n, tenantID)
 	}
 	return nil
 }
 
-// Delete 删除公告。
-func (s *NoticeService) Delete(id string) *errs.Error {
-	res := s.db.Delete(&model.SysNotice{}, "id = ?", id)
+// Delete 删除公告（跨租户按 404 处理）。
+func (s *NoticeService) Delete(id string, tenantID string) *errs.Error {
+	res := s.db.Delete(&model.SysNotice{}, "id = ? AND tenant_id = ?", id, tenantID)
 	if res.Error != nil {
 		return errs.ErrInternal
 	}
@@ -184,11 +187,11 @@ func (s *NoticeService) Delete(id string) *errs.Error {
 	return nil
 }
 
-// Published 小程序端：已发布公告分页。
-func (s *NoticeService) Published(page, pageSize int) (*response.Page, *errs.Error) {
+// Published 小程序端：已发布公告分页（仅本租户公告）。
+func (s *NoticeService) Published(page, pageSize int, tenantID string) (*response.Page, *errs.Error) {
 	q := &NoticeListQuery{}
 	q.Page, q.PageSize = page, pageSize
-	db := s.db.Model(&model.SysNotice{}).Where("status = 1")
+	db := s.db.Model(&model.SysNotice{}).Where("status = 1 AND tenant_id = ?", tenantID)
 	var total int64
 	if err := db.Count(&total).Error; err != nil {
 		return nil, errs.ErrInternal
@@ -212,10 +215,10 @@ func (s *NoticeService) Published(page, pageSize int) (*response.Page, *errs.Err
 	return &response.Page{List: list, Total: total, Page: q.Page, PageSize: q.PageSize}, nil
 }
 
-// PublishedDetail 移动端：已发布公告详情（不存在/未发布返回 404）。
-func (s *NoticeService) PublishedDetail(id string) (gin.H, *errs.Error) {
+// PublishedDetail 移动端：已发布公告详情（不存在/未发布/跨租户返回 404）。
+func (s *NoticeService) PublishedDetail(id string, tenantID string) (gin.H, *errs.Error) {
 	var n model.SysNotice
-	if err := s.db.First(&n, "id = ? AND status = 1", id).Error; err != nil {
+	if err := s.db.First(&n, "id = ? AND status = 1 AND tenant_id = ?", id, tenantID).Error; err != nil {
 		return nil, errs.ErrNotFound
 	}
 	return noticeItem(&n), nil

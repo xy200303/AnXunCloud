@@ -5,6 +5,8 @@ package dto
 type LoginReq struct {
 	Username string `json:"username" binding:"required"`
 	Password string `json:"password" binding:"required"`
+	// TenantCode 公司代码（P3 多租户：username 命中多个租户时必填，用于消歧；单租户/私有化部署留空即可）
+	TenantCode string `json:"tenant_code"`
 }
 
 // RegisterReq 开放注册请求。
@@ -13,6 +15,8 @@ type RegisterReq struct {
 	Password string `json:"password" binding:"required"`
 	Name     string `json:"name" binding:"required"`
 	Phone    string `json:"phone" binding:"required"`
+	// TenantCode 目标公司（注册下拉选择；空 = 默认租户，私有化单租户场景）
+	TenantCode string `json:"tenant_code"`
 }
 
 // RefreshReq 刷新令牌请求。
@@ -41,6 +45,12 @@ type RoleBrief struct {
 	Name string `json:"name"`
 }
 
+// ProjectBrief 用户在职项目摘要（由 project_staff 在职编制推导；名称移动端自行解析）。
+type ProjectBrief struct {
+	ID   string `json:"id"`
+	Name string `json:"name,omitempty"`
+}
+
 // InfoResp 当前用户信息（GET /auth/info）。
 type InfoResp struct {
 	ID           string      `json:"id"`
@@ -53,7 +63,7 @@ type InfoResp struct {
 	Openid       string      `json:"openid"`
 	IsBuiltin    bool        `json:"is_builtin"`
 	Roles        []RoleBrief `json:"roles"`
-	CommunityIDs []string    `json:"community_ids"`
+	Projects     []ProjectBrief `json:"projects"`
 	DataScope    string      `json:"data_scope"`
 	Perms        []string    `json:"perms"`
 	CreatedAt    string      `json:"created_at"`

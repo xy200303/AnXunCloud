@@ -21,6 +21,12 @@
       }
     },
     {
+      "path": "pages/workorders/report",
+      "style": {
+        "navigationBarTitleText": "问题上报"
+      }
+    },
+    {
       "path": "pages/messages/index",
       "style": {
         "navigationBarTitleText": "消息",
@@ -109,7 +115,7 @@
     {
       "path": "pages/admin/workorders",
       "style": {
-        "navigationBarTitleText": "工单派单",
+        "navigationBarTitleText": "工单管理",
         "enablePullDownRefresh": true
       }
     },

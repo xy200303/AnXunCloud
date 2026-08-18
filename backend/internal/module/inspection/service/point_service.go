@@ -119,13 +119,14 @@ func (s *PointService) toItem(p *model.InspectionPoint) gin.H {
 
 // Create 新增点位；qrcode_no 按 P-+6位序列 自动生成。
 func (s *PointService) Create(c *gin.Context, req *dto.PointSaveReq) (string, string, *errs.Error) {
-	if be := middleware.CheckCommunity(c, req.CommunityID); be != nil {
+	if be := middleware.CheckCommunity(s.db, c, req.CommunityID); be != nil {
 		return "", "", be
 	}
 	if be := s.validate(req); be != nil {
 		return "", "", be
 	}
 	p := model.InspectionPoint{
+		TenantID:           middleware.CommunityTenantID(s.db, req.CommunityID), // 冗余列（=所属小区租户）
 		CommunityID:        req.CommunityID,
 		BuildingID:         req.BuildingID,
 		Name:               req.Name,
@@ -180,7 +181,7 @@ func (s *PointService) Detail(c *gin.Context, id string) (gin.H, *errs.Error) {
 	if err := s.db.First(&p, "id = ?", id).Error; err != nil {
 		return nil, errs.ErrNotFound
 	}
-	if be := middleware.CheckCommunity(c, p.CommunityID); be != nil {
+	if be := middleware.CheckCommunity(s.db, c, p.CommunityID); be != nil {
 		return nil, be
 	}
 	item := s.toItem(&p)
@@ -201,7 +202,7 @@ func (s *PointService) Update(c *gin.Context, id string, req *dto.PointSaveReq) 
 	if err := s.db.First(&p, "id = ?", id).Error; err != nil {
 		return errs.ErrNotFound
 	}
-	if be := middleware.CheckCommunity(c, p.CommunityID); be != nil {
+	if be := middleware.CheckCommunity(s.db, c, p.CommunityID); be != nil {
 		return be
 	}
 	if be := s.validate(req); be != nil {
@@ -230,7 +231,7 @@ func (s *PointService) Delete(c *gin.Context, id string) *errs.Error {
 	if err := s.db.First(&p, "id = ?", id).Error; err != nil {
 		return errs.ErrNotFound
 	}
-	if be := middleware.CheckCommunity(c, p.CommunityID); be != nil {
+	if be := middleware.CheckCommunity(s.db, c, p.CommunityID); be != nil {
 		return be
 	}
 	var count int64
@@ -250,7 +251,7 @@ func (s *PointService) MapPoints(c *gin.Context, communityID string) ([]gin.H, *
 	if communityID == "" {
 		return nil, errs.ErrParam.WithMsg("community_id 为必填项")
 	}
-	if be := middleware.CheckCommunity(c, communityID); be != nil {
+	if be := middleware.CheckCommunity(s.db, c, communityID); be != nil {
 		return nil, be
 	}
 	var rows []model.InspectionPoint
@@ -291,7 +292,7 @@ func (s *PointService) QRCodeBatch(c *gin.Context, req *dto.QRCodeBatchReq) (gin
 		return nil, errs.ErrNotFound
 	}
 	for _, p := range points {
-		if be := middleware.CheckCommunity(c, p.CommunityID); be != nil {
+		if be := middleware.CheckCommunity(s.db, c, p.CommunityID); be != nil {
 			return nil, be
 		}
 	}
@@ -500,10 +501,24 @@ func (s *PointService) Import(c *gin.Context, r io.Reader) (*dto.PointImportResu
 	}
 
 	// 预载名称映射：小区、楼栋、点位类型字典、启用模板、已有点位（防重复）
+	// 租户隔离（P3）：非超管仅解析本租户小区，避免按名称跨租户写入；
+	// 超管同样限定「租户上下文」（EffectiveTenantID，缺省=默认租户），失败直接报错返回
 	commByName := map[string]string{}
 	{
+		q := s.db.Select("id", "name")
+		if identity := middleware.CurrentIdentity(c); identity != nil {
+			if identity.SuperAdmin {
+				tid, be := middleware.EffectiveTenantID(c, s.db)
+				if be != nil {
+					return nil, "", be
+				}
+				q = q.Where("tenant_id = ?", tid)
+			} else {
+				q = q.Where("tenant_id = ?", identity.TenantID)
+			}
+		}
 		var comms []sysmodel.Community
-		s.db.Select("id", "name").Find(&comms)
+		q.Find(&comms)
 		for _, cm := range comms {
 			commByName[cm.Name] = cm.ID
 		}
@@ -574,7 +589,7 @@ func (s *PointService) Import(c *gin.Context, r io.Reader) (*dto.PointImportResu
 			fail("小区「" + commText + "」不存在")
 			continue
 		}
-		if be := middleware.CheckCommunity(c, commID); be != nil {
+		if be := middleware.CheckCommunity(s.db, c, commID); be != nil {
 			fail("无小区「" + commText + "」的数据权限")
 			continue
 		}
@@ -663,6 +678,7 @@ func (s *PointService) Import(c *gin.Context, r io.Reader) (*dto.PointImportResu
 			return nil, "", be
 		}
 		p := model.InspectionPoint{
+			TenantID: middleware.CommunityTenantID(s.db, commID), // 冗余列（=所属小区租户）
 			CommunityID: commID, BuildingID: buildingID, Name: name, Type: pointType,
 			TemplateID: templateID, NfcID: normalizeNfcID(nfcID), QRCodeNo: no,
 			Longitude: lon, Latitude: lat, FenceRadius: s.fenceRadius(radius),

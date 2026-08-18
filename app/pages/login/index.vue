@@ -32,6 +32,14 @@
           @click="togglePwd"
         />
       </view>
+      <!-- 公司选择：仅当用户名存在于多家公司（后端 40109）时显示，选项来自 40109 响应的 tenants -->
+      <view v-if="needTenantCode" class="input-wrap" :style="{ backgroundColor: colors.bgCard, borderColor: colors.border }">
+        <picker class="picker" mode="selector" :range="tenantNames" :value="tenantIndex < 0 ? 0 : tenantIndex" @change="onTenantPick">
+          <view class="picker-text" :style="{ color: tenantIndex < 0 ? colors.textSecondary : colors.textPrimary }">
+            {{ tenantIndex < 0 ? '请选择所属公司' : tenantOptions[tenantIndex].name }}
+          </view>
+        </picker>
+      </view>
 
       <!-- 错误内联提示（按钮上方，不用 Toast） -->
       <text v-if="errorMsg != ''" class="error" :style="{ color: colors.danger }">{{ errorMsg }}</text>
@@ -92,6 +100,14 @@
         <view class="input-wrap sheet-input" :style="{ backgroundColor: colors.bgPage, borderColor: colors.border }">
           <input v-model="regForm.phone" class="input" :style="{ color: colors.textPrimary }" placeholder="手机号（必填）" placeholder-class="input-ph" type="number" :maxlength="11" />
         </view>
+        <!-- 所属公司：多租户时必选一个；仅 1 个租户时隐藏（默认租户自动归属） -->
+        <view v-if="regTenants.length > 1" class="input-wrap sheet-input" :style="{ backgroundColor: colors.bgPage, borderColor: colors.border }">
+          <picker class="picker" mode="selector" :range="regTenantNames" :value="regTenantIndex < 0 ? 0 : regTenantIndex" @change="onRegTenantPick">
+            <view class="picker-text" :style="{ color: regTenantIndex < 0 ? colors.textSecondary : colors.textPrimary }">
+              {{ regTenantIndex < 0 ? '请选择所属公司' : regTenants[regTenantIndex].name }}
+            </view>
+          </picker>
+        </view>
 
         <text v-if="regError != ''" class="error" :style="{ color: colors.danger }">{{ regError }}</text>
 
@@ -110,7 +126,7 @@
 
 <script lang="ts">
 import { Colors, ColorTokens } from '@/utils/theme'
-import { apiRegisterConfig, apiRegister } from '@/services/api'
+import { apiRegisterConfig, apiRegister, apiRegisterTenants } from '@/services/api'
 import { useAuthStore } from '@/stores/auth'
 
 type RegisterForm = {
@@ -121,6 +137,11 @@ type RegisterForm = {
   phone: string
 }
 
+type TenantOption = {
+  code: string
+  name: string
+}
+
 type LoginData = {
   colors: ColorTokens
   statusBarH: number
@@ -129,11 +150,21 @@ type LoginData = {
   showPwd: boolean
   loading: boolean
   errorMsg: string
+  /** 用户名跨租户重名（40109）时显示公司选择 */
+  needTenantCode: boolean
+  /** 40109 响应 data.tenants 下发的候选公司列表 */
+  tenantOptions: TenantOption[]
+  /** 登录公司下拉选中下标（-1 = 未选） */
+  tenantIndex: number
   registerEnabled: boolean
   showRegister: boolean
   regLoading: boolean
   regError: string
   regForm: RegisterForm
+  /** 注册可选公司列表（>1 时注册弹层显示"所属公司"选择） */
+  regTenants: TenantOption[]
+  /** 注册公司下拉选中下标（-1 = 未选） */
+  regTenantIndex: number
 }
 
 export default {
@@ -146,6 +177,9 @@ export default {
       showPwd: false,
       loading: false,
       errorMsg: '',
+      needTenantCode: false,
+      tenantOptions: [],
+      tenantIndex: -1,
       registerEnabled: false,
       showRegister: false,
       regLoading: false,
@@ -156,7 +190,9 @@ export default {
         confirm: '',
         name: '',
         phone: ''
-      } as RegisterForm
+      } as RegisterForm,
+      regTenants: [],
+      regTenantIndex: -1
     }
   },
   onLoad() {
@@ -185,6 +221,14 @@ export default {
     },
     regBtnText(): string {
       return this.regLoading ? '提交中…' : '注 册'
+    },
+    /** 登录公司下拉选项（picker range） */
+    tenantNames(): string[] {
+      return this.tenantOptions.map((t: TenantOption) => t.name)
+    },
+    /** 注册公司下拉选项（picker range） */
+    regTenantNames(): string[] {
+      return this.regTenants.map((t: TenantOption) => t.name)
     }
   },
   methods: {
@@ -192,6 +236,14 @@ export default {
     noop() {},
     togglePwd() {
       this.showPwd = !this.showPwd
+    },
+    /** 登录公司下拉选择（picker change） */
+    onTenantPick(e: any) {
+      this.tenantIndex = Number(e.detail.value)
+    },
+    /** 注册公司下拉选择（picker change） */
+    onRegTenantPick(e: any) {
+      this.regTenantIndex = Number(e.detail.value)
     },
     doLogin() {
       if (this.loading) return
@@ -205,15 +257,25 @@ export default {
         this.errorMsg = '请输入密码'
         return
       }
+      if (this.needTenantCode && this.tenantIndex < 0) {
+        this.errorMsg = '请选择所属公司'
+        return
+      }
       this.errorMsg = ''
       this.loading = true
-      useAuthStore().login(username, password)
+      const tenantCode = this.needTenantCode && this.tenantIndex >= 0 ? this.tenantOptions[this.tenantIndex].code : undefined
+      useAuthStore().login(username, password, tenantCode)
         .then(() => {
           this.loading = false
           uni.reLaunch({ url: '/pages/tasks/today' })
         })
-        .catch((e: Error) => {
+        .catch((e: Error & { code?: number; data?: { tenants?: TenantOption[] } }) => {
           this.loading = false
+          // 用户名存在于多家公司（密码已验证）：展开公司下拉，选项来自响应 data.tenants
+          if (e.code === 40109) {
+            this.tenantOptions = e.data?.tenants ?? []
+            this.needTenantCode = true
+          }
           this.errorMsg = e.message
         })
     },
@@ -223,7 +285,12 @@ export default {
     },
     openRegister() {
       this.regError = ''
+      this.regTenantIndex = -1
       this.showRegister = true
+      // 拉取可选公司列表（开关关闭或接口异常时静默按空列表处理，不显示下拉）
+      apiRegisterTenants()
+        .then((list) => { this.regTenants = list })
+        .catch((_e: any) => { this.regTenants = [] })
     },
     closeRegister() {
       this.showRegister = false
@@ -255,9 +322,14 @@ export default {
         this.regError = '请输入正确的 11 位手机号'
         return
       }
+      if (this.regTenants.length > 1 && this.regTenantIndex < 0) {
+        this.regError = '请选择所属公司'
+        return
+      }
       this.regError = ''
       this.regLoading = true
-      apiRegister(f.username, f.password, f.name, f.phone)
+      const tenantCode = this.regTenants.length > 1 && this.regTenantIndex >= 0 ? this.regTenants[this.regTenantIndex].code : undefined
+      apiRegister(f.username, f.password, f.name, f.phone, tenantCode)
         .then(() => {
           this.regLoading = false
           this.showRegister = false
@@ -313,6 +385,18 @@ export default {
 .input {
   flex: 1;
   height: 104rpx;
+  font-size: 34rpx; /* FontSize.bodyL */
+}
+
+/* 公司下拉（picker 占满 input-wrap，与输入框同高同字号） */
+.picker {
+  flex: 1;
+  height: 104rpx;
+}
+
+.picker-text {
+  height: 104rpx;
+  line-height: 104rpx;
   font-size: 34rpx; /* FontSize.bodyL */
 }
 

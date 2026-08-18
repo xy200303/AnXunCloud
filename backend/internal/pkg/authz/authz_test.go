@@ -3,7 +3,7 @@ package authz
 import "testing"
 
 // 回归测试：keyMatch2 曾把 report:sign:inspector 当作 report:*:* 通配，
-// 导致只有「巡检员确认」权限的用户通过「主管/经理签字」校验（权限点同前缀串权）。
+// 导致只有「巡检员确认」权限的用户通过「代签」校验（权限点同前缀串权）。
 func newTestEnforcer(t *testing.T, policies, groupings [][]string) interface {
 	Enforce(rvals ...interface{}) (bool, error)
 } {
@@ -35,9 +35,8 @@ func TestPermMatchNoCrossPrefixBleed(t *testing.T) {
 		want bool
 	}{
 		{"report:sign:inspector", true},  // 持有的权限点等值命中
-		{"report:sign:supervisor", false}, // 同前缀不同级别不得通过（本次 bug）
-		{"report:sign:manager", false},
-		{"report:sign:proxy", false},
+		{"report:sign:proxy", false}, // 同前缀不同权限点不得通过（本次 bug）
+		{"report:sign", false},
 		{"report:list", false},
 		{"report:generate", false},
 	}
@@ -84,7 +83,7 @@ func TestPermMatchSuperWildcard(t *testing.T) {
 		[][]string{{"role:super_admin", DefaultDomain, "*"}},
 		[][]string{{"user:u3", "role:super_admin", DefaultDomain}},
 	)
-	for _, obj := range []string{"system:user:delete", "report:sign:manager", "anything:at:all"} {
+	for _, obj := range []string{"system:user:delete", "report:sign:proxy", "anything:at:all"} {
 		ok, err := e.Enforce("user:u3", DefaultDomain, obj)
 		if err != nil || !ok {
 			t.Errorf("超管通配 Enforce(%s) = %v, err=%v, want true", obj, ok, err)

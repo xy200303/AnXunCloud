@@ -51,6 +51,8 @@ func NewReviewService(db *gorm.DB) *ReviewService {
 		store = storage.New(cfg.Upload, cfg.OSS, cfg.COS, cfg.App.BaseURL)
 		opts = append(opts, ai.WithStorage(store))
 	}
+	// 租户级挂点预留（P3 设计方案 §9.2）：大模型配置的租户级覆盖后续改为
+	// ConfigService.Resolve(tenantID, ...) 取值，本期统一用平台默认，行为不变。
 	return &ReviewService{db: db, aiCli: ai.NewClient(getCfg, opts...), store: store}
 }
 
@@ -156,7 +158,7 @@ func (s *ReviewService) Reopen(c *gin.Context, id string) *errs.Error {
 	if err := s.db.Where("id = ?", id).First(&r).Error; err != nil {
 		return errs.ErrNotFound
 	}
-	if be := middleware.CheckCommunity(c, r.CommunityID); be != nil {
+	if be := middleware.CheckCommunity(s.db, c, r.CommunityID); be != nil {
 		return be
 	}
 	res := s.db.Model(&model.CheckinRecord{}).
@@ -209,7 +211,7 @@ func (s *ReviewService) loadPending(c *gin.Context, id string) (*model.CheckinRe
 	if err := s.db.Where("id = ?", id).First(&r).Error; err != nil {
 		return nil, errs.ErrNotFound
 	}
-	if be := middleware.CheckCommunity(c, r.CommunityID); be != nil {
+	if be := middleware.CheckCommunity(s.db, c, r.CommunityID); be != nil {
 		return nil, be
 	}
 	if r.AuditStatus != model.AuditPending {

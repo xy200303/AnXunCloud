@@ -14,6 +14,7 @@ export interface UserQuery {
   status?: number | ''
 }
 
+// 租户上下文：由请求拦截器统一携带 X-Tenant-Id 头（超管切换后生效），api 层不再传 tenant_id
 export function listUsers(params: UserQuery) {
   return request<PageResult<UserItem>>({ url: '/system/users', method: 'get', params })
 }

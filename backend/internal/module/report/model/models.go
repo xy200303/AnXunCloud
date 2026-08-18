@@ -20,6 +20,7 @@ const (
 // InspectionReport 月度巡检报告（三级电子确认签字 + PDF 归档）。
 type InspectionReport struct {
 	types.UUIDModel
+	TenantID        *string         `gorm:"type:uuid" json:"tenant_id"` // 冗余列（=所属小区租户）
 	CommunityID     string          `gorm:"type:uuid" json:"community_id"`
 	Period          string          `gorm:"size:7" json:"period"`
 	Title           string          `gorm:"size:128" json:"title"`

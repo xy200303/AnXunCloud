@@ -32,12 +32,12 @@ export default defineConfig({
     },
     proxy: {
       '/api': {
-        // 默认代理本地后端；docker dev 环境经 VITE_PROXY_TARGET 指向 backend 容器
-        target: process.env.VITE_PROXY_TARGET || 'http://localhost:8090',
+        // 默认代理本地后端（docker dev 后端主机端口 8091）；docker dev 环境经 VITE_PROXY_TARGET 指向 backend 容器
+        target: process.env.VITE_PROXY_TARGET || 'http://localhost:8091',
         changeOrigin: true
       },
       '/uploads': {
-        target: process.env.VITE_PROXY_TARGET || 'http://localhost:8090',
+        target: process.env.VITE_PROXY_TARGET || 'http://localhost:8091',
         changeOrigin: true
       }
     }

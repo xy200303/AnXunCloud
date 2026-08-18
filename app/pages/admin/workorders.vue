@@ -101,32 +101,33 @@ type ListData = {
   list: OrderView[]
 }
 
-/** tab 档位 → 实际下传的 status（逗号多值，对齐 status_counts 聚合口径） */
+/** tab 档位 → 实际下传的 status（逗号多值；已关闭 = 已闭环+已作废） */
 const TAB_QUERY: Record<string, string> = {
-  pending: 'pending',
-  processing: 'assigned,processing',
-  review: 'review',
-  closed: 'closed,rejected'
+  reported: 'reported',
+  pending_dispatch: 'pending_dispatch',
+  processing: 'processing',
+  pending_confirm: 'pending_confirm',
+  closed: 'closed,closed_invalid'
 }
 
-/** 工单状态文案（对齐后端 model.Order* 枚举） */
+/** 工单状态文案（P2 六态，对齐后端 model.Order* 枚举） */
 function statusTextOf(s: string): string {
-  if (s == 'pending') return '待派单'
-  if (s == 'assigned') return '待接单'
+  if (s == 'reported') return '待分诊'
+  if (s == 'pending_dispatch') return '待派单'
   if (s == 'processing') return '处理中'
-  if (s == 'review') return '待验收'
-  if (s == 'closed') return '已完成'
-  if (s == 'rejected') return '已驳回'
+  if (s == 'pending_confirm') return '待验收'
+  if (s == 'closed') return '已闭环'
+  if (s == 'closed_invalid') return '已作废'
   return s
 }
 
 function statusColorOf(s: string): string {
-  if (s == 'pending') return Colors.info
-  if (s == 'assigned') return Colors.warning
+  if (s == 'reported') return Colors.info
+  if (s == 'pending_dispatch') return Colors.warning
   if (s == 'processing') return Colors.primary
-  if (s == 'review') return Colors.warning
+  if (s == 'pending_confirm') return Colors.warning
   if (s == 'closed') return Colors.success
-  if (s == 'rejected') return Colors.danger
+  if (s == 'closed_invalid') return Colors.danger
   return Colors.info
 }
 
@@ -156,12 +157,13 @@ export default {
   data(): ListData {
     return {
       colors: Colors,
-      status: 'pending',
+      status: 'pending_dispatch',
       tabs: [
-        { label: '待派单', value: 'pending' },
+        { label: '待分诊', value: 'reported' },
+        { label: '待派单', value: 'pending_dispatch' },
         { label: '处理中', value: 'processing' },
-        { label: '待验收', value: 'review' },
-        { label: '已闭环', value: 'closed' }
+        { label: '待验收', value: 'pending_confirm' },
+        { label: '已关闭', value: 'closed' }
       ],
       counts: {},
       loading: true,

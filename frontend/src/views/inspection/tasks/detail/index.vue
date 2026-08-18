@@ -8,6 +8,7 @@
             {{ detail.task.community_name }} · {{ detail.task.plan_name }} · {{ detail.task.inspector_name }} · {{ detail.task.task_date }}
           </h2>
           <el-tag :type="headStatusType" size="small">{{ headStatusLabel }}</el-tag>
+          <el-tag size="small" effect="plain">{{ patrolTypeLabel(detail.task.patrol_type) }}</el-tag>
         </div>
         <div class="task-head-progress">
           <el-progress :percentage="detail.task.progress" :stroke-width="12" />
@@ -95,6 +96,7 @@ import {
 import { getTaskDetail } from '@/api/task'
 import PhotoViewer from '@/components/PhotoViewer.vue'
 import type { TaskDetail, TaskPointDetail, CheckinPhoto } from '@/api/biz-types'
+import { patrolTypeLabel } from '@/api/biz-types'
 
 const route = useRoute()
 const router = useRouter()

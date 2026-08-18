@@ -87,12 +87,14 @@ type PlanListQuery struct {
 	CommunityID string `form:"community_id"`
 	Name        string `form:"name"`
 	CycleType   string `form:"cycle_type"`
+	PatrolType  string `form:"patrol_type"`
 	Status      string `form:"status"`
 }
 
 type PlanSaveReq struct {
 	CommunityID  string         `json:"community_id" binding:"required"`
 	Name         string         `json:"name" binding:"required"`
+	PatrolType   string         `json:"patrol_type"` // 巡查类型，缺省 safety（安全巡查）
 	PointIDs     []string       `json:"point_ids" binding:"required,min=1"`
 	CycleType    string         `json:"cycle_type" binding:"required,oneof=daily weekly monthly"`
 	CycleConfig  map[string]any `json:"cycle_config"`
@@ -111,6 +113,7 @@ type TaskListQuery struct {
 	CommunityID string `form:"community_id"`
 	InspectorID string `form:"inspector_id"`
 	PlanID      string `form:"plan_id"`
+	PatrolType  string `form:"patrol_type"`
 	TaskDate    string `form:"task_date"`
 	StartDate   string `form:"start_date"`
 	EndDate     string `form:"end_date"`

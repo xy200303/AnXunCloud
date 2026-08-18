@@ -52,23 +52,37 @@ func (s *AuthService) Login(ctx context.Context, req *dto.LoginReq, ip, ua strin
 func (s *AuthService) LoginChannel(ctx context.Context, req *dto.LoginReq, channel, ip, ua string) (*dto.TokenResp, *errs.Error) {
 	// 登录限流：连续失败达 security.login_fail_limit 锁定 10 分钟
 	if be := s.checkLoginLimit(ctx, ip); be != nil {
-		s.writeLoginLog(nil, req.Username, ip, ua, "fail", "登录过于频繁已锁定", channel)
+		s.writeLoginLog(nil, nil, req.Username, ip, ua, "fail", "登录过于频繁已锁定", channel)
 		return nil, be
 	}
 
-	var user model.SysUser
-	err := s.db.Where("username = ?", req.Username).First(&user).Error
-	if err != nil || !password.Compare(user.Password, req.Password) {
+	var users []model.SysUser
+	s.db.Where("username = ?", req.Username).Find(&users)
+	user, be := s.resolveLoginUser(users, req)
+	if be != nil {
+		// 40109：密码已校验通过、仅需选择公司——不计失败、不写失败日志，候选列表随错误下发
+		if be.Code == errs.ErrTenantCodeRequired.Code {
+			return nil, be
+		}
 		s.incrLoginFail(ctx, ip)
-		s.writeLoginLog(nilIfErr(err, &user), req.Username, ip, ua, "fail", "用户名或密码错误", channel)
-		return nil, errs.ErrBadCredentials
+		s.writeLoginLog(nil, nil, req.Username, ip, ua, "fail", be.Msg, channel)
+		return nil, be
 	}
 	if user.Status != model.StatusEnabled {
-		s.writeLoginLog(&user.ID, req.Username, ip, ua, "fail", "账号已停用", channel)
+		s.writeLoginLog(&user.ID, &user.TenantID, req.Username, ip, ua, "fail", "账号已停用", channel)
 		return nil, errs.ErrAccountDisabled
 	}
+	// 租户停用拒绝登录（每请求校验在 buildIdentity，登录侧先给明确提示）
+	enabled, err := middleware.TenantEnabled(s.db, user.TenantID)
+	if err != nil {
+		return nil, errs.ErrInternal
+	}
+	if !enabled {
+		s.writeLoginLog(&user.ID, &user.TenantID, req.Username, ip, ua, "fail", "租户已停用", channel)
+		return nil, errs.ErrTenantDisabled
+	}
 
-	resp, be := s.issueTokens(ctx, &user, channel)
+	resp, be := s.issueTokens(ctx, user, channel)
 	if be != nil {
 		return nil, be
 	}
@@ -76,7 +90,7 @@ func (s *AuthService) LoginChannel(ctx context.Context, req *dto.LoginReq, chann
 	s.rdb.Del(ctx, "limit:login:"+ip)
 	now := time.Now()
 	s.db.Model(&model.SysUser{}).Where("id = ?", user.ID).Update("last_login_at", now)
-	s.writeLoginLog(&user.ID, req.Username, ip, ua, "success", "登录成功", channel)
+	s.writeLoginLog(&user.ID, &user.TenantID, req.Username, ip, ua, "success", "登录成功", channel)
 	return resp, nil
 }
 
@@ -89,6 +103,21 @@ func (s *AuthService) RegisterConfig() gin.H {
 		}
 	}
 	return gin.H{"enabled": enabled}
+}
+
+// RegisterTenants 注册下拉公司列表（免登录）：仅注册开启时返回启用租户（code+name）。
+// 注册场景租户名单本就对注册者公开；关闭注册时不暴露（40303）。
+func (s *AuthService) RegisterTenants() ([]gin.H, *errs.Error) {
+	if !s.RegisterConfig()["enabled"].(bool) {
+		return nil, errs.ErrRegisterDisabled
+	}
+	var tenants []model.Tenant
+	s.db.Select("code", "name").Where("status = ?", model.StatusEnabled).Order("created_at ASC").Find(&tenants)
+	items := make([]gin.H, 0, len(tenants))
+	for _, t := range tenants {
+		items = append(items, gin.H{"code": t.Code, "name": t.Name})
+	}
+	return items, nil
 }
 
 // Register 开放注册（免登录，受 auth.register_enabled 开关控制）。
@@ -112,8 +141,22 @@ func (s *AuthService) Register(ctx context.Context, req *dto.RegisterReq, ip str
 		s.incrLoginFail(ctx, ip)
 		return errs.ErrParam.WithMsg("phone 手机号格式错误")
 	}
+	// 注册目标租户：下拉选择的公司（tenant_code），缺省 = 默认租户（私有化单租户场景）
+	tenantID, be := s.defaultTenantID()
+	if be != nil {
+		return be
+	}
+	if code := strings.TrimSpace(req.TenantCode); code != "" {
+		var t model.Tenant
+		if err := s.db.Where("code = ? AND status = ?", code, model.StatusEnabled).First(&t).Error; err != nil {
+			s.incrLoginFail(ctx, ip)
+			return errs.ErrParam.WithMsg("所选公司不存在或已停用")
+		}
+		tenantID = t.ID
+	}
 	var count int64
-	s.db.Model(&model.SysUser{}).Where("username = ?", req.Username).Count(&count)
+	// 用户名租户内唯一（P3）；手机号保持全局唯一（小程序按手机号绑定的消歧前提）
+	s.db.Model(&model.SysUser{}).Where("tenant_id = ? AND username = ?", tenantID, req.Username).Count(&count)
 	if count > 0 {
 		s.incrLoginFail(ctx, ip)
 		return errs.ErrUsernameExists
@@ -128,11 +171,11 @@ func (s *AuthService) Register(ctx context.Context, req *dto.RegisterReq, ip str
 		return errs.ErrInternal
 	}
 	user := model.SysUser{
+		TenantID: tenantID,
 		Username: req.Username,
 		Password: hash,
 		Name:     req.Name,
 		Phone:    req.Phone,
-		UserType: "admin", // 后台用户
 		Status:   model.StatusEnabled,
 		Remark:   "开放注册",
 	}
@@ -206,9 +249,18 @@ func (s *AuthService) KillUserSessions(ctx context.Context, userID string) {
 // Info 当前用户信息 + 权限点集合。
 func (s *AuthService) Info(identity *middleware.Identity) (*dto.InfoResp, *errs.Error) {
 	var user model.SysUser
-	if err := s.db.Select("id", "username", "name", "phone", "avatar", "openid", "is_builtin", "role_ids", "community_ids", "last_login_at", "created_at").
+	if err := s.db.Select("id", "username", "name", "phone", "avatar", "openid", "is_builtin", "role_ids", "last_login_at", "created_at").
 		First(&user, "id = ?", identity.UserID).Error; err != nil {
 		return nil, errs.ErrUnauthorized
+	}
+	// 所属项目由 project_staff 在职编制推导
+	projectIDs, err := middleware.StaffProjectIDs(s.db, user.ID)
+	if err != nil {
+		return nil, errs.ErrInternal
+	}
+	projects := make([]dto.ProjectBrief, 0, len(projectIDs))
+	for _, pid := range projectIDs {
+		projects = append(projects, dto.ProjectBrief{ID: pid})
 	}
 	resp := &dto.InfoResp{
 		ID:           user.ID,
@@ -216,8 +268,8 @@ func (s *AuthService) Info(identity *middleware.Identity) (*dto.InfoResp, *errs.
 		Name:         user.Name,
 		Phone:        user.Phone,
 		Avatar:       user.Avatar,
-		CommunityIDs: user.CommunityIDs,
-		DataScope:    model.ScopeCustom,
+		Projects:     projects,
+		DataScope:    model.ScopeProject,
 		Roles:        []dto.RoleBrief{},
 		Perms:        []string{},
 	}
@@ -231,6 +283,8 @@ func (s *AuthService) Info(identity *middleware.Identity) (*dto.InfoResp, *errs.
 	}
 	if identity.DataScopeAll {
 		resp.DataScope = model.ScopeAll
+	} else if identity.ScopeSelf {
+		resp.DataScope = model.ScopeSelf
 	}
 	if user.Openid != nil {
 		resp.Openid = *user.Openid
@@ -284,6 +338,17 @@ func (s *AuthService) Routes(identity *middleware.Identity) ([]dto.RouteNode, *e
 	}
 	// 目录可能未被直接分配，补全已选菜单的祖先目录
 	menus = s.withAncestors(menus)
+	if !identity.SuperAdmin {
+		// 平台级菜单（is_platform：平台管理目录整棵子树）不下发非超管，
+		// 兜底存量 role_menu 中可能残留的平台菜单绑定
+		kept := make([]model.SysMenu, 0, len(menus))
+		for _, m := range menus {
+			if !m.IsPlatform {
+				kept = append(kept, m)
+			}
+		}
+		menus = kept
+	}
 	return buildRouteTree(menus, ""), nil
 }
 
@@ -408,8 +473,16 @@ func (s *AuthService) loginFailLimit() int {
 }
 
 // writeLoginLog 写登录日志（channel 区分后台/APP/小程序）。
-func (s *AuthService) writeLoginLog(userID *string, username, ip, ua, status, msg, channel string) {
+// tenantID 取登录用户所属租户（日志管理按租户上下文过滤）；
+// 无法识别用户（账号不存在/公司代码错误等）时归默认租户，与迁移 00023 存量回填口径一致。
+func (s *AuthService) writeLoginLog(userID *string, tenantID *string, username, ip, ua, status, msg, channel string) {
+	if tenantID == nil {
+		if id, be := s.defaultTenantID(); be == nil {
+			tenantID = &id
+		}
+	}
 	rec := model.SysLoginLog{
+		TenantID: tenantID,
 		UserID:   userID,
 		Username: username,
 		Channel:  channel,
@@ -421,12 +494,86 @@ func (s *AuthService) writeLoginLog(userID *string, username, ip, ua, status, ms
 	s.db.Create(&rec)
 }
 
-// nilIfErr 用户查询失败时返回 nil（登录日志 user_id 可空）。
-func nilIfErr(err error, user *model.SysUser) *string {
-	if err != nil {
-		return nil
+// resolveLoginUser 登录用户解析（多租户，密码优先消歧）：
+// username 全局查出候选账号后先用密码过滤——只有一个账号密码匹配则直接命中（用户无感）；
+// 多个账号密码都匹配（同名同密码）时返回 40109 并携带候选公司列表（此时密码已验证通过，不泄露存在性），
+// 前端下拉选择后带 tenant_code 重提；零匹配报通用"用户名或密码错误"。
+func (s *AuthService) resolveLoginUser(users []model.SysUser, req *dto.LoginReq) (*model.SysUser, *errs.Error) {
+	matched := make([]model.SysUser, 0, 1)
+	for _, u := range users {
+		if password.Compare(u.Password, req.Password) {
+			matched = append(matched, u)
+		}
 	}
-	return &user.ID
+	if len(matched) == 0 {
+		return nil, errs.ErrBadCredentials
+	}
+	if len(matched) == 1 {
+		u := matched[0]
+		return &u, nil
+	}
+	// 多账号同密码：tenant_code 选择或下发候选公司列表
+	tenantCode := strings.TrimSpace(req.TenantCode)
+	if tenantCode != "" {
+		var t model.Tenant
+		if err := s.db.Where("code = ?", tenantCode).First(&t).Error; err != nil {
+			return nil, errs.ErrParam.WithMsg("所选公司不存在")
+		}
+		for _, u := range matched {
+			if u.TenantID == t.ID {
+				return &u, nil
+			}
+		}
+		return nil, errs.ErrBadCredentials
+	}
+	tenants := s.tenantBriefsOf(matched)
+	return nil, errs.ErrTenantCodeRequired.WithData(gin.H{"tenants": tenants})
+}
+
+// tenantBriefsOf 候选用户涉及租户的名称/代码（登录公司选择列表）。
+func (s *AuthService) tenantBriefsOf(users []model.SysUser) []gin.H {
+	ids := distinctTenantIDs(users)
+	var tenants []model.Tenant
+	s.db.Select("id", "code", "name").Where("id IN ? AND status = ?", ids, model.StatusEnabled).Find(&tenants)
+	items := make([]gin.H, 0, len(tenants))
+	for _, t := range tenants {
+		items = append(items, gin.H{"code": t.Code, "name": t.Name})
+	}
+	return items
+}
+
+// distinctTenantIDs 候选用户去重后的租户集合（纯函数，登录租户歧义判定用）。
+func distinctTenantIDs(users []model.SysUser) []string {
+	seen := map[string]bool{}
+	var ids []string
+	for _, u := range users {
+		if !seen[u.TenantID] {
+			seen[u.TenantID] = true
+			ids = append(ids, u.TenantID)
+		}
+	}
+	return ids
+}
+
+// filterUsersByTenant 按租户过滤候选用户（纯函数）。
+func filterUsersByTenant(users []model.SysUser, tenantID string) []model.SysUser {
+	out := make([]model.SysUser, 0, 1)
+	for _, u := range users {
+		if u.TenantID == tenantID {
+			out = append(out, u)
+		}
+	}
+	return out
+}
+
+// defaultTenantID 默认租户 ID（开放注册等无登录态场景归入默认租户）。
+func (s *AuthService) defaultTenantID() (string, *errs.Error) {
+	var id string
+	if err := s.db.Model(&model.Tenant{}).Select("id").Where("code = ?", model.DefaultTenantCode).
+		Limit(1).Pluck("id", &id).Error; err != nil || id == "" {
+		return "", errs.ErrInternal
+	}
+	return id, nil
 }
 
 func truncate(s string, n int) string {

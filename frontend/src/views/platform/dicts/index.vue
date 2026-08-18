@@ -124,7 +124,7 @@ onMounted(fetchTypes)
 
 // 进入第二级：字典数据页
 function goData(row: DictType) {
-  router.push(`/system/dicts/data/${row.code}`)
+  router.push(`/platform/dicts/data/${row.code}`)
 }
 
 // ===== 类型表单 =====

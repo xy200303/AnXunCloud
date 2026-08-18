@@ -93,6 +93,12 @@ func (ctl *MPController) PointByCode(c *gin.Context) {
 	write(c, data, be)
 }
 
+// Points GET /points?community_id=（问题上报关联点位的候选列表）
+func (ctl *MPController) Points(c *gin.Context) {
+	data, be := ctl.mp.Points(uid(c), c.Query("community_id"))
+	write(c, data, be)
+}
+
 // PublicPoint GET /api/public/point/:code（短链接 H5 点位信息页，免登录脱敏摘要）
 func (ctl *MPController) PublicPoint(c *gin.Context) {
 	code := c.Param("code")
@@ -194,10 +200,51 @@ func (ctl *MPController) MyOrders(c *gin.Context) {
 	write(c, page, be)
 }
 
-// OrderCounts GET /workorders/mine/counts（按状态计数，query: type）
+// OrderCounts GET /workorders/mine/counts（按状态计数，query: type；附带 pool 可抢池数量）
 func (ctl *MPController) OrderCounts(c *gin.Context) {
 	data, be := ctl.mp.MyOrderCounts(uid(c), c.DefaultQuery("type", ""))
 	write(c, data, be)
+}
+
+// OrderReport POST /workorders（移动端主动上报，source=active）
+func (ctl *MPController) OrderReport(c *gin.Context) {
+	var req wodto.OrderReportReq
+	if be := bind.JSON(c, &req); be != nil {
+		response.Fail(c, be)
+		return
+	}
+	data, be := ctl.orders.Report(c.Request.Context(), uid(c), &req)
+	write(c, data, be)
+}
+
+// OrderGrab POST /workorders/:id/grab（抢单：项目开启抢单且本人在 order_accept 名单）
+func (ctl *MPController) OrderGrab(c *gin.Context) {
+	id, be := pathID(c)
+	if be != nil {
+		response.Fail(c, be)
+		return
+	}
+	if be := ctl.orders.Grab(id, uid(c)); be != nil {
+		response.Fail(c, be)
+		return
+	}
+	response.OK(c, gin.H{"status": "processing"})
+}
+
+// OrderConfirm POST /workorders/:id/confirm（验收：报单人本人或分诊名单成员）
+func (ctl *MPController) OrderConfirm(c *gin.Context) {
+	id, be := pathID(c)
+	if be != nil {
+		response.Fail(c, be)
+		return
+	}
+	var req wodto.ConfirmReq
+	if be := bind.JSON(c, &req); be != nil {
+		response.Fail(c, be)
+		return
+	}
+	status, be := ctl.orders.ConfirmForMP(id, uid(c), &req)
+	write(c, gin.H{"status": status}, be)
 }
 
 // OrderDetail GET /workorders/:id
@@ -209,20 +256,6 @@ func (ctl *MPController) OrderDetail(c *gin.Context) {
 	}
 	data, be := ctl.orders.GetForMP(id, uid(c))
 	write(c, data, be)
-}
-
-// OrderAccept POST /workorders/:id/accept
-func (ctl *MPController) OrderAccept(c *gin.Context) {
-	id, be := pathID(c)
-	if be != nil {
-		response.Fail(c, be)
-		return
-	}
-	if be := ctl.orders.Accept(id, uid(c)); be != nil {
-		response.Fail(c, be)
-		return
-	}
-	response.OK(c, gin.H{"status": "processing"})
 }
 
 // OrderFinish POST /workorders/:id/finish
@@ -275,7 +308,7 @@ func (ctl *MPController) MarkRead(c *gin.Context) {
 func (ctl *MPController) Announcements(c *gin.Context) {
 	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
 	pageSize, _ := strconv.Atoi(c.DefaultQuery("page_size", "20"))
-	data, be := ctl.notices.Published(page, pageSize)
+	data, be := ctl.notices.Published(page, pageSize, middleware.CurrentIdentity(c).TenantID)
 	write(c, data, be)
 }
 
@@ -286,6 +319,6 @@ func (ctl *MPController) AnnouncementDetail(c *gin.Context) {
 		response.Fail(c, be)
 		return
 	}
-	data, be := ctl.notices.PublishedDetail(id)
+	data, be := ctl.notices.PublishedDetail(id, middleware.CurrentIdentity(c).TenantID)
 	write(c, data, be)
 }

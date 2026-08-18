@@ -50,6 +50,16 @@ func (ctl *AuthController) RegisterConfig(c *gin.Context) {
 	response.OK(c, ctl.svc.RegisterConfig())
 }
 
+// RegisterTenants GET /auth/register-tenants（免登录；注册下拉公司列表，仅注册开启时返回）
+func (ctl *AuthController) RegisterTenants(c *gin.Context) {
+	data, be := ctl.svc.RegisterTenants()
+	if be != nil {
+		response.Fail(c, be)
+		return
+	}
+	response.OK(c, data)
+}
+
 // Register POST /auth/register（免登录，操作日志记操作人为匿名注册者）
 func (ctl *AuthController) Register(c *gin.Context) {
 	var req dto.RegisterReq

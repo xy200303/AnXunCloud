@@ -141,7 +141,7 @@ async function fetchTypeInfo() {
 }
 
 function goBack() {
-  router.push('/system/dicts')
+  router.push('/platform/dicts')
 }
 
 // ===== 字典数据列表 =====

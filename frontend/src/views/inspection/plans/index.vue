@@ -18,6 +18,11 @@
             <el-option label="每月" value="monthly" />
           </el-select>
         </el-form-item>
+        <el-form-item label="巡查类型">
+          <el-select v-model="query.patrol_type" placeholder="全部" clearable style="width: 140px">
+            <el-option v-for="o in PATROL_TYPE_OPTIONS" :key="o.value" :label="o.label" :value="o.value" />
+          </el-select>
+        </el-form-item>
         <el-form-item label="状态">
           <el-select v-model="query.status" placeholder="全部" clearable style="width: 110px">
             <el-option label="启用" :value="1" />
@@ -48,6 +53,11 @@
       <el-table v-loading="loading" :data="list" stripe style="width: 100%">
         <el-table-column prop="name" label="计划名称" min-width="140" show-overflow-tooltip />
         <el-table-column prop="community_name" label="小区" min-width="120" />
+        <el-table-column label="巡查类型" width="120" align="center">
+          <template #default="{ row }">
+            <el-tag size="small" effect="plain">{{ patrolTypeLabel(row.patrol_type) }}</el-tag>
+          </template>
+        </el-table-column>
         <el-table-column label="周期" width="130">
           <template #default="{ row }">{{ cycleLabel(row) }}</template>
         </el-table-column>
@@ -116,6 +126,16 @@
             <el-form-item label="所属小区" prop="community_id">
               <el-select v-model="form.community_id" placeholder="选择小区" style="width: 100%" :disabled="!!form.id" @change="handleFormCommunityChange">
                 <el-option v-for="c in communities" :key="c.id" :label="c.name" :value="c.id" />
+              </el-select>
+            </el-form-item>
+          </el-col>
+        </el-row>
+
+        <el-row :gutter="16">
+          <el-col :span="12">
+            <el-form-item label="巡查类型" prop="patrol_type">
+              <el-select v-model="form.patrol_type" style="width: 100%">
+                <el-option v-for="o in PATROL_TYPE_OPTIONS" :key="o.value" :label="o.label" :value="o.value" />
               </el-select>
             </el-form-item>
           </el-col>
@@ -246,7 +266,8 @@ import { listCommunities } from '@/api/community'
 import { listPoints } from '@/api/point'
 import { listUsers } from '@/api/user'
 import { useUserStore } from '@/store/user'
-import type { PlanItem, CommunityItem, PointItem } from '@/api/biz-types'
+import type { PlanItem, CommunityItem, PointItem, PatrolType } from '@/api/biz-types'
+import { PATROL_TYPE_OPTIONS, patrolTypeLabel } from '@/api/biz-types'
 import type { UserItem } from '@/api/types'
 
 const userStore = useUserStore()
@@ -257,7 +278,7 @@ const list = ref<PlanItem[]>([])
 const total = ref(0)
 const communities = ref<CommunityItem[]>([])
 const inspectorOptions = ref<UserItem[]>([])
-const query = reactive({ page: 1, page_size: 20, community_id: undefined as string | undefined, name: '', cycle_type: '', status: '' as number | '' })
+const query = reactive({ page: 1, page_size: 20, community_id: undefined as string | undefined, name: '', cycle_type: '', patrol_type: '', status: '' as number | '' })
 
 async function fetchList() {
   loading.value = true
@@ -266,6 +287,7 @@ async function fetchList() {
       ...query,
       name: query.name || undefined,
       cycle_type: query.cycle_type || undefined,
+      patrol_type: query.patrol_type || undefined,
       status: query.status === '' ? undefined : query.status
     })
     list.value = data.list
@@ -284,6 +306,7 @@ function handleReset() {
   query.community_id = undefined
   query.name = ''
   query.cycle_type = ''
+  query.patrol_type = ''
   query.status = ''
   handleSearch()
 }
@@ -368,6 +391,7 @@ const form = reactive({
   id: '',
   name: '',
   community_id: null as string | null,
+  patrol_type: 'safety' as PatrolType,
   point_ids: [] as string[],
   cycle_type: 'daily',
   cycle_config: {} as { weekdays?: number[]; days?: number[] },
@@ -380,6 +404,7 @@ const form = reactive({
 const formRules: FormRules = {
   name: [{ required: true, message: '请输入计划名称', trigger: 'blur' }],
   community_id: [{ required: true, message: '请选择小区', trigger: 'change' }],
+  patrol_type: [{ required: true, message: '请选择巡查类型', trigger: 'change' }],
   cycle_type: [{ required: true, message: '请选择周期', trigger: 'change' }],
   timeRange: [{ required: true, message: '请选择执行时段', trigger: 'change' }],
   inspector_ids: [{ required: true, type: 'array', min: 1, message: '请选择巡检员', trigger: 'change' }],
@@ -436,6 +461,7 @@ async function openForm(row?: PlanItem) {
       id: detail.id,
       name: detail.name,
       community_id: detail.community_id,
+      patrol_type: detail.patrol_type || 'safety',
       point_ids: (detail.points || []).sort((a, b) => a.sort - b.sort).map((p) => p.id),
       cycle_type: detail.cycle_type,
       cycle_config: { ...detail.cycle_config },
@@ -448,7 +474,7 @@ async function openForm(row?: PlanItem) {
     candidatePoints.value = data.list
   } else {
     Object.assign(form, {
-      id: '', name: '', community_id: null, point_ids: [], cycle_type: 'daily',
+      id: '', name: '', community_id: null, patrol_type: 'safety', point_ids: [], cycle_type: 'daily',
       cycle_config: {}, timeRange: null, inspector_ids: [], dateRange: null, status: 1
     })
     candidatePoints.value = []
@@ -475,6 +501,7 @@ async function handleSubmit() {
   const payload = {
     community_id: form.community_id!,
     name: form.name,
+    patrol_type: form.patrol_type,
     point_ids: form.point_ids,
     cycle_type: form.cycle_type,
     cycle_config: form.cycle_type === 'daily' ? {} : form.cycle_config,

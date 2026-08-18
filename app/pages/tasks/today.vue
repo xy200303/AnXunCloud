@@ -10,6 +10,21 @@
       <text class="offline-bar-text" :style="{ color: colors.primary }">离线暂存 {{ offlineCount }} 条打卡，点击立即补传</text>
     </view>
 
+    <!-- 快捷入口：问题上报（一线全员可见）；工单处理（维修角色或有待处理/可抢工单时显示） -->
+    <view class="entries">
+      <view class="entry" :style="{ backgroundColor: colors.bgCard }" @click="goReport">
+        <text class="entry-title" :style="{ color: colors.textPrimary }">问题上报</text>
+        <text class="entry-sub" :style="{ color: colors.textSecondary }">发现问题随时拍、随时报</text>
+      </view>
+      <view v-if="showOrderEntry" class="entry" :style="{ backgroundColor: colors.bgCard }" @click="goWorkorders">
+        <view class="entry-title-row">
+          <text class="entry-title" :style="{ color: colors.textPrimary }">工单处理</text>
+          <text v-if="orderBadge > 0" class="entry-badge" :style="{ backgroundColor: colors.danger, color: colors.white }">{{ orderBadge > 99 ? '99+' : orderBadge }}</text>
+        </view>
+        <text class="entry-sub" :style="{ color: colors.textSecondary }">派给我的工单与工单池</text>
+      </view>
+    </view>
+
     <!-- 骨架屏 -->
     <view v-if="loading" class="skeleton">
       <view class="sk-block" :style="{ backgroundColor: colors.border }"></view>
@@ -25,13 +40,37 @@
 
     <!-- 任务列表 -->
     <view v-else-if="loaded" class="content">
+      <!-- 巡查类型筛选（客户端过滤：全部 / 安全 / 设备专项 / 环境 / 楼栋） -->
+      <scroll-view scroll-x class="chips" :show-scrollbar="false">
+        <view class="chips-inner">
+          <view
+            v-for="c in typeChips"
+            :key="c.value"
+            class="chip"
+            :style="typeFilter == c.value
+              ? { backgroundColor: colors.primaryLight, borderColor: colors.primary }
+              : { backgroundColor: colors.bgCard, borderColor: colors.border }"
+            @click="typeFilter = c.value"
+          >
+            <text
+              class="chip-text"
+              :style="{ color: typeFilter == c.value ? colors.primary : colors.textSecondary }"
+            >{{ c.label }}</text>
+          </view>
+        </view>
+      </scroll-view>
+
       <view class="summary">
         <text class="summary-date" :style="{ color: colors.textSecondary }">{{ date }}</text>
         <text class="summary-progress" :style="{ color: colors.primary }">{{ donePoints }}/{{ totalPoints }}</text>
       </view>
 
+      <view v-if="filteredTasks.length == 0" class="empty-filter">
+        <text class="empty-filter-text" :style="{ color: colors.textSecondary }">该类型今日暂无任务</text>
+      </view>
+
       <view
-        v-for="t in tasks"
+        v-for="t in filteredTasks"
         :key="t.id"
         class="card"
         :style="{ backgroundColor: colors.bgCard }"
@@ -41,7 +80,10 @@
           <text class="card-title" :style="{ color: colors.textPrimary }">{{ t.community_name }} · {{ t.plan_name }}</text>
           <text class="card-tag" :style="{ color: t.status_color }">{{ t.status_text }}</text>
         </view>
-        <text class="card-sub" :style="{ color: colors.textSecondary }">{{ t.time_window }}</text>
+        <view class="card-sub-row">
+          <text v-if="t.patrol_text != ''" class="type-tag" :style="{ color: colors.primary, borderColor: colors.primary }">{{ t.patrol_text }}</text>
+          <text class="card-sub" :style="{ color: colors.textSecondary }">{{ t.time_window }}</text>
+        </view>
         <view class="progress" :style="{ backgroundColor: colors.border }">
           <view
             class="progress-inner"
@@ -64,15 +106,29 @@
 
 <script lang="ts">
 import { Colors, ColorTokens } from '@/utils/theme'
-import { apiTasksToday, TodayTask } from '@/services/api'
+import { apiTasksToday, apiMyOrderCounts, TodayTask } from '@/services/api'
 import { offlineCount, syncOfflineCheckins } from '@/utils/offline'
 import { useMessageStore } from '@/stores/message'
+import { useAuthStore } from '@/stores/auth'
+
+/** 巡查类型文案（对齐后端 Patrol* 枚举） */
+function patrolTextOf(t: string): string {
+  if (t == 'safety') return '安全巡查'
+  if (t == 'equipment') return '设备专项'
+  if (t == 'environment') return '环境巡查'
+  if (t == 'building') return '楼栋巡查'
+  return ''
+}
 
 /** 列表项视图模型：模板只做简单属性读取，颜色/文案/宽度在数据层预计算 */
 type TaskView = {
   id: string
   plan_name: string
   community_name: string
+  /** 巡查类型原始值（safety/equipment/environment/building），筛选用 */
+  patrol_type: string
+  /** 巡查类型中文标签（空 = 不展示标签） */
+  patrol_text: string
   time_window: string
   status_text: string
   status_color: string
@@ -93,6 +149,11 @@ type TodayData = {
   totalPoints: number
   donePoints: number
   tasks: TaskView[]
+  /** 巡查类型筛选（'' = 全部） */
+  typeFilter: string
+  typeChips: Array<{ label: string; value: string }>
+  /** 工单待办角标（派给我的处理中/待验收 + 可抢池） */
+  orderBadge: number
   /** 离线暂存待补传条数（>0 显示提示条） */
   offlineCount: number
 }
@@ -116,6 +177,8 @@ function toTaskView(t: TodayTask): TaskView {
     id: t.id,
     plan_name: t.plan_name,
     community_name: t.community_name,
+    patrol_type: t.patrol_type,
+    patrol_text: patrolTextOf(t.patrol_type),
     time_window: t.time_window,
     status_text: statusTextOf(t.status),
     status_color: statusColorOf(t.status),
@@ -137,7 +200,32 @@ export default {
       totalPoints: 0,
       donePoints: 0,
       tasks: [] as TaskView[],
+      typeFilter: '',
+      typeChips: [
+        { label: '全部', value: '' },
+        { label: '安全巡查', value: 'safety' },
+        { label: '设备专项', value: 'equipment' },
+        { label: '环境巡查', value: 'environment' },
+        { label: '楼栋巡查', value: 'building' }
+      ],
+      orderBadge: 0,
       offlineCount: 0
+    }
+  },
+  computed: {
+    /** 按巡查类型过滤后的任务列表 */
+    filteredTasks(): TaskView[] {
+      if (this.typeFilter == '') return this.tasks
+      return this.tasks.filter((t) => t.patrol_type == this.typeFilter)
+    },
+    /**
+     * 「工单处理」入口显隐：无岗位字段可依赖，按现有信息判断——
+     * 维修角色（roles 含 repair）或存在待处理/待验收/可抢工单时显示。
+     */
+    showOrderEntry(): boolean {
+      const u = useAuthStore().userInfo
+      if (u != null && (u.roles ?? []).indexOf('repair') >= 0) return true
+      return this.orderBadge > 0
     }
   },
   onLoad() {
@@ -152,6 +240,8 @@ export default {
     }
     // 刷新消息 tab 未读角标（轻量请求只取 unread_count，失败静默）
     useMessageStore().refresh()
+    // 刷新工单待办角标（工单处理入口显隐；失败静默）
+    this.fetchOrderBadge()
   },
   onPullDownRefresh() {
     this.load()
@@ -198,6 +288,22 @@ export default {
     },
     goDetail(id: string) {
       uni.navigateTo({ url: '/pages/tasks/detail?id=' + encodeURIComponent(id) })
+    },
+    /** 问题上报入口（一线全员可见） */
+    goReport() {
+      uni.navigateTo({ url: '/pages/workorders/report' })
+    },
+    /** 工单处理入口：跳到工单 tab（默认「派给我的」） */
+    goWorkorders() {
+      uni.switchTab({ url: '/pages/workorders/list' })
+    },
+    /** 工单待办角标：派给我的处理中 + 待验收 + 可抢池（counts 接口，失败静默） */
+    fetchOrderBadge() {
+      apiMyOrderCounts('assigned')
+        .then((d) => {
+          this.orderBadge = (d['processing'] ?? 0) + (d['pending_confirm'] ?? 0) + (d['pool'] ?? 0)
+        })
+        .catch((_e) => {})
     }
   }
 }
@@ -218,6 +324,95 @@ export default {
 
 .offline-bar-text {
   font-size: 26rpx;
+}
+
+/* 快捷入口 */
+.entries {
+  flex-direction: row;
+  margin-bottom: 24rpx;
+}
+
+.entry {
+  flex: 1;
+  border-radius: 24rpx; /* Radius.card */
+  padding: 24rpx 32rpx;
+  margin-right: 24rpx;
+}
+
+.entry:last-child {
+  margin-right: 0;
+}
+
+.entry-title-row {
+  flex-direction: row;
+  align-items: center;
+}
+
+.entry-title {
+  font-size: 32rpx;
+  font-weight: 600;
+}
+
+.entry-badge {
+  font-size: 20rpx;
+  border-radius: 16rpx;
+  padding: 2rpx 12rpx;
+  margin-left: 12rpx;
+}
+
+.entry-sub {
+  font-size: 22rpx;
+  margin-top: 8rpx;
+}
+
+/* 巡查类型筛选 chips */
+.chips {
+  margin-bottom: 16rpx;
+}
+
+.chips-inner {
+  display: inline-flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+}
+
+.chip {
+  flex-shrink: 0;
+  border-width: 2rpx;
+  border-style: solid;
+  border-radius: 32rpx;
+  padding: 8rpx 24rpx;
+  margin-right: 16rpx;
+}
+
+.chip-text {
+  font-size: 26rpx;
+  white-space: nowrap;
+}
+
+.empty-filter {
+  align-items: center;
+  padding: 64rpx 0;
+}
+
+.empty-filter-text {
+  font-size: 26rpx;
+}
+
+.card-sub-row {
+  flex-direction: row;
+  align-items: center;
+  margin-top: 8rpx;
+  margin-bottom: 24rpx;
+}
+
+.type-tag {
+  font-size: 22rpx;
+  border-width: 2rpx;
+  border-style: solid;
+  border-radius: 12rpx; /* Radius.tag */
+  padding: 4rpx 16rpx;
+  margin-right: 16rpx;
 }
 
 .skeleton {
@@ -297,8 +492,6 @@ export default {
 
 .card-sub {
   font-size: 26rpx;
-  margin-top: 8rpx;
-  margin-bottom: 24rpx;
 }
 
 .progress {

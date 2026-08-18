@@ -8,6 +8,7 @@ import (
 
 	"gorm.io/gorm"
 
+	"anxuncloud/internal/middleware"
 	"anxuncloud/internal/module/system/dto"
 	"anxuncloud/internal/module/system/model"
 	"anxuncloud/internal/pkg/authz"
@@ -40,8 +41,10 @@ func NewUserService(db *gorm.DB, killSessions func(ctx context.Context, userID s
 }
 
 // listQuery 组装列表/导出共用的查询条件。
-func (s *UserService) listQuery(q *dto.UserListQuery) *gorm.DB {
-	db := s.db.Model(&model.SysUser{})
+// 租户上下文（菜单归位方案 §2）：只显示上下文租户数据，不做跨租户混合列表；
+// tenantID 由 controller 经 middleware.EffectiveTenantID 解析（非超管=本人租户，超管=上下文租户）。
+func (s *UserService) listQuery(q *dto.UserListQuery, op *middleware.Identity, tenantID string) *gorm.DB {
+	db := s.db.Model(&model.SysUser{}).Where("tenant_id = ?", tenantID)
 	if q.Username != "" {
 		db = db.Where("username LIKE ? OR name LIKE ?", "%"+q.Username+"%", "%"+q.Username+"%")
 	}
@@ -52,7 +55,9 @@ func (s *UserService) listQuery(q *dto.UserListQuery) *gorm.DB {
 		db = db.Where("role_ids @> ?::jsonb", fmt.Sprintf(`["%s"]`, q.RoleID))
 	}
 	if q.CommunityID != "" {
-		db = db.Where("community_ids @> ?::jsonb", fmt.Sprintf(`["%s"]`, q.CommunityID))
+		// 按项目编制过滤：该项目编制内的用户
+		db = db.Where("id IN (?)", s.db.Model(&model.ProjectStaff{}).
+			Select("user_id").Where("project_id = ?", q.CommunityID))
 	}
 	if status, ok, _ := bind.StatusFilter(q.Status); ok {
 		db = db.Where("status = ?", status)
@@ -61,8 +66,8 @@ func (s *UserService) listQuery(q *dto.UserListQuery) *gorm.DB {
 }
 
 // List 用户分页列表（附带角色名与小区名）。
-func (s *UserService) List(q *dto.UserListQuery) (*response.Page, *errs.Error) {
-	db := s.listQuery(q)
+func (s *UserService) List(q *dto.UserListQuery, op *middleware.Identity, tenantID string) (*response.Page, *errs.Error) {
+	db := s.listQuery(q, op, tenantID)
 	var total int64
 	if err := db.Count(&total).Error; err != nil {
 		return nil, errs.ErrInternal
@@ -79,7 +84,7 @@ func (s *UserService) List(q *dto.UserListQuery) (*response.Page, *errs.Error) {
 	return &response.Page{List: items, Total: total, Page: q.Page, PageSize: q.PageSize}, nil
 }
 
-// toItem 转换为列表视图（角色名、小区名反查）。
+// toItem 转换为列表视图（角色名反查；所属项目名取 project_staff 在职编制，导出用）。
 func (s *UserService) toItem(u *model.SysUser) dto.UserItem {
 	item := dto.UserItem{
 		ID:             u.ID,
@@ -88,7 +93,6 @@ func (s *UserService) toItem(u *model.SysUser) dto.UserItem {
 		Phone:          u.Phone,
 		Avatar:         u.Avatar,
 		Roles:          []dto.RoleItem{},
-		CommunityIDs:   u.CommunityIDs,
 		CommunityNames: []string{},
 		Status:         model.StatusInt(u.Status),
 		IsBuiltin:      u.IsBuiltin,
@@ -105,16 +109,35 @@ func (s *UserService) toItem(u *model.SysUser) dto.UserItem {
 			item.Roles = append(item.Roles, dto.RoleItem{ID: r.ID, Code: r.Code, Name: r.Name})
 		}
 	}
-	if len(u.CommunityIDs) > 0 {
-		var names []string
-		s.db.Model(&model.Community{}).Where("id IN ?", []string(u.CommunityIDs)).Order("id ASC").Pluck("name", &names)
-		item.CommunityNames = names
-	}
+	_, item.CommunityNames = s.userCommunities(u.ID)
 	return item
 }
 
+// userCommunities 用户在职编制覆盖的项目 ID 与名称（按 id 升序）。
+func (s *UserService) userCommunities(userID string) ([]string, []string) {
+	var ids []string
+	s.db.Model(&model.ProjectStaff{}).
+		Where("user_id = ? AND status = ?", userID, model.StatusEnabled).
+		Order("project_id ASC").Pluck("project_id", &ids)
+	if len(ids) == 0 {
+		return []string{}, []string{}
+	}
+	var names []string
+	s.db.Model(&model.Community{}).Where("id IN ?", ids).Order("id ASC").Pluck("name", &names)
+	return ids, names
+}
+
+// checkTenant 租户归属校验：非超管操作跨租户用户一律按不存在处理（不暴露跨租户数据存在性）。
+func checkTenant(userTenantID string, op *middleware.Identity) *errs.Error {
+	if op.SuperAdmin || userTenantID == op.TenantID {
+		return nil
+	}
+	return errs.ErrNotFound
+}
+
 // Create 新增用户。super_admin 角色仅超管本人可分配（防权限提升）。
-func (s *UserService) Create(req *dto.UserCreateReq, operatorSuper bool) (string, *errs.Error) {
+// 租户归属：新建用户归属上下文租户（tenantID 由 EffectiveTenantID 解析并校验存在性，不为空）。
+func (s *UserService) Create(req *dto.UserCreateReq, op *middleware.Identity, tenantID string) (string, *errs.Error) {
 	if !password.ValidUsername(req.Username) {
 		return "", errs.ErrParam.WithMsg("username 须为 4–32 位字母数字下划线")
 	}
@@ -125,18 +148,15 @@ func (s *UserService) Create(req *dto.UserCreateReq, operatorSuper bool) (string
 		return "", errs.ErrParam.WithMsg("phone 手机号格式错误")
 	}
 	var count int64
-	s.db.Model(&model.SysUser{}).Where("username = ?", req.Username).Count(&count)
+	// 用户名租户内唯一（P3）
+	s.db.Model(&model.SysUser{}).Where("tenant_id = ? AND username = ?", tenantID, req.Username).Count(&count)
 	if count > 0 {
 		return "", errs.ErrUsernameExists
 	}
-	userType, be := s.resolveRoles(req.RoleIDs)
-	if be != nil {
+	if be := s.checkRoles(req.RoleIDs, op); be != nil {
 		return "", be
 	}
-	if be := s.guardSuperRoleAssign(req.RoleIDs, operatorSuper); be != nil {
-		return "", be
-	}
-	if be := s.checkCommunities(req.CommunityIDs); be != nil {
+	if be := s.guardSuperRoleAssign(req.RoleIDs, op.SuperAdmin); be != nil {
 		return "", be
 	}
 	hash, err := password.Hash(req.Password)
@@ -148,17 +168,13 @@ func (s *UserService) Create(req *dto.UserCreateReq, operatorSuper bool) (string
 		status = model.StatusStr(*req.Status)
 	}
 	user := model.SysUser{
-		Username:     req.Username,
-		Password:     hash,
-		Name:         req.Name,
-		Phone:        req.Phone,
-		RoleIDs:      req.RoleIDs,
-		CommunityIDs: req.CommunityIDs,
-		UserType:     userType,
-		Status:       status,
-	}
-	if user.CommunityIDs == nil {
-		user.CommunityIDs = types.IDArray{}
+		TenantID: tenantID,
+		Username: req.Username,
+		Password: hash,
+		Name:     req.Name,
+		Phone:    req.Phone,
+		RoleIDs:  req.RoleIDs,
+		Status:   status,
 	}
 	if err := s.db.Create(&user).Error; err != nil {
 		return "", errs.ErrInternal
@@ -167,11 +183,14 @@ func (s *UserService) Create(req *dto.UserCreateReq, operatorSuper bool) (string
 	return user.ID, nil
 }
 
-// Detail 用户详情。
-func (s *UserService) Detail(id string) (*dto.UserDetail, *errs.Error) {
+// Detail 用户详情（非超管仅可看本租户用户）。
+func (s *UserService) Detail(id string, op *middleware.Identity) (*dto.UserDetail, *errs.Error) {
 	var u model.SysUser
 	if err := s.db.First(&u, "id = ?", id).Error; err != nil {
 		return nil, errs.ErrNotFound
+	}
+	if be := checkTenant(u.TenantID, op); be != nil {
+		return nil, be
 	}
 	d := &dto.UserDetail{
 		ID:           u.ID,
@@ -180,7 +199,6 @@ func (s *UserService) Detail(id string) (*dto.UserDetail, *errs.Error) {
 		Phone:        u.Phone,
 		Avatar:       u.Avatar,
 		RoleIDs:      u.RoleIDs,
-		CommunityIDs: u.CommunityIDs,
 		Status:       model.StatusInt(u.Status),
 		IsBuiltin:    u.IsBuiltin,
 		LastLoginAt:  timefmt.TP(u.LastLoginAt),
@@ -202,11 +220,14 @@ func (s *UserService) Detail(id string) (*dto.UserDetail, *errs.Error) {
 }
 
 // Update 修改用户（username 不可改，改密码走重置接口；内置账号不可移除 super_admin 角色）。
-// super_admin 角色仅超管本人可分配（防权限提升）。
-func (s *UserService) Update(id string, req *dto.UserUpdateReq, operatorSuper bool) *errs.Error {
+// super_admin 角色仅超管本人可分配（防权限提升）；非超管仅可改本租户用户。
+func (s *UserService) Update(id string, req *dto.UserUpdateReq, op *middleware.Identity) *errs.Error {
 	var u model.SysUser
 	if err := s.db.First(&u, "id = ?", id).Error; err != nil {
 		return errs.ErrNotFound
+	}
+	if be := checkTenant(u.TenantID, op); be != nil {
+		return be
 	}
 	if u.IsBuiltin {
 		var superRole model.SysRole
@@ -220,22 +241,16 @@ func (s *UserService) Update(id string, req *dto.UserUpdateReq, operatorSuper bo
 	if !password.ValidPhone(req.Phone) {
 		return errs.ErrParam.WithMsg("phone 手机号格式错误")
 	}
-	userType, be := s.resolveRoles(req.RoleIDs)
-	if be != nil {
+	if be := s.checkRoles(req.RoleIDs, op); be != nil {
 		return be
 	}
-	if be := s.guardSuperRoleAssign(req.RoleIDs, operatorSuper); be != nil {
-		return be
-	}
-	if be := s.checkCommunities(req.CommunityIDs); be != nil {
+	if be := s.guardSuperRoleAssign(req.RoleIDs, op.SuperAdmin); be != nil {
 		return be
 	}
 	updates := map[string]any{
-		"name":          req.Name,
-		"phone":         req.Phone,
-		"role_ids":      types.IDArray(req.RoleIDs),
-		"community_ids": types.IDArray(req.CommunityIDs),
-		"user_type":     userType,
+		"name":     req.Name,
+		"phone":    req.Phone,
+		"role_ids": types.IDArray(req.RoleIDs),
 	}
 	if req.Status != nil {
 		updates["status"] = model.StatusStr(*req.Status)
@@ -248,13 +263,16 @@ func (s *UserService) Update(id string, req *dto.UserUpdateReq, operatorSuper bo
 }
 
 // ResetPassword 管理员重置密码，重置后该用户全部会话失效。
-// 目标为内置账号或持有 super_admin 角色时，仅超管本人可操作（防接管超管账号）。
-func (s *UserService) ResetPassword(ctx context.Context, id string, newPassword string, operatorSuper bool) *errs.Error {
+// 目标为内置账号或持有 super_admin 角色时，仅超管本人可操作（防接管超管账号）；非超管仅可重置本租户用户。
+func (s *UserService) ResetPassword(ctx context.Context, id string, newPassword string, op *middleware.Identity) *errs.Error {
 	var u model.SysUser
 	if err := s.db.First(&u, "id = ?", id).Error; err != nil {
 		return errs.ErrNotFound
 	}
-	if !operatorSuper {
+	if be := checkTenant(u.TenantID, op); be != nil {
+		return be
+	}
+	if !op.SuperAdmin {
 		if u.IsBuiltin {
 			return errs.ErrNoPerm.WithMsg("内置超管账号仅超级管理员本人可重置密码")
 		}
@@ -283,14 +301,17 @@ func (s *UserService) ResetPassword(ctx context.Context, id string, newPassword 
 	return nil
 }
 
-// SetStatus 启用/停用（停用即会话失效；不能操作当前登录账号；内置账号不可停用）。
-func (s *UserService) SetStatus(ctx context.Context, id string, status int, operatorID string) *errs.Error {
-	if id == operatorID {
+// SetStatus 启用/停用（停用即会话失效；不能操作当前登录账号；内置账号不可停用；非超管仅可操作本租户用户）。
+func (s *UserService) SetStatus(ctx context.Context, id string, status int, op *middleware.Identity) *errs.Error {
+	if id == op.UserID {
 		return errs.ErrSelfOperation
 	}
 	var u model.SysUser
 	if err := s.db.First(&u, "id = ?", id).Error; err != nil {
 		return errs.ErrNotFound
+	}
+	if be := checkTenant(u.TenantID, op); be != nil {
+		return be
 	}
 	if u.IsBuiltin && status == 0 {
 		return errs.ErrBuiltinAccount.WithMsg("内置账号不可停用")
@@ -305,14 +326,17 @@ func (s *UserService) SetStatus(ctx context.Context, id string, status int, oper
 	return nil
 }
 
-// Delete 软删除（不能删除当前登录账号；内置账号不可删除）。
-func (s *UserService) Delete(ctx context.Context, id string, operatorID string) *errs.Error {
-	if id == operatorID {
+// Delete 软删除（不能删除当前登录账号；内置账号不可删除；非超管仅可删本租户用户）。
+func (s *UserService) Delete(ctx context.Context, id string, op *middleware.Identity) *errs.Error {
+	if id == op.UserID {
 		return errs.ErrSelfOperation
 	}
 	var u model.SysUser
 	if err := s.db.First(&u, "id = ?", id).Error; err != nil {
 		return errs.ErrNotFound
+	}
+	if be := checkTenant(u.TenantID, op); be != nil {
+		return be
 	}
 	if u.IsBuiltin {
 		return errs.ErrBuiltinAccount.WithMsg("内置账号不可删除")
@@ -329,23 +353,24 @@ func (s *UserService) Delete(ctx context.Context, id string, operatorID string) 
 	return nil
 }
 
-// resolveRoles 校验角色存在并按角色推导用户类型（inspector/repair 优先，否则 admin）。
-func (s *UserService) resolveRoles(roleIDs []string) (string, *errs.Error) {	var roles []model.SysRole
+// checkRoles 校验角色存在。
+// 租户约束（P3）：非超管只能分配内置角色（tenant_id 空）或本租户自建角色。
+func (s *UserService) checkRoles(roleIDs []string, op *middleware.Identity) *errs.Error {
+	var roles []model.SysRole
 	if err := s.db.Where("id IN ?", roleIDs).Find(&roles).Error; err != nil {
-		return "", errs.ErrInternal
+		return errs.ErrInternal
 	}
 	if len(roles) != len(uniqueStrings(roleIDs)) {
-		return "", errs.ErrParam.WithMsg("role_ids 中存在无效角色")
+		return errs.ErrParam.WithMsg("role_ids 中存在无效角色")
 	}
-	userType := "admin"
-	for _, r := range roles {
-		if r.Code == "inspector" {
-			userType = "inspector"
-		} else if r.Code == "repair" && userType != "inspector" {
-			userType = "repair"
+	if !op.SuperAdmin {
+		for _, r := range roles {
+			if r.TenantID != nil && *r.TenantID != op.TenantID {
+				return errs.ErrParam.WithMsg("role_ids 中存在非本租户角色")
+			}
 		}
 	}
-	return userType, nil
+	return nil
 }
 
 // hasSuperRole 角色集合是否包含 super_admin。
@@ -376,23 +401,10 @@ func (s *UserService) guardSuperRoleAssign(roleIDs []string, operatorSuper bool)
 	return nil
 }
 
-// checkCommunities 校验小区存在。
-func (s *UserService) checkCommunities(ids []string) *errs.Error {
-	if len(ids) == 0 {
-		return nil
-	}
-	var count int64
-	s.db.Model(&model.Community{}).Where("id IN ?", ids).Count(&count)
-	if count != int64(len(uniqueStrings(ids))) {
-		return errs.ErrCommunityNotExist
-	}
-	return nil
-}
-
-// Export 按筛选导出全部用户（上限 10000 行）。
-func (s *UserService) Export(q *dto.UserListQuery) ([]excel.UserExportRow, *errs.Error) {
+// Export 按筛选导出全部用户（上限 10000 行；租户过滤口径与 List 一致）。
+func (s *UserService) Export(q *dto.UserListQuery, op *middleware.Identity, tenantID string) ([]excel.UserExportRow, *errs.Error) {
 	var users []model.SysUser
-	if err := s.listQuery(q).Order("id ASC").Limit(exportMaxRows + 1).Find(&users).Error; err != nil {
+	if err := s.listQuery(q, op, tenantID).Order("id ASC").Limit(exportMaxRows + 1).Find(&users).Error; err != nil {
 		return nil, errs.ErrInternal
 	}
 	if len(users) > exportMaxRows {
@@ -424,7 +436,8 @@ func (s *UserService) Export(q *dto.UserListQuery) ([]excel.UserExportRow, *errs
 }
 
 // Import 逐行校验导入用户（跳过失败行，成功行落库）。super_admin 角色仅超管本人可导入。
-func (s *UserService) Import(r io.Reader, operatorSuper bool) (*dto.ImportResult, string, *errs.Error) {
+// 租户归属（菜单归位方案 §2）：导入用户归入上下文租户（tenantID 由 EffectiveTenantID 解析）。
+func (s *UserService) Import(r io.Reader, op *middleware.Identity, tenantID string) (*dto.ImportResult, string, *errs.Error) {
 	rows, err := excel.ParseUserImport(r)
 	if err != nil {
 		return nil, "", errs.ErrImportFileType
@@ -446,11 +459,11 @@ func (s *UserService) Import(r io.Reader, operatorSuper bool) (*dto.ImportResult
 		return nil, "", errs.ErrImportTooMany
 	}
 
-	// 预载角色与小区名称映射、已有用户名集合
+	// 预载角色（内置 + 上下文租户自建）与上下文租户小区名称映射、已有用户名集合
 	roleByName := map[string]model.SysRole{}
 	{
 		var roles []model.SysRole
-		s.db.Find(&roles)
+		s.db.Where("tenant_id IS NULL OR tenant_id = ?", tenantID).Find(&roles)
 		for _, r := range roles {
 			roleByName[r.Name] = r
 		}
@@ -458,7 +471,7 @@ func (s *UserService) Import(r io.Reader, operatorSuper bool) (*dto.ImportResult
 	commByName := map[string]string{}
 	{
 		var comms []model.Community
-		s.db.Select("id", "name").Find(&comms)
+		s.db.Select("id", "name").Where("tenant_id = ?", tenantID).Find(&comms)
 		for _, cm := range comms {
 			commByName[cm.Name] = cm.ID
 		}
@@ -493,9 +506,9 @@ func (s *UserService) Import(r io.Reader, operatorSuper bool) (*dto.ImportResult
 		fail := func(reason string) {
 			result.FailDetails = append(result.FailDetails, dto.FailDetail{Row: rowNums[i], Phone: phone, Reason: reason})
 		}
-		// 1. 必填校验
-		if name == "" || phone == "" || roleText == "" || commText == "" {
-			fail("姓名/手机号/角色/所属小区均为必填")
+		// 1. 必填校验（所属小区改为选填：填写则同步写入项目编制，岗位在编制页维护）
+		if name == "" || phone == "" || roleText == "" {
+			fail("姓名/手机号/角色均为必填")
 			continue
 		}
 		// 2. 手机号格式与唯一性（库中或本批次重复均失败）
@@ -510,7 +523,6 @@ func (s *UserService) Import(r io.Reader, operatorSuper bool) (*dto.ImportResult
 		// 3. 角色逐一匹配
 		roleNames := strings.Split(roleText, ",")
 		roleIDs := make([]string, 0, len(roleNames))
-		roleCodes := make([]string, 0, len(roleNames))
 		roleOK := true
 		for _, rn := range roleNames {
 			rn = strings.TrimSpace(rn)
@@ -520,33 +532,33 @@ func (s *UserService) Import(r io.Reader, operatorSuper bool) (*dto.ImportResult
 				roleOK = false
 				break
 			}
-			if role.Code == model.SuperAdminCode && !operatorSuper {
+			if role.Code == model.SuperAdminCode && !op.SuperAdmin {
 				fail("仅超级管理员可导入超级管理员角色")
 				roleOK = false
 				break
 			}
 			roleIDs = append(roleIDs, role.ID)
-			roleCodes = append(roleCodes, role.Code)
 		}
 		if !roleOK {
 			continue
 		}
-		// 4. 小区逐一匹配
-		commNames := strings.Split(commText, ",")
-		commIDs := make([]string, 0, len(commNames))
-		commOK := true
-		for _, cn := range commNames {
-			cn = strings.TrimSpace(cn)
-			id, ok := commByName[cn]
-			if !ok {
-				fail(fmt.Sprintf("小区「%s」不存在", cn))
-				commOK = false
-				break
+		// 4. 小区逐一匹配（选填；填写则导入后写入项目编制，岗位留空待编制页维护）
+		commIDs := make([]string, 0)
+		if commText != "" {
+			commOK := true
+			for _, cn := range strings.Split(commText, ",") {
+				cn = strings.TrimSpace(cn)
+				id, ok := commByName[cn]
+				if !ok {
+					fail(fmt.Sprintf("小区「%s」不存在", cn))
+					commOK = false
+					break
+				}
+				commIDs = append(commIDs, id)
 			}
-			commIDs = append(commIDs, id)
-		}
-		if !commOK {
-			continue
+			if !commOK {
+				continue
+			}
 		}
 		// 初始密码：E 列或手机号后 6 位（文档约定默认值，不受手动创建的密码强度规则约束）
 		if initPwd != "" && !password.ValidPassword(initPwd) {
@@ -555,14 +567,6 @@ func (s *UserService) Import(r io.Reader, operatorSuper bool) (*dto.ImportResult
 		}
 		if initPwd == "" {
 			initPwd = phone[len(phone)-6:]
-		}
-		userType := "admin"
-		for _, code := range roleCodes {
-			if code == "inspector" {
-				userType = "inspector"
-			} else if code == "repair" && userType != "inspector" {
-				userType = "repair"
-			}
 		}
 		status := model.StatusEnabled
 		if statusText == "停用" {
@@ -573,13 +577,12 @@ func (s *UserService) Import(r io.Reader, operatorSuper bool) (*dto.ImportResult
 			return nil, "", errs.ErrInternal
 		}
 		user := model.SysUser{
+			TenantID:           tenantID,
 			Username:           phone,
 			Password:           hash,
 			Name:               name,
 			Phone:              phone,
 			RoleIDs:            roleIDs,
-			CommunityIDs:       commIDs,
-			UserType:           userType,
 			Status:             status,
 			MustChangePassword: true, // 导入用户首次登录强制改密
 			Remark:             remark,
@@ -587,6 +590,15 @@ func (s *UserService) Import(r io.Reader, operatorSuper bool) (*dto.ImportResult
 		if err := s.db.Create(&user).Error; err != nil {
 			fail("写入失败：" + err.Error())
 			continue
+		}
+		// 所属小区 → 项目编制（岗位留空，uk_project_staff 冲突忽略）
+		for _, cid := range commIDs {
+			s.db.Create(&model.ProjectStaff{
+				TenantID:  &tenantID,
+				ProjectID: cid, UserID: user.ID,
+				Posts: types.StringArray{}, BuildingIDs: types.IDArray{},
+				Status: model.StatusEnabled,
+			})
 		}
 		seen[phone] = true
 		result.SuccessCount++

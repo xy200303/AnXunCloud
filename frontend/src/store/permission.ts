@@ -72,9 +72,9 @@ export const usePermissionStore = defineStore('permission', {
           meta: { title: '工单详情' }
         },
         {
-          path: '/system/dicts/data/:typeCode',
-          component: viewModules['../views/system/dicts/data/index.vue'],
-          name: '/system/dicts/data',
+          path: '/platform/dicts/data/:typeCode',
+          component: viewModules['../views/platform/dicts/data/index.vue'],
+          name: '/platform/dicts/data',
           meta: { title: '字典数据' }
         }
       ]

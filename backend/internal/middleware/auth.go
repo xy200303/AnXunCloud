@@ -23,15 +23,17 @@ const ctxIdentity = "pi_identity"
 
 // Identity 当前登录用户身份与权限快照。
 type Identity struct {
-	UserID       string
-	Username     string
-	Name         string
-	JTI          string // 当前 access token 的 jti
-	SuperAdmin   bool
-	Perms        map[string]struct{} // 按钮级权限点集合（超管为全集）
-	DataScopeAll bool                // true 表示全部小区
-	CommunityIDs []string            // data_scope=custom 时的所辖小区
-	RoleCodes    []string
+	UserID        string
+	TenantID      string // 所属租户（P3 多租户：超管归属默认租户，跨租户操作走显式参数，无"无租户"态）
+	Username      string
+	Name          string
+	JTI           string // 当前 access token 的 jti
+	SuperAdmin    bool
+	Perms         map[string]struct{} // 按钮级权限点集合（超管为全集）
+	DataScopeAll  bool                // true 表示全部项目（角色 data_scope=all 或超管）
+	ScopeSelf     bool                // true 表示仅本人相关（纯一线岗位，或角色 data_scope=self 强制收窄）
+	ProjectIDs    []string            // project 档可见项目集合（按岗位编制推导：项目经理/主管级岗位覆盖的项目）
+	RoleCodes     []string
 	AccessExpiresAt time.Time // 当前 access token 过期时间（登出时计算黑名单 TTL）
 }
 
@@ -89,7 +91,7 @@ func Auth(db *gorm.DB, sess *session.Store, jwtm *jwtutil.Manager, channel strin
 		}
 		// 加载用户最新状态（停用/改角色即时生效）
 		var user model.SysUser
-		if err := db.Select("id", "username", "name", "status", "role_ids", "community_ids").
+		if err := db.Select("id", "tenant_id", "username", "name", "status", "role_ids").
 			First(&user, "id = ?", claims.UserID).Error; err != nil {
 			response.Fail(c, errs.ErrUnauthorized)
 			return
@@ -100,7 +102,12 @@ func Auth(db *gorm.DB, sess *session.Store, jwtm *jwtutil.Manager, channel strin
 		}
 		identity, err := buildIdentity(db, &user, claims.ID)
 		if err != nil {
-			response.Fail(c, errs.ErrInternal)
+			// 租户停用等业务错误直接透传（40108），其余按内部错误处理
+			if be, ok := err.(*errs.Error); ok {
+				response.Fail(c, be)
+			} else {
+				response.Fail(c, errs.ErrInternal)
+			}
 			return
 		}
 		identity.AccessExpiresAt = claims.ExpiresAt.Time
@@ -121,21 +128,36 @@ func extractToken(c *gin.Context) string {
 }
 
 // buildIdentity 汇总用户角色、权限点与数据范围。
+// 租户语义（P3）：TenantID 取用户所属租户；租户已停用则返回 ErrTenantDisabled（每请求直查，见 tenant.go）。
 func buildIdentity(db *gorm.DB, user *model.SysUser, jti string) (*Identity, error) {
+	enabled, err := TenantEnabled(db, user.TenantID)
+	if err != nil {
+		return nil, err
+	}
+	if !enabled {
+		return nil, errs.ErrTenantDisabled
+	}
 	identity := &Identity{
-		UserID:       user.ID,
-		Username:     user.Username,
-		Name:         user.Name,
-		JTI:          jti,
-		Perms:        map[string]struct{}{},
-		CommunityIDs: user.CommunityIDs,
+		UserID:   user.ID,
+		TenantID: user.TenantID,
+		Username: user.Username,
+		Name:     user.Name,
+		JTI:      jti,
+		Perms:    map[string]struct{}{},
 	}
 	var roles []model.SysRole
-	if len(user.RoleIDs) > 0 {
-		if err := db.Where("id IN ? AND status = ?", []string(user.RoleIDs), model.StatusEnabled).Find(&roles).Error; err != nil {
+	// 有效角色并集（方案 §3）：手动分配角色 ∪ 在职编制岗位绑定角色（post_dict.role_id），实时计算不落库
+	effectiveRoleIDs, err := EffectiveRoleIDs(db, user)
+	if err != nil {
+		return nil, err
+	}
+	if len(effectiveRoleIDs) > 0 {
+		if err := db.Where("id IN ? AND status = ?", effectiveRoleIDs, model.StatusEnabled).Find(&roles).Error; err != nil {
 			return nil, err
 		}
 	}
+	// 角色 data_scope 上限：任一 all → all；否则任一 project → project；全为 self → self
+	roleBound := model.ScopeSelf
 	roleIDs := make([]string, 0, len(roles))
 	for _, r := range roles {
 		identity.RoleCodes = append(identity.RoleCodes, r.Code)
@@ -143,13 +165,34 @@ func buildIdentity(db *gorm.DB, user *model.SysUser, jti string) (*Identity, err
 		if r.Code == model.SuperAdminCode {
 			identity.SuperAdmin = true
 		}
-		if r.DataScope == model.ScopeAll {
-			identity.DataScopeAll = true
+		switch r.DataScope {
+		case model.ScopeAll:
+			roleBound = model.ScopeAll
+		case model.ScopeProject:
+			if roleBound != model.ScopeAll {
+				roleBound = model.ScopeProject
+			}
 		}
 	}
 	// 超管数据范围必为全部
-	if identity.SuperAdmin {
+	if identity.SuperAdmin || roleBound == model.ScopeAll {
 		identity.DataScopeAll = true
+	}
+	// 可见项目集合按岗位编制推导（角色上限为 self 时直接收窄，不再查编制）
+	if !identity.DataScopeAll {
+		if roleBound == model.ScopeSelf {
+			identity.ScopeSelf = true
+		} else {
+			projectIDs, err := ManagedProjectIDs(db, user.ID)
+			if err != nil {
+				return nil, err
+			}
+			if len(projectIDs) == 0 {
+				identity.ScopeSelf = true
+			} else {
+				identity.ProjectIDs = projectIDs
+			}
+		}
 	}
 	// 权限点集合：超管取全量菜单 perms，否则按角色关联菜单取
 	q := db.Model(&model.SysMenu{}).Distinct("perms").

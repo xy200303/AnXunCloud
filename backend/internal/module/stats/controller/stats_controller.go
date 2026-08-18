@@ -2,7 +2,6 @@
 package controller
 
 import (
-	"strconv"
 
 	"github.com/gin-gonic/gin"
 
@@ -86,7 +85,6 @@ func (ctl *StatsController) Export(c *gin.Context) {
 
 // Dashboard GET /dashboard
 func (ctl *StatsController) Dashboard(c *gin.Context) {
-	communityID, _ := strconv.ParseInt(c.Query("community_id"), 10, 64)
-	data, be := ctl.svc.Dashboard(c, communityID)
+	data, be := ctl.svc.Dashboard(c, c.Query("community_id"))
 	write(c, data, be)
 }

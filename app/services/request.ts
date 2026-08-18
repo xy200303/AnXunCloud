@@ -23,11 +23,11 @@ type EnvName = 'dev' | 'prod'
 const ACTIVE_ENV: EnvName = 'prod'
 
 // #ifndef MP-WEIXIN
-const BASE_URL_DEV = 'http://10.172.17.43:8090/api/app' // 内网调试：PC 局域网 IP（手机与电脑同一内网；IP 变了改这里）
+const BASE_URL_DEV = 'http://10.172.17.43:8091/api/app' // 内网调试：PC 局域网 IP（手机与电脑同一内网；IP 变了改这里）
 const BASE_URL_PROD = 'https://pi.hbuer.com/api/app'
 // #endif
 // #ifdef MP-WEIXIN
-const BASE_URL_DEV = 'http://10.172.17.43:8090/api/mp' // 内网调试：PC 局域网 IP
+const BASE_URL_DEV = 'http://10.172.17.43:8091/api/mp' // 内网调试：PC 局域网 IP
 const BASE_URL_PROD = 'https://pi.hbuer.com/api/mp'
 // #endif
 
@@ -175,7 +175,11 @@ export function request<T = any>(
           forceLogoutToLogin(env.message)
           reject(new Error(env.message || '登录已失效，请重新登录'))
         } else {
-          reject(new Error(env.message || '请求失败'))
+          // 业务错误：透传 code（如 40109 登录需选择公司消歧）与 data（如 40109 的候选公司列表），调用方可按 code 做分支处理
+          const e = new Error(env.message || '请求失败') as Error & { code?: number; data?: any }
+          e.code = env.code
+          e.data = env.data
+          reject(e)
         }
       })
       .catch(reject)

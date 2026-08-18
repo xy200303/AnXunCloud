@@ -1,7 +1,9 @@
-// axios 封装：baseURL /api/admin、Bearer token、统一错误提示、401 跳登录、文件流下载
+// axios 封装：baseURL /api/admin、Bearer token、租户上下文头、统一错误提示、401 跳登录、文件流下载
 import axios, { AxiosError, type AxiosRequestConfig } from 'axios'
 import { ElMessage } from 'element-plus'
 import { getToken, clearToken } from '@/utils/auth'
+import { useUserStore } from '@/store/user'
+import { useTenantStore } from '@/store/tenant'
 
 // 统一响应结构（接口文档 §1.3）
 export interface ApiResult<T = any> {
@@ -34,12 +36,19 @@ const service = axios.create({
   timeout: 30000
 })
 
-// 请求拦截：注入 Bearer token
+// 请求拦截：注入 Bearer token；超管选中租户上下文时统一带 X-Tenant-Id 头
+// （本 service baseURL 即 /api/admin，全量覆盖系统管理与业务模块；默认租户/未选择不加头，后端按缺省解析）
 service.interceptors.request.use(
   (config) => {
     const token = getToken()
     if (token) {
       config.headers.Authorization = `Bearer ${token}`
+    }
+    // 注意：store 需在拦截器回调内取用（此时 pinia 已激活），且避免模块加载期循环依赖
+    const userStore = useUserStore()
+    const tenantStore = useTenantStore()
+    if (userStore.isSuperAdmin && tenantStore.contextTenantId) {
+      config.headers['X-Tenant-Id'] = tenantStore.contextTenantId
     }
     return config
   },

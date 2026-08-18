@@ -22,9 +22,21 @@ type CommunityService struct {
 
 func NewCommunityService(db *gorm.DB) *CommunityService { return &CommunityService{db: db} }
 
-// ListCommunities 小区分页列表（数据权限按 community_ids 过滤）。
+// ListCommunities 小区分页列表（数据权限按岗位编制推导的可见项目过滤）。
+// 租户隔离（P3）：非超管强制本租户；超管按「租户上下文」（EffectiveTenantID，?tenant_id= 收窄，缺省=默认租户）。
 func (s *CommunityService) ListCommunities(c *gin.Context, q *dto.CommunityListQuery) (*response.Page, *errs.Error) {
 	db := s.db.Model(&sysmodel.Community{})
+	if identity := middleware.CurrentIdentity(c); identity != nil {
+		if identity.SuperAdmin {
+			tid, be := middleware.EffectiveTenantID(c, s.db)
+			if be != nil {
+				return nil, be
+			}
+			db = db.Where("tenant_id = ?", tid)
+		} else {
+			db = db.Where("tenant_id = ?", identity.TenantID)
+		}
+	}
 	if q.Name != "" {
 		db = db.Where("name LIKE ?", "%"+q.Name+"%")
 	}
@@ -41,13 +53,13 @@ func (s *CommunityService) ListCommunities(c *gin.Context, q *dto.CommunityListQ
 	if err := db.Order("id ASC").Offset(offset).Limit(limit).Find(&rows).Error; err != nil {
 		return nil, errs.ErrInternal
 	}
-	// 楼栋/点位计数与负责人姓名：GROUP BY / IN 批量查询，替代逐行 Count（N+1）
+	// 楼栋/点位计数与负责人/签字人姓名：GROUP BY / IN 批量查询，替代逐行 Count（N+1）
 	ids := make([]string, 0, len(rows))
 	for _, r := range rows {
 		ids = append(ids, r.ID)
 	}
 	buildingCount, pointCount := map[string]int64{}, map[string]int64{}
-	managerName := map[string]string{}
+	userName := map[string]string{}
 	if len(ids) > 0 {
 		type cntRow struct {
 			CommunityID string
@@ -64,29 +76,24 @@ func (s *CommunityService) ListCommunities(c *gin.Context, q *dto.CommunityListQ
 		for _, r := range pc {
 			pointCount[r.CommunityID] = r.Cnt
 		}
-		managerIDs := []string{}
+		userIDs := []string{}
 		for _, r := range rows {
 			if r.ManagerID != nil {
-				managerIDs = append(managerIDs, *r.ManagerID)
+				userIDs = append(userIDs, *r.ManagerID)
 			}
 		}
-		if len(managerIDs) > 0 {
-			var users []sysmodel.SysUser
-			s.db.Select("id", "name").Where("id IN ?", managerIDs).Find(&users)
-			for _, u := range users {
-				managerName[u.ID] = u.Name
-			}
-		}
+		userName = s.userNames(userIDs)
 	}
 	list := make([]gin.H, 0, len(rows))
 	for _, r := range rows {
 		mName := ""
 		if r.ManagerID != nil {
-			mName = managerName[*r.ManagerID]
+			mName = userName[*r.ManagerID]
 		}
 		list = append(list, gin.H{
 			"id": r.ID, "name": r.Name, "address": r.Address,
 			"manager_id": r.ManagerID, "manager_name": mName,
+			"wo_triage_enabled": r.WoTriageEnabled, "wo_grab_enabled": r.WoGrabEnabled,
 			"building_count": buildingCount[r.ID], "point_count": pointCount[r.ID],
 			"status": sysmodel.StatusInt(r.Status), "created_at": timefmt.T(r.CreatedAt),
 		})
@@ -95,8 +102,20 @@ func (s *CommunityService) ListCommunities(c *gin.Context, q *dto.CommunityListQ
 }
 
 // Tree 小区/楼栋树（启用小区 + 全部楼栋，数据权限过滤），供点位管理等左树一次加载。
+// 租户隔离（P3）：非超管强制本租户；超管按「租户上下文」（EffectiveTenantID，缺省=默认租户）。
 func (s *CommunityService) Tree(c *gin.Context) ([]dto.CommunityTreeNode, *errs.Error) {
 	db := s.db.Model(&sysmodel.Community{}).Where("status = ?", sysmodel.StatusEnabled)
+	if identity := middleware.CurrentIdentity(c); identity != nil {
+		if identity.SuperAdmin {
+			tid, be := middleware.EffectiveTenantID(c, s.db)
+			if be != nil {
+				return nil, be
+			}
+			db = db.Where("tenant_id = ?", tid)
+		} else {
+			db = db.Where("tenant_id = ?", identity.TenantID)
+		}
+	}
 	db = middleware.ApplyCommunityFilter(db, c, "id")
 	var comms []sysmodel.Community
 	if err := db.Order("id ASC").Find(&comms).Error; err != nil {
@@ -129,10 +148,21 @@ func (s *CommunityService) Tree(c *gin.Context) ([]dto.CommunityTreeNode, *errs.
 	return nodes, nil
 }
 
-// CreateCommunity 新增小区（名称唯一）。
-func (s *CommunityService) CreateCommunity(req *dto.CommunitySaveReq) (string, *errs.Error) {
+// CreateCommunity 新增小区（名称租户内唯一）。
+// 租户归属 = 当前租户上下文（EffectiveTenantID：超管=上下文租户，非超管=本人租户）。
+func (s *CommunityService) CreateCommunity(c *gin.Context, req *dto.CommunitySaveReq) (string, *errs.Error) {
+	// 租户归属 = 当前租户上下文（菜单归位方案 §2：超管创建归属上下文租户；非超管=本人租户）
+	tenantID, be := middleware.EffectiveTenantID(c, s.db)
+	if be != nil {
+		return "", be
+	}
+	var tCount int64
+	s.db.Model(&sysmodel.Tenant{}).Where("id = ?", tenantID).Count(&tCount)
+	if tCount == 0 {
+		return "", errs.ErrParam.WithMsg("目标租户不存在")
+	}
 	var count int64
-	s.db.Model(&sysmodel.Community{}).Where("name = ?", req.Name).Count(&count)
+	s.db.Model(&sysmodel.Community{}).Where("tenant_id = ? AND name = ?", tenantID, req.Name).Count(&count)
 	if count > 0 {
 		return "", errs.ErrCommunityNameExists
 	}
@@ -140,11 +170,45 @@ func (s *CommunityService) CreateCommunity(req *dto.CommunitySaveReq) (string, *
 	if req.Status != nil {
 		status = sysmodel.StatusStr(*req.Status)
 	}
-	row := sysmodel.Community{Name: req.Name, Address: req.Address, ManagerID: req.ManagerID, Status: status, Remark: req.Remark}
+	row := sysmodel.Community{
+		TenantID: tenantID,
+		Name: req.Name, Address: req.Address, ManagerID: req.ManagerID,
+		Status: status, Remark: req.Remark,
+		WoTriageEnabled: true, // 分诊默认开启（项目级开关，可后续编辑关闭）
+	}
+	if req.WoTriageEnabled != nil {
+		row.WoTriageEnabled = *req.WoTriageEnabled
+	}
+	if req.WoGrabEnabled != nil {
+		row.WoGrabEnabled = *req.WoGrabEnabled
+	}
 	if err := s.db.Create(&row).Error; err != nil {
 		return "", errs.ErrInternal
 	}
 	return row.ID, nil
+}
+
+// userNames 批量取用户姓名（已删除用户跳过）。
+func (s *CommunityService) userNames(allIDs []string) map[string]string {
+	names := map[string]string{}
+	if len(allIDs) == 0 {
+		return names
+	}
+	var users []sysmodel.SysUser
+	s.db.Select("id", "name").Where("id IN ?", allIDs).Find(&users)
+	for _, u := range users {
+		names[u.ID] = u.Name
+	}
+	return names
+}
+
+// checkTenantRow 小区租户归属校验（P3）：非超管访问跨租户小区返回 40302（与 CheckCommunity 语义一致）。
+func checkTenantRow(c *gin.Context, row *sysmodel.Community) *errs.Error {
+	identity := middleware.CurrentIdentity(c)
+	if identity == nil || identity.SuperAdmin || row.TenantID == identity.TenantID {
+		return nil
+	}
+	return errs.ErrDataScope
 }
 
 // CommunityDetail 小区详情（含楼栋列表），越权返回 40302。
@@ -153,7 +217,10 @@ func (s *CommunityService) CommunityDetail(c *gin.Context, id string) (gin.H, *e
 	if err := s.db.First(&row, "id = ?", id).Error; err != nil {
 		return nil, errs.ErrNotFound
 	}
-	if be := middleware.CheckCommunity(c, row.ID); be != nil {
+	if be := checkTenantRow(c, &row); be != nil {
+		return nil, be
+	}
+	if be := middleware.CheckCommunity(s.db, c, row.ID); be != nil {
 		return nil, be
 	}
 	var buildings []insmodel.Building
@@ -166,37 +233,46 @@ func (s *CommunityService) CommunityDetail(c *gin.Context, id string) (gin.H, *e
 	}
 	managerName := ""
 	if row.ManagerID != nil {
-		var u sysmodel.SysUser
-		if s.db.Select("name").First(&u, "id = ?", *row.ManagerID).Error == nil {
-			managerName = u.Name
-		}
+		managerName = s.userNames([]string{*row.ManagerID})[*row.ManagerID]
 	}
 	return gin.H{
 		"id": row.ID, "name": row.Name, "address": row.Address,
 		"manager_id": row.ManagerID, "manager_name": managerName,
+		"wo_triage_enabled": row.WoTriageEnabled, "wo_grab_enabled": row.WoGrabEnabled,
 		"status": sysmodel.StatusInt(row.Status), "remark": row.Remark,
-		"buildings": items,
+		"buildings":  items,
 		"created_at": timefmt.T(row.CreatedAt), "updated_at": timefmt.T(row.UpdatedAt),
 	}, nil
 }
 
-// UpdateCommunity 修改小区。
+// UpdateCommunity 修改小区（名称租户内唯一；跨租户小区越权返回 40302）。
 func (s *CommunityService) UpdateCommunity(c *gin.Context, id string, req *dto.CommunitySaveReq) *errs.Error {
 	var row sysmodel.Community
 	if err := s.db.First(&row, "id = ?", id).Error; err != nil {
 		return errs.ErrNotFound
 	}
-	if be := middleware.CheckCommunity(c, row.ID); be != nil {
+	if be := checkTenantRow(c, &row); be != nil {
+		return be
+	}
+	if be := middleware.CheckCommunity(s.db, c, row.ID); be != nil {
 		return be
 	}
 	if req.Name != row.Name {
 		var count int64
-		s.db.Model(&sysmodel.Community{}).Where("name = ? AND id <> ?", req.Name, id).Count(&count)
+		s.db.Model(&sysmodel.Community{}).Where("tenant_id = ? AND name = ? AND id <> ?", row.TenantID, req.Name, id).Count(&count)
 		if count > 0 {
 			return errs.ErrCommunityNameExists
 		}
 	}
-	updates := map[string]any{"name": req.Name, "address": req.Address, "manager_id": req.ManagerID, "remark": req.Remark}
+	updates := map[string]any{
+		"name": req.Name, "address": req.Address, "manager_id": req.ManagerID, "remark": req.Remark,
+	}
+	if req.WoTriageEnabled != nil {
+		updates["wo_triage_enabled"] = *req.WoTriageEnabled
+	}
+	if req.WoGrabEnabled != nil {
+		updates["wo_grab_enabled"] = *req.WoGrabEnabled
+	}
 	if req.Status != nil {
 		updates["status"] = sysmodel.StatusStr(*req.Status)
 	}
@@ -212,7 +288,10 @@ func (s *CommunityService) DeleteCommunity(c *gin.Context, id string) *errs.Erro
 	if err := s.db.First(&row, "id = ?", id).Error; err != nil {
 		return errs.ErrNotFound
 	}
-	if be := middleware.CheckCommunity(c, row.ID); be != nil {
+	if be := checkTenantRow(c, &row); be != nil {
+		return be
+	}
+	if be := middleware.CheckCommunity(s.db, c, row.ID); be != nil {
 		return be
 	}
 	var bCount, pCount int64
@@ -229,7 +308,7 @@ func (s *CommunityService) DeleteCommunity(c *gin.Context, id string) *errs.Erro
 
 // ListBuildings 楼栋/区域分页列表。
 func (s *CommunityService) ListBuildings(c *gin.Context, q *dto.BuildingListQuery) (*response.Page, *errs.Error) {
-	if be := middleware.CheckCommunity(c, q.CommunityID); be != nil {
+	if be := middleware.CheckCommunity(s.db, c, q.CommunityID); be != nil {
 		return nil, be
 	}
 	db := s.db.Model(&insmodel.Building{}).Where("community_id = ?", q.CommunityID)
@@ -268,7 +347,7 @@ func (s *CommunityService) ListBuildings(c *gin.Context, q *dto.BuildingListQuer
 
 // CreateBuilding 新增楼栋/区域（同小区下名称唯一）。
 func (s *CommunityService) CreateBuilding(c *gin.Context, req *dto.BuildingSaveReq) (string, *errs.Error) {
-	if be := middleware.CheckCommunity(c, req.CommunityID); be != nil {
+	if be := middleware.CheckCommunity(s.db, c, req.CommunityID); be != nil {
 		return "", be
 	}
 	var count int64
@@ -280,7 +359,9 @@ func (s *CommunityService) CreateBuilding(c *gin.Context, req *dto.BuildingSaveR
 	if count > 0 {
 		return "", errs.ErrParam.WithMsg("同小区下楼栋/区域名称已存在")
 	}
-	row := insmodel.Building{CommunityID: req.CommunityID, Name: req.Name, Type: req.Type, Sort: req.Sort, Status: sysmodel.StatusEnabled}
+	row := insmodel.Building{
+		TenantID: middleware.CommunityTenantID(s.db, req.CommunityID), // 冗余列（=所属小区租户）
+		CommunityID: req.CommunityID, Name: req.Name, Type: req.Type, Sort: req.Sort, Status: sysmodel.StatusEnabled}
 	if err := s.db.Create(&row).Error; err != nil {
 		return "", errs.ErrInternal
 	}
@@ -293,7 +374,7 @@ func (s *CommunityService) BuildingDetail(c *gin.Context, id string) (gin.H, *er
 	if err := s.db.First(&b, "id = ?", id).Error; err != nil {
 		return nil, errs.ErrNotFound
 	}
-	if be := middleware.CheckCommunity(c, b.CommunityID); be != nil {
+	if be := middleware.CheckCommunity(s.db, c, b.CommunityID); be != nil {
 		return nil, be
 	}
 	var pointCount int64
@@ -311,7 +392,7 @@ func (s *CommunityService) UpdateBuilding(c *gin.Context, id string, req *dto.Bu
 	if err := s.db.First(&b, "id = ?", id).Error; err != nil {
 		return errs.ErrNotFound
 	}
-	if be := middleware.CheckCommunity(c, b.CommunityID); be != nil {
+	if be := middleware.CheckCommunity(s.db, c, b.CommunityID); be != nil {
 		return be
 	}
 	if req.Name != b.Name {
@@ -333,7 +414,7 @@ func (s *CommunityService) DeleteBuilding(c *gin.Context, id string) *errs.Error
 	if err := s.db.First(&b, "id = ?", id).Error; err != nil {
 		return errs.ErrNotFound
 	}
-	if be := middleware.CheckCommunity(c, b.CommunityID); be != nil {
+	if be := middleware.CheckCommunity(s.db, c, b.CommunityID); be != nil {
 		return be
 	}
 	var count int64

@@ -2,6 +2,7 @@
 import { request, type PageResult } from '@/utils/request'
 import type { NoticeAttachment, NoticeItem } from './biz-types'
 
+// 租户上下文：由请求拦截器统一携带 X-Tenant-Id 头（超管切换后生效），api 层不再传 tenant_id
 export function listNotices(params: { page?: number; page_size?: number; title?: string; status?: number | '' }) {
   return request<PageResult<NoticeItem>>({ url: '/system/notices', method: 'get', params })
 }

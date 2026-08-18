@@ -59,7 +59,7 @@ func AuthAny(db *gorm.DB, sess *session.Store, jwtm *jwtutil.Manager, channels .
 		}
 		// 加载用户最新状态（停用/改角色即时生效）
 		var user model.SysUser
-		if err := db.Select("id", "username", "name", "status", "role_ids", "community_ids").
+		if err := db.Select("id", "tenant_id", "username", "name", "status", "role_ids").
 			First(&user, "id = ?", claims.UserID).Error; err != nil {
 			response.Fail(c, errs.ErrUnauthorized)
 			return
@@ -70,7 +70,12 @@ func AuthAny(db *gorm.DB, sess *session.Store, jwtm *jwtutil.Manager, channels .
 		}
 		identity, err := buildIdentity(db, &user, claims.ID)
 		if err != nil {
-			response.Fail(c, errs.ErrInternal)
+			// 租户停用等业务错误直接透传（40108），其余按内部错误处理
+			if be, ok := err.(*errs.Error); ok {
+				response.Fail(c, be)
+			} else {
+				response.Fail(c, errs.ErrInternal)
+			}
 			return
 		}
 		identity.AccessExpiresAt = claims.ExpiresAt.Time

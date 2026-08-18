@@ -32,7 +32,8 @@ func parentPtr(id string) *string {
 }
 
 // Tree 菜单树查询；带筛选时保留命中节点的祖先以保证树完整。
-func (s *MenuService) Tree(q *dto.MenuListQuery) ([]dto.MenuNode, *errs.Error) {
+// superAdmin=false 时隐藏平台级菜单（is_platform：平台管理目录整棵子树，仅超管可见可授权）。
+func (s *MenuService) Tree(q *dto.MenuListQuery, superAdmin bool) ([]dto.MenuNode, *errs.Error) {
 	db := s.db.Model(&model.SysMenu{})
 	filtered := false
 	if q.Title != "" {
@@ -49,6 +50,18 @@ func (s *MenuService) Tree(q *dto.MenuListQuery) ([]dto.MenuNode, *errs.Error) {
 	}
 	if filtered {
 		menus = s.withAncestors(menus)
+	}
+	if !superAdmin {
+		// 平台级菜单连同其子按钮一并隐藏（按菜单行 is_platform 列判定）；
+		// 隐藏后若父目录下无可见子节点，buildMenuTree 自然收敛为空目录，这里直接跳过该分支
+		kept := make([]model.SysMenu, 0, len(menus))
+		for _, m := range menus {
+			if m.IsPlatform {
+				continue
+			}
+			kept = append(kept, m)
+		}
+		menus = kept
 	}
 	return buildMenuTree(menus, ""), nil
 }
@@ -95,17 +108,18 @@ func buildMenuTree(menus []model.SysMenu, parentID string) []dto.MenuNode {
 				visible = 1
 			}
 			nodes = append(nodes, dto.MenuNode{
-				ID:       m.ID,
-				ParentID: m.ParentIDStr(),
-				Title:    m.Title,
-				Path:     m.Path,
-				Icon:     m.Icon,
-				Type:     m.Type,
-				Perms:    m.Perms,
-				Sort:     m.Sort,
-				Visible:  visible,
-				Status:   model.StatusInt(m.Status),
-				Children: build(m.ID),
+				ID:         m.ID,
+				ParentID:   m.ParentIDStr(),
+				Title:      m.Title,
+				Path:       m.Path,
+				Icon:       m.Icon,
+				Type:       m.Type,
+				Perms:      m.Perms,
+				Sort:       m.Sort,
+				Visible:    visible,
+				Status:     model.StatusInt(m.Status),
+				IsPlatform: m.IsPlatform,
+				Children:   build(m.ID),
 			})
 		}
 		return nodes
@@ -158,7 +172,7 @@ func (s *MenuService) Detail(id string) (*dto.MenuNode, *errs.Error) {
 	return &dto.MenuNode{
 		ID: m.ID, ParentID: m.ParentIDStr(), Title: m.Title, Path: m.Path, Icon: m.Icon,
 		Type: m.Type, Perms: m.Perms, Sort: m.Sort, Visible: visible,
-		Status: model.StatusInt(m.Status), Children: []dto.MenuNode{},
+		Status: model.StatusInt(m.Status), IsPlatform: m.IsPlatform, Children: []dto.MenuNode{},
 	}, nil
 }
 

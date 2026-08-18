@@ -44,7 +44,7 @@
               <el-link v-else type="warning" @click="focusPhone">未填写，去补充</el-link>
             </el-descriptions-item>
             <el-descriptions-item label="数据范围">
-              {{ info?.data_scope === 'all' ? '全部数据' : '按小区' }}
+              {{ { all: '全部数据', project: '所在项目', self: '仅本人' }[info?.data_scope || 'self'] }}
             </el-descriptions-item>
           </el-descriptions>
         </div>

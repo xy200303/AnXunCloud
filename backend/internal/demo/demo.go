@@ -13,12 +13,14 @@ import (
 
 	"gorm.io/gorm"
 
+	rptmodel "anxuncloud/internal/module/report/model"
 	insmodel "anxuncloud/internal/module/inspection/model"
 	sysmodel "anxuncloud/internal/module/system/model"
 	systemsvc "anxuncloud/internal/module/system/service"
 	womodel "anxuncloud/internal/module/workorder/model"
 	"anxuncloud/internal/pkg/password"
 	"anxuncloud/internal/pkg/storage"
+	"anxuncloud/internal/pkg/timefmt"
 	"anxuncloud/internal/pkg/types"
 )
 
@@ -486,6 +488,11 @@ func (d *demoSeeder) seedTenantA() error {
 		return err
 	}
 
+	// 月度报告：上月已三级签字归档
+	if err := d.seedReportsA(tid, cid, managerID, safetyID, xj01ID, xj02ID); err != nil {
+		return err
+	}
+
 	// 公告
 	notice := sysmodel.SysNotice{
 		TenantID: &tid, Title: "关于开展夏季消防安全专项检查的通知",
@@ -855,6 +862,11 @@ func (d *demoSeeder) seedTenantB() error {
 		}
 	}
 
+	// 月度报告：上月待巡检员确认（与租户 A 的已归档形成对照）
+	if err := d.seedReportsB(tid, cid, managerID, xjID); err != nil {
+		return err
+	}
+
 	notice := sysmodel.SysNotice{
 		TenantID: &tid, Title: "中秋节期间值班安排通知",
 		Content:    "中秋节期间项目服务中心实行值班制：前台每日 8:00–18:00 有人值守，工程与秩序条线按排班表执行巡查，遇紧急情况请第一时间上报项目经理。",
@@ -889,4 +901,126 @@ func (d *demoSeeder) orderNo(day time.Time) string {
 	key := day.Format("20060102")
 	d.orderSeq[key]++
 	return fmt.Sprintf("WX%s%03d", key, d.orderSeq[key])
+}
+
+// ---------- 月度报告演示 ----------
+
+// seedReportsA 租户 A 上月报告：三级签字全部完成、已归档（approved）。
+func (d *demoSeeder) seedReportsA(tid, cid, managerID, safetyID, xj01ID, xj02ID string) error {
+	period := lastMonthPeriod()
+	svAt := monthDayAt(1, 14, 0)
+	mgAt := monthDayAt(2, 10, 0)
+	// 照片快照（photo 走缓存，保证 stats.records 附图 key 可访问）
+	_, key1 := d.photo(tid, xj01ID, "消防通道畅通无阻")
+	_, key2 := d.photo(tid, xj01ID, "灭火器压力正常")
+	var photoKeys []string
+	if key1 != "" && key2 != "" {
+		photoKeys = []string{key1, key2}
+	}
+	lm, _ := time.ParseInLocation("2006-01", period, time.Local)
+	rec := func(day, hour int, name, point, result string) map[string]any {
+		return map[string]any{
+			"checkin_time":   timefmt.T(time.Date(lm.Year(), lm.Month(), day, hour, 5, 0, 0, time.Local)),
+			"inspector_name": name, "point_name": point, "checkin_type": "qrcode",
+			"distance": 3.2, "result": result, "is_suspect": false,
+			"audit_status": insmodel.AuditAutoPass, "photo_keys": photoKeys,
+		}
+	}
+	records := []any{
+		rec(3, 9, "陈刚", "消防控制室", insmodel.ResultNormal),
+		rec(11, 10, "赵敏", "东门岗亭", insmodel.ResultNormal),
+		rec(18, 9, "陈刚", "地下车库出入口", insmodel.ResultAbnormal),
+	}
+	report := rptmodel.InspectionReport{
+		TenantID: &tid, CommunityID: cid, Period: period,
+		Title:  demoReportTitle("锦绣华庭", period),
+		Status: rptmodel.StatusApproved,
+		Stats:  demoReportStats(period, 62, 59, 3, 434, 416, 4, 1, 6, 5, records),
+		InspectorIDs: types.IDArray{xj01ID, xj02ID},
+		InspectorSigned: types.SignArray{
+			{UserID: xj01ID, Name: "陈刚", SignedAt: timefmt.T(monthDayAt(1, 9, 10))},
+			{UserID: xj02ID, Name: "赵敏", SignedAt: timefmt.T(monthDayAt(1, 9, 25))},
+		},
+		SupervisorIDs: types.IDArray{safetyID},
+		SupervisorBy:  &safetyID, SupervisorAt: &svAt, SupervisorRemark: "数据属实，同意",
+		ManagerIDs:    types.IDArray{managerID},
+		ManagerBy:     &managerID, ManagerAt: &mgAt, ManagerRemark: "审核通过，归档",
+	}
+	return d.db.Create(&report).Error
+}
+
+// seedReportsB 租户 B 上月报告：待巡检员确认（pending_inspector，签字流程第一级）。
+func (d *demoSeeder) seedReportsB(tid, cid, managerID, xjID string) error {
+	period := lastMonthPeriod()
+	report := rptmodel.InspectionReport{
+		TenantID: &tid, CommunityID: cid, Period: period,
+		Title:  demoReportTitle("金源世纪城", period),
+		Status: rptmodel.StatusPendingInspector,
+		Stats:  demoReportStats(period, 31, 29, 2, 124, 116, 1, 0, 4, 3, []any{}),
+		InspectorIDs:    types.IDArray{xjID},
+		InspectorSigned: types.SignArray{},
+		// 项目无安全主管编制 → 主管级名单为空（该级自动跳过），经理级为项目经理
+		SupervisorIDs: types.IDArray{},
+		ManagerIDs:    types.IDArray{managerID},
+	}
+	return d.db.Create(&report).Error
+}
+
+// lastMonthPeriod 上个月期间（YYYY-MM）。
+func lastMonthPeriod() string {
+	now := time.Now()
+	first := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, time.Local)
+	return first.AddDate(0, -1, 0).Format("2006-01")
+}
+
+// monthDayAt 当前月某日时刻（报告签字时间用，月报次月初签署）。
+func monthDayAt(day, hour, min int) time.Time {
+	now := time.Now()
+	return time.Date(now.Year(), now.Month(), day, hour, min, 0, 0, time.Local)
+}
+
+// pct1 百分比（1 位小数，与 report_service.pct 同规则）。
+func pct1(a, b int64) float64 {
+	if b == 0 {
+		return 0
+	}
+	return float64(int(float64(a)/float64(b)*1000+0.5)) / 10
+}
+
+// demoReportTitle 报告标题（与 report_service.reportTitle 同格式）。
+func demoReportTitle(commName, period string) string {
+	t, err := time.ParseInLocation("2006-01", period, time.Local)
+	if err != nil {
+		return commName + period + "月度巡检工作报告"
+	}
+	return fmt.Sprintf("%s%d年%d月月度巡检工作报告", commName, t.Year(), int(t.Month()))
+}
+
+// demoReportStats 与 ReportService.buildStats 同结构的统计快照（daily 逐日平铺任务/异常）。
+func demoReportStats(period string, taskTotal, taskDone, taskOverdue, shouldPts, donePts, abnormal, suspect, woCreated, woClosed int64, records []any) types.JSONMap {
+	t, _ := time.ParseInLocation("2006-01", period, time.Local)
+	days := int64(time.Date(t.Year(), t.Month()+1, 0, 0, 0, 0, 0, time.Local).Day())
+	perDay, doneDay := taskTotal/days, taskDone/days
+	daily := make([]any, 0, days)
+	abLeft := abnormal
+	for day := int64(1); day <= days; day++ {
+		var ab int64
+		if abLeft > 0 && day%7 == 3 {
+			ab = 1
+			abLeft--
+		}
+		daily = append(daily, map[string]any{
+			"date": fmt.Sprintf("%s-%02d", period, day),
+			"task_total": perDay, "task_done": doneDay, "abnormal": ab,
+		})
+	}
+	return types.JSONMap{
+		"task_total": taskTotal, "task_done": taskDone, "task_overdue": taskOverdue,
+		"should_points": shouldPts, "done_points": donePts,
+		"coverage_rate":  pct1(donePts, shouldPts),
+		"abnormal_count": abnormal, "suspect_count": suspect,
+		"wo_created": woCreated, "wo_closed": woClosed, "wo_unclosed": woCreated - woClosed,
+		"wo_close_rate": pct1(woClosed, woCreated),
+		"daily": daily, "records": records,
+	}
 }

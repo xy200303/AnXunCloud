@@ -94,11 +94,11 @@ export interface ReviewFlowView {
 }
 
 export function getReviewFlow() {
-  return request<ReviewFlowView>({ url: '/system/posts/review-flow', method: 'get' })
+  return request<ReviewFlowView>({ url: '/system/review-flow', method: 'get' })
 }
 
 export function saveReviewFlow(steps: ReviewFlowStep[]) {
-  return request<null>({ url: '/system/posts/review-flow', method: 'put', data: { steps } })
+  return request<null>({ url: '/system/review-flow', method: 'put', data: { steps } })
 }
 
 // ===== 岗位模板库（平台管理 /system/post-templates，仅超管；开通租户时的初始拷贝源） =====
@@ -130,9 +130,9 @@ export function savePostTemplateDutyBindings(bindings: { slot: string; post_code
 
 // 平台默认打卡审核链
 export function getPostTemplateReviewFlow() {
-  return request<ReviewFlowView>({ url: '/system/post-templates/review-flow', method: 'get' })
+  return request<ReviewFlowView>({ url: '/system/review-flow-template', method: 'get' })
 }
 
 export function savePostTemplateReviewFlow(steps: ReviewFlowStep[]) {
-  return request<null>({ url: '/system/post-templates/review-flow', method: 'put', data: { steps } })
+  return request<null>({ url: '/system/review-flow-template', method: 'put', data: { steps } })
 }

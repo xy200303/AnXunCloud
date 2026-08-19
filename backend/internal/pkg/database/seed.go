@@ -218,6 +218,10 @@ func seedMenus(tx *gorm.DB) (map[string]string, error) {
 			}},
 			// 企业品牌（tenant:config）：租户管理员管理本租户的品牌覆盖配置，授 super_admin + tenant_admin
 			{title: "企业品牌", path: "/system/brand", icon: "Brush", typ: model.MenuTypeMenu, perms: "tenant:config", sort: 7},
+			// 审批链管理（扩展方案 §3）：打卡审核链租户级配置（自 00003 起独立菜单，不再寄生于岗位管理页签）
+			{title: "审批链管理", path: "/system/review-flow", icon: "Connection", typ: model.MenuTypeMenu, perms: "system:reviewflow:list", sort: 8, children: []menuSeed{
+				{title: "保存审核链", typ: model.MenuTypeButton, perms: "system:reviewflow:update", sort: 1},
+			}},
 		}},
 		// 平台管理（平台级，仅超管）：整棵子树 is_platform=true，租户角色不可见不可授权
 		{title: "平台管理", path: "/platform", icon: "Setting", typ: model.MenuTypeDir, sort: 70, platform: true, children: []menuSeed{
@@ -251,6 +255,10 @@ func seedMenus(tx *gorm.DB) (map[string]string, error) {
 				{title: "编辑模板岗位", typ: model.MenuTypeButton, perms: "platform:post:update", sort: 2},
 				{title: "删除模板岗位", typ: model.MenuTypeButton, perms: "platform:post:delete", sort: 3},
 				{title: "默认职责绑定", typ: model.MenuTypeButton, perms: "platform:post:duty", sort: 4},
+			}},
+			// 审批链模板（平台默认打卡审核链；开通租户时作为回落默认）
+			{title: "审批链模板", path: "/platform/review-flow-template", icon: "Share", typ: model.MenuTypeMenu, perms: "platform:reviewflow:list", sort: 7, children: []menuSeed{
+				{title: "保存审核链模板", typ: model.MenuTypeButton, perms: "platform:reviewflow:update", sort: 1},
 			}},
 		}},
 		{title: "个人中心", path: "/profile", icon: "UserFilled", typ: model.MenuTypeMenu, perms: "profile:view", sort: 80, hidden: true},

@@ -507,6 +507,12 @@ func registerSystemRoutes(sys *gin.RouterGroup, db *gorm.DB,
 		signAssets.POST("/:id/revoke", middleware.RequirePerm("system:signasset:revoke"), middleware.OperLog(db, "system", "sign_asset_revoke"), signAssetCtl.Revoke)
 	}
 
+	// 审批链管理（系统管理，租户上下文）与审批链模板（平台管理，仅超管）
+	sys.GET("/review-flow", middleware.RequirePerm("system:reviewflow:list"), postCtl.GetReviewFlow)
+	sys.PUT("/review-flow", middleware.RequirePerm("system:reviewflow:update"), middleware.OperLog(db, "system", "review_flow_save"), postCtl.SaveReviewFlow)
+	sys.GET("/review-flow-template", middleware.RequirePerm("platform:reviewflow:list"), postTmplCtl.GetReviewFlow)
+	sys.PUT("/review-flow-template", middleware.RequirePerm("platform:reviewflow:update"), middleware.OperLog(db, "system", "review_flow_save"), postTmplCtl.SaveReviewFlow)
+
 	// 岗位管理（系统管理，租户上下文）与岗位模板库（平台管理，仅超管）
 	posts := sys.Group("/posts")
 	{
@@ -516,8 +522,6 @@ func registerSystemRoutes(sys *gin.RouterGroup, db *gorm.DB,
 		posts.DELETE("/:id", middleware.RequirePerm("system:post:delete"), middleware.OperLog(db, "system", "post_delete"), postCtl.Delete)
 		posts.GET("/duty-bindings", middleware.RequirePerm("system:post:list"), postCtl.DutyBindings)
 		posts.PUT("/duty-bindings", middleware.RequirePerm("system:post:duty"), middleware.OperLog(db, "system", "post_duty_save"), postCtl.SaveDutyBindings)
-		posts.GET("/review-flow", middleware.RequirePerm("system:post:list"), postCtl.GetReviewFlow)
-		posts.PUT("/review-flow", middleware.RequirePerm("system:post:duty"), middleware.OperLog(db, "system", "review_flow_save"), postCtl.SaveReviewFlow)
 	}
 	postTmpls := sys.Group("/post-templates")
 	{
@@ -527,8 +531,6 @@ func registerSystemRoutes(sys *gin.RouterGroup, db *gorm.DB,
 		postTmpls.DELETE("/:id", middleware.RequirePerm("platform:post:delete"), middleware.OperLog(db, "system", "post_tmpl_delete"), postTmplCtl.Delete)
 		postTmpls.GET("/duty-bindings", middleware.RequirePerm("platform:post:list"), postTmplCtl.DutyBindings)
 		postTmpls.PUT("/duty-bindings", middleware.RequirePerm("platform:post:update"), middleware.OperLog(db, "system", "post_tmpl_duty_save"), postTmplCtl.SaveDutyBindings)
-		postTmpls.GET("/review-flow", middleware.RequirePerm("platform:post:list"), postTmplCtl.GetReviewFlow)
-		postTmpls.PUT("/review-flow", middleware.RequirePerm("platform:post:update"), middleware.OperLog(db, "system", "review_flow_save"), postTmplCtl.SaveReviewFlow)
 	}
 
 	users := sys.Group("/users")

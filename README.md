@@ -135,11 +135,25 @@ npm install && npm run dev
 
 仅执行迁移+seed 不启动服务：`go run ./cmd/server -migrate-only`
 
+## 演示数据（seed-demo）
+
+演示数据是**独立命令**（`cmd/seed-demo`，与 server 主流程和系统预置 seed 完全解耦，不随服务启动执行），幂等（演示租户已存在则跳过）：
+
+```bash
+# dev
+docker compose --env-file .env.dev -f docker-compose.dev.yml exec backend go run ./cmd/seed-demo
+# prod（镜像内置独立 /app/seed-demo 二进制；执行后重启 app 使演示账号的 casbin 策略生效）
+docker compose --env-file .env.prod -f docker-compose.prod.yml run --rm app /app/seed-demo
+docker compose --env-file .env.prod -f docker-compose.prod.yml restart app
+```
+
+内容：两家演示物业公司（华安物业 `huaan` / 金源物业 `jinyuan`），各含租户管理员、小区、楼栋、项目编制（项目经理/主管/巡检员/维修工/楼管员/前台）、检查项模板、点位（二维码/NFC/围栏凭证）、巡检计划、昨日已完成+逾期与今日待巡任务、带真实照片的打卡记录（内置 `demoassets/`，离线可用）、六态全覆盖工单与通知公告；金源小区开启抢单模式作对照。全部演示账号密码统一为 `Demo@12345`（如 `huaan_admin`、`jinyuan_admin`、`ha_xj01`、`jy_xj01`）。
+
 ## 初始账号
 
 - 超管：`.env` 中 `ADMIN_USERNAME` / `ADMIN_PASSWORD`（dev 默认 `admin` / `Admin@123`），首次登录请改密
 - 小程序 mock 登录：`POST /api/mp/login`，body `{"code":"mock:<已开通手机号>"}`（需先在后台用户管理开通巡检员/维修工账号）
-- 预置角色：super_admin（全部权限）/ manager（物业主管，按小区数据隔离）/ inspector / repair
+- 预置角色：super_admin（全部权限）/ tenant_admin（租户管理员）/ project_admin（项目级后台）/ field_staff（一线移动端）；业务身份由岗位编制 + 职责槽位表达
 
 ## 端口约定
 

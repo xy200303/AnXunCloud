@@ -51,7 +51,8 @@ WORKDIR /be
 COPY backend/go.mod backend/go.sum ./
 RUN go mod download
 COPY backend/ ./
-RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -o /out/server ./cmd/server
+RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -o /out/server ./cmd/server \
+    && CGO_ENABLED=0 GOOS=linux go build -trimpath -o /out/seed-demo ./cmd/seed-demo
 
 # ========== 生产：最终运行镜像（二进制 + dist + 中文字体） ==========
 FROM alpine:3.20 AS prod
@@ -65,6 +66,7 @@ COPY --from=be /be/fonts /app/fonts
 COPY --from=be /be/assets /app/assets
 WORKDIR /app
 COPY --from=be /out/server /app/server
+COPY --from=be /out/seed-demo /app/seed-demo
 COPY --from=fe /fe/dist /app/dist
 EXPOSE 8080
 CMD ["/app/server"]

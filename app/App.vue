@@ -69,11 +69,17 @@ page {
 /*
  * 布局默认值对齐 uvue 模型：页面代码按 flex 布局编写（uvue 中 view 默认 flex 纵向），
  * 经典版 view 渲染为 block，这里全局补齐，避免每个容器重复声明 display:flex。
+ * H5 端标签被编译为 uni-* 自定义元素，且 uni-h5 组件样式（uni-view{display:block} 等）
+ * 按组件懒加载注入、顺序在全局样式之后，故用 uni-app 前缀提高优先级（与 uvue.css 同写法）。
  */
 view,
 scroll-view,
 swiper,
-swiper-item {
+swiper-item,
+uni-app uni-view,
+uni-app uni-scroll-view,
+uni-app uni-swiper,
+uni-app uni-swiper-item {
   display: flex;
   flex-direction: column;
   box-sizing: border-box;

@@ -45,9 +45,20 @@
         <el-table-column prop="username" label="账号" min-width="120" show-overflow-tooltip />
         <el-table-column prop="name" label="姓名" min-width="100" />
         <el-table-column prop="phone" label="手机号" min-width="120" />
-        <el-table-column label="角色" min-width="120" show-overflow-tooltip>
+        <el-table-column label="角色" min-width="200">
           <template #default="{ row }">
-            {{ row.roles?.map((r: RoleBrief) => r.name).join('、') || '--' }}
+            <template v-if="(row.roles?.length || 0) + (row.post_roles?.length || 0) > 0">
+              <el-tag v-for="r in row.roles" :key="r.id" size="small" class="role-tag">{{ r.name }}</el-tag>
+              <el-tooltip
+                v-for="r in row.post_roles"
+                :key="r.id"
+                content="由在职岗位绑定角色自动获得，随编制变动实时生效，无需手动分配"
+                placement="top"
+              >
+                <el-tag size="small" type="info" effect="plain" class="role-tag">{{ r.name }}</el-tag>
+              </el-tooltip>
+            </template>
+            <span v-else>--</span>
           </template>
         </el-table-column>
         <el-table-column label="小程序绑定" width="100" align="center">
@@ -277,7 +288,7 @@ import {
 import { listRoles } from '@/api/role'
 import { downloadFile } from '@/utils/download'
 import { useUserStore } from '@/store/user'
-import type { UserItem, RoleBrief, RoleItem, ImportResult } from '@/api/types'
+import type { UserItem, RoleItem, ImportResult } from '@/api/types'
 
 const userStore = useUserStore()
 
@@ -603,6 +614,11 @@ function downloadFailDetails() {
 <style scoped lang="scss">
 .danger-text {
   color: $color-danger;
+}
+
+.role-tag {
+  margin-right: 4px;
+  margin-bottom: 2px;
 }
 
 .import-steps {

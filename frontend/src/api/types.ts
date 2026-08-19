@@ -76,6 +76,8 @@ export interface UserItem {
   avatar: string
   openid: string
   roles?: RoleBrief[]
+  /** 岗位带入角色（在职编制岗位绑定角色，只读展示；不含已手动分配的角色） */
+  post_roles?: RoleBrief[]
   role_ids?: string[]
   status: number
   is_builtin?: boolean

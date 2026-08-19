@@ -32,8 +32,8 @@ const exportMaxRows = 10000
 type UserService struct {
 	db           *gorm.DB
 	killSessions func(ctx context.Context, userID string)
-	store        *storage.Storage   // 签名图 file_key → URL
-	signAssets   *SignAssetService  // v16 起签名走签章资产表
+	store        *storage.Storage  // 签名图 file_key → URL
+	signAssets   *SignAssetService // v16 起签名走签章资产表
 }
 
 func NewUserService(db *gorm.DB, killSessions func(ctx context.Context, userID string), store *storage.Storage, signAssets *SignAssetService) *UserService {
@@ -81,7 +81,115 @@ func (s *UserService) List(q *dto.UserListQuery, op *middleware.Identity, tenant
 	for i := range users {
 		items = append(items, s.toItem(&users[i]))
 	}
+	s.attachPostRoles(users, items)
 	return &response.Page{List: items, Total: total, Page: q.Page, PageSize: q.PageSize}, nil
+}
+
+// attachPostRoles 批量填充「岗位带入角色」（在职编制岗位绑定角色，剔除已手动分配的角色；
+// 与 middleware.EffectiveRoleIDs 同口径）。仅列表页调用：只读展示权限来源，导出不含此字段。
+func (s *UserService) attachPostRoles(users []model.SysUser, items []dto.UserItem) {
+	userIDs := make([]string, 0, len(users))
+	manual := make(map[string]map[string]bool, len(users)) // userID → 已手动分配 roleID 集合
+	for i := range users {
+		userIDs = append(userIDs, users[i].ID)
+		m := map[string]bool{}
+		for _, rid := range users[i].RoleIDs {
+			m[rid] = true
+		}
+		manual[users[i].ID] = m
+	}
+	var staffs []model.ProjectStaff
+	if err := s.db.Select("user_id", "project_id", "posts").
+		Where("user_id IN ? AND status = ?", userIDs, model.StatusEnabled).
+		Find(&staffs).Error; err != nil || len(staffs) == 0 {
+		return
+	}
+	projectIDs := make([]string, 0, len(staffs))
+	for _, st := range staffs {
+		projectIDs = append(projectIDs, st.ProjectID)
+	}
+	var communities []model.Community
+	if err := s.db.Select("id", "tenant_id").Where("id IN ?", projectIDs).Find(&communities).Error; err != nil {
+		return
+	}
+	tenantByProject := make(map[string]string, len(communities))
+	tenantSeen := map[string]bool{}
+	tenantIDs := make([]string, 0, len(communities))
+	for _, cm := range communities {
+		tenantByProject[cm.ID] = cm.TenantID
+		if cm.TenantID != "" && !tenantSeen[cm.TenantID] {
+			tenantSeen[cm.TenantID] = true
+			tenantIDs = append(tenantIDs, cm.TenantID)
+		}
+	}
+	if len(tenantIDs) == 0 {
+		return
+	}
+	var posts []model.PostDict
+	if err := s.db.Select("tenant_id", "code", "role_id").
+		Where("tenant_id IN ? AND role_id IS NOT NULL", tenantIDs).
+		Find(&posts).Error; err != nil {
+		return
+	}
+	roleByTenantCode := make(map[string]map[string]string, len(tenantIDs))
+	roleIDSeen := map[string]bool{}
+	roleIDs := []string{}
+	for _, p := range posts {
+		if p.TenantID == nil || p.RoleID == nil {
+			continue
+		}
+		m := roleByTenantCode[*p.TenantID]
+		if m == nil {
+			m = map[string]string{}
+			roleByTenantCode[*p.TenantID] = m
+		}
+		m[p.Code] = *p.RoleID
+		if !roleIDSeen[*p.RoleID] {
+			roleIDSeen[*p.RoleID] = true
+			roleIDs = append(roleIDs, *p.RoleID)
+		}
+	}
+	roleItemByID := map[string]dto.RoleItem{}
+	if len(roleIDs) > 0 {
+		var roles []model.SysRole
+		if err := s.db.Select("id", "code", "name").Where("id IN ?", roleIDs).Find(&roles).Error; err != nil {
+			return
+		}
+		for _, r := range roles {
+			roleItemByID[r.ID] = dto.RoleItem{ID: r.ID, Code: r.Code, Name: r.Name}
+		}
+	}
+	idxByUser := make(map[string]int, len(items))
+	for i := range items {
+		idxByUser[items[i].ID] = i
+	}
+	derived := make(map[string]map[string]bool, len(users)) // userID → 已加入的带入 roleID（去重）
+	for _, st := range staffs {
+		idx, ok := idxByUser[st.UserID]
+		if !ok {
+			continue
+		}
+		bindings := roleByTenantCode[tenantByProject[st.ProjectID]]
+		if len(bindings) == 0 {
+			continue
+		}
+		for _, code := range st.Posts {
+			rid, ok := bindings[code]
+			if !ok || manual[st.UserID][rid] {
+				continue
+			}
+			if derived[st.UserID] == nil {
+				derived[st.UserID] = map[string]bool{}
+			}
+			if derived[st.UserID][rid] {
+				continue
+			}
+			if ri, ok := roleItemByID[rid]; ok {
+				derived[st.UserID][rid] = true
+				items[idx].PostRoles = append(items[idx].PostRoles, ri)
+			}
+		}
+	}
 }
 
 // toItem 转换为列表视图（角色名反查；所属项目名取 project_staff 在职编制，导出用）。
@@ -193,17 +301,17 @@ func (s *UserService) Detail(id string, op *middleware.Identity) (*dto.UserDetai
 		return nil, be
 	}
 	d := &dto.UserDetail{
-		ID:           u.ID,
-		Username:     u.Username,
-		Name:         u.Name,
-		Phone:        u.Phone,
-		Avatar:       u.Avatar,
-		RoleIDs:      u.RoleIDs,
-		Status:       model.StatusInt(u.Status),
-		IsBuiltin:    u.IsBuiltin,
-		LastLoginAt:  timefmt.TP(u.LastLoginAt),
-		CreatedAt:    timefmt.T(u.CreatedAt),
-		UpdatedAt:    timefmt.T(u.UpdatedAt),
+		ID:          u.ID,
+		Username:    u.Username,
+		Name:        u.Name,
+		Phone:       u.Phone,
+		Avatar:      u.Avatar,
+		RoleIDs:     u.RoleIDs,
+		Status:      model.StatusInt(u.Status),
+		IsBuiltin:   u.IsBuiltin,
+		LastLoginAt: timefmt.TP(u.LastLoginAt),
+		CreatedAt:   timefmt.T(u.CreatedAt),
+		UpdatedAt:   timefmt.T(u.UpdatedAt),
 	}
 	// 签名取当前 active 签章资产（sign_asset 表）
 	if s.signAssets != nil {

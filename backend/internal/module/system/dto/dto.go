@@ -52,13 +52,15 @@ type RoleItem struct {
 
 // UserItem 用户列表项（community_names 为项目编制推导的所属项目名称，导出用）。
 type UserItem struct {
-	ID             string     `json:"id"`
-	Username       string     `json:"username"`
-	Name           string     `json:"name"`
-	Phone          string     `json:"phone"`
-	Avatar         string     `json:"avatar"`
-	Openid         string     `json:"openid"`
-	Roles          []RoleItem `json:"roles"`
+	ID       string     `json:"id"`
+	Username string     `json:"username"`
+	Name     string     `json:"name"`
+	Phone    string     `json:"phone"`
+	Avatar   string     `json:"avatar"`
+	Openid   string     `json:"openid"`
+	Roles    []RoleItem `json:"roles"`
+	// PostRoles 岗位带入角色（在职编制岗位绑定角色，剔除已手动分配的部分；仅列表页填充，只读展示用）
+	PostRoles      []RoleItem `json:"post_roles"`
 	CommunityNames []string   `json:"community_names"`
 	Status         int        `json:"status"`
 	IsBuiltin      bool       `json:"is_builtin"`
@@ -68,21 +70,21 @@ type UserItem struct {
 
 // UserDetail 用户详情。
 type UserDetail struct {
-	ID           string  `json:"id"`
-	Username     string  `json:"username"`
-	Name         string  `json:"name"`
-	Phone        string  `json:"phone"`
-	Avatar       string  `json:"avatar"`
-	Openid       string  `json:"openid"`
-	RoleIDs      []string `json:"role_ids"`
-	Status       int     `json:"status"`
-	IsBuiltin    bool    `json:"is_builtin"`
+	ID        string   `json:"id"`
+	Username  string   `json:"username"`
+	Name      string   `json:"name"`
+	Phone     string   `json:"phone"`
+	Avatar    string   `json:"avatar"`
+	Openid    string   `json:"openid"`
+	RoleIDs   []string `json:"role_ids"`
+	Status    int      `json:"status"`
+	IsBuiltin bool     `json:"is_builtin"`
 	// 手写签名图（月报签字栏用）
 	SignatureFileKey string `json:"signature_file_key"`
 	SignatureURL     string `json:"signature_url"`
-	LastLoginAt  string  `json:"last_login_at"`
-	CreatedAt    string  `json:"created_at"`
-	UpdatedAt    string  `json:"updated_at"`
+	LastLoginAt      string `json:"last_login_at"`
+	CreatedAt        string `json:"created_at"`
+	UpdatedAt        string `json:"updated_at"`
 }
 
 // ImportResult 导入结果。
@@ -111,18 +113,18 @@ type RoleListQuery struct {
 
 // RoleSaveReq 新增/修改角色。
 type RoleSaveReq struct {
-	Code      string  `json:"code"`
-	Name      string  `json:"name" binding:"required"`
-	DataScope string  `json:"data_scope" binding:"required,oneof=all project self"`
-	Remark    string  `json:"remark"`
-	Status    *int    `json:"status"`
+	Code      string   `json:"code"`
+	Name      string   `json:"name" binding:"required"`
+	DataScope string   `json:"data_scope" binding:"required,oneof=all project self"`
+	Remark    string   `json:"remark"`
+	Status    *int     `json:"status"`
 	MenuIDs   []string `json:"menu_ids"`
 }
 
 // RoleAssignReq 分配菜单与数据范围。
 type RoleAssignReq struct {
 	MenuIDs   []string `json:"menu_ids" binding:"required"`
-	DataScope string  `json:"data_scope" binding:"required,oneof=all project self"`
+	DataScope string   `json:"data_scope" binding:"required,oneof=all project self"`
 }
 
 // RoleListItem 角色列表项。
@@ -139,14 +141,14 @@ type RoleListItem struct {
 
 // RoleDetail 角色详情。
 type RoleDetail struct {
-	ID        string  `json:"id"`
-	Code      string  `json:"code"`
-	Name      string  `json:"name"`
-	DataScope string  `json:"data_scope"`
-	Remark    string  `json:"remark"`
-	Status    int     `json:"status"`
+	ID        string   `json:"id"`
+	Code      string   `json:"code"`
+	Name      string   `json:"name"`
+	DataScope string   `json:"data_scope"`
+	Remark    string   `json:"remark"`
+	Status    int      `json:"status"`
 	MenuIDs   []string `json:"menu_ids"`
-	CreatedAt string  `json:"created_at"`
+	CreatedAt string   `json:"created_at"`
 }
 
 // ========== 菜单 ==========
@@ -172,19 +174,19 @@ type MenuSaveReq struct {
 
 // MenuNode 菜单树节点。
 type MenuNode struct {
-	ID        string     `json:"id"`
-	ParentID  string     `json:"parent_id"`
-	Title     string     `json:"title"`
-	Path      string     `json:"path"`
-	Icon      string     `json:"icon"`
-	Type      string     `json:"type"`
-	Perms     string     `json:"perms"`
-	Sort      int        `json:"sort"`
-	Visible   int        `json:"visible"`
-	Status    int        `json:"status"`
+	ID       string `json:"id"`
+	ParentID string `json:"parent_id"`
+	Title    string `json:"title"`
+	Path     string `json:"path"`
+	Icon     string `json:"icon"`
+	Type     string `json:"type"`
+	Perms    string `json:"perms"`
+	Sort     int    `json:"sort"`
+	Visible  int    `json:"visible"`
+	Status   int    `json:"status"`
 	// IsPlatform 平台级菜单（仅超管可见可授权）；菜单管理界面展示用
-	IsPlatform bool      `json:"is_platform"`
-	Children  []MenuNode `json:"children"`
+	IsPlatform bool       `json:"is_platform"`
+	Children   []MenuNode `json:"children"`
 }
 
 // ========== 字典 ==========
@@ -291,7 +293,7 @@ type OperationLogQuery struct {
 	Username  string `form:"username"`
 	Module    string `form:"module"`
 	Action    string `form:"action"`
-	Status   string `form:"status"`
+	Status    string `form:"status"`
 	StartTime string `form:"start_time"`
 	EndTime   string `form:"end_time"`
 }
@@ -301,7 +303,7 @@ type LoginLogQuery struct {
 	response.PageQuery
 	Username  string `form:"username"`
 	IP        string `form:"ip"`
-	Status   string `form:"status"`
+	Status    string `form:"status"`
 	StartTime string `form:"start_time"`
 	EndTime   string `form:"end_time"`
 }
@@ -330,8 +332,8 @@ type TenantItem struct {
 
 // TenantCreateReq 开通租户（同时创建初始管理员账号，挂内置 tenant_admin 角色）。
 type TenantCreateReq struct {
-	Code          string `json:"code" binding:"required"`           // 公司代码（登录多租户消歧用，创建后不可改）
-	Name          string `json:"name" binding:"required"`           // 物业公司名称
+	Code          string `json:"code" binding:"required"` // 公司代码（登录多租户消歧用，创建后不可改）
+	Name          string `json:"name" binding:"required"` // 物业公司名称
 	ContactName   string `json:"contact_name"`
 	ContactPhone  string `json:"contact_phone"`
 	Remark        string `json:"remark"`

@@ -31,6 +31,34 @@ func ResolveSlotPosts(db *gorm.DB, projectID, slot string) types.StringArray {
 	return codes
 }
 
+// reportLineSlotFor 巡查类型 → 汇报线维度槽位 code（未识别类型返回空，直接用通用槽位）。
+func reportLineSlotFor(patrolType string) string {
+	switch patrolType {
+	case insmodel.PatrolSafety:
+		return sysmodel.SlotPatrolReportLineSafety
+	case insmodel.PatrolEquipment:
+		return sysmodel.SlotPatrolReportLineEquipment
+	case insmodel.PatrolEnvironment:
+		return sysmodel.SlotPatrolReportLineEnvironment
+	case insmodel.PatrolBuilding:
+		return sysmodel.SlotPatrolReportLineBuilding
+	}
+	return ""
+}
+
+// ResolveReportLineSlot 巡查汇报线槽位解析（《汇报线与审批链扩展设计方案》§2.2）：
+// 维度槽位（patrol_report_line.<line>，任一级存在绑定即命中）→ 通用槽位（patrol_report_line 兜底）。
+// 维度槽位绑定存在但岗位留空 = 该线该环节显式跳过（不再回落通用）。
+// 返回的槽位 code 供 SlotUserIDs / SlotAuthorized 使用。
+func ResolveReportLineSlot(db *gorm.DB, projectID, patrolType string) string {
+	if dim := reportLineSlotFor(patrolType); dim != "" {
+		if _, source := resolveSlotPosts(db, projectID, dim); source != "" {
+			return dim
+		}
+	}
+	return sysmodel.SlotPatrolReportLine
+}
+
 // resolveSlotPosts 三级回落解析，返回岗位 code 与来源（project/tenant/platform；空串=未配置）。
 func resolveSlotPosts(db *gorm.DB, projectID, slot string) (types.StringArray, string) {
 	var b sysmodel.DutyBinding
@@ -94,6 +122,29 @@ func SlotUserIDs(db *gorm.DB, projectID, slot string) types.IDArray {
 		}
 	}
 	return out
+}
+
+// SlotAuthorized 名单制授权统一判定（工单各槽位、巡查汇报线共用）：
+// 超管与租户管理员默认放行——名单约束的是项目内职责分工，不约束平台/租户管理者；
+// 其余用户须为该项目该槽位名单成员（SlotUserIDs 三级回落解析）。
+func SlotAuthorized(db *gorm.DB, projectID, slot string, id *middleware.Identity) bool {
+	if id == nil {
+		return false
+	}
+	if id.SuperAdmin {
+		return true
+	}
+	for _, code := range id.RoleCodes {
+		if code == sysmodel.TenantAdminCode {
+			return true
+		}
+	}
+	for _, uid := range SlotUserIDs(db, projectID, slot) {
+		if uid == id.UserID {
+			return true
+		}
+	}
+	return false
 }
 
 // enabledPostDict 小区所属租户的岗位（code → 岗位），仅启用状态参与校验/展示。
@@ -456,4 +507,32 @@ func uniqueStrings(ids []string) []string {
 		}
 	}
 	return out
+}
+
+// ---------- 审批链配置（项目级覆盖；扩展方案 §3） ----------
+
+// GetReviewFlow 项目审核链视图（来源 project/tenant/platform/default）。
+func (s *StaffService) GetReviewFlow(projectID string) (gin.H, *errs.Error) {
+	steps, source := ResolveFlowWithSource(s.db, projectID, sysmodel.FlowCheckinReview)
+	return gin.H{"flow_code": sysmodel.FlowCheckinReview, "steps": steps, "source": source}, nil
+}
+
+// SaveReviewFlow 保存项目级审核链覆盖（upsert project_id 行）。
+func (s *StaffService) SaveReviewFlow(projectID string, steps types.FlowStepArray) *errs.Error {
+	if be := ValidateFlowSteps(steps); be != nil {
+		return be
+	}
+	var f sysmodel.ApprovalFlow
+	err := s.db.Where("project_id = ? AND flow_code = ?", projectID, sysmodel.FlowCheckinReview).First(&f).Error
+	if err != nil {
+		f = sysmodel.ApprovalFlow{ProjectID: &projectID, FlowCode: sysmodel.FlowCheckinReview, Steps: steps}
+		if err := s.db.Create(&f).Error; err != nil {
+			return errs.ErrInternal
+		}
+		return nil
+	}
+	if err := s.db.Model(&f).Update("steps", steps).Error; err != nil {
+		return errs.ErrInternal
+	}
+	return nil
 }

@@ -61,14 +61,9 @@ func (s *OrderService) notifySlot(projectID, slot, title, content string, bizID 
 	}
 }
 
-// inSlot 当前用户是否在本项目该槽位名单内（名单即授权）。
-func (s *OrderService) inSlot(projectID, slot, userID string) bool {
-	for _, id := range communitysvc.SlotUserIDs(s.db, projectID, slot) {
-		if id == userID {
-			return true
-		}
-	}
-	return false
+// inSlot 名单制授权判定（名单即授权 + 超管/租户管理员默认放行，统一走 communitysvc.SlotAuthorized）。
+func (s *OrderService) inSlot(projectID, slot string, id *middleware.Identity) bool {
+	return communitysvc.SlotAuthorized(s.db, projectID, slot, id)
 }
 
 // DispatchCandidates 派单候选人：本项目「工单接单」槽位名单成员（三级回落解析，含姓名/电话）。
@@ -448,7 +443,7 @@ func (s *OrderService) Triage(c *gin.Context, id string, req *dto.TriageReq) (st
 		return "", be
 	}
 	identity := middleware.CurrentIdentity(c)
-	if !s.inSlot(o.CommunityID, sysmodel.SlotOrderTriage, identity.UserID) {
+	if !s.inSlot(o.CommunityID, sysmodel.SlotOrderTriage, identity) {
 		return "", errs.ErrOrderNotInSlot.WithMsg("当前用户不在本项目工单分诊名单内")
 	}
 	action := model.ActionTriagePass
@@ -509,7 +504,7 @@ func (s *OrderService) Dispatch(c *gin.Context, id string, req *dto.DispatchReq)
 		return be
 	}
 	identity := middleware.CurrentIdentity(c)
-	if !s.inSlot(o.CommunityID, sysmodel.SlotOrderDispatch, identity.UserID) {
+	if !s.inSlot(o.CommunityID, sysmodel.SlotOrderDispatch, identity) {
 		return errs.ErrOrderNotInSlot.WithMsg("当前用户不在本项目工单派单名单内")
 	}
 	if _, ok := CanTransit(model.ActionDispatch, o.Status); !ok {
@@ -542,7 +537,7 @@ func (s *OrderService) Dispatch(c *gin.Context, id string, req *dto.DispatchReq)
 
 // Grab 抢单（项目开启抢单模式时，order_accept 槽位成员从待派单池抢单；pending_dispatch → processing）。
 // 并发安全：状态条件更新（WHERE status=pending_dispatch），影响行数为 0 即被他人抢先。
-func (s *OrderService) Grab(id, userID string) *errs.Error {
+func (s *OrderService) Grab(id string, identity *middleware.Identity) *errs.Error {
 	var o model.WorkOrder
 	if err := s.db.First(&o, "id = ?", id).Error; err != nil {
 		return errs.ErrNotFound
@@ -551,9 +546,10 @@ func (s *OrderService) Grab(id, userID string) *errs.Error {
 	if !grabEnabled {
 		return errs.ErrOrderGrabDisabled
 	}
-	if !s.inSlot(o.CommunityID, sysmodel.SlotOrderAccept, userID) {
+	if !s.inSlot(o.CommunityID, sysmodel.SlotOrderAccept, identity) {
 		return errs.ErrOrderNotInSlot.WithMsg("当前用户不在本项目工单接单名单内")
 	}
+	userID := identity.UserID
 	now := time.Now()
 	err := s.db.Transaction(func(tx *gorm.DB) error {
 		res := tx.Model(&model.WorkOrder{}).Where("id = ? AND status = ?", o.ID, model.OrderPendingDispatch).
@@ -619,8 +615,9 @@ func (s *OrderService) Finish(operatorID string, o *model.WorkOrder, req *dto.Fi
 }
 
 // Confirm 验收（报单人本人或 order_triage 槽位成员；pending_confirm → closed / 退回 processing）。
-func (s *OrderService) Confirm(operatorID string, o *model.WorkOrder, result, note string) (string, *errs.Error) {
-	if o.ReporterID != operatorID && !s.inSlot(o.CommunityID, sysmodel.SlotOrderTriage, operatorID) {
+func (s *OrderService) Confirm(identity *middleware.Identity, o *model.WorkOrder, result, note string) (string, *errs.Error) {
+	operatorID := identity.UserID
+	if o.ReporterID != operatorID && !s.inSlot(o.CommunityID, sysmodel.SlotOrderTriage, identity) {
 		return "", errs.ErrOrderNotInSlot.WithMsg("仅报单人或工单分诊名单成员可验收")
 	}
 	action := model.ActionConfirmPass
@@ -747,28 +744,29 @@ func woTimeRange(db *gorm.DB, column, start, end string) (*gorm.DB, *errs.Error)
 // ========== 移动端（app/mp 共用） ==========
 
 // GetForMP 移动端取工单（上报人/处理人/分诊/派单名单成员可见；待派单且项目开启抢单时接单名单成员可见）。
-func (s *OrderService) GetForMP(id, userID string) (gin.H, *errs.Error) {
+func (s *OrderService) GetForMP(id string, identity *middleware.Identity) (gin.H, *errs.Error) {
 	var o model.WorkOrder
 	if err := s.db.First(&o, "id = ?", id).Error; err != nil {
 		return nil, errs.ErrNotFound
 	}
-	if be := s.checkMPVisible(&o, userID); be != nil {
+	if be := s.checkMPVisible(&o, identity); be != nil {
 		return nil, be
 	}
 	return s.detailOf(&o), nil
 }
 
 // checkMPVisible 移动端详情可见性判定。
-func (s *OrderService) checkMPVisible(o *model.WorkOrder, userID string) *errs.Error {
+func (s *OrderService) checkMPVisible(o *model.WorkOrder, identity *middleware.Identity) *errs.Error {
+	userID := identity.UserID
 	if o.ReporterID == userID || (o.AssigneeID != nil && *o.AssigneeID == userID) {
 		return nil
 	}
-	if s.inSlot(o.CommunityID, sysmodel.SlotOrderTriage, userID) ||
-		s.inSlot(o.CommunityID, sysmodel.SlotOrderDispatch, userID) {
+	if s.inSlot(o.CommunityID, sysmodel.SlotOrderTriage, identity) ||
+		s.inSlot(o.CommunityID, sysmodel.SlotOrderDispatch, identity) {
 		return nil
 	}
 	if o.Status == model.OrderPendingDispatch {
-		if _, grab := s.communityFlags(o.CommunityID); grab && s.inSlot(o.CommunityID, sysmodel.SlotOrderAccept, userID) {
+		if _, grab := s.communityFlags(o.CommunityID); grab && s.inSlot(o.CommunityID, sysmodel.SlotOrderAccept, identity) {
 			return nil
 		}
 	}
@@ -788,12 +786,12 @@ func (s *OrderService) FinishForMP(id, userID string, req *dto.FinishReq) *errs.
 }
 
 // ConfirmForMP 移动端验收（我上报的工单；报单人本人或分诊名单成员，service 内判定）。
-func (s *OrderService) ConfirmForMP(id, userID string, req *dto.ConfirmReq) (string, *errs.Error) {
+func (s *OrderService) ConfirmForMP(id string, identity *middleware.Identity, req *dto.ConfirmReq) (string, *errs.Error) {
 	var o model.WorkOrder
 	if err := s.db.First(&o, "id = ?", id).Error; err != nil {
 		return "", errs.ErrNotFound
 	}
-	return s.Confirm(userID, &o, req.Result, req.ConfirmNote)
+	return s.Confirm(identity, &o, req.Result, req.ConfirmNote)
 }
 
 // PoolOrders 可抢工单池：用户在职编制中「开启抢单且本人在 order_accept 名单」项目的待派单工单。
@@ -842,8 +840,12 @@ func (s *OrderService) grabbableCommunityIDs(userID string) []string {
 	s.db.Select("id").Where("id IN ? AND wo_grab_enabled", projectIDs).Find(&comms)
 	out := make([]string, 0, len(comms))
 	for _, cm := range comms {
-		if s.inSlot(cm.ID, sysmodel.SlotOrderAccept, userID) {
-			out = append(out, cm.ID)
+		// 抢单池是"我的工作台"过滤，按本人名单成员身份判定（管理员绕过不适用于此）
+		for _, uid := range communitysvc.SlotUserIDs(s.db, cm.ID, sysmodel.SlotOrderAccept) {
+			if uid == userID {
+				out = append(out, cm.ID)
+				break
+			}
 		}
 	}
 	return out
@@ -851,7 +853,8 @@ func (s *OrderService) grabbableCommunityIDs(userID string) []string {
 
 // CreateFromCheckin 异常打卡自动生成工单（在打卡事务内调用）；items 为不合格项快照（before_photos=打卡时该项照片）。
 // 巡检异常转单视同已分诊（source=inspection，直接进待派单）。
-func CreateFromCheckin(tx *gorm.DB, orderNo string, checkinID, communityID string, pointID *string, title, description string, photos types.PhotoArray, items types.OrderItemArray, reporterID string) (*model.WorkOrder, error) {
+// 同事务内定向通知：该巡查业务线的汇报线成员（异常归口对应线主管，patrolType 路由）+ 工单派单槽位成员（下一步处理人）。
+func CreateFromCheckin(tx *gorm.DB, orderNo string, checkinID, communityID string, pointID *string, title, description string, photos types.PhotoArray, items types.OrderItemArray, reporterID, patrolType string) (*model.WorkOrder, error) {
 	order := model.WorkOrder{
 		TenantID: middleware.CommunityTenantID(tx, communityID), // 冗余列（=所属小区租户）
 		OrderNo: orderNo, CheckinID: &checkinID, CommunityID: communityID, PointID: pointID,
@@ -864,6 +867,21 @@ func CreateFromCheckin(tx *gorm.DB, orderNo string, checkinID, communityID strin
 	log := model.WorkOrderLog{OrderID: order.ID, Action: model.ActionCreate, OperatorID: reporterID, Detail: "巡检异常上报，自动生成工单（视同已分诊）"}
 	if err := tx.Create(&log).Error; err != nil {
 		return nil, err
+	}
+	reporterName := ""
+	var u sysmodel.SysUser
+	if tx.Select("name").First(&u, "id = ?", reporterID).Error == nil {
+		reporterName = u.Name
+	}
+	notify := func(uid, msgTitle, content string) { // 通知写入失败不阻断打卡事务
+		_ = tx.Create(&sysmodel.SysMessage{UserID: uid, Type: "workorder", Title: msgTitle, Content: content, BizID: &order.ID}).Error
+	}
+	reportLineSlot := communitysvc.ResolveReportLineSlot(tx, communityID, patrolType)
+	for _, uid := range communitysvc.SlotUserIDs(tx, communityID, reportLineSlot) {
+		notify(uid, "异常打卡待处理", fmt.Sprintf("巡检员%s打卡异常：%s，已自动转工单 %s，请跟进", reporterName, title, orderNo))
+	}
+	for _, uid := range communitysvc.SlotUserIDs(tx, communityID, sysmodel.SlotOrderDispatch) {
+		notify(uid, "新工单待派单", fmt.Sprintf("工单 %s「%s」待派单，请安排维修工", orderNo, title))
 	}
 	return &order, nil
 }
@@ -885,12 +903,14 @@ func (s *OrderService) getWithScope(c *gin.Context, id string) (*model.WorkOrder
 	return &o, nil
 }
 
-// checkAcceptMember 被指派人须为本项目 order_accept 槽位名单成员（名单制授权，名单为空则无人能派）。
+// checkAcceptMember 被指派人须为本项目 order_accept 槽位名单成员（校验的是"被指派人的任职资格"，不享受操作者绕过）。
 func (s *OrderService) checkAcceptMember(communityID, userID string) *errs.Error {
-	if !s.inSlot(communityID, sysmodel.SlotOrderAccept, userID) {
-		return errs.ErrAssigneeInvalid.WithMsg("被指派人须为本项目工单接单岗位成员")
+	for _, uid := range communitysvc.SlotUserIDs(s.db, communityID, sysmodel.SlotOrderAccept) {
+		if uid == userID {
+			return nil
+		}
 	}
-	return nil
+	return errs.ErrAssigneeInvalid.WithMsg("被指派人须为本项目工单接单岗位成员")
 }
 
 // resolvePhotos 将 file_key 引用解析为照片数组并校验已上传（43106）。

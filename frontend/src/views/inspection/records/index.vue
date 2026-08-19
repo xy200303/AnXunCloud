@@ -124,10 +124,10 @@
             <span v-else class="text-secondary">--</span>
           </template>
         </el-table-column>
-        <el-table-column label="审核" width="100" align="center">
+        <el-table-column label="审核" width="130" align="center">
           <template #default="{ row }">
             <el-tag :type="auditStatusTag(row.audit_status).type" size="small">
-              {{ auditStatusTag(row.audit_status).label }}
+              {{ row.audit_status === 'pending' && row.current_step_name ? `待${row.current_step_name}` : auditStatusTag(row.audit_status).label }}
             </el-tag>
           </template>
         </el-table-column>

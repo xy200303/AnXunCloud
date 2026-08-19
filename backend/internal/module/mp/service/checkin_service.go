@@ -257,7 +257,7 @@ func (s *CheckinService) doCheckinLocked(ctx context.Context, inspectorID string
 				return err
 			}
 			title := fmt.Sprintf("%s异常：%s", point.Name, truncateStr(req.Remark, 40))
-			wo, err := wosvc.CreateFromCheckin(tx, orderNo, rec.ID, task.CommunityID, &point.ID, title, req.Remark, photos, failedItemSnapshot(checkItems), inspectorID)
+			wo, err := wosvc.CreateFromCheckin(tx, orderNo, rec.ID, task.CommunityID, &point.ID, title, req.Remark, photos, failedItemSnapshot(checkItems), inspectorID, task.PatrolType)
 			if err != nil {
 				return err
 			}

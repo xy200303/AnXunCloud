@@ -1,6 +1,7 @@
 // 小区/楼栋接口（接口文档 §2.10）
 import { request, type PageResult } from '@/utils/request'
 import type { CommunityItem, BuildingItem, PostDictItem, StaffItem, StaffForm, DutyBindingItem } from './biz-types'
+import type { ReviewFlowView } from './post'
 
 export function listCommunities(params?: { page?: number; page_size?: number; name?: string; status?: number | '' }) {
   return request<PageResult<CommunityItem>>({ url: '/communities', method: 'get', params })
@@ -79,4 +80,13 @@ export function listDutyBindings(communityId: string) {
 // 项目级槽位绑定整体保存（upsert 语义；post_codes 空数组 = 本项目该环节跳过）
 export function saveDutyBindings(communityId: string, bindings: { slot: string; post_codes: string[] }[]) {
   return request<null>({ url: `/communities/${communityId}/duty-bindings`, method: 'put', data: { bindings } })
+}
+
+// 项目级打卡审核链（扩展方案 §3；source 为 project/tenant/platform/default）
+export function getReviewFlow(communityId: string) {
+  return request<ReviewFlowView>({ url: `/communities/${communityId}/review-flow`, method: 'get' })
+}
+
+export function saveReviewFlow(communityId: string, steps: { slot: string; name: string }[]) {
+  return request<null>({ url: `/communities/${communityId}/review-flow`, method: 'put', data: { steps } })
 }

@@ -2,7 +2,9 @@ package service
 
 import (
 	"context"
+	"fmt"
 	"regexp"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -10,6 +12,7 @@ import (
 	"gorm.io/gorm"
 
 	"anxuncloud/internal/middleware"
+	communitysvc "anxuncloud/internal/module/community/service"
 	"anxuncloud/internal/module/inspection/dto"
 	"anxuncloud/internal/module/inspection/model"
 	sysmodel "anxuncloud/internal/module/system/model"
@@ -407,13 +410,64 @@ func (s *PlanService) GenerateForDate(ctx context.Context, date time.Time) (int,
 	return created, eligible, nil
 }
 
-// FlipOverdue 将昨日及以前仍未完成的任务置为 overdue。
+// FlipOverdue 将昨日及以前仍未完成的任务置为 overdue，并定向通知：
+// 巡检员本人（任务已逾期）+ 该巡查业务线的汇报线成员（按「小区 × 巡查类型」汇总分线提醒；名单为空则该环节无提醒）。
 func (s *PlanService) FlipOverdue() (int64, error) {
 	yesterday := time.Now().AddDate(0, 0, -1).Format("2006-01-02")
-	res := s.db.Model(&model.InspectionTask{}).
+	var tasks []model.InspectionTask
+	if err := s.db.Select("id", "community_id", "inspector_id", "task_date", "patrol_type").
 		Where("task_date <= ? AND status IN ?", yesterday, []string{model.TaskPending, model.TaskDoing}).
-		Update("status", model.TaskOverdue)
-	return res.RowsAffected, res.Error
+		Find(&tasks).Error; err != nil {
+		return 0, err
+	}
+	if len(tasks) == 0 {
+		return 0, nil
+	}
+	ids := make([]string, len(tasks))
+	for i, t := range tasks {
+		ids[i] = t.ID
+	}
+	res := s.db.Model(&model.InspectionTask{}).Where("id IN ?", ids).Update("status", model.TaskOverdue)
+	if res.Error != nil {
+		return 0, res.Error
+	}
+	lineStats := map[string]int{} // 小区|巡查类型 → 逾期数
+	for _, t := range tasks {
+		s.db.Create(&sysmodel.SysMessage{
+			UserID: t.InspectorID, Type: "task",
+			Title:   "巡检任务已逾期",
+			Content: "你的巡检任务（" + t.TaskDate.Format("2006-01-02") + "）已逾期未完成，请尽快补巡或向主管说明情况。",
+			BizID:   &t.ID,
+		})
+		lineStats[t.CommunityID+"|"+t.PatrolType]++
+	}
+	for key, n := range lineStats {
+		parts := strings.SplitN(key, "|", 2)
+		cid, patrolType := parts[0], parts[1]
+		slot := communitysvc.ResolveReportLineSlot(s.db, cid, patrolType)
+		for _, uid := range communitysvc.SlotUserIDs(s.db, cid, slot) {
+			s.db.Create(&sysmodel.SysMessage{
+				UserID: uid, Type: "task",
+				Title:   "巡查任务逾期提醒",
+				Content: fmt.Sprintf("截至昨日，本项目%s有 %d 个巡查任务逾期未巡，请跟进督办。", patrolLineName(patrolType), n),
+			})
+		}
+	}
+	return res.RowsAffected, nil
+}
+
+// patrolLineName 巡查类型中文名（逾期提醒文案用；空串按安全巡查）。
+func patrolLineName(patrolType string) string {
+	switch patrolType {
+	case model.PatrolEquipment:
+		return "设备专项巡查"
+	case model.PatrolEnvironment:
+		return "环境巡查"
+	case model.PatrolBuilding:
+		return "楼栋巡查"
+	default:
+		return "安全巡查"
+	}
 }
 
 func uniqueIDs(ids []string) []string {

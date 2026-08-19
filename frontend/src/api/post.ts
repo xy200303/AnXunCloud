@@ -81,6 +81,26 @@ export function savePostDutyBindings(bindings: { slot: string; post_codes: strin
   return request<null>({ url: '/system/posts/duty-bindings', method: 'put', data: { bindings } })
 }
 
+// ===== 打卡审核链（扩展方案 §3；steps 有序环节，环节引用职责槽位） =====
+
+export interface ReviewFlowStep {
+  slot: string
+  name: string
+}
+export interface ReviewFlowView {
+  flow_code: string
+  steps: ReviewFlowStep[]
+  source: 'project' | 'tenant' | 'platform' | 'default'
+}
+
+export function getReviewFlow() {
+  return request<ReviewFlowView>({ url: '/system/posts/review-flow', method: 'get' })
+}
+
+export function saveReviewFlow(steps: ReviewFlowStep[]) {
+  return request<null>({ url: '/system/posts/review-flow', method: 'put', data: { steps } })
+}
+
 // ===== 岗位模板库（平台管理 /system/post-templates，仅超管；开通租户时的初始拷贝源） =====
 
 export function listPostTemplates() {
@@ -106,4 +126,13 @@ export function listPostTemplateDutyBindings() {
 // 平台级槽位默认绑定整体保存
 export function savePostTemplateDutyBindings(bindings: { slot: string; post_codes: string[] }[]) {
   return request<null>({ url: '/system/post-templates/duty-bindings', method: 'put', data: { bindings } })
+}
+
+// 平台默认打卡审核链
+export function getPostTemplateReviewFlow() {
+  return request<ReviewFlowView>({ url: '/system/post-templates/review-flow', method: 'get' })
+}
+
+export function savePostTemplateReviewFlow(steps: ReviewFlowStep[]) {
+  return request<null>({ url: '/system/post-templates/review-flow', method: 'put', data: { steps } })
 }

@@ -11,6 +11,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 
+	communitysvc "anxuncloud/internal/module/community/service"
 	"anxuncloud/internal/module/system/dto"
 	"anxuncloud/internal/module/system/model"
 	"anxuncloud/internal/pkg/authz"
@@ -380,6 +381,52 @@ func CopyPostTemplatesToTenant(tx *gorm.DB, tenantID string) error {
 		if err := tx.Create(&row).Error; err != nil {
 			return err
 		}
+	}
+	return nil
+}
+
+// ---------- 审批链配置（打卡审核链；扩展方案 §3） ----------
+
+// GetReviewFlow 审核链视图（tenantID nil=平台视角：租户级行 → 平台默认 → 内置默认）。
+func (s *PostService) GetReviewFlow(tenantID *string) (gin.H, *errs.Error) {
+	steps, source := s.resolveReviewFlow(tenantID)
+	return gin.H{"flow_code": model.FlowCheckinReview, "steps": steps, "source": source}, nil
+}
+
+func (s *PostService) resolveReviewFlow(tenantID *string) (types.FlowStepArray, string) {
+	var f model.ApprovalFlow
+	if tenantID != nil {
+		if err := s.db.Where("project_id IS NULL AND tenant_id = ? AND flow_code = ?", *tenantID, model.FlowCheckinReview).First(&f).Error; err == nil && len(f.Steps) > 0 {
+			return f.Steps, "tenant"
+		}
+	}
+	if err := s.db.Where("project_id IS NULL AND tenant_id IS NULL AND flow_code = ?", model.FlowCheckinReview).First(&f).Error; err == nil && len(f.Steps) > 0 {
+		return f.Steps, "platform"
+	}
+	return communitysvc.DefaultCheckinReviewFlow(), "default"
+}
+
+// SaveReviewFlow 保存审核链（tenantID nil=写平台默认行；非空=写租户级覆盖行；upsert 按作用域唯一行）。
+func (s *PostService) SaveReviewFlow(tenantID *string, steps types.FlowStepArray) *errs.Error {
+	if be := communitysvc.ValidateFlowSteps(steps); be != nil {
+		return be
+	}
+	var f model.ApprovalFlow
+	q := s.db.Where("flow_code = ?", model.FlowCheckinReview)
+	if tenantID == nil {
+		q = q.Where("tenant_id IS NULL AND project_id IS NULL")
+	} else {
+		q = q.Where("tenant_id = ? AND project_id IS NULL", *tenantID)
+	}
+	if err := q.First(&f).Error; err != nil {
+		f = model.ApprovalFlow{TenantID: tenantID, FlowCode: model.FlowCheckinReview, Steps: steps}
+		if err := s.db.Create(&f).Error; err != nil {
+			return errs.ErrInternal
+		}
+		return nil
+	}
+	if err := s.db.Model(&f).Update("steps", steps).Error; err != nil {
+		return errs.ErrInternal
 	}
 	return nil
 }

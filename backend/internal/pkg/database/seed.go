@@ -50,6 +50,9 @@ func Seed(db *gorm.DB, adminUsername, adminPassword, adminName string) error {
 		if err := seedDutyBindings(tx); err != nil {
 			return err
 		}
+		if err := seedApprovalFlow(tx); err != nil {
+			return err
+		}
 		// 默认租户同样需要一份岗位与槽位默认（模板只读于开通/初始化那一刻，与开通租户同一复制逻辑）
 		return systemsvc.CopyPostTemplatesToTenant(tx, tenantID)
 	})
@@ -522,6 +525,13 @@ func seedDutyBindings(tx *gorm.DB) error {
 		{model.SlotOrderAccept, types.StringArray{"repairman"}},
 		{model.SlotPatrolExecute, types.StringArray{"inspector"}},
 		{model.SlotPatrolReportLine, types.StringArray{"safety_supervisor"}},
+		// 汇报线业务线维度槽位（扩展方案 §2.4）：安全线不设默认（回落通用槽位），
+		// 设备/环境/楼栋线分别归工程/环境/客服主管
+		{model.SlotPatrolReportLineEquipment, types.StringArray{"engineering_supervisor"}},
+		{model.SlotPatrolReportLineEnvironment, types.StringArray{"environment_supervisor"}},
+		{model.SlotPatrolReportLineBuilding, types.StringArray{"service_supervisor"}},
+		// 项目经理复核槽位（审批链第二环节引用，扩展方案 §3.2）
+		{model.SlotProjectReview, types.StringArray{"project_manager"}},
 	}
 	for _, b := range bindings {
 		if err := tx.Create(&model.DutyBinding{Slot: b.slot, PostCodes: b.codes}).Error; err != nil {
@@ -529,4 +539,16 @@ func seedDutyBindings(tx *gorm.DB) error {
 		}
 	}
 	return nil
+}
+
+// seedApprovalFlow 预置平台默认审批链（approval_flow：tenant_id/project_id 均空 = 平台默认）。
+// 打卡审核链默认单步「汇报线审核」（与链化前行为一致；租户可自行追加"项目经理复核"等环节）。
+func seedApprovalFlow(tx *gorm.DB) error {
+	flow := model.ApprovalFlow{
+		FlowCode: model.FlowCheckinReview,
+		Steps: types.FlowStepArray{
+			{Slot: model.SlotPatrolReportLine, Name: "汇报线审核"},
+		},
+	}
+	return tx.Create(&flow).Error
 }

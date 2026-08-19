@@ -57,24 +57,23 @@ body {
   }
 }
 
-.table-card {
-  .table-toolbar {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    margin-bottom: $spacing-lg;
-  }
+// 工具条/分页（表格页通用；抽屉等非 .table-card 场景同样生效，如小区编制抽屉）
+.table-toolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: $spacing-lg;
+}
 
-  .table-toolbar-left {
-    display: flex;
-    gap: $spacing-sm;
-  }
+.table-toolbar-left {
+  display: flex;
+  gap: $spacing-sm;
+}
 
-  .pagination-wrap {
-    display: flex;
-    justify-content: flex-end;
-    margin-top: $spacing-lg;
-  }
+.pagination-wrap {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: $spacing-lg;
 }
 
 // 表格行高 48px、斑马纹由 el-table 属性控制

@@ -263,7 +263,21 @@ const (
 	SlotOrderDispatch        = "order_dispatch"         // 工单派单
 	SlotOrderAccept          = "order_accept"           // 工单接单
 	SlotPatrolExecute        = "patrol_execute"         // 巡查任务执行
-	SlotPatrolReportLine     = "patrol_report_line"     // 巡查汇报关系
+	SlotPatrolReportLine     = "patrol_report_line"     // 巡查汇报关系（通用兜底）
+
+	// 巡查汇报关系·业务线维度槽位（《汇报线与审批链扩展设计方案》§2：<family>.<dimension> 命名，
+	// 解析时先查维度槽位、未配置回落通用槽位 SlotPatrolReportLine，每级内部仍按 项目→租户→平台 回落）
+	SlotPatrolReportLineSafety      = "patrol_report_line.safety"      // 安全巡查汇报线
+	SlotPatrolReportLineEquipment   = "patrol_report_line.equipment"   // 设备专项巡查汇报线
+	SlotPatrolReportLineEnvironment = "patrol_report_line.environment" // 环境巡查汇报线
+	SlotPatrolReportLineBuilding    = "patrol_report_line.building"    // 楼栋巡查汇报线
+
+	SlotProjectReview = "project_review" // 项目经理复核（审批链第二环节用，扩展方案 §3.2）
+)
+
+// 审批流程 code（approval_flow.flow_code，系统固定枚举；步骤内容可配，代码只认流程 code）
+const (
+	FlowCheckinReview = "checkin_review" // 打卡审核链
 )
 
 // DutySlot 槽位定义（系统固定枚举，名称用于前端展示）。
@@ -273,6 +287,7 @@ type DutySlot struct {
 }
 
 // DutySlots 全部职责槽位（顺序即前端展示顺序；项目级覆盖页与租户/平台默认绑定页共用）。
+// 巡查汇报关系组：通用槽位居上作兜底，维度槽位随后（未配置维度槽位时回落通用绑定）。
 var DutySlots = []DutySlot{
 	{SlotReportSignSupervisor, "月报主管级签字"},
 	{SlotReportSignManager, "月报经理级终审"},
@@ -280,7 +295,12 @@ var DutySlots = []DutySlot{
 	{SlotOrderDispatch, "工单派单"},
 	{SlotOrderAccept, "工单接单"},
 	{SlotPatrolExecute, "巡查任务执行"},
-	{SlotPatrolReportLine, "巡查汇报关系"},
+	{SlotPatrolReportLine, "巡查汇报关系（通用兜底）"},
+	{SlotPatrolReportLineSafety, "巡查汇报关系 · 安全巡查"},
+	{SlotPatrolReportLineEquipment, "巡查汇报关系 · 设备专项"},
+	{SlotPatrolReportLineEnvironment, "巡查汇报关系 · 环境巡查"},
+	{SlotPatrolReportLineBuilding, "巡查汇报关系 · 楼栋巡查"},
+	{SlotProjectReview, "项目经理复核"},
 }
 
 // PostDict 岗位字典（tenant_id 为空 = 平台内置模板岗位；UNIQUE(tenant_id, code)）
@@ -328,6 +348,20 @@ type DutyBinding struct {
 }
 
 func (DutyBinding) TableName() string { return "duty_binding" }
+
+// ApprovalFlow 审批链配置（迁移 00002；tenant_id/project_id 均空 = 平台默认，
+// 解析按 项目级 → 租户级 → 平台默认 回落，未配置时代码内置单步默认链兜底）。
+type ApprovalFlow struct {
+	types.UUIDModel
+	TenantID  *string             `gorm:"type:uuid" json:"tenant_id"`
+	ProjectID *string             `gorm:"type:uuid" json:"project_id"`
+	FlowCode  string              `gorm:"size:64" json:"flow_code"`
+	Steps     types.FlowStepArray `gorm:"type:jsonb" json:"steps"`
+	CreatedAt time.Time           `json:"created_at"`
+	UpdatedAt time.Time           `json:"updated_at"`
+}
+
+func (ApprovalFlow) TableName() string { return "approval_flow" }
 
 // SysNotice 通知公告（第二阶段补充表，status：0 草稿 / 1 已发布 / 2 已下线）
 type SysNotice struct {

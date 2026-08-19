@@ -224,7 +224,7 @@ func (ctl *MPController) OrderGrab(c *gin.Context) {
 		response.Fail(c, be)
 		return
 	}
-	if be := ctl.orders.Grab(id, uid(c)); be != nil {
+	if be := ctl.orders.Grab(id, middleware.CurrentIdentity(c)); be != nil {
 		response.Fail(c, be)
 		return
 	}
@@ -243,7 +243,7 @@ func (ctl *MPController) OrderConfirm(c *gin.Context) {
 		response.Fail(c, be)
 		return
 	}
-	status, be := ctl.orders.ConfirmForMP(id, uid(c), &req)
+	status, be := ctl.orders.ConfirmForMP(id, middleware.CurrentIdentity(c), &req)
 	write(c, gin.H{"status": status}, be)
 }
 
@@ -254,7 +254,7 @@ func (ctl *MPController) OrderDetail(c *gin.Context) {
 		response.Fail(c, be)
 		return
 	}
-	data, be := ctl.orders.GetForMP(id, uid(c))
+	data, be := ctl.orders.GetForMP(id, middleware.CurrentIdentity(c))
 	write(c, data, be)
 }
 

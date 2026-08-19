@@ -202,6 +202,7 @@ type CheckinRecord struct {
 	IsSuspect       bool                `json:"is_suspect"`
 	SuspectReason   string              `gorm:"size:255" json:"suspect_reason"`
 	AuditStatus     string              `gorm:"size:16" json:"audit_status"`
+	AuditStep       int16               `json:"audit_step"` // 审批链当前进度：已通过环节数（0=待第 1 环节，扩展方案 §3）
 	AuditBy         *string             `gorm:"type:uuid" json:"audit_by"`
 	AuditAt         *time.Time          `json:"audit_at"`
 	AuditRemark     string              `gorm:"size:512" json:"audit_remark"`

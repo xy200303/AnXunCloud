@@ -10,6 +10,7 @@ import (
 	"anxuncloud/internal/pkg/bind"
 	"anxuncloud/internal/pkg/errs"
 	"anxuncloud/internal/pkg/response"
+	"anxuncloud/internal/pkg/types"
 )
 
 // StaffController 项目岗位编制/职责绑定接口。
@@ -122,4 +123,32 @@ func (ctl *StaffController) SaveDutyBindings(c *gin.Context) {
 		return
 	}
 	write(c, nil, ctl.svc.SaveDutyBindings(c, id, &req))
+}
+
+// GetReviewFlow 项目打卡审核链视图（GET /communities/:id/review-flow）。
+func (ctl *StaffController) GetReviewFlow(c *gin.Context) {
+	id, be := pathID(c)
+	if be != nil {
+		response.Fail(c, be)
+		return
+	}
+	data, be := ctl.svc.GetReviewFlow(id)
+	write(c, data, be)
+}
+
+// SaveReviewFlow 保存项目级打卡审核链覆盖（PUT /communities/:id/review-flow）。
+func (ctl *StaffController) SaveReviewFlow(c *gin.Context) {
+	id, be := pathID(c)
+	if be != nil {
+		response.Fail(c, be)
+		return
+	}
+	var req struct {
+		Steps types.FlowStepArray `json:"steps" binding:"required"`
+	}
+	if be := bind.JSON(c, &req); be != nil {
+		response.Fail(c, be)
+		return
+	}
+	write(c, nil, ctl.svc.SaveReviewFlow(id, req.Steps))
 }

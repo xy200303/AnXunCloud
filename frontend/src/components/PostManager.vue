@@ -117,6 +117,7 @@
               @click="handleDutySave"
             >保存绑定</el-button>
           </div>
+          <ReviewFlowEditor :api="flowApi" :slot-options="slotOptions" :save-perm="dutySavePerm" />
         </div>
       </el-tab-pane>
     </el-tabs>
@@ -175,10 +176,11 @@
 import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox, type FormInstance, type FormRules } from 'element-plus'
 import { Plus, RefreshRight } from '@element-plus/icons-vue'
-import { POST_LINES, postLineName, type PostItem, type PostLine, type PostSaveReq, type PostDutyBindingView } from '@/api/post'
+import { POST_LINES, postLineName, getReviewFlow, saveReviewFlow, getPostTemplateReviewFlow, savePostTemplateReviewFlow, type PostItem, type PostLine, type PostSaveReq, type PostDutyBindingView, type ReviewFlowStep } from '@/api/post'
 import { listRoles } from '@/api/role'
 import { useUserStore } from '@/store/user'
 import type { RoleItem } from '@/api/types'
+import ReviewFlowEditor from './ReviewFlowEditor.vue'
 
 const props = defineProps<{
   // 权限点前缀：system:post（岗位管理）/ platform:post（岗位模板库）
@@ -202,6 +204,15 @@ const activeTab = ref<'posts' | 'duty'>('posts')
 
 // 槽位保存权限点：岗位管理 system:post:duty / 模板库 platform:post:update（与后端路由一致）
 const dutySavePerm = computed(() => (isTemplate.value ? `${props.permPrefix}:update` : `${props.permPrefix}:duty`))
+
+// 打卡审核链（租户级 / 平台模板两组接口同构，按 isTemplate 注入）
+const flowApi = computed(() =>
+  isTemplate.value
+    ? { listFlow: getPostTemplateReviewFlow, saveFlow: (s: ReviewFlowStep[]) => savePostTemplateReviewFlow(s) as Promise<unknown> }
+    : { listFlow: getReviewFlow, saveFlow: (s: ReviewFlowStep[]) => saveReviewFlow(s) as Promise<unknown> }
+)
+// 审核链环节的槽位选项（复用职责槽位列表）
+const slotOptions = computed(() => dutyList.value.map((d) => ({ slot: d.slot, name: d.name })))
 
 const dutyTip = computed(() =>
   isTemplate.value

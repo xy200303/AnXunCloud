@@ -194,6 +194,6 @@ func (ctl *OrderController) Confirm(c *gin.Context) {
 		response.Fail(c, be)
 		return
 	}
-	status, be := ctl.svc.Confirm(middleware.CurrentUserID(c), o, req.Result, req.ConfirmNote)
+	status, be := ctl.svc.Confirm(middleware.CurrentIdentity(c), o, req.Result, req.ConfirmNote)
 	write(c, gin.H{"status": status}, be)
 }

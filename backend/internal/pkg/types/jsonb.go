@@ -301,3 +301,32 @@ func toBytes(src any) ([]byte, error) {
 		return nil, errors.New("types: unsupported source type")
 	}
 }
+
+// FlowStep 审批链环节（approval_flow.steps JSONB；slot 引用职责槽位 code，名单解析复用槽位体系）。
+type FlowStep struct {
+	Slot string `json:"slot"`
+	Name string `json:"name"`
+}
+
+// FlowStepArray 映射 jsonb 审批链环节数组。
+type FlowStepArray []FlowStep
+
+func (a FlowStepArray) Value() (driver.Value, error) {
+	if a == nil {
+		return "[]", nil
+	}
+	b, err := json.Marshal(a)
+	return string(b), err
+}
+
+func (a *FlowStepArray) Scan(src any) error {
+	data, err := toBytes(src)
+	if err != nil {
+		return err
+	}
+	if data == nil {
+		*a = FlowStepArray{}
+		return nil
+	}
+	return json.Unmarshal(data, a)
+}

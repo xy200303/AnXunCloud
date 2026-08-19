@@ -343,6 +343,13 @@
               @click="handleDutySave"
             >保存绑定</el-button>
           </div>
+          <ReviewFlowEditor
+            v-if="staffCommunityId"
+            :key="staffCommunityId"
+            :api="flowApi"
+            :slot-options="dutySlotOptions"
+            save-perm="community:duty:edit"
+          />
         </el-tab-pane>
       </el-tabs>
     </el-drawer>
@@ -399,12 +406,14 @@ import { Search, Refresh, Plus, RefreshRight, MapLocation } from '@element-plus/
 import {
   listCommunities, createCommunity, updateCommunity, deleteCommunity,
   listCommunityTree, listBuildings, createBuilding, updateBuilding, deleteBuilding,
-  listPostDict, listStaff, createStaff, updateStaff, deleteStaff, listDutyBindings, saveDutyBindings
+  listPostDict, listStaff, createStaff, updateStaff, deleteStaff, listDutyBindings, saveDutyBindings,
+  getReviewFlow, saveReviewFlow
 } from '@/api/community'
 import { listPoints } from '@/api/point'
 import { POST_LINES } from '@/api/post'
 import { listUsers } from '@/api/user'
 import { useUserStore } from '@/store/user'
+import ReviewFlowEditor from '@/components/ReviewFlowEditor.vue'
 import type { CommunityItem, BuildingItem, PointItem, PostDictItem, StaffItem, DutyBindingItem } from '@/api/biz-types'
 import { POST_BUILDING_MANAGER } from '@/api/biz-types'
 
@@ -696,6 +705,13 @@ async function handleStaffDelete(row: StaffItem) {
 const dutyLoading = ref(false)
 const dutySaving = ref(false)
 const dutyList = ref<DutyBindingItem[]>([])
+
+// 打卡审核链（项目级覆盖；环节槽位选项复用职责槽位列表）
+const flowApi = computed(() => ({
+  listFlow: () => getReviewFlow(staffCommunityId.value),
+  saveFlow: (s: { slot: string; name: string }[]) => saveReviewFlow(staffCommunityId.value, s) as Promise<unknown>
+}))
+const dutySlotOptions = computed(() => dutyList.value.map((d) => ({ slot: d.slot, name: d.name })))
 // 逐槽位编辑值（slot → post_codes）；dutyOriginal 记录加载时快照，仅提交有变更的槽位（upsert 语义，避免把平台默认固化成项目覆盖）
 const dutyEdits = reactive<Record<string, string[]>>({})
 const dutyOriginal = ref<Record<string, string[]>>({})

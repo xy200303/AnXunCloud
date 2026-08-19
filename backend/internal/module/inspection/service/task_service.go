@@ -9,6 +9,7 @@ import (
 	"gorm.io/gorm"
 
 	"anxuncloud/internal/middleware"
+	communitysvc "anxuncloud/internal/module/community/service"
 	"anxuncloud/internal/module/inspection/dto"
 	"anxuncloud/internal/module/inspection/model"
 	sysmodel "anxuncloud/internal/module/system/model"
@@ -352,6 +353,7 @@ func (s *TaskService) CheckinList(c *gin.Context, q *dto.CheckinListQuery) (*res
 		return nil, errs.ErrInternal
 	}
 	list := make([]gin.H, 0, len(rows))
+	flows := map[string]types.FlowStepArray{} // community_id → 打卡审核链（当前环节名展示用）
 	for i := range rows {
 		r := &rows[i]
 		list = append(list, gin.H{
@@ -362,11 +364,28 @@ func (s *TaskService) CheckinList(c *gin.Context, q *dto.CheckinListQuery) (*res
 			"checkin_time": timefmt.T(r.CheckinTime), "checkin_type": r.CheckinType,
 			"distance_to_point": distanceOrNil(r), "result": r.Result,
 			"is_suspect": r.IsSuspect, "photo_count": len(r.Photos),
-			"audit_status": r.AuditStatus,
-			"ai_verdict":   r.AIVerdict, "ai_reason": r.AIReason,
+			"audit_status": r.AuditStatus, "audit_step": r.AuditStep,
+			"current_step_name": s.currentStepName(flows, r),
+			"ai_verdict":        r.AIVerdict, "ai_reason": r.AIReason,
 		})
 	}
 	return &response.Page{List: list, Total: total, Page: q.Page, PageSize: q.PageSize}, nil
+}
+
+// currentStepName 待审核记录的当前审批环节名（pending 才有值；供列表"待审核（环节名）"展示）。
+func (s *TaskService) currentStepName(flows map[string]types.FlowStepArray, r *model.CheckinRecord) string {
+	if r.AuditStatus != model.AuditPending {
+		return ""
+	}
+	flow, ok := flows[r.CommunityID]
+	if !ok {
+		flow = communitysvc.ResolveFlow(s.db, r.CommunityID, sysmodel.FlowCheckinReview)
+		flows[r.CommunityID] = flow
+	}
+	if idx := int(r.AuditStep); idx < len(flow) {
+		return flow[idx].Name
+	}
+	return ""
 }
 
 // CheckinDetail 打卡记录详情。
@@ -489,6 +508,7 @@ func distanceOrNil(r *model.CheckinRecord) any {
 }
 
 // Remind 任务催办：给执行人发送站内提醒（已完成任务不可催办；App 管理端一键催办）。
+// 操作者须在巡查汇报线名单内（催办归口汇报线主管；超管/租户管理员默认放行）。
 func (s *TaskService) Remind(c *gin.Context, id string) *errs.Error {
 	var t model.InspectionTask
 	if err := s.db.First(&t, "id = ?", id).Error; err != nil {
@@ -496,6 +516,11 @@ func (s *TaskService) Remind(c *gin.Context, id string) *errs.Error {
 	}
 	if be := middleware.CheckCommunity(s.db, c, t.CommunityID); be != nil {
 		return be
+	}
+	// 催办归口该任务巡查业务线的汇报线主管（维度槽位 → 通用槽位回落；超管/租户管理员默认放行）
+	slot := communitysvc.ResolveReportLineSlot(s.db, t.CommunityID, t.PatrolType)
+	if !communitysvc.SlotAuthorized(s.db, t.CommunityID, slot, middleware.CurrentIdentity(c)) {
+		return errs.ErrNotInSlot.WithMsg("当前用户不在本项目该巡查业务线的汇报线名单内")
 	}
 	if t.Status == model.TaskDone {
 		return errs.ErrParam.WithMsg("任务已完成，无需催办")

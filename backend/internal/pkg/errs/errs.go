@@ -53,6 +53,7 @@ var (
 	ErrNoPerm           = New(40301, http.StatusForbidden, "无该接口/按钮权限")
 	ErrDataScope        = New(40302, http.StatusForbidden, "数据权限不足（超出所辖小区范围）")
 	ErrRegisterDisabled = New(40303, http.StatusForbidden, "注册功能未开放")
+	ErrNotInSlot        = New(40304, http.StatusForbidden, "当前用户不在该环节授权名单内")
 )
 
 // 410xx 系统管理

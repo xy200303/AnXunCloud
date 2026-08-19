@@ -275,6 +275,9 @@ export interface CheckinItem {
   photo_count: number
   // 记录审核（v10）
   audit_status: 'auto_pass' | 'pending' | 'pass' | 'rejected'
+  // 审批链（扩展方案 §3）：已通过环节数与待审核时的当前环节名（列表"待<环节名>"展示用）
+  audit_step?: number
+  current_step_name?: string
   audit_by?: string
   audit_at?: string
   audit_remark?: string

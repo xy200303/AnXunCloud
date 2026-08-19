@@ -10,6 +10,7 @@ import (
 	"anxuncloud/internal/pkg/bind"
 	"anxuncloud/internal/pkg/errs"
 	"anxuncloud/internal/pkg/response"
+	"anxuncloud/internal/pkg/types"
 )
 
 // PostController 岗位管理接口（系统管理 /system/posts，租户上下文）。db 用于解析租户上下文。
@@ -119,6 +120,34 @@ func (ctl *PostController) SaveDutyBindings(c *gin.Context) {
 	writePost(c, nil, ctl.svc.SaveDutyBindings(&tid, &req))
 }
 
+// GetReviewFlow GET /posts/review-flow（租户级打卡审核链视图：tenant/platform/default）
+func (ctl *PostController) GetReviewFlow(c *gin.Context) {
+	tid, be := middleware.EffectiveTenantID(c, ctl.db)
+	if be != nil {
+		response.Fail(c, be)
+		return
+	}
+	data, be := ctl.svc.GetReviewFlow(&tid)
+	writePost(c, data, be)
+}
+
+// SaveReviewFlow PUT /posts/review-flow（写 tenant_id=上下文租户 的审核链覆盖行）
+func (ctl *PostController) SaveReviewFlow(c *gin.Context) {
+	var req struct {
+		Steps types.FlowStepArray `json:"steps" binding:"required"`
+	}
+	if be := bind.JSON(c, &req); be != nil {
+		response.Fail(c, be)
+		return
+	}
+	tid, be := middleware.EffectiveTenantID(c, ctl.db)
+	if be != nil {
+		response.Fail(c, be)
+		return
+	}
+	writePost(c, nil, ctl.svc.SaveReviewFlow(&tid, req.Steps))
+}
+
 // PostTemplateController 岗位模板库接口（平台管理 /platform/post-templates，is_platform 仅超管）。
 // 作用域为 post_dict 的 tenant_id IS NULL 行；仅作开通租户的初始拷贝源，不参与租户实际业务。
 type PostTemplateController struct {
@@ -185,4 +214,22 @@ func (ctl *PostTemplateController) SaveDutyBindings(c *gin.Context) {
 		return
 	}
 	writePost(c, nil, ctl.svc.SaveDutyBindings(nil, &req))
+}
+
+// GetReviewFlow GET /post-templates/review-flow（平台默认打卡审核链视图，来源 platform/default）
+func (ctl *PostTemplateController) GetReviewFlow(c *gin.Context) {
+	data, be := ctl.svc.GetReviewFlow(nil)
+	writePost(c, data, be)
+}
+
+// SaveReviewFlow PUT /post-templates/review-flow（写平台默认审核链行）
+func (ctl *PostTemplateController) SaveReviewFlow(c *gin.Context) {
+	var req struct {
+		Steps types.FlowStepArray `json:"steps" binding:"required"`
+	}
+	if be := bind.JSON(c, &req); be != nil {
+		response.Fail(c, be)
+		return
+	}
+	writePost(c, nil, ctl.svc.SaveReviewFlow(nil, req.Steps))
 }

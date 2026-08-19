@@ -239,6 +239,17 @@ func (d *demoSeeder) seedTenantA() error {
 	if err := systemsvc.CopyPostTemplatesToTenant(d.db, tid); err != nil {
 		return err
 	}
+	// 打卡审核链租户级覆盖：汇报线审核 → 项目经理复核（演示两级审批流，扩展方案 §3）
+	flow := sysmodel.ApprovalFlow{
+		TenantID: &tid, FlowCode: sysmodel.FlowCheckinReview,
+		Steps: types.FlowStepArray{
+			{Slot: sysmodel.SlotPatrolReportLine, Name: "汇报线审核"},
+			{Slot: sysmodel.SlotProjectReview, Name: "项目经理复核"},
+		},
+	}
+	if err := d.db.Create(&flow).Error; err != nil {
+		return err
+	}
 
 	// 账号（统一密码 Demo@12345；除租户管理员外不显式挂角色，演示岗位绑定角色的实时并集）
 	adminID, err := d.createUser(tid, "huaan_admin", "王建国", "13800001001", d.roleIDs[sysmodel.TenantAdminCode])

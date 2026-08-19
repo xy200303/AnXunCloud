@@ -11,6 +11,7 @@ import (
 
 	"anxuncloud/internal/config"
 	"anxuncloud/internal/middleware"
+	communitysvc "anxuncloud/internal/module/community/service"
 	"anxuncloud/internal/module/inspection/dto"
 	"anxuncloud/internal/module/inspection/model"
 	sysmodel "anxuncloud/internal/module/system/model"
@@ -20,6 +21,7 @@ import (
 	"anxuncloud/internal/pkg/response"
 	"anxuncloud/internal/pkg/storage"
 	"anxuncloud/internal/pkg/timefmt"
+	"anxuncloud/internal/pkg/types"
 )
 
 // spotcheckLimit 单次抽查抽取上限（防呆）。
@@ -108,51 +110,171 @@ func (s *ReviewService) reviewItem(r *model.CheckinRecord) gin.H {
 		"distance_to_point": distanceOrNil(r), "result": r.Result, "remark": r.Remark,
 		"is_suspect": r.IsSuspect, "suspect_reason": r.SuspectReason,
 		"photos": r.Photos, "check_items": s.checkItemViews(r.ID),
-		"audit_status": r.AuditStatus, "audit_by": r.AuditBy,
+		"audit_status": r.AuditStatus, "audit_step": r.AuditStep, "flow_steps": s.flowStepViews(r),
+		"audit_by": r.AuditBy,
 		"audit_at": timefmt.TP(r.AuditAt), "audit_remark": r.AuditRemark,
 		"ai_verdict": r.AIVerdict, "ai_reason": r.AIReason,
 	}
 }
 
-// Pass 审核通过（仅 pending 可审）。
+// flowStepViews 审批链环节视图（供前端展示进度：环节名 + 是否已通过 + 是否当前环节）。
+func (s *ReviewService) flowStepViews(r *model.CheckinRecord) []gin.H {
+	flow := communitysvc.ResolveFlow(s.db, r.CommunityID, sysmodel.FlowCheckinReview)
+	out := make([]gin.H, 0, len(flow))
+	for i, step := range flow {
+		out = append(out, gin.H{
+			"name": step.Name, "slot": step.Slot,
+			"done": i < int(r.AuditStep), "current": i == int(r.AuditStep) && r.AuditStatus == model.AuditPending,
+		})
+	}
+	return out
+}
+
+// Pass 审核通过当前环节（审批链按链执行，扩展方案 §3）：
+// 操作者须在当前环节槽位名单内；非末环节通过后推进到下一环节并通知下一环节名单，末环节通过才置 pass。
 func (s *ReviewService) Pass(c *gin.Context, id string) *errs.Error {
 	r, be := s.loadPending(c, id)
 	if be != nil {
 		return be
 	}
+	flow := communitysvc.ResolveFlow(s.db, r.CommunityID, sysmodel.FlowCheckinReview)
+	stepIdx := int(r.AuditStep)
+	if stepIdx >= len(flow) {
+		return errs.ErrConflict.WithMsg("该记录已完成全部审核环节")
+	}
+	step := flow[stepIdx]
+	patrolType := s.patrolTypeOf(r.TaskID)
+	slot := communitysvc.FlowStepSlot(s.db, r.CommunityID, patrolType, step.Slot)
+	if !communitysvc.SlotAuthorized(s.db, r.CommunityID, slot, middleware.CurrentIdentity(c)) {
+		return errs.ErrNotInSlot.WithMsg("当前用户不在「" + step.Name + "」环节授权名单内")
+	}
 	now := time.Now()
 	by := middleware.CurrentUserID(c)
-	updates := map[string]any{
-		"audit_status": model.AuditPass, "audit_by": by, "audit_at": now, "audit_remark": "",
+	if stepIdx+1 >= len(flow) { // 末环节 → 审核通过
+		updates := map[string]any{
+			"audit_status": model.AuditPass, "audit_step": stepIdx + 1,
+			"audit_by": by, "audit_at": now, "audit_remark": "",
+		}
+		if err := s.db.Model(&model.CheckinRecord{}).Where("id = ?", r.ID).Updates(updates).Error; err != nil {
+			return errs.ErrInternal
+		}
+		return nil
 	}
+	// 非末环节 → 进度 +1，保持 pending，定向通知下一环节名单
+	updates := map[string]any{"audit_step": stepIdx + 1, "audit_by": by, "audit_at": now}
 	if err := s.db.Model(&model.CheckinRecord{}).Where("id = ?", r.ID).Updates(updates).Error; err != nil {
 		return errs.ErrInternal
+	}
+	next := flow[stepIdx+1]
+	nextSlot := communitysvc.FlowStepSlot(s.db, r.CommunityID, patrolType, next.Slot)
+	ptName := pointName(s.db, r.PointID)
+	for _, uid := range communitysvc.SlotUserIDs(s.db, r.CommunityID, nextSlot) {
+		s.db.Create(&sysmodel.SysMessage{
+			UserID: uid, Type: "checkin_audit",
+			Title:   "打卡记录待" + next.Name,
+			Content: fmt.Sprintf("点位「%s」的打卡记录已通过「%s」，待您执行「%s」。", ptName, step.Name, next.Name),
+			BizID:   &r.ID,
+		})
 	}
 	return nil
 }
 
-// BatchPass 批量审核通过：仅 pending 记录被更新（并发下不覆盖人工已处理的），
-// 小区数据权限通过 ApplyCommunityFilter 收敛；返回 passed/skipped 计数。
-func (s *ReviewService) BatchPass(c *gin.Context, ids []string) (gin.H, *errs.Error) {
-	now := time.Now()
-	db := s.db.Model(&model.CheckinRecord{}).
-		Where("id IN ? AND audit_status = ?", ids, model.AuditPending)
-	db = middleware.ApplyCommunityFilter(db, c, "checkin_record.community_id")
-	res := db.Updates(map[string]any{
-		"audit_status": model.AuditPass,
-		"audit_by":     middleware.CurrentUserID(c),
-		"audit_at":     now,
-		"audit_remark": "",
-	})
-	if res.Error != nil {
-		return nil, errs.ErrInternal
+// requireReportLine 巡查汇报线名单校验（抽查/催办归口汇报线成员；超管/租户管理员默认放行）。
+// 按打卡所属任务的巡查类型路由到对应业务线汇报线槽位（维度槽位 → 通用槽位回落，见扩展方案 §2）。
+func (s *ReviewService) requireReportLine(c *gin.Context, r *model.CheckinRecord) *errs.Error {
+	slot := communitysvc.ResolveReportLineSlot(s.db, r.CommunityID, s.patrolTypeOf(r.TaskID))
+	if !communitysvc.SlotAuthorized(s.db, r.CommunityID, slot, middleware.CurrentIdentity(c)) {
+		return errs.ErrNotInSlot.WithMsg("当前用户不在本项目该巡查业务线的汇报线名单内")
 	}
-	passed := int(res.RowsAffected)
-	return gin.H{"passed": passed, "skipped": len(ids) - passed}, nil
+	return nil
 }
 
-// Reopen 撤销审核（pass/rejected → pending）：审核误操作的后悔药。
-// 退回后记录重新进入待审核队列，可再次通过/打回；清空原审核人与意见（操作日志已留痕）。
+// patrolTypeOf 任务巡查类型（记录必属任务；取不到按空串 → 通用汇报线槽位）。
+func (s *ReviewService) patrolTypeOf(taskID string) string {
+	var t model.InspectionTask
+	if err := s.db.Select("patrol_type").First(&t, "id = ?", taskID).Error; err != nil {
+		return ""
+	}
+	return t.PatrolType
+}
+
+// requireReportLineForRecords 抽查场景：记录涉及的「小区 × 巡查类型」组合均须通过汇报线校验。
+func (s *ReviewService) requireReportLineForRecords(c *gin.Context, ids []string) *errs.Error {
+	type pair struct {
+		CommunityID string
+		PatrolType  string
+	}
+	var pairs []pair
+	s.db.Model(&model.CheckinRecord{}).
+		Select("checkin_record.community_id, inspection_task.patrol_type").
+		Joins("JOIN inspection_task ON inspection_task.id = checkin_record.task_id").
+		Where("checkin_record.id IN ?", ids).
+		Distinct().Scan(&pairs)
+	for _, p := range pairs {
+		slot := communitysvc.ResolveReportLineSlot(s.db, p.CommunityID, p.PatrolType)
+		if !communitysvc.SlotAuthorized(s.db, p.CommunityID, slot, middleware.CurrentIdentity(c)) {
+			return errs.ErrNotInSlot.WithMsg("当前用户不在本项目该巡查业务线的汇报线名单内")
+		}
+	}
+	return nil
+}
+
+// BatchPass 批量审核通过（按链各推进一步：处于末环节的记录置 pass，其余进度 +1）。
+// 小区数据权限通过 ApplyCommunityFilter 收敛；返回 passed/advanced/skipped 计数。
+func (s *ReviewService) BatchPass(c *gin.Context, ids []string) (gin.H, *errs.Error) {
+	var recs []model.CheckinRecord
+	db := s.db.Where("id IN ? AND audit_status = ?", ids, model.AuditPending)
+	db = middleware.ApplyCommunityFilter(db, c, "checkin_record.community_id")
+	if err := db.Find(&recs).Error; err != nil {
+		return nil, errs.ErrInternal
+	}
+	// 先全量校验授权（任一记录当前环节未授权则整批拒绝，避免半批推进）
+	flows := map[string]types.FlowStepArray{} // community_id → 审批链
+	for i := range recs {
+		flow, ok := flows[recs[i].CommunityID]
+		if !ok {
+			flow = communitysvc.ResolveFlow(s.db, recs[i].CommunityID, sysmodel.FlowCheckinReview)
+			flows[recs[i].CommunityID] = flow
+		}
+		stepIdx := int(recs[i].AuditStep)
+		if stepIdx >= len(flow) {
+			continue
+		}
+		slot := communitysvc.FlowStepSlot(s.db, recs[i].CommunityID, s.patrolTypeOf(recs[i].TaskID), flow[stepIdx].Slot)
+		if !communitysvc.SlotAuthorized(s.db, recs[i].CommunityID, slot, middleware.CurrentIdentity(c)) {
+			return nil, errs.ErrNotInSlot.WithMsg("当前用户不在「" + flow[stepIdx].Name + "」环节授权名单内")
+		}
+	}
+	now := time.Now()
+	by := middleware.CurrentUserID(c)
+	passed, advanced := 0, 0
+	for i := range recs {
+		flow := flows[recs[i].CommunityID]
+		stepIdx := int(recs[i].AuditStep)
+		if stepIdx >= len(flow) {
+			continue
+		}
+		updates := map[string]any{"audit_step": stepIdx + 1, "audit_by": by, "audit_at": now}
+		if stepIdx+1 >= len(flow) {
+			updates["audit_status"] = model.AuditPass
+			updates["audit_remark"] = ""
+			passed++
+		} else {
+			advanced++
+		}
+		// 并发下不覆盖人工已处理的记录
+		res := s.db.Model(&model.CheckinRecord{}).
+			Where("id = ? AND audit_status = ? AND audit_step = ?", recs[i].ID, model.AuditPending, stepIdx).
+			Updates(updates)
+		if res.Error != nil {
+			return nil, errs.ErrInternal
+		}
+	}
+	return gin.H{"passed": passed, "advanced": advanced, "skipped": len(ids) - passed - advanced}, nil
+}
+
+// Reopen 撤销审核（pass/rejected → pending 且审批进度回 0，重新走完整链）：审核误操作的后悔药。
+// 操作者须在首环节（汇报线）名单内；清空原审核人与意见（操作日志已留痕）。
 func (s *ReviewService) Reopen(c *gin.Context, id string) *errs.Error {
 	var r model.CheckinRecord
 	if err := s.db.Where("id = ?", id).First(&r).Error; err != nil {
@@ -161,10 +283,14 @@ func (s *ReviewService) Reopen(c *gin.Context, id string) *errs.Error {
 	if be := middleware.CheckCommunity(s.db, c, r.CommunityID); be != nil {
 		return be
 	}
+	if be := s.requireReportLine(c, &r); be != nil {
+		return be
+	}
 	res := s.db.Model(&model.CheckinRecord{}).
 		Where("id = ? AND audit_status IN ?", r.ID, []string{model.AuditPass, model.AuditRejected}).
 		Updates(map[string]any{
 			"audit_status": model.AuditPending,
+			"audit_step":   0,
 			"audit_by":     nil,
 			"audit_at":     nil,
 			"audit_remark": "",
@@ -178,11 +304,21 @@ func (s *ReviewService) Reopen(c *gin.Context, id string) *errs.Error {
 	return nil
 }
 
-// Reject 审核打回（仅 pending 可审），并站内通知巡检员。
+// Reject 审核打回（仅 pending 可审；操作者须在当前环节槽位名单内），并站内通知巡检员。
 func (s *ReviewService) Reject(c *gin.Context, id, reason string) *errs.Error {
 	r, be := s.loadPending(c, id)
 	if be != nil {
 		return be
+	}
+	flow := communitysvc.ResolveFlow(s.db, r.CommunityID, sysmodel.FlowCheckinReview)
+	stepIdx := int(r.AuditStep)
+	if stepIdx >= len(flow) {
+		return errs.ErrConflict.WithMsg("该记录已完成全部审核环节")
+	}
+	step := flow[stepIdx]
+	slot := communitysvc.FlowStepSlot(s.db, r.CommunityID, s.patrolTypeOf(r.TaskID), step.Slot)
+	if !communitysvc.SlotAuthorized(s.db, r.CommunityID, slot, middleware.CurrentIdentity(c)) {
+		return errs.ErrNotInSlot.WithMsg("当前用户不在「" + step.Name + "」环节授权名单内")
 	}
 	now := time.Now()
 	by := middleware.CurrentUserID(c)
@@ -235,6 +371,9 @@ func (s *ReviewService) Spotcheck(c *gin.Context, req *dto.SpotcheckReq) (gin.H,
 	if len(ids) == 0 {
 		return gin.H{"picked": 0}, nil
 	}
+	if be := s.requireReportLineForRecords(c, ids); be != nil {
+		return nil, be
+	}
 	res := s.db.Model(&model.CheckinRecord{}).
 		Where("id IN ? AND audit_status IN ?", ids, []string{model.AuditAutoPass, model.AuditPass}).
 		Update("audit_status", model.AuditPending)
@@ -281,6 +420,9 @@ func (s *ReviewService) spotcheckAI(c *gin.Context, req *dto.SpotcheckReq) (gin.
 	}
 	ids, be := s.pickSpotcheckIDs(c, req, spotcheckAILimit)
 	if be != nil {
+		return nil, be
+	}
+	if be := s.requireReportLineForRecords(c, ids); be != nil {
 		return nil, be
 	}
 	picked, toReview, passed, failed := 0, 0, 0, 0

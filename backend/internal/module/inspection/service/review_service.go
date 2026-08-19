@@ -184,7 +184,7 @@ func (s *ReviewService) Pass(c *gin.Context, id string) *errs.Error {
 func (s *ReviewService) requireReportLine(c *gin.Context, r *model.CheckinRecord) *errs.Error {
 	slot := communitysvc.ResolveReportLineSlot(s.db, r.CommunityID, s.patrolTypeOf(r.TaskID))
 	if !communitysvc.SlotAuthorized(s.db, r.CommunityID, slot, middleware.CurrentIdentity(c)) {
-		return errs.ErrNotInSlot.WithMsg("当前用户不在本项目该巡查业务线的汇报线名单内")
+		return errs.ErrNotInSlot.WithMsg("当前用户不在本项目该巡查业务线的审核名单内")
 	}
 	return nil
 }
@@ -213,7 +213,7 @@ func (s *ReviewService) requireReportLineForRecords(c *gin.Context, ids []string
 	for _, p := range pairs {
 		slot := communitysvc.ResolveReportLineSlot(s.db, p.CommunityID, p.PatrolType)
 		if !communitysvc.SlotAuthorized(s.db, p.CommunityID, slot, middleware.CurrentIdentity(c)) {
-			return errs.ErrNotInSlot.WithMsg("当前用户不在本项目该巡查业务线的汇报线名单内")
+			return errs.ErrNotInSlot.WithMsg("当前用户不在本项目该巡查业务线的审核名单内")
 		}
 	}
 	return nil

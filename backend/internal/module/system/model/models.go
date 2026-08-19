@@ -295,11 +295,11 @@ var DutySlots = []DutySlot{
 	{SlotOrderDispatch, "工单派单"},
 	{SlotOrderAccept, "工单接单"},
 	{SlotPatrolExecute, "巡查任务执行"},
-	{SlotPatrolReportLine, "巡查汇报关系（通用兜底）"},
-	{SlotPatrolReportLineSafety, "巡查汇报关系 · 安全巡查"},
-	{SlotPatrolReportLineEquipment, "巡查汇报关系 · 设备专项"},
-	{SlotPatrolReportLineEnvironment, "巡查汇报关系 · 环境巡查"},
-	{SlotPatrolReportLineBuilding, "巡查汇报关系 · 楼栋巡查"},
+	{SlotPatrolReportLine, "巡查打卡审核（默认）"},
+	{SlotPatrolReportLineSafety, "巡查打卡审核 · 安全巡查"},
+	{SlotPatrolReportLineEquipment, "巡查打卡审核 · 设备专项"},
+	{SlotPatrolReportLineEnvironment, "巡查打卡审核 · 环境巡查"},
+	{SlotPatrolReportLineBuilding, "巡查打卡审核 · 楼栋巡查"},
 	{SlotProjectReview, "项目经理复核"},
 }
 

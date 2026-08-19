@@ -1,12 +1,12 @@
-<!-- 审批链模板（平台管理，仅超管）：平台默认打卡审核链。
-     未配置审核链的租户/项目回落到此默认；再未配置时回落代码内置单步链「汇报线审核」。 -->
+<!-- 审批流程模板（平台管理，仅超管）：平台默认打卡审批流程。
+     未配置审批流程的租户/项目回落到此默认；再未配置时回落代码内置单步「主管审核」。 -->
 <template>
   <div class="app-container">
     <div class="table-card">
       <el-alert
         type="info"
         :closable="false"
-        title="此处为平台默认打卡审核链：新开通租户与未自行配置的租户/项目均回落到此默认。修改即时生效（对已有自定义配置的租户无影响）。"
+        title="此处为平台默认打卡审批流程：新开通租户与未自行配置的租户/项目均回落到此默认。修改即时生效（对已有自定义配置的租户无影响）。"
         style="margin-bottom: 16px"
       />
       <ReviewFlowEditor :api="flowApi" :slot-options="slotOptions" save-perm="platform:reviewflow:update" />

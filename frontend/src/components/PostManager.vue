@@ -75,8 +75,8 @@
         </div>
       </el-tab-pane>
 
-      <!-- 职责槽位默认绑定 -->
-      <el-tab-pane label="职责槽位默认绑定" name="duty">
+      <!-- 环节分工（职责槽位默认绑定） -->
+      <el-tab-pane label="环节分工" name="duty">
         <div class="table-card">
           <el-alert
             type="info"
@@ -85,7 +85,7 @@
             style="margin-bottom: 16px"
           />
           <el-table v-loading="dutyLoading" :data="dutyList" stripe style="width: 100%">
-            <el-table-column prop="name" label="职责槽位" min-width="140" />
+            <el-table-column prop="name" label="环节负责岗位" min-width="140" />
             <el-table-column label="绑定岗位" min-width="320">
               <template #default="{ row }">
                 <el-select
@@ -205,8 +205,8 @@ const dutySavePerm = computed(() => (isTemplate.value ? `${props.permPrefix}:upd
 
 const dutyTip = computed(() =>
   isTemplate.value
-    ? '各环节默认人选由「槽位绑定岗位 → 项目编制在职成员」推导；此处为平台默认，开通租户时随模板岗位一并复制；岗位留空 = 该环节跳过'
-    : '各环节默认人选由「槽位绑定岗位 → 项目编制在职成员」推导；此处为租户级默认（未配置时回落平台默认）；岗位留空 = 该环节跳过；项目级覆盖在「小区管理 → 编制 → 职责槽位绑定」中配置'
+    ? '各环节人选由「负责岗位 → 项目编制在职成员」推导；此处为平台默认，开通租户时随模板岗位一并复制；岗位留空 = 该环节跳过'
+    : '各环节人选由「负责岗位 → 项目编制在职成员」推导；此处为公司级默认（未配置时回落平台默认）；岗位留空 = 该环节跳过；单个小区可在「小区管理 → 编制 → 环节分工」页签中单独配置'
 )
 
 // ===== 岗位列表 =====
@@ -329,7 +329,7 @@ async function handleDeletePost(post: PostItem) {
   fetchPosts()
 }
 
-// ===== 职责槽位默认绑定 =====
+// ===== 环节分工（职责槽位默认绑定） =====
 const dutyLoading = ref(false)
 const dutySaving = ref(false)
 const dutyList = ref<PostDutyBindingView[]>([])

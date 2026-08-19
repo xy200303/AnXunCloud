@@ -239,11 +239,11 @@ func (d *demoSeeder) seedTenantA() error {
 	if err := systemsvc.CopyPostTemplatesToTenant(d.db, tid); err != nil {
 		return err
 	}
-	// 打卡审核链租户级覆盖：汇报线审核 → 项目经理复核（演示两级审批流，扩展方案 §3）
+	// 打卡审批流程租户级覆盖：主管审核 → 项目经理复核（演示两级审批流，扩展方案 §3）
 	flow := sysmodel.ApprovalFlow{
 		TenantID: &tid, FlowCode: sysmodel.FlowCheckinReview,
 		Steps: types.FlowStepArray{
-			{Slot: sysmodel.SlotPatrolReportLine, Name: "汇报线审核"},
+			{Slot: sysmodel.SlotPatrolReportLine, Name: "主管审核"},
 			{Slot: sysmodel.SlotProjectReview, Name: "项目经理复核"},
 		},
 	}

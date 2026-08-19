@@ -7,7 +7,8 @@ import {
   Collection, Operation, Bell, Tickets, UserFilled,
   House, Folder, Files, Grid, Histogram, PieChart, Clock, Flag, Position, Compass,
   Warning, Key, Lock, Message, Camera, Picture, Notebook, Finished, Aim, Guide,
-  Place, Platform, Stamp, Link, Star, PriceTag, Suitcase, Postcard, Brush, CopyDocument
+  Place, Platform, Stamp, Link, Star, PriceTag, Suitcase, Postcard, Brush, CopyDocument,
+  Connection, Share
 } from '@element-plus/icons-vue'
 
 export const menuIconMap: Record<string, Component> = {
@@ -16,7 +17,8 @@ export const menuIconMap: Record<string, Component> = {
   Collection, Operation, Bell, Tickets, UserFilled,
   House, Folder, Files, Grid, Histogram, PieChart, Clock, Flag, Position, Compass,
   Warning, Key, Lock, Message, Camera, Picture, Notebook, Finished, Aim, Guide,
-  Place, Platform, Stamp, Link, Star, PriceTag, Suitcase, Postcard, Brush, CopyDocument
+  Place, Platform, Stamp, Link, Star, PriceTag, Suitcase, Postcard, Brush, CopyDocument,
+  Connection, Share
 }
 
 export const menuIconOptions = Object.keys(menuIconMap)

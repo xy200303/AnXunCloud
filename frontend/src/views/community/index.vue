@@ -251,7 +251,7 @@
       </template>
     </el-dialog>
 
-    <!-- 岗位编制抽屉：编制名单 + 职责槽位绑定 -->
+    <!-- 岗位编制抽屉：编制名单 + 环节分工 + 打卡审批流程（项目级覆盖） -->
     <el-drawer v-model="staffVisible" :title="`岗位编制 · ${staffCommunityName}`" size="760px">
       <el-tabs v-model="staffTab">
         <el-tab-pane label="编制名单" name="staff">
@@ -301,15 +301,15 @@
           </el-table>
         </el-tab-pane>
 
-        <el-tab-pane label="职责槽位绑定" name="duty">
+        <el-tab-pane label="环节分工" name="duty">
           <el-alert
             type="info"
             :closable="false"
-            title="名单即授权：各环节由「槽位绑定岗位 → 编制在职成员」推导默认人选；修改「平台默认」槽位保存后即形成项目级覆盖；岗位留空 = 本项目该环节跳过（暂不支持恢复平台默认）"
+            title="名单即授权：各环节由「负责岗位 → 编制在职成员」推导默认人选；修改「平台默认」的环节保存后即形成本小区专属配置；岗位留空 = 本小区该环节跳过（暂不支持恢复平台默认）"
             class="duty-tip"
           />
           <el-table v-loading="dutyLoading" :data="dutyList" stripe style="width: 100%">
-            <el-table-column prop="name" label="职责槽位" min-width="130" />
+            <el-table-column prop="name" label="环节负责岗位" min-width="130" />
             <el-table-column label="绑定岗位" min-width="280">
               <template #default="{ row }">
                 <el-select
@@ -343,6 +343,9 @@
               @click="handleDutySave"
             >保存绑定</el-button>
           </div>
+        </el-tab-pane>
+
+        <el-tab-pane label="打卡审批流程" name="flow">
           <ReviewFlowEditor
             v-if="staffCommunityId"
             :key="staffCommunityId"
@@ -691,7 +694,7 @@ async function handleStaffSubmit() {
 // 删除：硬删除，恢复即重新添加；项目经理名额/签字默认名单随编制联动，错误信息由拦截器展示
 async function handleStaffDelete(row: StaffItem) {
   const ok = await ElMessageBox.confirm(
-    `确定将「${row.user_name}」移出该项目编制吗？（槽位默认名单将不再包含该成员）`,
+    `确定将「${row.user_name}」移出该项目编制吗？（各环节的默认名单将不再包含该成员）`,
     '删除确认',
     { confirmButtonText: '删除', cancelButtonText: '取消', type: 'error' }
   ).then(() => true).catch(() => false)
@@ -701,12 +704,12 @@ async function handleStaffDelete(row: StaffItem) {
   fetchStaff()
 }
 
-// ===== 职责槽位绑定 =====
+// ===== 环节分工（职责槽位绑定） =====
 const dutyLoading = ref(false)
 const dutySaving = ref(false)
 const dutyList = ref<DutyBindingItem[]>([])
 
-// 打卡审核链（项目级覆盖；环节槽位选项复用职责槽位列表）
+// 打卡审批流程（项目级覆盖；环节选项复用职责槽位列表）
 const flowApi = computed(() => ({
   listFlow: () => getReviewFlow(staffCommunityId.value),
   saveFlow: (s: { slot: string; name: string }[]) => saveReviewFlow(staffCommunityId.value, s) as Promise<unknown>

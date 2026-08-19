@@ -14,9 +14,9 @@ import (
 	"anxuncloud/internal/pkg/types"
 )
 
-// DefaultCheckinReviewFlow 内置默认打卡审核链（无任何配置时兜底：单步汇报线审核，行为与链化前一致）。
+// DefaultCheckinReviewFlow 内置默认打卡审批流程（无任何配置时兜底：单步主管审核，行为与链化前一致）。
 func DefaultCheckinReviewFlow() types.FlowStepArray {
-	return types.FlowStepArray{{Slot: sysmodel.SlotPatrolReportLine, Name: "汇报线审核"}}
+	return types.FlowStepArray{{Slot: sysmodel.SlotPatrolReportLine, Name: "主管审核"}}
 }
 
 // ResolveFlow 解析审批链配置：项目级 → 租户级 → 平台默认 → 内置默认（steps 为空视为未配置，继续回落）。

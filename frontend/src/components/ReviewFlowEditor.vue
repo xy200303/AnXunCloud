@@ -1,9 +1,9 @@
-<!-- 打卡审核链编辑器（扩展方案 §3）：租户级默认 / 平台模板 / 项目级覆盖三处共用。
+<!-- 打卡审批流程编辑器（扩展方案 §3）：租户级默认 / 平台模板 / 项目级覆盖三处共用。
      流程 = 有序环节列表，每个环节引用一个职责槽位；环节名单解析与授权复用槽位体系。 -->
 <template>
   <div class="flow-editor">
     <div class="flow-head">
-      <span class="flow-title">打卡审核链</span>
+      <span class="flow-title">打卡审批流程</span>
       <el-tag v-if="sourceLabel" size="small" :type="source === 'platform' || source === 'tenant' ? 'warning' : source === 'project' ? 'success' : 'info'" effect="plain">
         {{ sourceLabel }}
       </el-tag>
@@ -11,14 +11,14 @@
     <el-alert
       type="info"
       :closable="false"
-      title="打卡记录按环节顺序逐级审核：当前环节名单成员通过后进入下一环节，末环节通过才生效；驳回即打回。环节名单 = 槽位绑定岗位的项目编制在职成员"
+      title="打卡记录按环节顺序逐级审核：当前环节名单成员通过后进入下一环节，末环节通过才生效；驳回即打回。环节审核人 = 负责岗位在该项目编制里的在职成员"
       class="flow-tip"
     />
     <div v-loading="loading">
       <div v-for="(step, idx) in steps" :key="idx" class="flow-step">
         <span class="step-no">{{ idx + 1 }}</span>
         <el-input v-model="step.name" placeholder="环节名称" maxlength="32" class="step-name" :disabled="!canEdit" />
-        <el-select v-model="step.slot" placeholder="授权槽位" class="step-slot" :disabled="!canEdit">
+        <el-select v-model="step.slot" placeholder="审核人（按岗位）" class="step-slot" :disabled="!canEdit">
           <el-option v-for="s in slotOptions" :key="s.slot" :label="s.name" :value="s.slot" />
         </el-select>
         <template v-if="canEdit">
@@ -29,7 +29,7 @@
       </div>
       <div class="flow-footer">
         <el-button v-if="canEdit" :icon="Plus" size="small" :disabled="steps.length >= 5" @click="addStep">添加环节</el-button>
-        <el-button v-if="canEdit" type="primary" size="small" :loading="saving" @click="handleSave">保存审核链</el-button>
+        <el-button v-if="canEdit" type="primary" size="small" :loading="saving" @click="handleSave">保存审批流程</el-button>
       </div>
     </div>
   </div>
@@ -92,14 +92,14 @@ function addStep() {
 async function handleSave() {
   for (const s of steps.value) {
     if (!s.name.trim() || !s.slot) {
-      ElMessage.warning('每个环节都须填写名称并选择授权槽位')
+      ElMessage.warning('每个环节都须填写名称并选择审核人')
       return
     }
   }
   saving.value = true
   try {
     await props.api.saveFlow(steps.value.map((s) => ({ slot: s.slot, name: s.name.trim() })))
-    ElMessage.success('审核链已保存')
+    ElMessage.success('审批流程已保存')
     fetchFlow()
   } finally {
     saving.value = false

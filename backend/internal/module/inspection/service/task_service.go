@@ -520,7 +520,7 @@ func (s *TaskService) Remind(c *gin.Context, id string) *errs.Error {
 	// 催办归口该任务巡查业务线的汇报线主管（维度槽位 → 通用槽位回落；超管/租户管理员默认放行）
 	slot := communitysvc.ResolveReportLineSlot(s.db, t.CommunityID, t.PatrolType)
 	if !communitysvc.SlotAuthorized(s.db, t.CommunityID, slot, middleware.CurrentIdentity(c)) {
-		return errs.ErrNotInSlot.WithMsg("当前用户不在本项目该巡查业务线的汇报线名单内")
+		return errs.ErrNotInSlot.WithMsg("当前用户不在本项目该巡查业务线的审核名单内")
 	}
 	if t.Status == model.TaskDone {
 		return errs.ErrParam.WithMsg("任务已完成，无需催办")

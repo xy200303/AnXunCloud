@@ -219,8 +219,8 @@ func seedMenus(tx *gorm.DB) (map[string]string, error) {
 			// 企业品牌（tenant:config）：租户管理员管理本租户的品牌覆盖配置，授 super_admin + tenant_admin
 			{title: "企业品牌", path: "/system/brand", icon: "Brush", typ: model.MenuTypeMenu, perms: "tenant:config", sort: 7},
 			// 审批链管理（扩展方案 §3）：打卡审核链租户级配置（自 00003 起独立菜单，不再寄生于岗位管理页签）
-			{title: "审批链管理", path: "/system/review-flow", icon: "Connection", typ: model.MenuTypeMenu, perms: "system:reviewflow:list", sort: 8, children: []menuSeed{
-				{title: "保存审核链", typ: model.MenuTypeButton, perms: "system:reviewflow:update", sort: 1},
+			{title: "审批流程", path: "/system/review-flow", icon: "Connection", typ: model.MenuTypeMenu, perms: "system:reviewflow:list", sort: 8, children: []menuSeed{
+				{title: "保存审批流程", typ: model.MenuTypeButton, perms: "system:reviewflow:update", sort: 1},
 			}},
 		}},
 		// 平台管理（平台级，仅超管）：整棵子树 is_platform=true，租户角色不可见不可授权
@@ -257,8 +257,8 @@ func seedMenus(tx *gorm.DB) (map[string]string, error) {
 				{title: "默认职责绑定", typ: model.MenuTypeButton, perms: "platform:post:duty", sort: 4},
 			}},
 			// 审批链模板（平台默认打卡审核链；开通租户时作为回落默认）
-			{title: "审批链模板", path: "/platform/review-flow-template", icon: "Share", typ: model.MenuTypeMenu, perms: "platform:reviewflow:list", sort: 7, children: []menuSeed{
-				{title: "保存审核链模板", typ: model.MenuTypeButton, perms: "platform:reviewflow:update", sort: 1},
+			{title: "审批流程模板", path: "/platform/review-flow-template", icon: "Share", typ: model.MenuTypeMenu, perms: "platform:reviewflow:list", sort: 7, children: []menuSeed{
+				{title: "保存审批流程模板", typ: model.MenuTypeButton, perms: "platform:reviewflow:update", sort: 1},
 			}},
 		}},
 		{title: "个人中心", path: "/profile", icon: "UserFilled", typ: model.MenuTypeMenu, perms: "profile:view", sort: 80, hidden: true},
@@ -550,12 +550,12 @@ func seedDutyBindings(tx *gorm.DB) error {
 }
 
 // seedApprovalFlow 预置平台默认审批链（approval_flow：tenant_id/project_id 均空 = 平台默认）。
-// 打卡审核链默认单步「汇报线审核」（与链化前行为一致；租户可自行追加"项目经理复核"等环节）。
+// 打卡审批流程默认单步「主管审核」（与链化前行为一致；租户可自行追加"项目经理复核"等环节）。
 func seedApprovalFlow(tx *gorm.DB) error {
 	flow := model.ApprovalFlow{
 		FlowCode: model.FlowCheckinReview,
 		Steps: types.FlowStepArray{
-			{Slot: model.SlotPatrolReportLine, Name: "汇报线审核"},
+			{Slot: model.SlotPatrolReportLine, Name: "主管审核"},
 		},
 	}
 	return tx.Create(&flow).Error

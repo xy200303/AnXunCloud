@@ -274,6 +274,7 @@ func New(cfg *config.Config, db *gorm.DB, rdb *redis.Client) (*gin.Engine, *insp
 		{
 			orders.GET("", middleware.RequirePerm("workorder:list"), orderCtl.List)
 			orders.POST("", middleware.RequirePerm("workorder:create"), middleware.OperLog(db, "workorder", "create"), orderCtl.Create)
+			orders.GET("/dispatch-candidates", middleware.RequirePerm("workorder:dispatch"), orderCtl.DispatchCandidates)
 			orders.GET("/:id", middleware.RequirePerm("workorder:list"), orderCtl.Detail)
 			orders.PUT("/:id", middleware.RequirePerm("workorder:update"), middleware.OperLog(db, "workorder", "update"), orderCtl.Update)
 			orders.DELETE("/:id", middleware.RequirePerm("workorder:delete"), middleware.OperLog(db, "workorder", "delete"), orderCtl.Delete)
@@ -410,6 +411,7 @@ func New(cfg *config.Config, db *gorm.DB, rdb *redis.Client) (*gin.Engine, *insp
 			appOrders := appAuth.Group("/manage/workorders")
 			{
 				appOrders.GET("", middleware.RequirePerm("workorder:list"), orderCtl.List)
+				appOrders.GET("/dispatch-candidates", middleware.RequirePerm("workorder:dispatch"), orderCtl.DispatchCandidates)
 				appOrders.GET("/:id", middleware.RequirePerm("workorder:list"), orderCtl.Detail)
 				appOrders.POST("/:id/triage", middleware.RequirePerm("workorder:triage"), middleware.OperLog(db, "workorder", "triage"), orderCtl.Triage)
 				appOrders.POST("/:id/dispatch", middleware.RequirePerm("workorder:dispatch"), middleware.OperLog(db, "workorder", "dispatch"), orderCtl.Dispatch)

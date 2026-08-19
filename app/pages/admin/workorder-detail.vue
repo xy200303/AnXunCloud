@@ -166,16 +166,16 @@
           </view>
           <view
             v-for="u in staff"
-            :key="u.id"
+            :key="u.user_id"
             class="staff-row"
-            :style="{ backgroundColor: colors.bgCard, borderColor: assigneeId == u.id ? colors.primary : colors.border }"
-            @click="assigneeId = u.id"
+            :style="{ backgroundColor: colors.bgCard, borderColor: assigneeId == u.user_id ? colors.primary : colors.border }"
+            @click="assigneeId = u.user_id"
           >
             <view class="staff-main">
-              <text class="staff-name" :style="{ color: colors.textPrimary }">{{ u.name }}</text>
-              <text class="staff-sub" :style="{ color: colors.textSecondary }">{{ u.username }}<text v-if="u.phone != ''"> · {{ u.phone }}</text></text>
+              <text class="staff-name" :style="{ color: colors.textPrimary }">{{ u.user_name }}</text>
+              <text class="staff-sub" :style="{ color: colors.textSecondary }">{{ u.phone != '' ? u.phone : '—' }}</text>
             </view>
-            <text v-if="assigneeId == u.id" class="staff-check" :style="{ color: colors.primary }">✓</text>
+            <text v-if="assigneeId == u.user_id" class="staff-check" :style="{ color: colors.primary }">✓</text>
           </view>
         </scroll-view>
         <view class="sheet-foot" :style="{ backgroundColor: colors.bgCard, borderTopColor: colors.border }">
@@ -238,9 +238,9 @@ import {
   apiDispatchOrder,
   apiConfirmManageOrder,
   apiTriageOrder,
-  apiOrderUsers,
+  apiDispatchCandidates,
   WorkOrderDetail,
-  StaffUser
+  DispatchCandidate
 } from '@/services/api'
 import { useAuthStore } from '@/stores/auth'
 import { toAbsUrl } from '@/utils/url'
@@ -254,8 +254,8 @@ type DetailData = {
   order: WorkOrderDetail
   assigning: boolean
   staffLoading: boolean
-  staff: StaffUser[]
-  /** 无维修角色用户时的提示（显示全部启用用户） */
+  staff: DispatchCandidate[]
+  /** 接单槽位无在职成员时的提示 */
   staffTip: string
   assigneeId: string
   assignRemark: string
@@ -352,7 +352,7 @@ export default {
       order: emptyOrder(),
       assigning: false,
       staffLoading: false,
-      staff: [] as StaffUser[],
+      staff: [] as DispatchCandidate[],
       staffTip: '',
       assigneeId: '',
       assignRemark: '',
@@ -494,26 +494,16 @@ export default {
           this.acting = false
         })
     },
-    /** 打开派单弹层并加载候选人：优先维修角色，无则显示全部启用用户并提示 */
+    /** 打开派单弹层并加载候选人：本项目「工单接单」槽位名单成员（后端解析，与派单校验口径一致） */
     openAssign() {
       this.assigning = true
       this.assigneeId = ''
       this.assignRemark = ''
       this.staffLoading = true
-      apiOrderUsers()
+      apiDispatchCandidates(this.order.community_id)
         .then((list) => {
-          // 注意：/system/users 的 roles 元素无 code 字段（后端 UserService.toItem 只下发 id/name），
-          // 维修员按角色名「维修人员」匹配（code=repair 兜底，防后端后续补 code 字段）
-          const repairs = list.filter((u) =>
-            (u.roles ?? []).some((r: any) => r.code == 'repair' || r.name == '维修人员')
-          )
-          if (repairs.length > 0) {
-            this.staff = repairs
-            this.staffTip = ''
-          } else {
-            this.staff = list
-            this.staffTip = '未找到维修角色的用户，已显示全部启用人员'
-          }
+          this.staff = list
+          this.staffTip = list.length > 0 ? '' : '本项目「工单接单」槽位暂无在职成员，请在小区管理中配置编制/职责绑定'
           this.staffLoading = false
         })
         .catch((e: Error) => {

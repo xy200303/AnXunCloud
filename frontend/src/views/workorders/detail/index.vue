@@ -226,7 +226,7 @@
     <el-dialog v-model="dispatchVisible" title="派单" width="440px" :close-on-click-modal="false">
       <el-form ref="dispatchFormRef" :model="dispatchForm" :rules="dispatchRules" label-width="88px">
         <el-form-item label="维修工" prop="assignee_id">
-          <el-select v-model="dispatchForm.assignee_id" filterable placeholder="选择维修工" style="width: 100%" :loading="staffLoading">
+          <el-select v-model="dispatchForm.assignee_id" filterable placeholder="选择处理人" style="width: 100%" :loading="staffLoading">
             <el-option v-for="s in assigneeOptions" :key="s.user_id" :label="s.user_name" :value="s.user_id" />
           </el-select>
         </el-form-item>
@@ -234,9 +234,16 @@
           <el-input v-model="dispatchForm.remark" placeholder="如：今天内处理" />
         </el-form-item>
         <el-alert
+          v-if="assigneeOptions.length > 0"
           type="info"
           :closable="false"
-          title="派单对象须为本项目「工单接单」槽位名单成员（候选人取该项目编制中维修工岗位的在职成员；槽位绑定如被项目覆盖，以编制页为准）"
+          title="候选人为本项目「工单接单」槽位名单成员（默认绑定维修工岗位，项目/租户可在职责绑定中调整）"
+        />
+        <el-alert
+          v-else-if="!staffLoading"
+          type="warning"
+          :closable="false"
+          title="本项目「工单接单」槽位暂无在职成员，请先在小区管理的编制/职责绑定中配置"
         />
       </el-form>
       <template #footer>
@@ -299,13 +306,13 @@ import { useRoute } from 'vue-router'
 import { ElMessage, ElMessageBox, type FormInstance, type FormRules, type UploadRequestOptions } from 'element-plus'
 import { Close } from '@element-plus/icons-vue'
 import {
-  getWorkOrder, triageWorkOrder, dispatchWorkOrder, finishWorkOrder, confirmWorkOrder
+  getWorkOrder, triageWorkOrder, dispatchWorkOrder, finishWorkOrder, confirmWorkOrder,
+  listDispatchCandidates, type DispatchCandidate
 } from '@/api/workorder'
-import { listStaff } from '@/api/community'
 import { uploadImage, fileUrl } from '@/api/upload'
 import { useUserStore } from '@/store/user'
 import PhotoViewer from '@/components/PhotoViewer.vue'
-import type { WorkOrderDetail, WorkOrderCheckItem, StaffItem } from '@/api/biz-types'
+import type { WorkOrderDetail, WorkOrderCheckItem } from '@/api/biz-types'
 
 const route = useRoute()
 const userStore = useUserStore()
@@ -451,12 +458,10 @@ const dispatchVisible = ref(false)
 const dispatching = ref(false)
 const dispatchFormRef = ref<FormInstance>()
 const dispatchForm = reactive({ assignee_id: null as string | null, remark: '' })
-// 候选人：本项目编制中「维修工」岗位的在职成员（接单槽位名单默认绑定维修工岗位）
-const staffList = ref<StaffItem[]>([])
+// 候选人：本项目「工单接单」槽位名单成员（后端解析，口径与派单校验一致）
+const staffList = ref<DispatchCandidate[]>([])
 const staffLoading = ref(false)
-const assigneeOptions = computed(() =>
-  staffList.value.filter((s) => s.status === 1 && s.posts?.includes('repairman'))
-)
+const assigneeOptions = computed(() => staffList.value)
 
 const dispatchRules: FormRules = {
   assignee_id: [{ required: true, message: '请选择维修工', trigger: 'change' }]
@@ -469,7 +474,8 @@ async function openDispatch() {
   if (!staffList.value.length && detail.value) {
     staffLoading.value = true
     try {
-      staffList.value = await listStaff(detail.value.community_id)
+      const res = await listDispatchCandidates(detail.value.community_id)
+      staffList.value = res.list ?? []
     } finally {
       staffLoading.value = false
     }

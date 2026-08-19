@@ -71,6 +71,32 @@ func (s *OrderService) inSlot(projectID, slot, userID string) bool {
 	return false
 }
 
+// DispatchCandidates 派单候选人：本项目「工单接单」槽位名单成员（三级回落解析，含姓名/电话）。
+// 候选人解析口径与派单校验完全一致，前端不再自行按岗位/角色过滤。
+func (s *OrderService) DispatchCandidates(communityID string) ([]gin.H, *errs.Error) {
+	ids := communitysvc.SlotUserIDs(s.db, communityID, sysmodel.SlotOrderAccept)
+	out := make([]gin.H, 0, len(ids))
+	if len(ids) == 0 {
+		return out, nil
+	}
+	idList := make([]string, len(ids)) // IDArray 直接进 Where 会按 JSON 序列化，须先转 []string
+	copy(idList, ids)
+	var users []sysmodel.SysUser
+	if err := s.db.Select("id", "name", "phone").Where("id IN ?", idList).Find(&users).Error; err != nil {
+		return nil, errs.ErrInternal
+	}
+	byID := make(map[string]sysmodel.SysUser, len(users))
+	for _, u := range users {
+		byID[u.ID] = u
+	}
+	for _, id := range ids { // 保持槽位名单顺序（编制创建时间正序）
+		if u, ok := byID[id]; ok {
+			out = append(out, gin.H{"user_id": u.ID, "user_name": u.Name, "phone": u.Phone})
+		}
+	}
+	return out, nil
+}
+
 // communityFlags 读项目级工单开关（triage 分诊 / grab 抢单）；项目不存在时按默认（开分诊、关抢单）。
 func (s *OrderService) communityFlags(communityID string) (triage, grab bool) {
 	var comm sysmodel.Community

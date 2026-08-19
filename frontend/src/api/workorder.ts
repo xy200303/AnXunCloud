@@ -56,6 +56,16 @@ export function dispatchWorkOrder(id: string, data: { assignee_id: string; remar
   return request<{ status: string }>({ url: `/workorders/${id}/dispatch`, method: 'post', data })
 }
 
+// 派单候选人：本项目「工单接单」槽位名单成员（后端三级回落解析，口径与派单校验一致）
+export interface DispatchCandidate {
+  user_id: string
+  user_name: string
+  phone: string
+}
+export function listDispatchCandidates(communityId: string) {
+  return request<{ list: DispatchCandidate[] }>({ url: '/workorders/dispatch-candidates', method: 'get', params: { community_id: communityId } })
+}
+
 // 完工提交（后台代录）；after_photos 按检查项 name 合并到工单 items 的 after_photo_urls（可空）
 export function finishWorkOrder(id: string, data: { fix_remark: string; after_photos?: Record<string, string[]> }) {
   return request<{ status: string }>({ url: `/workorders/${id}/finish`, method: 'post', data })

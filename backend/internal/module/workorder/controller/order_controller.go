@@ -142,6 +142,17 @@ func (ctl *OrderController) Dispatch(c *gin.Context) {
 	response.OK(c, gin.H{"status": "processing"})
 }
 
+// DispatchCandidates GET /workorders/dispatch-candidates?community_id=（派单候选人：接单槽位名单）
+func (ctl *OrderController) DispatchCandidates(c *gin.Context) {
+	communityID := c.Query("community_id")
+	if _, err := uuid.Parse(communityID); err != nil {
+		response.Fail(c, errs.ErrParam.WithMsg("community_id 为必填项且须为 UUID"))
+		return
+	}
+	list, be := ctl.svc.DispatchCandidates(communityID)
+	write(c, gin.H{"list": list}, be)
+}
+
 // Finish POST /workorders/:id/finish（后台代录完工）
 func (ctl *OrderController) Finish(c *gin.Context) {
 	id, be := pathID(c)

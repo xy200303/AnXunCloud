@@ -10,13 +10,9 @@
       <text class="offline-bar-text" :style="{ color: colors.primary }">离线暂存 {{ offlineCount }} 条打卡，点击立即补传</text>
     </view>
 
-    <!-- 快捷入口：问题上报（一线全员可见）；工单处理（维修角色或有待处理/可抢工单时显示） -->
-    <view class="entries">
-      <view class="entry" :style="{ backgroundColor: colors.bgCard }" @click="goReport">
-        <text class="entry-title" :style="{ color: colors.textPrimary }">问题上报</text>
-        <text class="entry-sub" :style="{ color: colors.textSecondary }">发现问题随时拍、随时报</text>
-      </view>
-      <view v-if="showOrderEntry" class="entry" :style="{ backgroundColor: colors.bgCard }" @click="goWorkorders">
+    <!-- 快捷入口：工单处理（维修角色或有待处理/可抢工单时显示）；问题上报入口在「我的」页 -->
+    <view v-if="showOrderEntry" class="entries">
+      <view class="entry" :style="{ backgroundColor: colors.bgCard }" @click="goWorkorders">
         <view class="entry-title-row">
           <text class="entry-title" :style="{ color: colors.textPrimary }">工单处理</text>
           <text v-if="orderBadge > 0" class="entry-badge" :style="{ backgroundColor: colors.danger, color: colors.white }">{{ orderBadge > 99 ? '99+' : orderBadge }}</text>
@@ -288,10 +284,6 @@ export default {
     },
     goDetail(id: string) {
       uni.navigateTo({ url: '/pages/tasks/detail?id=' + encodeURIComponent(id) })
-    },
-    /** 问题上报入口（一线全员可见） */
-    goReport() {
-      uni.navigateTo({ url: '/pages/workorders/report' })
     },
     /** 工单处理入口：跳到工单 tab（默认「派给我的」） */
     goWorkorders() {

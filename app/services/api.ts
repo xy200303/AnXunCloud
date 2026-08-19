@@ -1433,15 +1433,11 @@ export type ManageOrdersPage = {
   page_size: number
 }
 
-/** 派单候选用户（对齐 UserService.toItem；注意：roles 元素只有 {id, name}，无 code 字段） */
-export type StaffUser = {
-  id: string
-  username: string
-  name: string
+/** 派单候选人（GET /manage/workorders/dispatch-candidates：本项目「工单接单」槽位名单成员） */
+export type DispatchCandidate = {
+  user_id: string
+  user_name: string
   phone: string
-  avatar: string
-  roles: Array<{ id: string; name: string }>
-  status: number
 }
 
 // ---- 点位管理（对齐 PointService.List/Detail/Create/Update + TemplateService.List） -------
@@ -1659,12 +1655,12 @@ export function apiConfirmManageOrder(id: string, result: 'pass' | 'reject', con
   return httpPost<null>('/manage/workorders/' + id + '/confirm', { result: result, confirm_note: confirmNote }, true)
 }
 
-/** 派单选人 GET /system/users（启用用户；维修员候选由前端按角色过滤，见 StaffUser.roles 字段说明） */
-export function apiOrderUsers(): Promise<StaffUser[]> {
-  return new Promise<StaffUser[]>((resolve, reject) => {
-    httpGet<any>('/system/users?page=1&page_size=100&status=1')
+/** 派单候选人 GET /manage/workorders/dispatch-candidates?community_id=（接单槽位名单，与派单校验口径一致） */
+export function apiDispatchCandidates(communityId: string): Promise<DispatchCandidate[]> {
+  return new Promise<DispatchCandidate[]>((resolve, reject) => {
+    httpGet<any>('/manage/workorders/dispatch-candidates?community_id=' + encodeURIComponent(communityId))
       .then((d) => {
-        resolve((d?.list ?? []) as StaffUser[])
+        resolve((d?.list ?? []) as DispatchCandidate[])
       })
       .catch(reject)
   })

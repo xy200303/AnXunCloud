@@ -488,8 +488,13 @@ func (d *demoSeeder) seedTenantA() error {
 		return err
 	}
 
-	// 月度报告：上月已三级签字归档
-	if err := d.seedReportsA(tid, cid, managerID, safetyID, xj01ID, xj02ID); err != nil {
+	// 上月（报告期）真实工作量 + 当月工单 + 月度报告：PDF 汇总/明细/照片/台账按报告期实时查询，
+	// 三者与报告 stats 快照口径一致（月报已三级签字归档）
+	if err := d.seedReportsA(tid, cid, planSafety.ID, pointIDs, pointMeta, tplSafetyID, tplEquipID,
+		orderPeopleA{
+			manager: managerID, eng: engID, repair: repairID, service: serviceID,
+			bm: bmID, fd: fdID, xj01: xj01ID,
+		}, safetyID, xj02ID); err != nil {
 		return err
 	}
 
@@ -862,8 +867,8 @@ func (d *demoSeeder) seedTenantB() error {
 		}
 	}
 
-	// 月度报告：上月待巡检员确认（与租户 A 的已归档形成对照）
-	if err := d.seedReportsB(tid, cid, managerID, xjID); err != nil {
+	// 上月（报告期）真实工作量 + 当月工单 + 月度报告（待巡检员确认，与租户 A 的已归档形成对照）
+	if err := d.seedReportsB(tid, cid, plan.ID, pointIDs, pointMeta, tplID, managerID, serviceID, repairID, xjID); err != nil {
 		return err
 	}
 
@@ -903,24 +908,224 @@ func (d *demoSeeder) orderNo(day time.Time) string {
 	return fmt.Sprintf("WX%s%03d", key, d.orderSeq[key])
 }
 
-// ---------- 月度报告演示 ----------
+// ---------- 月度报告演示（报告期真实工作量 → 当月工单 → 报告，三者口径一致） ----------
+//
+// 背景：月报 PDF（pdfData）不按 stats 快照渲染，而是按报告期实时查询任务/打卡/工单，
+// 所以演示数据必须在报告期（上月）落真实的任务、打卡与工单，月报才有明细、照片与台账。
 
-// seedReportsA 租户 A 上月报告：三级签字全部完成、已归档（approved）。
-func (d *demoSeeder) seedReportsA(tid, cid, managerID, safetyID, xj01ID, xj02ID string) error {
+// monthWorkload 上月每日巡查工作量参数。
+type monthWorkload struct {
+	planID      string
+	pointIDs    []string
+	pointMeta   map[string]demoPoint
+	tplSafetyID string
+	tplEquipID  string
+	inspectors  []string
+	overdueDays map[int]bool // 逾期未巡的日期（仅作用于末位巡检员）
+	abnormalDay map[int]int  // 日期 → pointIDs 下标（首位巡检员该点位打卡异常）
+}
+
+// monthStat 上月工作量统计（与落库数据一致，直接写报告 stats 快照）。
+type monthStat struct {
+	taskTotal, taskDone, taskOverdue int64
+	shouldPts, donePts               int64
+	abnormal                         int64
+	daily                            []any
+}
+
+// seedMonthWorkload 落上月每日任务与打卡（完成/逾期/异常），返回与实际数据一致的统计。
+func (d *demoSeeder) seedMonthWorkload(tid, cid string, o monthWorkload) (monthStat, error) {
+	var st monthStat
+	lm, _ := time.ParseInLocation("2006-01", lastMonthPeriod(), time.Local)
+	days := time.Date(lm.Year(), lm.Month()+1, 0, 0, 0, 0, 0, time.Local).Day()
+	var recs []insmodel.CheckinRecord
+	for day := 1; day <= days; day++ {
+		date := time.Date(lm.Year(), lm.Month(), day, 0, 0, 0, 0, time.Local)
+		dayTotal, dayDone, dayAb := int64(0), int64(0), int64(0)
+		for ii, inspectorID := range o.inspectors {
+			dayTotal++
+			st.taskTotal++
+			st.shouldPts += int64(len(o.pointIDs))
+			task := insmodel.InspectionTask{
+				TenantID: &tid, PlanID: o.planID, CommunityID: cid, InspectorID: inspectorID,
+				PatrolType: insmodel.PatrolSafety, TaskDate: date,
+				TotalPoints: len(o.pointIDs),
+			}
+			if o.overdueDays[day] && ii == len(o.inspectors)-1 {
+				task.Status = insmodel.TaskOverdue
+				st.taskOverdue++
+				if err := d.db.Create(&task).Error; err != nil {
+					return st, err
+				}
+				continue
+			}
+			startT := time.Date(lm.Year(), lm.Month(), day, 9, ii*30, 0, 0, time.Local)
+			endT := startT.Add(90 * time.Minute)
+			task.Status = insmodel.TaskDone
+			task.DonePoints = len(o.pointIDs)
+			task.StartedAt = &startT
+			task.FinishedAt = &endT
+			if err := d.db.Create(&task).Error; err != nil {
+				return st, err
+			}
+			dayDone++
+			st.taskDone++
+			st.donePts += int64(len(o.pointIDs))
+			abIdx, hasAb := o.abnormalDay[day]
+			for pi, pid := range o.pointIDs {
+				p := o.pointMeta[pid]
+				ct := startT.Add(time.Duration(5+pi*12) * time.Minute)
+				abnormal := hasAb && pi == abIdx && ii == 0 // 异常仅记首位巡检员，一天一条
+				rec := insmodel.CheckinRecord{
+					TenantID: &tid, TaskID: task.ID, PointID: pid, InspectorID: inspectorID, CommunityID: cid,
+					CheckinTime: ct, ClientTime: &ct,
+					Longitude: floatptr(p.lng + 0.00003), Latitude: floatptr(p.lat + 0.00002),
+					DistanceToPoint: floatptr(3.4), CheckinType: insmodel.CredentialQRCode,
+					Result: insmodel.ResultNormal, AuditStatus: insmodel.AuditAutoPass, CreatedAt: ct,
+				}
+				if p.credential == insmodel.CredentialNone {
+					rec.CheckinType = "fence"
+				}
+				if abnormal {
+					rec.Result = insmodel.ResultAbnormal
+					rec.Remark = "现场发现异常，已拍照上报"
+					st.abnormal++
+					dayAb = 1
+				}
+				tpl, ok := demoTemplateItemsOf(p.typ, o.tplSafetyID, o.tplEquipID)
+				if !ok {
+					return st, fmt.Errorf("演示点位模板缺失: %s", p.name)
+				}
+				for _, label := range tpl.requiredPhotos {
+					ph, _ := d.photo(tid, inspectorID, label)
+					if ph.URL != "" {
+						rec.Photos = append(rec.Photos, ph)
+					}
+				}
+				recs = append(recs, rec)
+			}
+		}
+		st.daily = append(st.daily, map[string]any{
+			"date": date.Format("2006-01-02"), "task_total": dayTotal, "task_done": dayDone, "abnormal": dayAb,
+		})
+	}
+	if err := d.db.CreateInBatches(&recs, 200).Error; err != nil {
+		return st, err
+	}
+	// 逐项结果快照（依赖批量插入后回填的 record ID）
+	var items []insmodel.CheckinRecordItem
+	for _, rec := range recs {
+		p := o.pointMeta[rec.PointID]
+		tpl, _ := demoTemplateItemsOf(p.typ, o.tplSafetyID, o.tplEquipID)
+		for j, it := range tpl.items {
+			row := insmodel.CheckinRecordItem{
+				RecordID: rec.ID, Name: it.name, Requirement: strptr(it.requirement),
+				PhotoRequired: it.photoReq, Pass: true, Sort: j + 1, CreatedAt: rec.CheckinTime,
+			}
+			if it.photoReq == types.PhotoReqRequired {
+				_, key := d.photo(tid, rec.InspectorID, it.name)
+				if key != "" {
+					row.Photos = types.StringArray{key}
+				}
+			}
+			if rec.Result == insmodel.ResultAbnormal && j == 0 {
+				row.Pass = false
+				row.Note = "现场发现异常"
+			}
+			items = append(items, row)
+		}
+	}
+	if err := d.db.CreateInBatches(&items, 200).Error; err != nil {
+		return st, err
+	}
+	return st, nil
+}
+
+// jday 报告期（上月）某日时刻。
+func jday(day, hour, min int) time.Time {
+	lm, _ := time.ParseInLocation("2006-01", lastMonthPeriod(), time.Local)
+	return time.Date(lm.Year(), lm.Month(), day, hour, min, 0, 0, time.Local)
+}
+
+// createOrderWithLogs 写工单 + 流转留痕（seedOrdersA 同款模式的轻量版，供上月台账用）。
+func (d *demoSeeder) createOrderWithLogs(o womodel.WorkOrder, logs []womodel.WorkOrderLog) error {
+	if err := d.db.Create(&o).Error; err != nil {
+		return err
+	}
+	for _, l := range logs {
+		l.OrderID = o.ID
+		if err := d.db.Create(&l).Error; err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// seedReportsA 租户 A 上月报告：先落报告期真实工作量与台账工单，再按实际数据生成已归档报告。
+func (d *demoSeeder) seedReportsA(tid, cid, planID string, pointIDs []string, pointMeta map[string]demoPoint,
+	tplSafetyID, tplEquipID string, p orderPeopleA, safetyID, xj02ID string) error {
 	period := lastMonthPeriod()
-	svAt := monthDayAt(1, 14, 0)
-	mgAt := monthDayAt(2, 10, 0)
-	// 照片快照（photo 走缓存，保证 stats.records 附图 key 可访问）
-	_, key1 := d.photo(tid, xj01ID, "消防通道畅通无阻")
-	_, key2 := d.photo(tid, xj01ID, "灭火器压力正常")
+
+	// 1) 上月每日巡查：双巡检员，3 天逾期（赵敏），4 天各 1 条异常打卡（陈刚）
+	st, err := d.seedMonthWorkload(tid, cid, monthWorkload{
+		planID: planID, pointIDs: pointIDs, pointMeta: pointMeta,
+		tplSafetyID: tplSafetyID, tplEquipID: tplEquipID,
+		inspectors:  []string{p.xj01, xj02ID},
+		overdueDays: map[int]bool{5: true, 12: true, 19: true},
+		abnormalDay: map[int]int{3: 4, 10: 1, 18: 4, 25: 2}, // 车库/配电房/车库/水泵房
+	})
+	if err != nil {
+		return err
+	}
+
+	// 2) 上月台账工单：2 创建 1 闭环（配电房积水已闭环；车库照明完工待验收）
+	powerPoint, garagePoint := pointIDs[1], pointIDs[4]
+	woJ1 := womodel.WorkOrder{
+		TenantID: &tid, OrderNo: d.orderNo(jday(10, 0, 0)), CommunityID: cid, PointID: &powerPoint,
+		Title: "配电房电缆沟积水处理", Description: "巡查发现配电房电缆沟有积水，需排水并查明渗漏点。",
+		Source: womodel.SourceInspection, Category: "强电", ReporterID: p.xj01,
+		AssigneeID: &p.repair, DispatcherID: &p.eng, Priority: "high", Status: womodel.OrderClosed,
+		DispatchAt: at(jday(10, 11, 0)), AcceptAt: at(jday(10, 11, 0)),
+		FinishNote: "已排水，渗漏点为穿墙管密封老化，已重新封堵。", FinishAt: at(jday(11, 16, 30)),
+		ConfirmBy: &p.xj01, ConfirmAt: at(jday(12, 9, 0)), ConfirmNote: "现场复核无积水，验收通过",
+		CreatedAt: jday(10, 10, 20), UpdatedAt: jday(12, 9, 0),
+	}
+	if err := d.createOrderWithLogs(woJ1, []womodel.WorkOrderLog{
+		{Action: womodel.ActionCreate, OperatorID: p.xj01, Detail: "巡检异常转工单", CreatedAt: jday(10, 10, 20)},
+		{Action: womodel.ActionDispatch, OperatorID: p.eng, Detail: "派单给吴永强", CreatedAt: jday(10, 11, 0)},
+		{Action: womodel.ActionFinish, OperatorID: p.repair, Detail: "完工：排水并封堵渗漏点", CreatedAt: jday(11, 16, 30)},
+		{Action: womodel.ActionConfirmPass, OperatorID: p.xj01, Detail: "验收通过", CreatedAt: jday(12, 9, 0)},
+	}); err != nil {
+		return err
+	}
+	woJ2 := womodel.WorkOrder{
+		TenantID: &tid, OrderNo: d.orderNo(jday(18, 0, 0)), CommunityID: cid, PointID: &garagePoint,
+		Title: "地下车库 B 区照明灯更换", Description: "巡查发现车库 B 区一盏照明灯不亮，需更换。",
+		Source: womodel.SourceInspection, Category: "强电", ReporterID: p.xj01,
+		AssigneeID: &p.repair, DispatcherID: &p.eng, Priority: "normal", Status: womodel.OrderPendingConfirm,
+		DispatchAt: at(jday(18, 11, 0)), AcceptAt: at(jday(18, 11, 0)),
+		FinishNote: "已更换同规格 LED 灯管，照明恢复。", FinishAt: at(jday(19, 15, 20)),
+		CreatedAt: jday(18, 10, 40), UpdatedAt: jday(19, 15, 20),
+	}
+	if err := d.createOrderWithLogs(woJ2, []womodel.WorkOrderLog{
+		{Action: womodel.ActionCreate, OperatorID: p.xj01, Detail: "巡检异常转工单", CreatedAt: jday(18, 10, 40)},
+		{Action: womodel.ActionDispatch, OperatorID: p.eng, Detail: "派单给吴永强", CreatedAt: jday(18, 11, 0)},
+		{Action: womodel.ActionFinish, OperatorID: p.repair, Detail: "完工：更换 LED 灯管", CreatedAt: jday(19, 15, 20)},
+	}); err != nil {
+		return err
+	}
+	woCreated, woClosed := int64(2), int64(1)
+
+	// 3) 报告（stats 快照 = 实际数据统计；三级签字齐全，已归档）
+	_, key1 := d.photo(tid, p.xj01, "消防通道畅通无阻")
+	_, key2 := d.photo(tid, p.xj01, "灭火器压力正常")
 	var photoKeys []string
 	if key1 != "" && key2 != "" {
 		photoKeys = []string{key1, key2}
 	}
-	lm, _ := time.ParseInLocation("2006-01", period, time.Local)
 	rec := func(day, hour int, name, point, result string) map[string]any {
 		return map[string]any{
-			"checkin_time":   timefmt.T(time.Date(lm.Year(), lm.Month(), day, hour, 5, 0, 0, time.Local)),
+			"checkin_time":   timefmt.T(jday(day, hour, 5)),
 			"inspector_name": name, "point_name": point, "checkin_type": "qrcode",
 			"distance": 3.2, "result": result, "is_suspect": false,
 			"audit_status": insmodel.AuditAutoPass, "photo_keys": photoKeys,
@@ -931,37 +1136,74 @@ func (d *demoSeeder) seedReportsA(tid, cid, managerID, safetyID, xj01ID, xj02ID 
 		rec(11, 10, "赵敏", "东门岗亭", insmodel.ResultNormal),
 		rec(18, 9, "陈刚", "地下车库出入口", insmodel.ResultAbnormal),
 	}
+	svAt := monthDayAt(1, 14, 0)
+	mgAt := monthDayAt(2, 10, 0)
 	report := rptmodel.InspectionReport{
 		TenantID: &tid, CommunityID: cid, Period: period,
 		Title:  demoReportTitle("锦绣华庭", period),
 		Status: rptmodel.StatusApproved,
-		Stats:  demoReportStats(period, 62, 59, 3, 434, 416, 4, 1, 6, 5, records),
-		InspectorIDs: types.IDArray{xj01ID, xj02ID},
+		Stats:  demoReportStats(st, 0, woCreated, woClosed, records),
+		InspectorIDs: types.IDArray{p.xj01, xj02ID},
 		InspectorSigned: types.SignArray{
-			{UserID: xj01ID, Name: "陈刚", SignedAt: timefmt.T(monthDayAt(1, 9, 10))},
+			{UserID: p.xj01, Name: "陈刚", SignedAt: timefmt.T(monthDayAt(1, 9, 10))},
 			{UserID: xj02ID, Name: "赵敏", SignedAt: timefmt.T(monthDayAt(1, 9, 25))},
 		},
 		SupervisorIDs: types.IDArray{safetyID},
 		SupervisorBy:  &safetyID, SupervisorAt: &svAt, SupervisorRemark: "数据属实，同意",
-		ManagerIDs:    types.IDArray{managerID},
-		ManagerBy:     &managerID, ManagerAt: &mgAt, ManagerRemark: "审核通过，归档",
+		ManagerIDs:    types.IDArray{p.manager},
+		ManagerBy:     &p.manager, ManagerAt: &mgAt, ManagerRemark: "审核通过，归档",
 	}
 	return d.db.Create(&report).Error
 }
 
-// seedReportsB 租户 B 上月报告：待巡检员确认（pending_inspector，签字流程第一级）。
-func (d *demoSeeder) seedReportsB(tid, cid, managerID, xjID string) error {
+// seedReportsB 租户 B 上月报告：报告期真实工作量 + 1 条已闭环台账工单；报告待巡检员确认。
+func (d *demoSeeder) seedReportsB(tid, cid, planID string, pointIDs []string, pointMeta map[string]demoPoint,
+	tplID, managerID, serviceID, repairID, xjID string) error {
 	period := lastMonthPeriod()
+
+	// 1) 上月每日巡查：单巡检员，2 天逾期，1 条异常打卡
+	st, err := d.seedMonthWorkload(tid, cid, monthWorkload{
+		planID: planID, pointIDs: pointIDs, pointMeta: pointMeta,
+		tplSafetyID: tplID, tplEquipID: tplID,
+		inspectors:  []string{xjID},
+		overdueDays: map[int]bool{12: true, 24: true},
+		abnormalDay: map[int]int{15: 1}, // 配电房
+	})
+	if err != nil {
+		return err
+	}
+
+	// 2) 上月台账工单：配电房异响已闭环
+	powerPoint := pointIDs[1]
+	woJ1 := womodel.WorkOrder{
+		TenantID: &tid, OrderNo: d.orderNo(jday(15, 0, 0)), CommunityID: cid, PointID: &powerPoint,
+		Title: "配电房变压器运行异响检查", Description: "巡查发现配电房变压器运行声音异常，需检查。",
+		Source: womodel.SourceInspection, Category: "强电", ReporterID: xjID,
+		AssigneeID: &repairID, Priority: "high", Status: womodel.OrderClosed,
+		DispatchAt: at(jday(15, 11, 0)), AcceptAt: at(jday(15, 11, 0)),
+		FinishNote: "紧固件松动已处理，运行声音恢复正常。", FinishAt: at(jday(16, 10, 0)),
+		ConfirmBy: &xjID, ConfirmAt: at(jday(16, 14, 0)), ConfirmNote: "复核正常，验收通过",
+		CreatedAt: jday(15, 10, 30), UpdatedAt: jday(16, 14, 0),
+	}
+	if err := d.createOrderWithLogs(woJ1, []womodel.WorkOrderLog{
+		{Action: womodel.ActionCreate, OperatorID: xjID, Detail: "巡检异常转工单", CreatedAt: jday(15, 10, 30)},
+		{Action: womodel.ActionGrab, OperatorID: repairID, Detail: "抢单成功", CreatedAt: jday(15, 11, 0)},
+		{Action: womodel.ActionFinish, OperatorID: repairID, Detail: "完工：紧固件处理", CreatedAt: jday(16, 10, 0)},
+		{Action: womodel.ActionConfirmPass, OperatorID: xjID, Detail: "验收通过", CreatedAt: jday(16, 14, 0)},
+	}); err != nil {
+		return err
+	}
+
+	// 3) 报告：待巡检员确认（签字流程第一级；项目无安全主管，主管级自动跳过）
 	report := rptmodel.InspectionReport{
 		TenantID: &tid, CommunityID: cid, Period: period,
 		Title:  demoReportTitle("金源世纪城", period),
 		Status: rptmodel.StatusPendingInspector,
-		Stats:  demoReportStats(period, 31, 29, 2, 124, 116, 1, 0, 4, 3, []any{}),
+		Stats:  demoReportStats(st, 0, 1, 1, []any{}),
 		InspectorIDs:    types.IDArray{xjID},
 		InspectorSigned: types.SignArray{},
-		// 项目无安全主管编制 → 主管级名单为空（该级自动跳过），经理级为项目经理
-		SupervisorIDs: types.IDArray{},
-		ManagerIDs:    types.IDArray{managerID},
+		SupervisorIDs:   types.IDArray{},
+		ManagerIDs:      types.IDArray{managerID},
 	}
 	return d.db.Create(&report).Error
 }
@@ -996,31 +1238,15 @@ func demoReportTitle(commName, period string) string {
 	return fmt.Sprintf("%s%d年%d月月度巡检工作报告", commName, t.Year(), int(t.Month()))
 }
 
-// demoReportStats 与 ReportService.buildStats 同结构的统计快照（daily 逐日平铺任务/异常）。
-func demoReportStats(period string, taskTotal, taskDone, taskOverdue, shouldPts, donePts, abnormal, suspect, woCreated, woClosed int64, records []any) types.JSONMap {
-	t, _ := time.ParseInLocation("2006-01", period, time.Local)
-	days := int64(time.Date(t.Year(), t.Month()+1, 0, 0, 0, 0, 0, time.Local).Day())
-	perDay, doneDay := taskTotal/days, taskDone/days
-	daily := make([]any, 0, days)
-	abLeft := abnormal
-	for day := int64(1); day <= days; day++ {
-		var ab int64
-		if abLeft > 0 && day%7 == 3 {
-			ab = 1
-			abLeft--
-		}
-		daily = append(daily, map[string]any{
-			"date": fmt.Sprintf("%s-%02d", period, day),
-			"task_total": perDay, "task_done": doneDay, "abnormal": ab,
-		})
-	}
+// demoReportStats 与 ReportService.buildStats 同结构的统计快照（数字来自实际落库的上月工作量）。
+func demoReportStats(st monthStat, suspect, woCreated, woClosed int64, records []any) types.JSONMap {
 	return types.JSONMap{
-		"task_total": taskTotal, "task_done": taskDone, "task_overdue": taskOverdue,
-		"should_points": shouldPts, "done_points": donePts,
-		"coverage_rate":  pct1(donePts, shouldPts),
-		"abnormal_count": abnormal, "suspect_count": suspect,
+		"task_total": st.taskTotal, "task_done": st.taskDone, "task_overdue": st.taskOverdue,
+		"should_points": st.shouldPts, "done_points": st.donePts,
+		"coverage_rate":  pct1(st.donePts, st.shouldPts),
+		"abnormal_count": st.abnormal, "suspect_count": suspect,
 		"wo_created": woCreated, "wo_closed": woClosed, "wo_unclosed": woCreated - woClosed,
 		"wo_close_rate": pct1(woClosed, woCreated),
-		"daily": daily, "records": records,
+		"daily": st.daily, "records": records,
 	}
 }

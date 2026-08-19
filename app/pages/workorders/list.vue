@@ -260,7 +260,7 @@ export default {
       if (this.status != '') return '切换其他状态看看'
       if (this.type == 'assigned') return '派单或抢单后会第一时间通知你'
       if (this.type == 'pool') return '项目开启抢单后，新工单会出现在这里'
-      return '可通过首页「问题上报」主动提交问题'
+      return '可通过「我的」页「问题上报」主动提交问题'
     }
   },
   onLoad() {

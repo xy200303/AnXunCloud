@@ -13,8 +13,8 @@ import (
 
 	"gorm.io/gorm"
 
-	rptmodel "anxuncloud/internal/module/report/model"
 	insmodel "anxuncloud/internal/module/inspection/model"
+	rptmodel "anxuncloud/internal/module/report/model"
 	sysmodel "anxuncloud/internal/module/system/model"
 	systemsvc "anxuncloud/internal/module/system/service"
 	womodel "anxuncloud/internal/module/workorder/model"
@@ -39,6 +39,13 @@ var demoAssetByLabel = map[string]string{
 	"灭火器压力正常":   "fireext.jpg",
 	"设备运行无异响":   "pump.jpg",
 	"仪表读数在正常范围": "meter.jpg",
+	// 演示工单上报/完工照片
+	"水泵房地面渗水":   "pump.jpg",
+	"水泵房渗水修复":   "pump.jpg",
+	"B 区照明灯损坏":  "garage.jpg",
+	"大堂门禁读卡器故障": "gate.jpg",
+	"门禁读卡器修复":   "gate.jpg",
+	"电梯运行异响":    "lobby.jpg",
 }
 
 // DemoPassword 全部演示账号的统一密码（满足 8–32 位含字母数字策略）。
@@ -150,6 +157,74 @@ func (d *demoSeeder) photo(tenantID, ownerID, label string) (types.PhotoItem, st
 	ref := demoPhotoRef{item: types.PhotoItem{Item: label, URL: url, WatermarkedURL: url, Required: true}, key: key}
 	d.photoCache[label] = ref
 	return ref.item, ref.key
+}
+
+// photosOf 按标签批量取演示照片（空 URL 自动跳过）。
+func (d *demoSeeder) photosOf(tenantID, ownerID string, labels ...string) types.PhotoArray {
+	arr := types.PhotoArray{}
+	for _, lb := range labels {
+		item, _ := d.photo(tenantID, ownerID, lb)
+		if item.URL != "" {
+			arr = append(arr, item)
+		}
+	}
+	return arr
+}
+
+// SeedOrderPhotos 演示工单照片回填（老库升级用，seed-demo -photos）：
+// 只为演示租户中照片为空的工单补上演示照片（按标题匹配，已补过的跳过，幂等），不动其他数据。
+func SeedOrderPhotos(db *gorm.DB, store *storage.Storage) error {
+	if store == nil || !store.IsDev() {
+		return nil // 非本地存储无落盘，无照片可补
+	}
+	d := &demoSeeder{db: db, store: store, photoCache: map[string]demoPhotoRef{}}
+	var tenants []sysmodel.Tenant
+	if err := db.Select("id").Where("code IN ?", []string{demoTenantACode, "jinyuan"}).Find(&tenants).Error; err != nil {
+		return err
+	}
+	type photoPatch struct {
+		title  string
+		before []string // 上报照片标签（属主取上报人）
+		finish []string // 完工照片标签（属主取处理人）
+		item   []string // 异常项整改前照片标签（挂 items[0].before_photos，属主取上报人）
+	}
+	patches := []photoPatch{
+		{"水泵房地面渗水维修", []string{"水泵房地面渗水"}, []string{"水泵房渗水修复"}, nil},
+		{"地下车库 B 区照明灯损坏", nil, nil, []string{"B 区照明灯损坏"}},
+		{"1 栋大堂门禁刷卡无响应", []string{"大堂门禁读卡器故障"}, []string{"门禁读卡器修复"}, nil},
+		{"2 栋电梯运行异响", []string{"电梯运行异响"}, nil, nil},
+	}
+	for _, t := range tenants {
+		for _, p := range patches {
+			var o womodel.WorkOrder
+			if err := db.Where("tenant_id = ? AND title = ?", t.ID, p.title).First(&o).Error; err != nil {
+				continue
+			}
+			changed := false
+			if len(p.before) > 0 && len(o.Photos) == 0 {
+				o.Photos = d.photosOf(t.ID, o.ReporterID, p.before...)
+				changed = len(o.Photos) > 0
+			}
+			if len(p.finish) > 0 && len(o.FinishPhotos) == 0 && o.AssigneeID != nil {
+				o.FinishPhotos = d.photosOf(t.ID, *o.AssigneeID, p.finish...)
+				changed = changed || len(o.FinishPhotos) > 0
+			}
+			if len(p.item) > 0 && len(o.Items) > 0 && len(o.Items[0].BeforePhotos) == 0 {
+				if _, key := d.photo(t.ID, o.ReporterID, p.item[0]); key != "" {
+					o.Items[0].BeforePhotos = types.StringArray{key}
+					changed = true
+				}
+			}
+			if !changed {
+				continue
+			}
+			if err := db.Model(&womodel.WorkOrder{}).Where("id = ?", o.ID).
+				Updates(map[string]any{"photos": o.Photos, "finish_photos": o.FinishPhotos, "items": o.Items}).Error; err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }
 
 // demoAssetByLabel_ 按标签取内置演示照片字节。
@@ -512,8 +587,8 @@ func (d *demoSeeder) seedTenantA() error {
 	// 公告
 	notice := sysmodel.SysNotice{
 		TenantID: &tid, Title: "关于开展夏季消防安全专项检查的通知",
-		Content:    "各岗位请注意：即日起至本月底开展夏季消防安全专项检查，重点检查消防通道、灭火器有效期与电动车违规充电情况，请各巡检员按每日安全巡查计划逐项落实，发现异常立即拍照上报并转工单处理。",
-		Status:     1, PublishAt: at(daysAgo(2)), CreatedBy: &adminID, CreatedByName: "王建国",
+		Content: "各岗位请注意：即日起至本月底开展夏季消防安全专项检查，重点检查消防通道、灭火器有效期与电动车违规充电情况，请各巡检员按每日安全巡查计划逐项落实，发现异常立即拍照上报并转工单处理。",
+		Status:  1, PublishAt: at(daysAgo(2)), CreatedBy: &adminID, CreatedByName: "王建国",
 	}
 	return d.db.Create(&notice).Error
 }
@@ -543,16 +618,23 @@ func (d *demoSeeder) seedOrdersA(tid, cid string, pointIDs []string, abnormalChe
 	d3 := daysAgo(3)
 	d1 := daysAgo(1)
 
+	// 演示工单照片（仅本地存储驱动落盘；非本地存储时返回空数组，工单照常无照片）。
+	photosOf := func(ownerID string, labels ...string) types.PhotoArray {
+		return d.photosOf(tid, ownerID, labels...)
+	}
+
 	// WO1 已闭环：前台代录 → 分诊 → 派单 → 完工 → 验收通过
 	wo1 := womodel.WorkOrder{
 		TenantID: &tid, OrderNo: d.orderNo(d3), CommunityID: cid,
 		Title: "水泵房地面渗水维修", Description: "前台接业主电话反映水泵房门口地面有渗水，请工程部核实处理。",
 		Source: womodel.SourceFrontdesk, Category: "给排水", ReporterID: p.fd,
+		Photos:     photosOf(p.fd, "水泵房地面渗水"),
 		AssigneeID: &p.repair, DispatcherID: &p.eng, Priority: "normal", Status: womodel.OrderClosed,
 		TriageBy: &p.service, TriageAt: at(d3.Add(30 * time.Minute)), TriageNote: "属实，转工程维修",
 		DispatchAt: at(d3.Add(time.Hour)), AcceptAt: at(d3.Add(time.Hour)),
 		FinishNote: "更换老化密封圈，渗水已止，观察 24 小时无复发。", FinishAt: at(d1.Add(-2 * time.Hour)),
-		ConfirmBy: &p.fd, ConfirmAt: at(d1), ConfirmNote: "现场复核无渗水，验收通过",
+		FinishPhotos: photosOf(p.repair, "水泵房渗水修复"),
+		ConfirmBy:    &p.fd, ConfirmAt: at(d1), ConfirmNote: "现场复核无渗水，验收通过",
 		CreatedAt: d3, UpdatedAt: d1,
 	}
 	if err := create(wo1, []logStep{
@@ -566,6 +648,10 @@ func (d *demoSeeder) seedOrdersA(tid, cid string, pointIDs []string, abnormalChe
 	}
 
 	// WO2 处理中：巡检异常转单（关联异常打卡与点位）
+	wo2Items := types.OrderItemArray{{Name: "门禁与监控运行正常", Remark: "B 区一盏照明灯损坏"}}
+	if _, key := d.photo(tid, p.xj01, "B 区照明灯损坏"); key != "" {
+		wo2Items[0].BeforePhotos = types.StringArray{key}
+	}
 	wo2 := womodel.WorkOrder{
 		TenantID: &tid, OrderNo: d.orderNo(d1), CommunityID: cid, PointID: &garagePoint,
 		CheckinID: &abnormalCheckinID,
@@ -573,7 +659,7 @@ func (d *demoSeeder) seedOrdersA(tid, cid string, pointIDs []string, abnormalChe
 		Source: womodel.SourceInspection, Category: "强电", ReporterID: p.xj01,
 		AssigneeID: &p.repair, DispatcherID: &p.eng, Priority: "high", Status: womodel.OrderProcessing,
 		DispatchAt: at(yesterdayAt(11, 20)), AcceptAt: at(yesterdayAt(11, 20)),
-		Items: types.OrderItemArray{{Name: "门禁与监控运行正常", Remark: "B 区一盏照明灯损坏"}},
+		Items:     wo2Items,
 		CreatedAt: yesterdayAt(11, 0), UpdatedAt: yesterdayAt(11, 20),
 	}
 	if err := create(wo2, []logStep{
@@ -588,11 +674,13 @@ func (d *demoSeeder) seedOrdersA(tid, cid string, pointIDs []string, abnormalChe
 		TenantID: &tid, OrderNo: d.orderNo(d1), CommunityID: cid,
 		Title: "1 栋大堂门禁刷卡无响应", Description: "1 栋大堂门禁读卡器刷卡无反应，多户业主反映，请尽快检修。",
 		Source: womodel.SourceActive, Category: "弱电智能化", ReporterID: p.bm,
+		Photos:     photosOf(p.bm, "大堂门禁读卡器故障"),
 		AssigneeID: &p.repair, DispatcherID: &p.eng, Priority: "urgent", Status: womodel.OrderPendingConfirm,
 		TriageBy: &p.service, TriageAt: at(yesterdayAt(14, 5)), TriageNote: "影响业主出行，加急",
 		DispatchAt: at(yesterdayAt(14, 30)), AcceptAt: at(yesterdayAt(14, 30)),
 		FinishNote: "读卡器排线松脱，重新插拔固定后恢复正常。", FinishAt: at(yesterdayAt(17, 40)),
-		CreatedAt: yesterdayAt(14, 0), UpdatedAt: yesterdayAt(17, 40),
+		FinishPhotos: photosOf(p.repair, "门禁读卡器修复"),
+		CreatedAt:    yesterdayAt(14, 0), UpdatedAt: yesterdayAt(17, 40),
 	}
 	if err := create(wo3, []logStep{
 		{womodel.ActionCreate, p.bm, "楼管员主动上报", yesterdayAt(14, 0)},
@@ -608,6 +696,7 @@ func (d *demoSeeder) seedOrdersA(tid, cid string, pointIDs []string, abnormalChe
 		TenantID: &tid, OrderNo: d.orderNo(daysAgo(0)), CommunityID: cid,
 		Title: "2 栋电梯运行异响", Description: "2 栋西梯上行至 7 层附近有明显异响，建议维保单位检查曳引系统。",
 		Source: womodel.SourceActive, Category: "电梯", ReporterID: p.bm,
+		Photos:   photosOf(p.bm, "电梯运行异响"),
 		Priority: "high", Status: womodel.OrderPendingDispatch,
 		TriageBy: &p.service, TriageAt: at(todayAt(9, 10)), TriageNote: "属实，转工程安排电梯维保",
 		CreatedAt: todayAt(8, 50), UpdatedAt: todayAt(9, 10),
@@ -885,8 +974,8 @@ func (d *demoSeeder) seedTenantB() error {
 
 	notice := sysmodel.SysNotice{
 		TenantID: &tid, Title: "中秋节期间值班安排通知",
-		Content:    "中秋节期间项目服务中心实行值班制：前台每日 8:00–18:00 有人值守，工程与秩序条线按排班表执行巡查，遇紧急情况请第一时间上报项目经理。",
-		Status:     1, PublishAt: at(daysAgo(1)), CreatedBy: &adminID, CreatedByName: "林秀英",
+		Content: "中秋节期间项目服务中心实行值班制：前台每日 8:00–18:00 有人值守，工程与秩序条线按排班表执行巡查，遇紧急情况请第一时间上报项目经理。",
+		Status:  1, PublishAt: at(daysAgo(1)), CreatedBy: &adminID, CreatedByName: "林秀英",
 	}
 	return d.db.Create(&notice).Error
 }
@@ -1151,9 +1240,9 @@ func (d *demoSeeder) seedReportsA(tid, cid, planID string, pointIDs []string, po
 	mgAt := monthDayAt(2, 10, 0)
 	report := rptmodel.InspectionReport{
 		TenantID: &tid, CommunityID: cid, Period: period,
-		Title:  demoReportTitle("锦绣华庭", period),
-		Status: rptmodel.StatusApproved,
-		Stats:  demoReportStats(st, 0, woCreated, woClosed, records),
+		Title:        demoReportTitle("锦绣华庭", period),
+		Status:       rptmodel.StatusApproved,
+		Stats:        demoReportStats(st, 0, woCreated, woClosed, records),
 		InspectorIDs: types.IDArray{p.xj01, xj02ID},
 		InspectorSigned: types.SignArray{
 			{UserID: p.xj01, Name: "陈刚", SignedAt: timefmt.T(monthDayAt(1, 9, 10))},
@@ -1161,8 +1250,8 @@ func (d *demoSeeder) seedReportsA(tid, cid, planID string, pointIDs []string, po
 		},
 		SupervisorIDs: types.IDArray{safetyID},
 		SupervisorBy:  &safetyID, SupervisorAt: &svAt, SupervisorRemark: "数据属实，同意",
-		ManagerIDs:    types.IDArray{p.manager},
-		ManagerBy:     &p.manager, ManagerAt: &mgAt, ManagerRemark: "审核通过，归档",
+		ManagerIDs: types.IDArray{p.manager},
+		ManagerBy:  &p.manager, ManagerAt: &mgAt, ManagerRemark: "审核通过，归档",
 	}
 	return d.db.Create(&report).Error
 }
@@ -1208,9 +1297,9 @@ func (d *demoSeeder) seedReportsB(tid, cid, planID string, pointIDs []string, po
 	// 3) 报告：待巡检员确认（签字流程第一级；项目无安全主管，主管级自动跳过）
 	report := rptmodel.InspectionReport{
 		TenantID: &tid, CommunityID: cid, Period: period,
-		Title:  demoReportTitle("金源世纪城", period),
-		Status: rptmodel.StatusPendingInspector,
-		Stats:  demoReportStats(st, 0, 1, 1, []any{}),
+		Title:           demoReportTitle("金源世纪城", period),
+		Status:          rptmodel.StatusPendingInspector,
+		Stats:           demoReportStats(st, 0, 1, 1, []any{}),
 		InspectorIDs:    types.IDArray{xjID},
 		InspectorSigned: types.SignArray{},
 		SupervisorIDs:   types.IDArray{},
@@ -1258,6 +1347,6 @@ func demoReportStats(st monthStat, suspect, woCreated, woClosed int64, records [
 		"abnormal_count": st.abnormal, "suspect_count": suspect,
 		"wo_created": woCreated, "wo_closed": woClosed, "wo_unclosed": woCreated - woClosed,
 		"wo_close_rate": pct1(woClosed, woCreated),
-		"daily": st.daily, "records": records,
+		"daily":         st.daily, "records": records,
 	}
 }

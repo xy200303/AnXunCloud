@@ -147,6 +147,15 @@ docker compose --env-file .env.prod -f docker-compose.prod.yml run --rm app /app
 docker compose --env-file .env.prod -f docker-compose.prod.yml restart app
 ```
 
+老库补演示工单照片（工单演示照片为后加特性，老库全量播种会被幂等跳过；该命令只补照片为空的演示工单，幂等、不动其他数据）：
+
+```bash
+# dev
+docker compose --env-file .env.dev -f docker-compose.dev.yml exec backend go run ./cmd/seed-demo -photos
+# prod（需先 git pull 并重建 app 镜像，使 /app/seed-demo 带上 -photos 参数）
+docker compose --env-file .env.prod -f docker-compose.prod.yml run --rm app /app/seed-demo -photos
+```
+
 内容：两家演示物业公司（华安物业 `huaan` / 金源物业 `jinyuan`），各含租户管理员、小区、楼栋、项目编制（项目经理/主管/巡检员/维修工/楼管员/前台）、检查项模板、点位（二维码/NFC/围栏凭证）、巡检计划、昨日已完成+逾期与今日待巡任务、带真实照片的打卡记录（内置 `demoassets/`，离线可用）、六态全覆盖工单、上月整月巡查工作量与当月工单台账、月度报告（华安已三级签字归档、金源待巡检员确认；报告期数据与 stats 快照口径一致，PDF 汇总/明细/照片/台账均有内容）与通知公告；金源小区开启抢单模式作对照。全部演示账号密码统一为 `Demo@12345`（如 `huaan_admin`、`jinyuan_admin`、`ha_xj01`、`jy_xj01`）。
 
 ## 初始账号

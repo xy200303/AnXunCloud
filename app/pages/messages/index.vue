@@ -88,6 +88,7 @@
 import { Colors, ColorTokens } from '@/utils/theme'
 import { apiMessages, apiMarkMessageRead, apiAnnouncements, MessageItem, AnnouncementItem } from '@/services/api'
 import { useMessageStore } from '@/stores/message'
+import { syncBadge } from '@/utils/push'
 
 const PAGE_SIZE = 20
 
@@ -201,6 +202,7 @@ export default {
         .then(() => {
           this.list = this.list.map((m) => ({ ...m, is_read: true }))
           useMessageStore().setUnread(0)
+          syncBadge() // 图标角标清零（App 端生效）
           uni.showToast({ title: '已全部标记为已读', icon: 'none' })
         })
         .catch((e: Error) => {
@@ -215,6 +217,7 @@ export default {
             m.is_read = true
             const store = useMessageStore()
             store.setUnread(Math.max(0, store.unread - 1))
+            syncBadge() // 图标角标跟随最新未读数（App 端生效）
           })
           .catch((_e: any) => {})
       }

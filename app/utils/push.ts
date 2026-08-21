@@ -8,6 +8,11 @@
  * - 通知点击跳转：App.vue onLaunch 注册 plus.push 'click' 监听，解析 payload
  *   （click_type=payload_custom 的自定义 JSON：{type, biz_id}，与 sys_message 同源），
  *   按 type 路由，路由口径与 pages/messages/index.vue onTap 保持一致。
+ * - 图标角标同步：setAppBadge(n) 为底层封装（plus.runtime.setBadgeNumber，n=0 也调用清零）；
+ *   syncBadge() 轻量拉取未读数（GET /messages?page=1&page_size=1 只取 unread_count）后设置。
+ *   调用点：App 启动/登录后（跟随 bindPushDevice）、消息中心标记已读后、推送点击处理完；
+ *   未登录不调用，登出时清零。iOS 服务端推送也带绝对角标（push_channel.ios.auto_badge），
+ *   端内同步用于 Android（launcher 支持才显示）与已读后的即时收敛。
  *
  * 已知限制（冷启动覆盖度）：
  * - 在线推送（应用存活 / 个推通道）点击必触发 click 事件；
@@ -20,7 +25,7 @@
 declare const plus: any
 // #endif
 
-import { apiBindPushDevice, apiUnbindPushDevice } from '@/services/api'
+import { apiBindPushDevice, apiUnbindPushDevice, apiMessages } from '@/services/api'
 import { getAccessToken } from '@/utils/storage'
 
 // ---- CID 获取与绑定 ---------------------------------------------------------------
@@ -91,6 +96,32 @@ export function unbindPushDevice(): Promise<void> {
     resolve()
     // #endif
   })
+}
+
+// ---- 图标角标同步 ------------------------------------------------------------------
+
+/**
+ * 底层角标设置（plus.runtime.setBadgeNumber；n<=0 也调用以清零）。
+ * iOS 与「支持角标的 Android launcher」生效，不支持的机型静默无效；非 App 端静默跳过。
+ */
+export function setAppBadge(n: number): void {
+  // #ifdef APP-PLUS
+  try {
+    plus.runtime.setBadgeNumber(n > 0 ? n : 0)
+  } catch (e) {}
+  // #endif
+}
+
+/** 拉取当前未读数并同步图标角标（失败静默）；未登录不调用（登出场景由调用方 setAppBadge(0) 清零） */
+export function syncBadge(): void {
+  // #ifdef APP-PLUS
+  if (getAccessToken() == '') return
+  apiMessages(1, 1)
+    .then((res) => {
+      setAppBadge(res.unread_count)
+    })
+    .catch((_e: any) => {})
+  // #endif
 }
 
 // ---- 通知点击跳转 ------------------------------------------------------------------
@@ -168,6 +199,8 @@ export function initPushClickListener(): void {
   try {
     plus.push.addEventListener('click', (msg: any) => {
       routePushMessage(parsePayload(msg != null ? msg.payload : null))
+      // 点击处理完补一次角标同步（通知到达时服务端已按最新未读数下发 iOS 角标，此处兜底收敛）
+      syncBadge()
     })
   } catch (e) {}
   // #endif

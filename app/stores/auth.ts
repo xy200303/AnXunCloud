@@ -13,7 +13,7 @@ import {
   saveTokens,
   clearAuthStorage
 } from '@/utils/storage'
-import { bindPushDevice, unbindPushDevice } from '@/utils/push'
+import { bindPushDevice, unbindPushDevice, syncBadge, setAppBadge } from '@/utils/push'
 
 function loadCachedUser(): UserInfo | null {
   const raw = uni.getStorageSync(KEY_USER_INFO) as string
@@ -74,6 +74,8 @@ export const useAuthStore = defineStore('auth', {
             saveTokens(res.access_token, res.refresh_token)
             // uniPush：登录成功上报 CID 绑定（拿不到 cid/接口失败静默跳过，不阻塞登录）
             bindPushDevice()
+            // 图标角标同步（拉取未读数 setBadgeNumber，失败静默）
+            syncBadge()
             if (res.user != null) {
               this.setUser(res.user)
               resolve()
@@ -112,6 +114,8 @@ export const useAuthStore = defineStore('auth', {
       this.refreshToken = ''
       this.userInfo = null
       clearAuthStorage()
+      // 登出清零图标角标（App 端生效，其他端静默跳过）
+      setAppBadge(0)
       uni.reLaunch({ url: '/pages/login/index' })
     }
   }

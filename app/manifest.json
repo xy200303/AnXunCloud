@@ -57,7 +57,6 @@
                 "share" : {},
                 "push" : {
                     "unipush" : {
-                        "version" : "2",
                         "offline" : false,
                         "hms" : {},
                         "oppo" : {},

@@ -107,7 +107,7 @@ func (ctl *OrderController) Delete(c *gin.Context) {
 	write(c, nil, ctl.svc.Delete(c, id))
 }
 
-// Triage POST /workorders/:id/triage（分诊：通过=可选优先级+分类 / 驳回=原因）
+// Triage POST /workorders/:id/triage（受理：通过=可选优先级+分类 / 驳回=原因）
 func (ctl *OrderController) Triage(c *gin.Context) {
 	id, be := pathID(c)
 	if be != nil {

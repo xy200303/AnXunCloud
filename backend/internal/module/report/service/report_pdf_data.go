@@ -476,7 +476,7 @@ func orderProblem(o womodel.WorkOrder) string {
 func orderStatusCN(status string) string {
 	switch status {
 	case womodel.OrderReported:
-		return "待分诊"
+		return "待受理"
 	case womodel.OrderPendingDispatch:
 		return "待派单"
 	case womodel.OrderProcessing:

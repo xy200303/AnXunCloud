@@ -8,7 +8,7 @@ export interface CommunityItem {
   address: string
   manager_id: string | null
   manager_name: string
-  // 工单分诊开关：关闭后上报直接进待派单（跳过待分诊）
+  // 工单受理开关：关闭后上报直接进待派单（跳过待受理）
   wo_triage_enabled: boolean
   // 工单抢单开关：开启后维修工可从工单池抢单
   wo_grab_enabled: boolean
@@ -337,12 +337,12 @@ export interface CheckinDetail extends CheckinItem {
 
 // ===== 异常工单（P2 闭环状态机：reported → pending_dispatch → processing → pending_confirm → closed；closed_invalid 已作废） =====
 export type WorkOrderStatus =
-  | 'reported' // 待分诊
+  | 'reported' // 待受理
   | 'pending_dispatch' // 待派单
   | 'processing' // 处理中
   | 'pending_confirm' // 待验收
   | 'closed' // 已闭环
-  | 'closed_invalid' // 已作废（分诊驳回）
+  | 'closed_invalid' // 已作废（受理驳回）
 
 // 工单来源（字典 order_source）：inspection 巡检异常转单 / active 主动上报 / frontdesk 前台代录
 export type WorkOrderSource = 'inspection' | 'active' | 'frontdesk'
@@ -393,7 +393,7 @@ export interface WorkOrderDetail extends WorkOrderItem {
   // 派单人（抢单工单为空）
   dispatcher_id: string | null
   dispatcher_name: string | null
-  // 分诊
+  // 受理
   triage_by: string | null
   triage_by_name: string | null
   triage_at: string | null
@@ -410,7 +410,7 @@ export interface WorkOrderDetail extends WorkOrderItem {
   confirm_by_name: string | null
   confirm_at: string | null
   confirm_note: string | null
-  // 最近一次驳回原因（分诊驳回 / 验收退回）
+  // 最近一次驳回原因（受理驳回 / 验收退回）
   reject_reason: string | null
   logs: WorkOrderLog[]
   // 不合格项快照（可空，旧工单无此字段）

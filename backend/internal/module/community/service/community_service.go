@@ -174,7 +174,7 @@ func (s *CommunityService) CreateCommunity(c *gin.Context, req *dto.CommunitySav
 		TenantID: tenantID,
 		Name: req.Name, Address: req.Address, ManagerID: req.ManagerID,
 		Status: status, Remark: req.Remark,
-		WoTriageEnabled: true, // 分诊默认开启（项目级开关，可后续编辑关闭）
+		WoTriageEnabled: true, // 受理默认开启（项目级开关，可后续编辑关闭）
 	}
 	if req.WoTriageEnabled != nil {
 		row.WoTriageEnabled = *req.WoTriageEnabled

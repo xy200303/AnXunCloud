@@ -213,7 +213,7 @@ type Community struct {
 	Name      string         `gorm:"size:128" json:"name"`
 	Address   string         `gorm:"size:255" json:"address"`
 	ManagerID *string        `gorm:"type:uuid" json:"manager_id"`
-	// WoTriageEnabled 工单分诊开关（项目级）：开启则上报工单先进待分诊，关闭则直接待派单
+	// WoTriageEnabled 工单受理开关（项目级）：开启则上报工单先进待受理，关闭则直接待派单
 	WoTriageEnabled bool `json:"wo_triage_enabled"`
 	// WoGrabEnabled 抢单模式开关（项目级）：开启后 order_accept 槽位成员可从待派单池抢单
 	WoGrabEnabled bool   `json:"wo_grab_enabled"`
@@ -261,7 +261,7 @@ func ValidPostLine(line string) bool {
 const (
 	SlotReportSignSupervisor = "report_sign_supervisor" // 月报主管级签字
 	SlotReportSignManager    = "report_sign_manager"    // 月报经理级终审
-	SlotOrderTriage          = "order_triage"           // 工单分诊
+	SlotOrderTriage          = "order_triage"           // 工单受理
 	SlotOrderDispatch        = "order_dispatch"         // 工单派单
 	SlotOrderAccept          = "order_accept"           // 工单接单
 	SlotPatrolExecute        = "patrol_execute"         // 巡查任务执行
@@ -295,7 +295,7 @@ type DutySlot struct {
 var DutySlots = []DutySlot{
 	{SlotReportSignSupervisor, "月报主管级签字"},
 	{SlotReportSignManager, "月报经理级终审"},
-	{SlotOrderTriage, "工单分诊"},
+	{SlotOrderTriage, "工单受理"},
 	{SlotOrderDispatch, "工单派单"},
 	{SlotOrderAccept, "工单接单"},
 	{SlotPatrolExecute, "巡查任务执行"},

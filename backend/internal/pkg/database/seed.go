@@ -149,7 +149,7 @@ func seedMenus(tx *gorm.DB) (map[string]string, error) {
 				{title: "删除工单", typ: model.MenuTypeButton, perms: "workorder:delete", sort: 3},
 				{title: "处理反馈", typ: model.MenuTypeButton, perms: "workorder:finish", sort: 5},
 				{title: "导出", typ: model.MenuTypeButton, perms: "workorder:export", sort: 7},
-				{title: "工单分诊", typ: model.MenuTypeButton, perms: "workorder:triage", sort: 8},
+				{title: "工单受理", typ: model.MenuTypeButton, perms: "workorder:triage", sort: 8},
 				{title: "工单派单", typ: model.MenuTypeButton, perms: "workorder:dispatch", sort: 9},
 				{title: "工单验收", typ: model.MenuTypeButton, perms: "workorder:confirm", sort: 10},
 			}},
@@ -412,7 +412,7 @@ func seedDicts(tx *gorm.DB) error {
 		{"checkin_type", "打卡类型", [][2]string{{"扫码", "qrcode"}, {"围栏", "fence"}, {"离线补传", "offline"}, {"NFC", "nfc"}}},
 		{"checkin_result", "打卡结果", [][2]string{{"正常", "normal"}, {"异常", "abnormal"}}},
 		{"order_priority", "工单优先级", [][2]string{{"低", "low"}, {"普通", "normal"}, {"高", "high"}, {"紧急", "urgent"}}},
-		{"work_order_status", "工单状态", [][2]string{{"待分诊", "reported"}, {"待派单", "pending_dispatch"}, {"处理中", "processing"}, {"待验收", "pending_confirm"}, {"已闭环", "closed"}, {"已作废", "closed_invalid"}}},
+		{"work_order_status", "工单状态", [][2]string{{"待受理", "reported"}, {"待派单", "pending_dispatch"}, {"处理中", "processing"}, {"待验收", "pending_confirm"}, {"已闭环", "closed"}, {"已作废", "closed_invalid"}}},
 		{"order_source", "工单来源", [][2]string{{"巡检异常转单", "inspection"}, {"主动上报", "active"}, {"前台代录", "frontdesk"}}},
 		{"patrol_type", "巡查类型", [][2]string{{"安全巡查", "safety"}, {"设备设施专项巡查", "equipment"}, {"环境巡查", "environment"}, {"楼栋巡查", "building"}, {"消防设施专项", "fire"}}},
 	}
@@ -517,7 +517,7 @@ func seedPosts(tx *gorm.DB, roleIDs map[string]string) error {
 		{"repairman", "维修工", "engineering", false, "field_staff", 5, model.StatusEnabled, "设备设施专项巡查 + 接工单维修"},
 		{"environment_supervisor", "环境主管", "environment", true, "project_admin", 6, model.StatusEnabled, "环境卫生/绿化巡查管理"},
 		{"cleaner", "保洁员", "environment", false, "field_staff", 7, model.StatusDisabled, "预留岗位，本期不进系统"},
-		{"service_supervisor", "客服主管", "service", true, "project_admin", 8, model.StatusEnabled, "管理前台接待和楼管员，报单分诊"},
+		{"service_supervisor", "客服主管", "service", true, "project_admin", 8, model.StatusEnabled, "管理前台接待和楼管员，报单受理"},
 		{"building_manager", "楼管员", "service", false, "field_staff", 9, model.StatusEnabled, "负责若干楼栋，日常巡查、主动报单"},
 		{"receptionist", "前台接待", "service", false, "field_staff", 10, model.StatusEnabled, "前台接报、录入报单"},
 	}

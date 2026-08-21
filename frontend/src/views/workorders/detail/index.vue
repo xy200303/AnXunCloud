@@ -92,13 +92,13 @@
             </div>
           </div>
 
-          <!-- 分诊信息（已分诊工单展示） -->
+          <!-- 受理信息（已受理工单展示） -->
           <div v-if="detail.triage_at" class="wo-section">
-            <h3 class="card-title">分诊信息</h3>
+            <h3 class="card-title">受理信息</h3>
             <el-descriptions :column="1" border>
-              <el-descriptions-item label="分诊人">{{ detail.triage_by_name || '—' }}</el-descriptions-item>
-              <el-descriptions-item label="分诊时间">{{ detail.triage_at }}</el-descriptions-item>
-              <el-descriptions-item v-if="detail.triage_note" label="分诊备注">{{ detail.triage_note }}</el-descriptions-item>
+              <el-descriptions-item label="受理人">{{ detail.triage_by_name || '—' }}</el-descriptions-item>
+              <el-descriptions-item label="受理时间">{{ detail.triage_at }}</el-descriptions-item>
+              <el-descriptions-item v-if="detail.triage_note" label="受理备注">{{ detail.triage_note }}</el-descriptions-item>
             </el-descriptions>
           </div>
 
@@ -124,7 +124,7 @@
             </el-descriptions>
           </div>
 
-          <!-- 最近一次驳回原因（分诊驳回 / 验收退回） -->
+          <!-- 最近一次驳回原因（受理驳回 / 验收退回） -->
           <div v-if="detail.reject_reason" class="wo-section wo-section-last">
             <h3 class="card-title">驳回原因</h3>
             <el-alert :title="detail.reject_reason" type="error" :closable="false" show-icon />
@@ -158,7 +158,7 @@
               v-if="detail.status === 'reported' && userStore.hasPerm('workorder:triage')"
               type="primary"
               @click="openTriage"
-            >分诊</el-button>
+            >受理</el-button>
             <el-button
               v-if="detail.status === 'pending_dispatch' && userStore.hasPerm('workorder:dispatch')"
               type="primary"
@@ -185,10 +185,10 @@
       </template>
     </el-result>
 
-    <!-- 分诊对话框：通过（可定优先级/分类）或驳回（原因必填 → 作废） -->
-    <el-dialog v-model="triageVisible" title="工单分诊" width="480px" :close-on-click-modal="false">
+    <!-- 受理对话框：通过（可定优先级/分类）或驳回（原因必填 → 作废） -->
+    <el-dialog v-model="triageVisible" title="工单受理" width="480px" :close-on-click-modal="false">
       <el-form ref="triageFormRef" :model="triageForm" :rules="triageRules" label-width="88px">
-        <el-form-item label="分诊结果" prop="result">
+        <el-form-item label="受理结果" prop="result">
           <el-radio-group v-model="triageForm.result">
             <el-radio value="pass">通过（进入待派单）</el-radio>
             <el-radio value="reject">驳回（工单作废）</el-radio>
@@ -206,7 +206,7 @@
           <el-form-item label="工单分类">
             <el-input v-model="triageForm.category" placeholder="选填，如：水电 / 电梯 / 门禁" maxlength="32" />
           </el-form-item>
-          <el-form-item label="分诊备注">
+          <el-form-item label="受理备注">
             <el-input v-model="triageForm.note" type="textarea" :rows="2" placeholder="选填" maxlength="512" />
           </el-form-item>
         </template>
@@ -217,7 +217,7 @@
       <template #footer>
         <el-button @click="triageVisible = false">取消</el-button>
         <el-button :type="triageForm.result === 'pass' ? 'primary' : 'danger'" :loading="triaging" @click="handleTriage">
-          {{ triageForm.result === 'pass' ? '分诊通过' : '确认驳回' }}
+          {{ triageForm.result === 'pass' ? '受理通过' : '确认驳回' }}
         </el-button>
       </template>
     </el-dialog>
@@ -335,7 +335,7 @@ onMounted(fetchDetail)
 
 function statusLabel(s: string) {
   return {
-    reported: '待分诊', pending_dispatch: '待派单', processing: '处理中',
+    reported: '待受理', pending_dispatch: '待派单', processing: '处理中',
     pending_confirm: '待验收', closed: '已闭环', closed_invalid: '已作废'
   }[s] || s
 }
@@ -367,7 +367,7 @@ function sourceType(s: string) {
 function actionLabel(a: string) {
   return {
     create: '建单',
-    triage_pass: '分诊通过', triage_reject: '分诊驳回',
+    triage_pass: '受理通过', triage_reject: '受理驳回',
     dispatch: '派单', grab: '抢单',
     finish: '完工提交',
     confirm_pass: '验收通过', confirm_reject: '验收退回'
@@ -386,8 +386,8 @@ function logType(a: string) {
 const nextStepText = computed(() => {
   const s = detail.value?.status
   return ({
-    reported: '待分诊', pending_dispatch: '待派单', processing: '等待维修工完工提交',
-    pending_confirm: '待验收（报单人或分诊名单成员）'
+    reported: '待受理', pending_dispatch: '待派单', processing: '等待维修工完工提交',
+    pending_confirm: '待验收（报单人或受理名单成员）'
   } as Record<string, string>)[s || ''] || ''
 })
 
@@ -407,7 +407,7 @@ function hasAfterPhotos(item: WorkOrderCheckItem) {
   return !!item.after_photo_urls?.length || !!detail.value?.finish_at || ['pending_confirm', 'closed'].includes(detail.value?.status || '')
 }
 
-// ===== 分诊 =====
+// ===== 受理 =====
 const triageVisible = ref(false)
 const triaging = ref(false)
 const triageFormRef = ref<FormInstance>()
@@ -445,7 +445,7 @@ async function handleTriage() {
       category: triageForm.result === 'pass' ? triageForm.category || undefined : undefined,
       note: triageForm.note || undefined
     })
-    ElMessage.success(triageForm.result === 'pass' ? '分诊通过，工单进入待派单' : '已驳回，工单作废')
+    ElMessage.success(triageForm.result === 'pass' ? '受理通过，工单进入待派单' : '已驳回，工单作废')
     triageVisible.value = false
     fetchDetail()
   } finally {

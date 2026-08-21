@@ -477,7 +477,7 @@ func (d *demoSeeder) seedFireMonth(tid, cid, planID string, firePointIDs []strin
 		}
 	}
 
-	// 异常工单（视同已分诊，工程条线闭环：周建国派单 → 吴永强处理 → 陈刚验收）
+	// 异常工单（视同已受理，工程条线闭环：周建国派单 → 吴永强处理 → 陈刚验收）
 	cabPoint, cabRec := abPt["2栋3层消防箱"], abRec["2栋3层消防箱"]
 	extPoint, extRec := abPt["1栋大堂灭火器点"], abRec["1栋大堂灭火器点"]
 	woF1Items := types.OrderItemArray{{Name: "消防枪头在位", Remark: "消防枪头缺失，需补充"}}
@@ -498,7 +498,7 @@ func (d *demoSeeder) seedFireMonth(tid, cid, planID string, firePointIDs []strin
 		CreatedAt:  monthDayAt(1, 11, 50), UpdatedAt: monthDayAt(3, 9, 0),
 	}
 	if err := d.createOrderWithLogs(woF1, []womodel.WorkOrderLog{
-		{Action: womodel.ActionCreate, OperatorID: p.xj01, Detail: "巡检异常上报，自动生成工单（视同已分诊）", CreatedAt: monthDayAt(1, 11, 50)},
+		{Action: womodel.ActionCreate, OperatorID: p.xj01, Detail: "巡检异常上报，自动生成工单（视同已受理）", CreatedAt: monthDayAt(1, 11, 50)},
 		{Action: womodel.ActionDispatch, OperatorID: p.eng, Detail: "派单给吴永强", CreatedAt: monthDayAt(1, 14, 0)},
 		{Action: womodel.ActionFinish, OperatorID: p.repair, Detail: "完工：补充消防枪头", CreatedAt: monthDayAt(2, 10, 30)},
 		{Action: womodel.ActionConfirmPass, OperatorID: p.xj01, Detail: "验收通过", CreatedAt: monthDayAt(3, 9, 0)},
@@ -521,7 +521,7 @@ func (d *demoSeeder) seedFireMonth(tid, cid, planID string, firePointIDs []strin
 		CreatedAt:  monthDayAt(1, 11, 55), UpdatedAt: monthDayAt(1, 14, 10),
 	}
 	if err := d.createOrderWithLogs(woF2, []womodel.WorkOrderLog{
-		{Action: womodel.ActionCreate, OperatorID: p.xj01, Detail: "巡检异常上报，自动生成工单（视同已分诊）", CreatedAt: monthDayAt(1, 11, 55)},
+		{Action: womodel.ActionCreate, OperatorID: p.xj01, Detail: "巡检异常上报，自动生成工单（视同已受理）", CreatedAt: monthDayAt(1, 11, 55)},
 		{Action: womodel.ActionDispatch, OperatorID: p.eng, Detail: "派单给吴永强", CreatedAt: monthDayAt(1, 14, 10)},
 	}); err != nil {
 		return err

@@ -214,9 +214,9 @@
             <el-radio :value="0">停用</el-radio>
           </el-radio-group>
         </el-form-item>
-        <el-form-item label="工单分诊">
+        <el-form-item label="工单受理">
           <el-switch v-model="form.wo_triage_enabled" />
-          <span class="switch-hint">关闭后上报工单直接进待派单，跳过待分诊环节</span>
+          <span class="switch-hint">关闭后上报工单直接进待派单，跳过待受理环节</span>
         </el-form-item>
         <el-form-item label="工单抢单">
           <el-switch v-model="form.wo_grab_enabled" />

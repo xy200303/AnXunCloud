@@ -92,7 +92,7 @@ func (s *OrderService) DispatchCandidates(communityID string) ([]gin.H, *errs.Er
 	return out, nil
 }
 
-// communityFlags 读项目级工单开关（triage 分诊 / grab 抢单）；项目不存在时按默认（开分诊、关抢单）。
+// communityFlags 读项目级工单开关（triage 受理 / grab 抢单）；项目不存在时按默认（开受理、关抢单）。
 func (s *OrderService) communityFlags(communityID string) (triage, grab bool) {
 	var comm sysmodel.Community
 	if err := s.db.Select("wo_triage_enabled", "wo_grab_enabled").First(&comm, "id = ?", communityID).Error; err != nil {
@@ -195,7 +195,7 @@ func (s *OrderService) toItem(o *model.WorkOrder) gin.H {
 }
 
 // Create 管理端建单（前台代录，source=frontdesk）；
-// 指定处理人须为 order_accept 槽位成员，视为直接派单（processing，省略分诊/派单环节）。
+// 指定处理人须为 order_accept 槽位成员，视为直接派单（processing，省略受理/派单环节）。
 func (s *OrderService) Create(ctx context.Context, c *gin.Context, req *dto.OrderCreateReq) (gin.H, *errs.Error) {
 	if be := middleware.CheckCommunity(s.db, c, req.CommunityID); be != nil {
 		return nil, be
@@ -260,7 +260,7 @@ func (s *OrderService) Create(ctx context.Context, c *gin.Context, req *dto.Orde
 	return gin.H{"id": order.ID, "order_no": orderNo, "status": order.Status}, nil
 }
 
-// notifyAfterCreate 建单后的定向通知：处理中→维修工；待分诊→分诊名单；待派单→派单名单。
+// notifyAfterCreate 建单后的定向通知：处理中→维修工；待受理→受理名单；待派单→派单名单。
 func (s *OrderService) notifyAfterCreate(o *model.WorkOrder) {
 	switch o.Status {
 	case model.OrderProcessing:
@@ -268,7 +268,7 @@ func (s *OrderService) notifyAfterCreate(o *model.WorkOrder) {
 			s.Notify(*o.AssigneeID, "workorder", "新工单指派", fmt.Sprintf("工单 %s「%s」已指派给您，请及时处理", o.OrderNo, o.Title), &o.ID)
 		}
 	case model.OrderReported:
-		s.notifySlot(o.CommunityID, sysmodel.SlotOrderTriage, "新工单待分诊", fmt.Sprintf("工单 %s「%s」已上报，请分诊", o.OrderNo, o.Title), &o.ID)
+		s.notifySlot(o.CommunityID, sysmodel.SlotOrderTriage, "新工单待受理", fmt.Sprintf("工单 %s「%s」已上报，请受理", o.OrderNo, o.Title), &o.ID)
 	case model.OrderPendingDispatch:
 		s.notifySlot(o.CommunityID, sysmodel.SlotOrderDispatch, "新工单待派单", fmt.Sprintf("工单 %s「%s」待派单，请安排维修工", o.OrderNo, o.Title), &o.ID)
 	}
@@ -392,14 +392,14 @@ func (s *OrderService) photoURLs(keys types.StringArray) []string {
 	return out
 }
 
-// Update 修改工单（仅待分诊/待派单可改）。
+// Update 修改工单（仅待受理/待派单可改）。
 func (s *OrderService) Update(c *gin.Context, id string, req *dto.OrderUpdateReq) *errs.Error {
 	o, be := s.getWithScope(c, id)
 	if be != nil {
 		return be
 	}
 	if o.Status != model.OrderReported && o.Status != model.OrderPendingDispatch {
-		return errs.ErrOrderStatusNotAllowed.WithMsg("仅待分诊/待派单状态可修改")
+		return errs.ErrOrderStatusNotAllowed.WithMsg("仅待受理/待派单状态可修改")
 	}
 	updates := map[string]any{}
 	if req.Title != nil {
@@ -421,14 +421,14 @@ func (s *OrderService) Update(c *gin.Context, id string, req *dto.OrderUpdateReq
 	return nil
 }
 
-// Delete 软删除（仅待分诊/待派单可删）。
+// Delete 软删除（仅待受理/待派单可删）。
 func (s *OrderService) Delete(c *gin.Context, id string) *errs.Error {
 	o, be := s.getWithScope(c, id)
 	if be != nil {
 		return be
 	}
 	if o.Status != model.OrderReported && o.Status != model.OrderPendingDispatch {
-		return errs.ErrOrderStatusNotAllowed.WithMsg("仅待分诊/待派单状态可删除")
+		return errs.ErrOrderStatusNotAllowed.WithMsg("仅待受理/待派单状态可删除")
 	}
 	if err := s.db.Delete(o).Error; err != nil {
 		return errs.ErrInternal
@@ -436,7 +436,7 @@ func (s *OrderService) Delete(c *gin.Context, id string) *errs.Error {
 	return nil
 }
 
-// Triage 分诊（order_triage 槽位成员；reported → pending_dispatch / closed_invalid）。
+// Triage 受理（order_triage 槽位成员；reported → pending_dispatch / closed_invalid）。
 func (s *OrderService) Triage(c *gin.Context, id string, req *dto.TriageReq) (string, *errs.Error) {
 	o, be := s.getWithScope(c, id)
 	if be != nil {
@@ -444,7 +444,7 @@ func (s *OrderService) Triage(c *gin.Context, id string, req *dto.TriageReq) (st
 	}
 	identity := middleware.CurrentIdentity(c)
 	if !s.inSlot(o.CommunityID, sysmodel.SlotOrderTriage, identity) {
-		return "", errs.ErrOrderNotInSlot.WithMsg("当前用户不在本项目工单分诊名单内")
+		return "", errs.ErrOrderNotInSlot.WithMsg("当前用户不在本项目工单受理名单内")
 	}
 	action := model.ActionTriagePass
 	if req.Result == "reject" {
@@ -455,7 +455,7 @@ func (s *OrderService) Triage(c *gin.Context, id string, req *dto.TriageReq) (st
 	}
 	newStatus, ok := CanTransit(action, o.Status)
 	if !ok {
-		return "", errs.ErrOrderStatusNotAllowed.WithMsg("仅待分诊状态可执行分诊")
+		return "", errs.ErrOrderStatusNotAllowed.WithMsg("仅待受理状态可执行受理")
 	}
 	updates := map[string]any{
 		"status": newStatus, "triage_by": identity.UserID, "triage_at": time.Now(), "triage_note": req.Note,
@@ -478,9 +478,9 @@ func (s *OrderService) Triage(c *gin.Context, id string, req *dto.TriageReq) (st
 		if err := tx.Model(o).Updates(updates).Error; err != nil {
 			return err
 		}
-		detail := "分诊通过，进入待派单"
+		detail := "受理通过，进入待派单"
 		if req.Result == "reject" {
-			detail = "分诊驳回（作废）：" + req.Note
+			detail = "受理驳回（作废）：" + req.Note
 		} else if req.Note != "" {
 			detail += "（" + req.Note + "）"
 		}
@@ -490,7 +490,7 @@ func (s *OrderService) Triage(c *gin.Context, id string, req *dto.TriageReq) (st
 		return "", errs.ErrInternal
 	}
 	if req.Result == "reject" {
-		s.Notify(o.ReporterID, "workorder", "工单分诊驳回", fmt.Sprintf("工单 %s「%s」分诊驳回：%s", o.OrderNo, o.Title, req.Note), &o.ID)
+		s.Notify(o.ReporterID, "workorder", "工单受理驳回", fmt.Sprintf("工单 %s「%s」受理驳回：%s", o.OrderNo, o.Title, req.Note), &o.ID)
 	} else {
 		s.notifySlot(o.CommunityID, sysmodel.SlotOrderDispatch, "新工单待派单", fmt.Sprintf("工单 %s「%s」待派单，请安排维修工", o.OrderNo, o.Title), &o.ID)
 	}
@@ -602,7 +602,7 @@ func (s *OrderService) Finish(operatorID string, o *model.WorkOrder, req *dto.Fi
 	if err != nil {
 		return errs.ErrInternal
 	}
-	// 通知验收人：报单人 + 分诊名单（验收授权为两者，去重）
+	// 通知验收人：报单人 + 受理名单（验收授权为两者，去重）
 	notified := map[string]bool{}
 	s.Notify(o.ReporterID, "workorder", "工单待验收", fmt.Sprintf("工单 %s「%s」已完工，请验收", o.OrderNo, o.Title), &o.ID)
 	notified[o.ReporterID] = true
@@ -618,7 +618,7 @@ func (s *OrderService) Finish(operatorID string, o *model.WorkOrder, req *dto.Fi
 func (s *OrderService) Confirm(identity *middleware.Identity, o *model.WorkOrder, result, note string) (string, *errs.Error) {
 	operatorID := identity.UserID
 	if o.ReporterID != operatorID && !s.inSlot(o.CommunityID, sysmodel.SlotOrderTriage, identity) {
-		return "", errs.ErrOrderNotInSlot.WithMsg("仅报单人或工单分诊名单成员可验收")
+		return "", errs.ErrOrderNotInSlot.WithMsg("仅报单人或工单受理名单成员可验收")
 	}
 	action := model.ActionConfirmPass
 	if result == "reject" {
@@ -743,7 +743,7 @@ func woTimeRange(db *gorm.DB, column, start, end string) (*gorm.DB, *errs.Error)
 
 // ========== 移动端（app/mp 共用） ==========
 
-// GetForMP 移动端取工单（上报人/处理人/分诊/派单名单成员可见；待派单且项目开启抢单时接单名单成员可见）。
+// GetForMP 移动端取工单（上报人/处理人/受理/派单名单成员可见；待派单且项目开启抢单时接单名单成员可见）。
 func (s *OrderService) GetForMP(id string, identity *middleware.Identity) (gin.H, *errs.Error) {
 	var o model.WorkOrder
 	if err := s.db.First(&o, "id = ?", id).Error; err != nil {
@@ -785,7 +785,7 @@ func (s *OrderService) FinishForMP(id, userID string, req *dto.FinishReq) *errs.
 	return s.Finish(userID, &o, req)
 }
 
-// ConfirmForMP 移动端验收（我上报的工单；报单人本人或分诊名单成员，service 内判定）。
+// ConfirmForMP 移动端验收（我上报的工单；报单人本人或受理名单成员，service 内判定）。
 func (s *OrderService) ConfirmForMP(id string, identity *middleware.Identity, req *dto.ConfirmReq) (string, *errs.Error) {
 	var o model.WorkOrder
 	if err := s.db.First(&o, "id = ?", id).Error; err != nil {
@@ -852,7 +852,7 @@ func (s *OrderService) grabbableCommunityIDs(userID string) []string {
 }
 
 // CreateFromCheckin 异常打卡自动生成工单（在打卡事务内调用）；items 为不合格项快照（before_photos=打卡时该项照片）。
-// 巡检异常转单视同已分诊（source=inspection，直接进待派单）。
+// 巡检异常转单视同已受理（source=inspection，直接进待派单）。
 // 同事务内定向通知：该巡查业务线的汇报线成员（异常归口对应线主管，patrolType 路由）+ 工单派单槽位成员（下一步处理人）。
 func CreateFromCheckin(tx *gorm.DB, orderNo string, checkinID, communityID string, pointID *string, title, description string, photos types.PhotoArray, items types.OrderItemArray, reporterID, patrolType string) (*model.WorkOrder, error) {
 	order := model.WorkOrder{
@@ -864,7 +864,7 @@ func CreateFromCheckin(tx *gorm.DB, orderNo string, checkinID, communityID strin
 	if err := tx.Create(&order).Error; err != nil {
 		return nil, err
 	}
-	log := model.WorkOrderLog{OrderID: order.ID, Action: model.ActionCreate, OperatorID: reporterID, Detail: "巡检异常上报，自动生成工单（视同已分诊）"}
+	log := model.WorkOrderLog{OrderID: order.ID, Action: model.ActionCreate, OperatorID: reporterID, Detail: "巡检异常上报，自动生成工单（视同已受理）"}
 	if err := tx.Create(&log).Error; err != nil {
 		return nil, err
 	}

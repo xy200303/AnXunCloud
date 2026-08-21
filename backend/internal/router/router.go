@@ -274,7 +274,7 @@ func New(cfg *config.Config, db *gorm.DB, rdb *redis.Client) (*gin.Engine, *insp
 			review.POST("/:id/reopen", middleware.RequirePerm("inspection:checkin:review"), middleware.OperLog(db, "inspection", "review_reopen"), reviewCtl.Reopen)
 		}
 
-		// 异常工单（P2 闭环：分诊→派单/抢单→完工→验收）
+		// 异常工单（P2 闭环：受理→派单/抢单→完工→验收）
 		orders := secured.Group("/workorders")
 		{
 			orders.GET("", middleware.RequirePerm("workorder:list"), orderCtl.List)
@@ -415,7 +415,7 @@ func New(cfg *config.Config, db *gorm.DB, rdb *redis.Client) (*gin.Engine, *insp
 				appReview.POST("/:id/pass", middleware.RequirePerm("inspection:checkin:review"), middleware.OperLog(db, "inspection", "review_pass"), reviewCtl.Pass)
 				appReview.POST("/:id/reject", middleware.RequirePerm("inspection:checkin:review"), middleware.OperLog(db, "inspection", "review_reject"), reviewCtl.Reject)
 			}
-			// 工单管理（分诊/派单/验收）：与巡检员「我的工单」路径隔离
+			// 工单管理（受理/派单/验收）：与巡检员「我的工单」路径隔离
 			appOrders := appAuth.Group("/manage/workorders")
 			{
 				appOrders.GET("", middleware.RequirePerm("workorder:list"), orderCtl.List)

@@ -28,7 +28,7 @@ type OrderItemReq struct {
 }
 
 // OrderCreateReq 管理端建单（前台代录，source 固定 frontdesk）；
-// 指定 assignee_id 时视为直接派单（进入处理中，省略分诊/派单环节）。
+// 指定 assignee_id 时视为直接派单（进入处理中，省略受理/派单环节）。
 type OrderCreateReq struct {
 	CommunityID string         `json:"community_id" binding:"required"`
 	PointID     *string        `json:"point_id"`
@@ -56,7 +56,7 @@ type OrderUpdateReq struct {
 	Priority    *string `json:"priority"`
 }
 
-// TriageReq 分诊：pass 通过（可选定优先级/分类）→ 待派单；reject 驳回（原因必填）→ 已作废。
+// TriageReq 受理：pass 通过（可选定优先级/分类）→ 待派单；reject 驳回（原因必填）→ 已作废。
 type TriageReq struct {
 	Result   string `json:"result" binding:"required,oneof=pass reject"`
 	Priority string `json:"priority"`

@@ -250,7 +250,7 @@ export type WorkOrderDetail = {
   }>
   /** 来源：inspection 巡检转单 / active 主动上报 / frontdesk 前台代录 */
   source: string
-  /** 工单分类（分诊时填写，可为空） */
+  /** 工单分类（受理时填写，可为空） */
   category: string
   reporter_id: string
   reporter_name: string
@@ -271,7 +271,7 @@ export type WorkOrderDetail = {
   confirm_by_name: string
   confirm_at: string
   confirm_note: string
-  /** 最近一次驳回原因（分诊驳回 / 验收退回） */
+  /** 最近一次驳回原因（受理驳回 / 验收退回） */
   reject_reason: string
   /** SLA 期望完成时间（按优先级推算，仅展示） */
   sla_deadline: string
@@ -1038,7 +1038,7 @@ export function apiGrabOrder(id: string): Promise<null> {
   return httpPost<null>('/workorders/' + id + '/grab', null, true)
 }
 
-/** 验收 POST /workorders/:id/confirm {result: pass|reject, confirm_note}（reject 时原因必填；验收权：报单人本人或分诊名单成员） */
+/** 验收 POST /workorders/:id/confirm {result: pass|reject, confirm_note}（reject 时原因必填；验收权：报单人本人或受理名单成员） */
 export function apiConfirmOrder(id: string, result: 'pass' | 'reject', confirmNote: string): Promise<{ status: string }> {
   return new Promise((resolve, reject) => {
     httpPost<any>('/workorders/' + id + '/confirm', { result: result, confirm_note: confirmNote }, true)
@@ -1686,7 +1686,7 @@ export function apiManageOrderDetail(id: string): Promise<WorkOrderDetail> {
   })
 }
 
-/** 分诊 POST /manage/workorders/:id/triage {result: pass|reject, note}（reject 时 note 必填 → 作废） */
+/** 受理 POST /manage/workorders/:id/triage {result: pass|reject, note}（reject 时 note 必填 → 作废） */
 export function apiTriageOrder(id: string, result: 'pass' | 'reject', note: string): Promise<null> {
   return httpPost<null>('/manage/workorders/' + id + '/triage', { result: result, note: note }, true)
 }

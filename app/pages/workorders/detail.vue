@@ -113,7 +113,7 @@
         </view>
       </view>
 
-      <!-- 驳回/退回原因（分诊驳回作废 或 验收退回返工时展示） -->
+      <!-- 驳回/退回原因（受理驳回作废 或 验收退回返工时展示） -->
       <view v-if="showRejectReason" class="card" :style="{ backgroundColor: colors.bgCard }">
         <text class="sec-title" :style="{ color: colors.danger }">{{ order.status == 'closed_invalid' ? '作废原因' : '退回原因' }}</text>
         <text class="desc-text" :style="{ color: colors.textRegular }">{{ order.reject_reason }}</text>
@@ -323,7 +323,7 @@ export default {
   computed: {
     statusText(): string {
       const s = this.order != null ? this.order.status : ''
-      if (s == 'reported') return '待分诊'
+      if (s == 'reported') return '待受理'
       if (s == 'pending_dispatch') return '待派单'
       if (s == 'processing') return '处理中'
       if (s == 'pending_confirm') return '待验收'
@@ -383,7 +383,7 @@ export default {
       if (this.order == null) return []
       return this.order.finish_photos.map(photoUrl)
     },
-    /** 展示驳回/退回原因：作废（分诊驳回）或处理中（验收退回返工） */
+    /** 展示驳回/退回原因：作废（受理驳回）或处理中（验收退回返工） */
     showRejectReason(): boolean {
       if (this.order == null || this.order.reject_reason == '') return false
       return this.order.status == 'closed_invalid' || this.order.status == 'processing'
@@ -448,8 +448,8 @@ export default {
     /** 流转动作文案（对齐后端 model.Action* 枚举） */
     logActionText(a: string): string {
       if (a == 'create') return '上报工单'
-      if (a == 'triage_pass') return '分诊通过'
-      if (a == 'triage_reject') return '分诊驳回'
+      if (a == 'triage_pass') return '受理通过'
+      if (a == 'triage_reject') return '受理驳回'
       if (a == 'dispatch') return '派单'
       if (a == 'grab') return '抢单'
       if (a == 'finish') return '完工提交'

@@ -242,7 +242,7 @@ func (ctl *MPController) OrderGrab(c *gin.Context) {
 	response.OK(c, gin.H{"status": "processing"})
 }
 
-// OrderConfirm POST /workorders/:id/confirm（验收：报单人本人或分诊名单成员）
+// OrderConfirm POST /workorders/:id/confirm（验收：报单人本人或受理名单成员）
 func (ctl *MPController) OrderConfirm(c *gin.Context) {
 	id, be := pathID(c)
 	if be != nil {

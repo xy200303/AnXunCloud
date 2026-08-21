@@ -636,7 +636,7 @@ func (d *demoSeeder) seedOrdersA(tid, cid string, pointIDs []string, abnormalChe
 		return d.photosOf(tid, ownerID, labels...)
 	}
 
-	// WO1 已闭环：前台代录 → 分诊 → 派单 → 完工 → 验收通过
+	// WO1 已闭环：前台代录 → 受理 → 派单 → 完工 → 验收通过
 	wo1 := womodel.WorkOrder{
 		TenantID: &tid, OrderNo: d.orderNo(d3), CommunityID: cid,
 		Title: "水泵房地面渗水维修", Description: "前台接业主电话反映水泵房门口地面有渗水，请工程部核实处理。",
@@ -652,7 +652,7 @@ func (d *demoSeeder) seedOrdersA(tid, cid string, pointIDs []string, abnormalChe
 	}
 	if err := create(wo1, []logStep{
 		{womodel.ActionCreate, p.fd, "前台代录工单", d3},
-		{womodel.ActionTriagePass, p.service, "分诊通过：属实，转工程维修", d3.Add(30 * time.Minute)},
+		{womodel.ActionTriagePass, p.service, "受理通过：属实，转工程维修", d3.Add(30 * time.Minute)},
 		{womodel.ActionDispatch, p.eng, "派单给吴永强", d3.Add(time.Hour)},
 		{womodel.ActionFinish, p.repair, "完工：更换老化密封圈", d1.Add(-2 * time.Hour)},
 		{womodel.ActionConfirmPass, p.fd, "验收通过", d1},
@@ -697,14 +697,14 @@ func (d *demoSeeder) seedOrdersA(tid, cid string, pointIDs []string, abnormalChe
 	}
 	if err := create(wo3, []logStep{
 		{womodel.ActionCreate, p.bm, "楼管员主动上报", yesterdayAt(14, 0)},
-		{womodel.ActionTriagePass, p.service, "分诊通过：影响业主出行，加急", yesterdayAt(14, 5)},
+		{womodel.ActionTriagePass, p.service, "受理通过：影响业主出行，加急", yesterdayAt(14, 5)},
 		{womodel.ActionDispatch, p.eng, "派单给吴永强", yesterdayAt(14, 30)},
 		{womodel.ActionFinish, p.repair, "完工：读卡器排线修复", yesterdayAt(17, 40)},
 	}); err != nil {
 		return err
 	}
 
-	// WO4 待派单：主动上报，分诊已通过
+	// WO4 待派单：主动上报，受理已通过
 	wo4 := womodel.WorkOrder{
 		TenantID: &tid, OrderNo: d.orderNo(daysAgo(0)), CommunityID: cid,
 		Title: "2 栋电梯运行异响", Description: "2 栋西梯上行至 7 层附近有明显异响，建议维保单位检查曳引系统。",
@@ -716,12 +716,12 @@ func (d *demoSeeder) seedOrdersA(tid, cid string, pointIDs []string, abnormalChe
 	}
 	if err := create(wo4, []logStep{
 		{womodel.ActionCreate, p.bm, "楼管员主动上报", todayAt(8, 50)},
-		{womodel.ActionTriagePass, p.service, "分诊通过：属实，转工程安排电梯维保", todayAt(9, 10)},
+		{womodel.ActionTriagePass, p.service, "受理通过：属实，转工程安排电梯维保", todayAt(9, 10)},
 	}); err != nil {
 		return err
 	}
 
-	// WO5 待分诊：前台代录刚进池
+	// WO5 待受理：前台代录刚进池
 	wo5 := womodel.WorkOrder{
 		TenantID: &tid, OrderNo: d.orderNo(daysAgo(0)), CommunityID: cid,
 		Title: "3 栋楼道堆放杂物", Description: "业主来电反映 3 栋 12 层楼道堆放纸箱杂物，存在消防隐患，请安排清理。",
@@ -735,7 +735,7 @@ func (d *demoSeeder) seedOrdersA(tid, cid string, pointIDs []string, abnormalChe
 		return err
 	}
 
-	// WO6 已作废：重复报单分诊驳回
+	// WO6 已作废：重复报单受理驳回
 	wo6 := womodel.WorkOrder{
 		TenantID: &tid, OrderNo: d.orderNo(d3), CommunityID: cid,
 		Title: "北门路灯不亮（重复报单）", Description: "业主反映园区北门路灯不亮。",
@@ -747,7 +747,7 @@ func (d *demoSeeder) seedOrdersA(tid, cid string, pointIDs []string, abnormalChe
 	}
 	return create(wo6, []logStep{
 		{womodel.ActionCreate, p.fd, "前台代录工单", d3},
-		{womodel.ActionTriageReject, p.service, "分诊驳回：与既有工单重复", d3.Add(time.Hour)},
+		{womodel.ActionTriageReject, p.service, "受理驳回：与既有工单重复", d3.Add(time.Hour)},
 	})
 }
 
@@ -826,7 +826,7 @@ func (d *demoSeeder) seedTenantB() error {
 		return err
 	}
 
-	// 抢单模式开启（与租户 A 的分诊+派单模式形成对照）
+	// 抢单模式开启（与租户 A 的受理+派单模式形成对照）
 	community := sysmodel.Community{
 		TenantID: tid, Name: "金源世纪城", Address: "武汉市江夏区藏龙大道 12 号",
 		ManagerID: &managerID, WoTriageEnabled: true, WoGrabEnabled: true,
@@ -949,7 +949,7 @@ func (d *demoSeeder) seedTenantB() error {
 		at                 time.Time
 	}{
 		{womodel.ActionCreate, xjID, "巡检员主动上报", todayAt(8, 5)},
-		{womodel.ActionTriagePass, serviceID, "分诊通过：属实，转工程", todayAt(8, 20)},
+		{womodel.ActionTriagePass, serviceID, "受理通过：属实，转工程", todayAt(8, 20)},
 	} {
 		row := womodel.WorkOrderLog{OrderID: wo1.ID, Action: l.action, OperatorID: l.op, Detail: l.detail, CreatedAt: l.at}
 		if err := d.db.Create(&row).Error; err != nil {

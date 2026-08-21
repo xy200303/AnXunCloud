@@ -1,4 +1,4 @@
-// 异常工单接口（接口文档 §2.15；P2 闭环状态机：分诊 → 派单 → 完工 → 验收）
+// 异常工单接口（接口文档 §2.15；P2 闭环状态机：受理 → 派单 → 完工 → 验收）
 import { request } from '@/utils/request'
 import type { WorkOrderListResult, WorkOrderDetail } from './biz-types'
 
@@ -25,7 +25,7 @@ export function getWorkOrder(id: string) {
 }
 
 // 前台代录建单（source 固定 frontdesk）；photos 为已上传的 file_key 引用；
-// 指定 assignee_id 时视为直接派单（进入处理中，省略分诊/派单环节）
+// 指定 assignee_id 时视为直接派单（进入处理中，省略受理/派单环节）
 export function createWorkOrder(data: {
   community_id: string
   point_id?: string
@@ -46,7 +46,7 @@ export function deleteWorkOrder(id: string) {
   return request<null>({ url: `/workorders/${id}`, method: 'delete' })
 }
 
-// 分诊：pass 通过（可选定优先级/分类）→ 待派单；reject 驳回（原因必填）→ 已作废
+// 受理：pass 通过（可选定优先级/分类）→ 待派单；reject 驳回（原因必填）→ 已作废
 export function triageWorkOrder(id: string, data: { result: 'pass' | 'reject'; priority?: string; category?: string; note?: string }) {
   return request<{ status: string }>({ url: `/workorders/${id}/triage`, method: 'post', data })
 }

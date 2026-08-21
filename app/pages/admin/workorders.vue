@@ -112,7 +112,7 @@ const TAB_QUERY: Record<string, string> = {
 
 /** 工单状态文案（P2 六态，对齐后端 model.Order* 枚举） */
 function statusTextOf(s: string): string {
-  if (s == 'reported') return '待分诊'
+  if (s == 'reported') return '待受理'
   if (s == 'pending_dispatch') return '待派单'
   if (s == 'processing') return '处理中'
   if (s == 'pending_confirm') return '待验收'
@@ -159,7 +159,7 @@ export default {
       colors: Colors,
       status: 'pending_dispatch',
       tabs: [
-        { label: '待分诊', value: 'reported' },
+        { label: '待受理', value: 'reported' },
         { label: '待派单', value: 'pending_dispatch' },
         { label: '处理中', value: 'processing' },
         { label: '待验收', value: 'pending_confirm' },

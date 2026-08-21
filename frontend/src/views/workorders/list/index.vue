@@ -4,7 +4,7 @@
     <div class="table-card tab-card">
       <el-tabs v-model="activeTab" @tab-change="handleTabChange">
         <el-tab-pane name="reported">
-          <template #label>待分诊 <el-badge :value="counts.reported || 0" :max="99" type="danger" class="tab-badge" /></template>
+          <template #label>待受理 <el-badge :value="counts.reported || 0" :max="99" type="danger" class="tab-badge" /></template>
         </el-tab-pane>
         <el-tab-pane name="pending_dispatch">
           <template #label>待派单 <el-badge :value="counts.pending_dispatch || 0" :max="99" type="warning" class="tab-badge" /></template>
@@ -114,7 +114,7 @@
               v-if="row.status === 'reported' && userStore.hasPerm('workorder:triage')"
               link type="primary"
               @click.stop="goDetail(row)"
-            >分诊</el-button>
+            >受理</el-button>
             <el-button
               v-else-if="row.status === 'pending_dispatch' && userStore.hasPerm('workorder:dispatch')"
               link type="primary"
@@ -238,7 +238,7 @@ const counts = reactive<Record<string, number>>({
   reported: 0, pending_dispatch: 0, processing: 0, pending_confirm: 0, closed: 0, closed_invalid: 0
 })
 const communities = ref<CommunityItem[]>([])
-// 默认落「待分诊」（工单流转入口）
+// 默认落「待受理」（工单流转入口）
 const activeTab = ref('reported')
 const timeRange = ref<[string, string] | null>(null)
 
@@ -246,7 +246,7 @@ const query = reactive<WorkOrderQuery>({ page: 1, page_size: 20, community_id: u
 
 const emptyText = computed(() => {
   return {
-    reported: '太棒了，没有待分诊的工单',
+    reported: '太棒了，没有待受理的工单',
     pending_dispatch: '暂无待派单的工单',
     processing: '暂无处理中的工单',
     pending_confirm: '暂无待验收的工单',
@@ -321,7 +321,7 @@ function priorityType(p: string) {
 
 function statusLabel(s: string) {
   return {
-    reported: '待分诊', pending_dispatch: '待派单', processing: '处理中',
+    reported: '待受理', pending_dispatch: '待派单', processing: '处理中',
     pending_confirm: '待验收', closed: '已闭环', closed_invalid: '已作废'
   }[s] || s
 }

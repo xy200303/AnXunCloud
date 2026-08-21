@@ -77,7 +77,7 @@
         </view>
       </view>
 
-      <!-- 驳回/退回原因（分诊驳回作废 或 验收退回返工时展示） -->
+      <!-- 驳回/退回原因（受理驳回作废 或 验收退回返工时展示） -->
       <view v-if="showRejectReason" class="card" :style="{ backgroundColor: colors.bgCard }">
         <text class="sec-title" :style="{ color: colors.danger }">{{ order.status == 'closed_invalid' ? '作废原因' : '退回原因' }}</text>
         <text class="info-line" :style="{ color: colors.textRegular }">{{ order.reject_reason }}</text>
@@ -119,14 +119,14 @@
         </view>
       </view>
 
-      <!-- 底部操作：按状态 + 权限显示（分诊 → 派单 → 验收） -->
+      <!-- 底部操作：按状态 + 权限显示（受理 → 派单 → 验收） -->
       <view v-if="canTriage || canDispatch || canConfirmAct" class="bottom-actions" :style="{ backgroundColor: colors.bgCard, borderTopColor: colors.border }">
         <template v-if="canTriage">
           <view class="btn-action btn-action-outline" :style="{ borderColor: colors.danger }" @click="onTriageRejectTap">
-            <text class="btn-action-text" :style="{ color: colors.danger }">分诊驳回</text>
+            <text class="btn-action-text" :style="{ color: colors.danger }">受理驳回</text>
           </view>
           <view class="btn-action" :style="{ backgroundColor: colors.primary }" @click="onTriagePass">
-            <text class="btn-action-text" :style="{ color: colors.white }">分诊通过</text>
+            <text class="btn-action-text" :style="{ color: colors.white }">受理通过</text>
           </view>
         </template>
         <view
@@ -211,7 +211,7 @@
       </view>
     </view>
 
-    <!-- 分诊驳回原因弹层（驳回后工单作废） -->
+    <!-- 受理驳回原因弹层（驳回后工单作废） -->
     <view v-if="triaging" class="mask mask-center" :style="{ backgroundColor: colors.mask }" @click="triaging = false">
       <view class="dialog" :style="{ backgroundColor: colors.bgCard }" @click.stop="">
         <text class="dialog-title" :style="{ color: colors.textPrimary }">驳回原因（必填）</text>
@@ -261,7 +261,7 @@ type DetailData = {
   assignRemark: string
   rejecting: boolean
   rejectReason: string
-  /** 分诊驳回弹层 */
+  /** 受理驳回弹层 */
   triaging: boolean
   triageReason: string
   acting: boolean
@@ -310,7 +310,7 @@ function emptyOrder(): WorkOrderDetail {
 
 /** 工单状态文案（P2 六态，对齐后端 model.Order* 枚举） */
 function statusTextOf(s: string): string {
-  if (s == 'reported') return '待分诊'
+  if (s == 'reported') return '待受理'
   if (s == 'pending_dispatch') return '待派单'
   if (s == 'processing') return '处理中'
   if (s == 'pending_confirm') return '待验收'
@@ -373,7 +373,7 @@ export default {
     priorityText(): string {
       return priorityTextOf(this.order.priority)
     },
-    /** 分诊入口：待分诊 + workorder:triage 权限（通过 → 待派单；驳回 → 已作废） */
+    /** 受理入口：待受理 + workorder:triage 权限（通过 → 待派单；驳回 → 已作废） */
     canTriage(): boolean {
       return this.order.status == 'reported' && useAuthStore().hasPerm('workorder:triage')
     },
@@ -385,7 +385,7 @@ export default {
     canConfirmAct(): boolean {
       return this.order.status == 'pending_confirm' && useAuthStore().hasPerm('workorder:confirm')
     },
-    /** 展示驳回/退回原因：作废（分诊驳回）或处理中（验收退回返工） */
+    /** 展示驳回/退回原因：作废（受理驳回）或处理中（验收退回返工） */
     showRejectReason(): boolean {
       if (this.order.reject_reason == '') return false
       return this.order.status == 'closed_invalid' || this.order.status == 'processing'
@@ -435,8 +435,8 @@ export default {
     /** 流转动作文案（对齐后端 model.Action* 枚举） */
     logActionText(a: string): string {
       if (a == 'create') return '上报工单'
-      if (a == 'triage_pass') return '分诊通过'
-      if (a == 'triage_reject') return '分诊驳回'
+      if (a == 'triage_pass') return '受理通过'
+      if (a == 'triage_reject') return '受理驳回'
       if (a == 'dispatch') return '派单'
       if (a == 'grab') return '抢单'
       if (a == 'finish') return '完工提交'
@@ -444,11 +444,11 @@ export default {
       if (a == 'confirm_reject') return '验收退回'
       return a
     },
-    /** 分诊通过（二次确认）→ 待派单 */
+    /** 受理通过（二次确认）→ 待派单 */
     onTriagePass() {
       if (this.acting) return
       uni.showModal({
-        title: '分诊通过',
+        title: '受理通过',
         content: '确认该问题属实有效？通过后工单进入待派单。',
         confirmText: '通过',
         success: (res) => {
@@ -456,7 +456,7 @@ export default {
           this.acting = true
           apiTriageOrder(this.orderId, 'pass', '')
             .then(() => {
-              uni.showToast({ title: '分诊通过，请派单', icon: 'none' })
+              uni.showToast({ title: '受理通过，请派单', icon: 'none' })
               this.load()
             })
             .catch((e: Error) => {
@@ -472,7 +472,7 @@ export default {
       this.triageReason = ''
       this.triaging = true
     },
-    /** 分诊驳回（原因必填）→ 已作废 */
+    /** 受理驳回（原因必填）→ 已作废 */
     onTriageRejectConfirm() {
       if (this.acting) return
       const reason = this.triageReason.trim()

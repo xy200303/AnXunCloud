@@ -7,7 +7,7 @@ import (
 	"anxuncloud/internal/module/workorder/model"
 )
 
-// TestCanTransit 工单闭环状态机表驱动测试：覆盖正常闭环、分诊驳回、验收退回三条核心路径及非法流转。
+// TestCanTransit 工单闭环状态机表驱动测试：覆盖正常闭环、受理驳回、验收退回三条核心路径及非法流转。
 func TestCanTransit(t *testing.T) {
 	cases := []struct {
 		name   string
@@ -16,26 +16,26 @@ func TestCanTransit(t *testing.T) {
 		wantTo string
 		wantOK bool
 	}{
-		// 正常闭环：上报→分诊通过→派单→完工→验收通过
-		{"分诊通过", model.ActionTriagePass, model.OrderReported, model.OrderPendingDispatch, true},
+		// 正常闭环：上报→受理通过→派单→完工→验收通过
+		{"受理通过", model.ActionTriagePass, model.OrderReported, model.OrderPendingDispatch, true},
 		{"派单", model.ActionDispatch, model.OrderPendingDispatch, model.OrderProcessing, true},
 		{"抢单", model.ActionGrab, model.OrderPendingDispatch, model.OrderProcessing, true},
 		{"完工提交", model.ActionFinish, model.OrderProcessing, model.OrderPendingConfirm, true},
 		{"验收通过闭环", model.ActionConfirmPass, model.OrderPendingConfirm, model.OrderClosed, true},
-		// 分诊驳回：待分诊 → 已作废
-		{"分诊驳回了作废", model.ActionTriageReject, model.OrderReported, model.OrderClosedInvalid, true},
+		// 受理驳回：待受理 → 已作废
+		{"受理驳回了作废", model.ActionTriageReject, model.OrderReported, model.OrderClosedInvalid, true},
 		// 验收退回：待验收 → 处理中（返工后可再次完工/验收）
 		{"验收退回返工", model.ActionConfirmReject, model.OrderPendingConfirm, model.OrderProcessing, true},
 		{"退回后再次完工", model.ActionFinish, model.OrderProcessing, model.OrderPendingConfirm, true},
 		// 非法流转
-		{"待派单不可分诊", model.ActionTriagePass, model.OrderPendingDispatch, "", false},
-		{"待分诊不可派单", model.ActionDispatch, model.OrderReported, "", false},
-		{"待分诊不可完工", model.ActionFinish, model.OrderReported, "", false},
+		{"待派单不可受理", model.ActionTriagePass, model.OrderPendingDispatch, "", false},
+		{"待受理不可派单", model.ActionDispatch, model.OrderReported, "", false},
+		{"待受理不可完工", model.ActionFinish, model.OrderReported, "", false},
 		{"处理中不可验收", model.ActionConfirmPass, model.OrderProcessing, "", false},
 		{"已闭环不可再验收", model.ActionConfirmPass, model.OrderClosed, "", false},
 		{"已闭环不可派单", model.ActionDispatch, model.OrderClosed, "", false},
 		{"已作废不可派单", model.ActionDispatch, model.OrderClosedInvalid, "", false},
-		{"已作废不可分诊", model.ActionTriagePass, model.OrderClosedInvalid, "", false},
+		{"已作废不可受理", model.ActionTriagePass, model.OrderClosedInvalid, "", false},
 		{"待验收不可抢单", model.ActionGrab, model.OrderPendingConfirm, "", false},
 		{"未知动作", "noop", model.OrderReported, "", false},
 	}

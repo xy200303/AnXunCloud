@@ -15,7 +15,7 @@ type CommunitySaveReq struct {
 	Name      string  `json:"name" binding:"required"`
 	Address   string  `json:"address"`
 	ManagerID *string `json:"manager_id"`
-	// WoTriageEnabled 工单分诊开关（nil 保持不变；新增缺省开）
+	// WoTriageEnabled 工单受理开关（nil 保持不变；新增缺省开）
 	WoTriageEnabled *bool `json:"wo_triage_enabled"`
 	// WoGrabEnabled 抢单模式开关（nil 保持不变；新增缺省关）
 	WoGrabEnabled *bool `json:"wo_grab_enabled"`

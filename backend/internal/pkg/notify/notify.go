@@ -5,6 +5,7 @@ package notify
 
 import (
 	"context"
+	"encoding/json"
 	"time"
 
 	"go.uber.org/zap"
@@ -69,6 +70,8 @@ func (n *Notifier) pushAsync(userIDs []string, msgType, title, content string, b
 		return
 	}
 	if len(cids) == 0 {
+		// 常见原因：App 未重新打包/未登录绑定 cid——静默返回难以排查，记 Info 留痕
+		logger.L.Info("App 推送跳过：接收人无已绑设备", zap.String("type", msgType), zap.Int("recipients", len(userIDs)))
 		return
 	}
 	payload := map[string]string{"type": msgType}
@@ -76,12 +79,73 @@ func (n *Notifier) pushAsync(userIDs []string, msgType, title, content string, b
 		payload["biz_id"] = *bizID
 	}
 	go func() {
+		start := time.Now()
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
-		if err := n.push.PushToCIDs(ctx, cids, title, content, payload); err != nil {
+		err := n.push.PushToCIDs(ctx, cids, title, content, payload)
+		if err != nil {
 			logger.L.Warn("App 推送失败", zap.Error(err), zap.String("type", msgType), zap.Int("cids", len(cids)))
 		}
+		n.logPush(userIDs, msgType, title, bizID, len(cids), int(time.Since(start).Milliseconds()), err)
 	}()
+}
+
+// logPush 推送结果落操作日志（module=push/action=push_send，系统操作员）：按接收人所属租户分组各写一行，
+// 管理端「日志管理 → 操作日志」按租户上下文即可查看推送成败与原因；写日志失败仅记 Warn 不回传。
+func (n *Notifier) logPush(userIDs []string, msgType, title string, bizID *string, cidCount, costMs int, pushErr error) {
+	// 接收人 → 租户分组（租户上下文过滤口径与操作日志查询一致）
+	var users []struct {
+		ID       string  `gorm:"column:id"`
+		TenantID *string `gorm:"column:tenant_id"`
+	}
+	if err := n.db.Table("sys_user").Select("id", "tenant_id").Where("id IN ?", userIDs).Find(&users).Error; err != nil {
+		logger.L.Warn("App 推送日志：查询接收人租户失败", zap.Error(err))
+		return
+	}
+	type group struct {
+		tenantID *string
+		count    int
+	}
+	groups := map[string]*group{}
+	for _, u := range users {
+		key := ""
+		if u.TenantID != nil {
+			key = *u.TenantID
+		}
+		if groups[key] == nil {
+			groups[key] = &group{tenantID: u.TenantID}
+		}
+		groups[key].count++
+	}
+	status := "success"
+	errText := ""
+	if pushErr != nil {
+		status = "fail"
+		errText = pushErr.Error()
+		if len(errText) > 500 {
+			errText = errText[:500]
+		}
+	}
+	for _, g := range groups {
+		params, _ := json.Marshal(map[string]any{
+			"type": msgType, "biz_id": bizID, "title": title,
+			"recipients": g.count, "cids": cidCount, "error": errText,
+		})
+		row := sysmodel.SysOperationLog{
+			TenantID: g.tenantID,
+			Username: "system",
+			Module:   "push",
+			Action:   "push_send",
+			Method:   "PUSH",
+			Path:     "uniPush /push/single/cid",
+			Params:   string(params),
+			Status:   status,
+			CostMs:   costMs,
+		}
+		if err := n.db.Create(&row).Error; err != nil {
+			logger.L.Warn("App 推送日志写入失败", zap.Error(err))
+		}
+	}
 }
 
 // BindDevice 绑定设备 cid 到用户（upsert：cid 冲突时改绑当前用户，一个 cid 只属于最后登录的人）。

@@ -135,7 +135,8 @@ const actionOptions = [
   { label: '修改密码', value: 'change_password' },
   { label: '生成任务', value: 'generate' },
   { label: '派单', value: 'dispatch' },
-  { label: '验收', value: 'confirm' }
+  { label: '验收', value: 'confirm' },
+  { label: '消息推送', value: 'push_send' }
 ]
 
 const moduleOptions = [
@@ -144,7 +145,8 @@ const moduleOptions = [
   { label: '巡检管理', value: 'inspection' },
   { label: '异常工单', value: 'workorder' },
   { label: '统计分析', value: 'stats' },
-  { label: '小程序', value: 'mp' }
+  { label: '小程序', value: 'mp' },
+  { label: '消息推送', value: 'push' }
 ]
 
 const loading = ref(false)

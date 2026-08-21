@@ -58,14 +58,23 @@
                 "push" : {
                     "unipush" : {
                         "version" : "2",
-                        "offline" : true,
+                        "offline" : false,
                         "hms" : {},
                         "oppo" : {},
                         "vivo" : {},
                         "mi" : {},
                         "meizu" : {},
                         "honor" : {},
-                        "fcm" : {}
+                        "fcm" : {},
+                        "icons" : {
+                            "small" : {
+                                "ldpi" : "static/push/ic_notification_18.png",
+                                "mdpi" : "static/push/ic_notification_24.png",
+                                "hdpi" : "static/push/ic_notification_36.png",
+                                "xhdpi" : "static/push/ic_notification_48.png",
+                                "xxhdpi" : "static/push/ic_notification_72.png"
+                            }
+                        }
                     }
                 }
             },

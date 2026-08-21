@@ -10,6 +10,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/redis/go-redis/v9"
+	"go.uber.org/zap"
 	"gorm.io/gorm"
 
 	"anxuncloud/internal/config"
@@ -33,6 +34,7 @@ import (
 	workorderctl "anxuncloud/internal/module/workorder/controller"
 	workordersvc "anxuncloud/internal/module/workorder/service"
 	"anxuncloud/internal/pkg/jwtutil"
+	"anxuncloud/internal/pkg/logger"
 	"anxuncloud/internal/pkg/notify"
 	"anxuncloud/internal/pkg/push"
 	"anxuncloud/internal/pkg/response"
@@ -58,6 +60,11 @@ func New(cfg *config.Config, db *gorm.DB, rdb *redis.Client) (*gin.Engine, *insp
 
 	// 统一通知出口：站内消息 + App 推送（uniPush 2.0 / 个推 V2；三要素未配置则推送关闭，仅站内消息）
 	pushCli := push.NewClient(cfg.UniPush.AppID, cfg.UniPush.AppKey, cfg.UniPush.MasterSecret)
+	if pushCli.Enabled() {
+		logger.L.Info("App 推送已启用（uniPush 2.0）", zap.String("appid", cfg.UniPush.AppID))
+	} else {
+		logger.L.Info("App 推送未启用：UNIPUSH_APPID/APPKEY/MASTERSECRET 未配置齐全，仅站内消息")
+	}
 	notifier := notify.New(db, pushCli)
 
 	configSvc := systemsvc.NewConfigService(db, rdb)

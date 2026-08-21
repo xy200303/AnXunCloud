@@ -34,6 +34,7 @@ var actionNames = map[string]string{
 	"review":          "复核",
 	"update_profile":  "修改资料",
 	"change_password": "修改密码",
+	"push_send":       "消息推送",
 }
 
 // ActionName 操作动作中文名（操作日志列表展示用）。

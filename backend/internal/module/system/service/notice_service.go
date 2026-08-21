@@ -168,13 +168,25 @@ func (s *NoticeService) Update(id string, req *NoticeSaveReq, tenantID string) *
 	return nil
 }
 
-// Delete 删除公告（跨租户按 404 处理）。
+// Delete 删除公告（跨租户按 404 处理）；同事务清除该公告广播产生的站内消息（type=announcement, biz_id=公告 id）。
+// 注意：已到达手机通知栏的推送无法撤回，仅清除 App 消息中心记录。
 func (s *NoticeService) Delete(id string, tenantID string) *errs.Error {
-	res := s.db.Delete(&model.SysNotice{}, "id = ? AND tenant_id = ?", id, tenantID)
-	if res.Error != nil {
+	var rows int64
+	err := s.db.Transaction(func(tx *gorm.DB) error {
+		res := tx.Delete(&model.SysNotice{}, "id = ? AND tenant_id = ?", id, tenantID)
+		if res.Error != nil {
+			return res.Error
+		}
+		rows = res.RowsAffected
+		if rows == 0 {
+			return nil
+		}
+		return tx.Where("type = ? AND biz_id = ?", "announcement", id).Delete(&model.SysMessage{}).Error
+	})
+	if err != nil {
 		return errs.ErrInternal
 	}
-	if res.RowsAffected == 0 {
+	if rows == 0 {
 		return errs.ErrNotFound
 	}
 	return nil

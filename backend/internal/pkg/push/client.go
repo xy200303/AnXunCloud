@@ -123,7 +123,11 @@ func (c *Client) invalidateToken() {
 // PushToCIDs 推送通知到一批 cid（逐个走 /push/single/cid；不 panic）。
 // 返回 ok/failed 计数与首个错误：部分失败（如解绑前的残留 cid）不影响其他设备送达，调用方按计数记录。
 // payload 为点击通知后传给 App 的自定义数据（至少含 type/biz_id），序列化为 JSON 字符串下发。
-func (c *Client) PushToCIDs(ctx context.Context, cids []string, title, body string, payload map[string]string) (ok, failed int, err error) {
+// badge 为 iOS 图标角标的绝对未读数：badge>0 时请求体带 push_channel.ios（type=notify + aps.alert +
+// auto_badge，个推 V2 文档无 ios.badge 字段，绝对角标用 auto_badge="N" 字符串下发，见
+// https://docs.getui.com/getui/server/rest_v2/common_args/ ）；badge<=0 不带 push_channel（Android 不受影响，
+// 角标由端内 plus.runtime.setBadgeNumber 尽力同步）。
+func (c *Client) PushToCIDs(ctx context.Context, cids []string, title, body string, payload map[string]string, badge int) (ok, failed int, err error) {
 	if !c.Enabled() {
 		return 0, 0, fmt.Errorf("个推未配置（UNIPUSH_APPID/APPKEY/MASTERSECRET）")
 	}
@@ -133,7 +137,7 @@ func (c *Client) PushToCIDs(ctx context.Context, cids []string, title, body stri
 		if cid == "" {
 			continue
 		}
-		if e := c.pushSingle(ctx, cid, title, body, string(payloadJSON)); e != nil {
+		if e := c.pushSingle(ctx, cid, title, body, string(payloadJSON), badge); e != nil {
 			failed++
 			if firstErr == nil {
 				firstErr = e
@@ -147,8 +151,10 @@ func (c *Client) PushToCIDs(ctx context.Context, cids []string, title, body stri
 
 // pushSingle 单 cid 推送；遇 10001（token 失效）重取 token 后重试一次。
 // 请求体结构：audience.cid 为数组（个推网关实测：顶层 cid 字段返回 20001「audience cannot be null」）。
-func (c *Client) pushSingle(ctx context.Context, cid, title, body, payload string) error {
-	reqBody, _ := json.Marshal(map[string]any{
+// badge>0 时附带 push_channel.ios：aps.alert 复用通知标题/内容（否则 iOS 侧只更角标不弹通知），
+// payload 必填（个推文档：非组件推送时此字段必填），auto_badge 为绝对角标数字符串。
+func (c *Client) pushSingle(ctx context.Context, cid, title, body, payload string, badge int) error {
+	reqMap := map[string]any{
 		"request_id": uuid.Must(uuid.NewV7()).String(),
 		"audience":   map[string]any{"cid": []string{cid}},
 		"push_message": map[string]any{
@@ -159,7 +165,20 @@ func (c *Client) pushSingle(ctx context.Context, cid, title, body, payload strin
 				"payload":    payload,
 			},
 		},
-	})
+	}
+	if badge > 0 {
+		reqMap["push_channel"] = map[string]any{
+			"ios": map[string]any{
+				"type":    "notify",
+				"payload": payload,
+				"aps": map[string]any{
+					"alert": map[string]string{"title": title, "body": body},
+				},
+				"auto_badge": strconv.Itoa(badge),
+			},
+		}
+	}
+	reqBody, _ := json.Marshal(reqMap)
 	for attempt := 0; attempt < 2; attempt++ {
 		token, err := c.getToken(ctx)
 		if err != nil {

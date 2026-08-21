@@ -59,20 +59,44 @@ func (n *Notifier) SendBatch(userIDs []string, tenantID *string, msgType, title,
 	return err
 }
 
-// pushAsync 异步推送：同步查接收人已绑 cid（事务句柄在提交前查询才有效），HTTP 推送放 goroutine。
+// pushAsync 异步推送：同步查接收人已绑 cid 与各用户未读数（事务句柄在提交前查询才有效），HTTP 推送放 goroutine。
+// 推送按用户分组逐用户下发：badge=该用户最新未读数（站内消息已先于推送写入，事务内计数即最新），
+// 供 iOS 服务端角标（push_channel.ios.auto_badge）使用；Android 角标由端内 setBadgeNumber 尽力同步。
 func (n *Notifier) pushAsync(userIDs []string, msgType, title, content string, bizID *string) {
 	if n.push == nil || !n.push.Enabled() {
 		return
 	}
-	var cids []string
-	if err := n.db.Model(&sysmodel.UserPushDevice{}).Where("user_id IN ?", userIDs).Pluck("cid", &cids).Error; err != nil {
+	var devices []sysmodel.UserPushDevice
+	if err := n.db.Model(&sysmodel.UserPushDevice{}).Where("user_id IN ?", userIDs).Find(&devices).Error; err != nil {
 		logger.L.Warn("App 推送：查询设备 cid 失败", zap.Error(err))
 		return
 	}
-	if len(cids) == 0 {
+	if len(devices) == 0 {
 		// 常见原因：App 未重新打包/未登录绑定 cid——静默返回难以排查，记 Info 留痕
 		logger.L.Info("App 推送跳过：接收人无已绑设备", zap.String("type", msgType), zap.Int("recipients", len(userIDs)))
 		return
+	}
+	cidByUser := map[string][]string{}
+	cidCount := 0
+	for _, d := range devices {
+		cidByUser[d.UserID] = append(cidByUser[d.UserID], d.CID)
+		cidCount++
+	}
+	// 一次查完全部接收人未读数（sys_message user_id + is_read=false 口径，与消息中心一致）
+	unreadByUser := map[string]int{}
+	var unreadRows []struct {
+		UserID string `gorm:"column:user_id"`
+		Cnt    int    `gorm:"column:cnt"`
+	}
+	if err := n.db.Model(&sysmodel.SysMessage{}).
+		Select("user_id, count(*) AS cnt").
+		Where("user_id IN ? AND is_read = ?", userIDs, false).
+		Group("user_id").Scan(&unreadRows).Error; err != nil {
+		logger.L.Warn("App 推送：查询未读数失败，角标按 0 下发", zap.Error(err))
+	} else {
+		for _, r := range unreadRows {
+			unreadByUser[r.UserID] = r.Cnt
+		}
 	}
 	payload := map[string]string{"type": msgType}
 	if bizID != nil {
@@ -82,11 +106,20 @@ func (n *Notifier) pushAsync(userIDs []string, msgType, title, content string, b
 		start := time.Now()
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
-		ok, failed, err := n.push.PushToCIDs(ctx, cids, title, content, payload)
-		if err != nil {
-			logger.L.Warn("App 推送失败", zap.Error(err), zap.String("type", msgType), zap.Int("ok", ok), zap.Int("failed", failed))
+		var ok, failed int
+		var firstErr error
+		for uid, cids := range cidByUser {
+			uok, ufailed, err := n.push.PushToCIDs(ctx, cids, title, content, payload, unreadByUser[uid])
+			ok += uok
+			failed += ufailed
+			if firstErr == nil {
+				firstErr = err
+			}
 		}
-		n.logPush(userIDs, msgType, title, bizID, len(cids), ok, failed, int(time.Since(start).Milliseconds()), err)
+		if firstErr != nil {
+			logger.L.Warn("App 推送失败", zap.Error(firstErr), zap.String("type", msgType), zap.Int("ok", ok), zap.Int("failed", failed))
+		}
+		n.logPush(userIDs, msgType, title, bizID, cidCount, ok, failed, int(time.Since(start).Milliseconds()), firstErr)
 	}()
 }
 

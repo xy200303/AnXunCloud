@@ -249,7 +249,7 @@ func (s *AuthService) KillUserSessions(ctx context.Context, userID string) {
 // Info 当前用户信息 + 权限点集合。
 func (s *AuthService) Info(identity *middleware.Identity) (*dto.InfoResp, *errs.Error) {
 	var user model.SysUser
-	if err := s.db.Select("id", "username", "name", "phone", "avatar", "openid", "is_builtin", "role_ids", "last_login_at", "created_at").
+	if err := s.db.Select("id", "username", "name", "phone", "avatar", "openid", "is_builtin", "role_ids", "tenant_id", "last_login_at", "created_at").
 		First(&user, "id = ?", identity.UserID).Error; err != nil {
 		return nil, errs.ErrUnauthorized
 	}
@@ -273,6 +273,14 @@ func (s *AuthService) Info(identity *middleware.Identity) (*dto.InfoResp, *errs.
 		Roles:        []dto.RoleBrief{},
 		Perms:        []string{},
 	}
+	// 所属公司（租户名）与在职编制（小区 + 岗位名），个人中心展示用
+	if user.TenantID != "" {
+		var t model.Tenant
+		if err := s.db.Select("name").First(&t, "id = ?", user.TenantID).Error; err == nil {
+			resp.TenantName = t.Name
+		}
+	}
+	resp.Staffs = s.staffBriefs(user)
 	// 签名取当前 active 签章资产（sign_asset 表）
 	var sigAsset model.SignAsset
 	if err := s.db.Select("file_key").
@@ -588,4 +596,66 @@ func wrapErr(err error) *errs.Error {
 		return errs.ErrInternal
 	}
 	return nil
+}
+
+// staffBriefs 在职编制明细：小区名 + 岗位名列表（个人中心展示用；岗位名按租户岗位字典优先、平台模板回落）。
+func (s *AuthService) staffBriefs(user model.SysUser) []dto.StaffBrief {
+	var rows []model.ProjectStaff
+	if err := s.db.Where("user_id = ? AND status = ?", user.ID, model.StatusEnabled).
+		Order("created_at ASC").Find(&rows).Error; err != nil || len(rows) == 0 {
+		return []dto.StaffBrief{}
+	}
+	// 小区名
+	commIDs := make([]string, 0, len(rows))
+	for _, r := range rows {
+		commIDs = append(commIDs, r.ProjectID)
+	}
+	commNames := map[string]string{}
+	var comms []model.Community
+	if err := s.db.Select("id", "name").Where("id IN ?", commIDs).Find(&comms).Error; err == nil {
+		for _, cm := range comms {
+			commNames[cm.ID] = cm.Name
+		}
+	}
+	// 岗位 code → 名称（租户字典优先，平台模板回落）
+	codes := map[string]bool{}
+	for _, r := range rows {
+		for _, c := range r.Posts {
+			codes[c] = true
+		}
+	}
+	postNames := map[string]string{}
+	if len(codes) > 0 {
+		codeList := make([]string, 0, len(codes))
+		for c := range codes {
+			codeList = append(codeList, c)
+		}
+		var posts []model.PostDict
+		q := s.db.Select("code", "name").Where("code IN ?", codeList)
+		if user.TenantID != "" {
+			q = q.Where("tenant_id = ? OR tenant_id IS NULL", user.TenantID)
+		}
+		if err := q.Order("tenant_id ASC").Find(&posts).Error; err == nil {
+			for _, p := range posts { // 租户行（tenant_id 非空）后扫到则覆盖平台模板名
+				postNames[p.Code] = p.Name
+			}
+		}
+	}
+	out := make([]dto.StaffBrief, 0, len(rows))
+	for _, r := range rows {
+		names := make([]string, 0, len(r.Posts))
+		for _, c := range r.Posts {
+			if n, ok := postNames[c]; ok {
+				names = append(names, n)
+			} else {
+				names = append(names, c)
+			}
+		}
+		out = append(out, dto.StaffBrief{
+			CommunityID:   r.ProjectID,
+			CommunityName: commNames[r.ProjectID],
+			PostNames:     names,
+		})
+	}
+	return out
 }

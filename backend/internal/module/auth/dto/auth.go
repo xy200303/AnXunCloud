@@ -69,6 +69,16 @@ type InfoResp struct {
 	CreatedAt    string      `json:"created_at"`
 	LastLoginAt  string      `json:"last_login_at"`
 	LastLoginIP  string      `json:"last_login_ip"`
+	// 所属公司（租户）与在职编制岗位（个人中心展示：岗位/小区/公司）
+	TenantName string       `json:"tenant_name"`
+	Staffs     []StaffBrief `json:"staffs"`
+}
+
+// StaffBrief 在职编制项：小区 + 岗位名列表。
+type StaffBrief struct {
+	CommunityID   string   `json:"community_id"`
+	CommunityName string   `json:"community_name"`
+	PostNames     []string `json:"post_names"`
 }
 
 // RouteNode 动态路由菜单节点（GET /auth/routes）。

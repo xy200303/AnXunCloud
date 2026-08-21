@@ -91,6 +91,14 @@
         <el-form-item label="存储值" prop="value">
           <el-input v-model="dataForm.value" placeholder="如：power_room，同类型下唯一" />
         </el-form-item>
+        <!-- 巡查类型专属：大类分组（写入 attrs.category，计划表单按此分组展示） -->
+        <el-form-item v-if="typeCode === 'patrol_type'" label="巡查大类">
+          <el-radio-group v-model="dataForm.category">
+            <el-radio value="daily_patrol">日常巡逻</el-radio>
+            <el-radio value="special">专项检查</el-radio>
+            <el-radio value="">不分组</el-radio>
+          </el-radio-group>
+        </el-form-item>
         <el-form-item label="排序">
           <el-input-number v-model="dataForm.sort" :min="0" :max="999" controls-position="right" />
         </el-form-item>
@@ -187,7 +195,9 @@ onMounted(() => {
 const dataFormVisible = ref(false)
 const dataSubmitting = ref(false)
 const dataFormRef = ref<FormInstance>()
-const dataForm = reactive({ id: '', label: '', value: '', sort: 0, status: 1 })
+const dataForm = reactive({ id: '', label: '', value: '', sort: 0, status: 1, category: '' })
+// 编辑行原有的 attrs（表单只管理 category，保存时合并回写，避免清掉其他扩展属性）
+let editingAttrs: Record<string, string> = {}
 
 const dataFormRules: FormRules = {
   label: [{ required: true, message: '请输入标签', trigger: 'blur' }],
@@ -196,10 +206,19 @@ const dataFormRules: FormRules = {
 
 function openDataForm(row?: DictData) {
   dataFormRef.value?.clearValidate()
+  editingAttrs = { ...(row?.attrs || {}) }
   Object.assign(dataForm, row
-    ? { id: row.id, label: row.label, value: row.value, sort: row.sort, status: row.status }
-    : { id: '', label: '', value: '', sort: 0, status: 1 })
+    ? { id: row.id, label: row.label, value: row.value, sort: row.sort, status: row.status, category: row.attrs?.category || '' }
+    : { id: '', label: '', value: '', sort: 0, status: 1, category: '' })
   dataFormVisible.value = true
+}
+
+// 组装 attrs：表单只管理 category，其余扩展属性原样保留；空对象传 undefined 落 NULL
+function buildAttrs(): Record<string, string> | undefined {
+  const attrs = { ...editingAttrs }
+  if (dataForm.category) attrs.category = dataForm.category
+  else delete attrs.category
+  return Object.keys(attrs).length ? attrs : undefined
 }
 
 async function handleSubmitData() {
@@ -208,14 +227,16 @@ async function handleSubmitData() {
   try {
     if (dataForm.id) {
       await updateDictData(dataForm.id, {
-        label: dataForm.label, value: dataForm.value, sort: dataForm.sort, status: dataForm.status
+        label: dataForm.label, value: dataForm.value, sort: dataForm.sort, status: dataForm.status,
+        attrs: buildAttrs()
       })
       ElMessage.success('字典数据已更新')
     } else {
       await createDictData({
         type_code: typeCode,
         label: dataForm.label, value: dataForm.value,
-        sort: dataForm.sort, status: dataForm.status
+        sort: dataForm.sort, status: dataForm.status,
+        attrs: buildAttrs()
       })
       ElMessage.success('字典数据已创建')
     }

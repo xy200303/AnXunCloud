@@ -9,6 +9,7 @@ import (
 	"anxuncloud/internal/pkg/bind"
 	"anxuncloud/internal/pkg/response"
 	"anxuncloud/internal/pkg/timefmt"
+	"anxuncloud/internal/pkg/types"
 )
 
 // DictService 字典管理服务。
@@ -17,6 +18,18 @@ type DictService struct {
 }
 
 func NewDictService(db *gorm.DB) *DictService { return &DictService{db: db} }
+
+// attrsOf 扩展属性转换：空/nil → nil（落 NULL）。
+func attrsOf(m map[string]string) types.JSONMap {
+	if len(m) == 0 {
+		return nil
+	}
+	out := make(types.JSONMap, len(m))
+	for k, v := range m {
+		out[k] = v
+	}
+	return out
+}
 
 // ListTypes 字典类型分页列表（data_count 为其下字典数据条数）。
 func (s *DictService) ListTypes(q *dto.DictTypeQuery) (*response.Page, *errs.Error) {
@@ -182,6 +195,7 @@ func (s *DictService) CreateData(req *dto.DictDataSaveReq) (string, *errs.Error)
 		Sort:     req.Sort,
 		Status:   status,
 		Remark:   req.Remark,
+		Attrs:    attrsOf(req.Attrs),
 	}
 	if err := s.db.Create(&row).Error; err != nil {
 		return "", errs.ErrInternal
@@ -204,7 +218,7 @@ func (s *DictService) UpdateData(id string, req *dto.DictDataSaveReq) *errs.Erro
 			return errs.ErrDictCodeExists.WithMsg("同类型下字典值已存在")
 		}
 	}
-	updates := map[string]any{"label": req.Label, "value": req.Value, "sort": req.Sort, "remark": req.Remark}
+	updates := map[string]any{"label": req.Label, "value": req.Value, "sort": req.Sort, "remark": req.Remark, "attrs": attrsOf(req.Attrs)}
 	if req.Status != nil {
 		updates["status"] = model.StatusStr(*req.Status)
 	}

@@ -221,6 +221,8 @@ type DictDataSaveReq struct {
 	Sort     int    `json:"sort"`
 	Status   *int   `json:"status"`
 	Remark   string `json:"remark"`
+	// Attrs 通用扩展属性（如 patrol_type 的 category 大类：daily_patrol/special），nil=清空
+	Attrs map[string]string `json:"attrs"`
 }
 
 // ========== 参数配置 ==========

@@ -8,6 +8,7 @@ import (
 
 	"anxuncloud/internal/module/system/model"
 	"anxuncloud/internal/pkg/errs"
+	"anxuncloud/internal/pkg/notify"
 	"anxuncloud/internal/pkg/response"
 	"anxuncloud/internal/pkg/timefmt"
 	"anxuncloud/internal/pkg/types"
@@ -17,10 +18,13 @@ import (
 
 // NoticeService 通知公告服务。
 type NoticeService struct {
-	db *gorm.DB
+	db       *gorm.DB
+	notifier *notify.Notifier
 }
 
-func NewNoticeService(db *gorm.DB) *NoticeService { return &NoticeService{db: db} }
+func NewNoticeService(db *gorm.DB, notifier *notify.Notifier) *NoticeService {
+	return &NoticeService{db: db, notifier: notifier}
+}
 
 // NoticeListQuery 公告列表查询。
 type NoticeListQuery struct {
@@ -120,29 +124,18 @@ func (s *NoticeService) Create(req *NoticeSaveReq, operatorID string, operatorNa
 	return n.ID, nil
 }
 
-// broadcast 公告发布时给本租户全体启用用户写站内消息（type=announcement），
+// broadcast 公告发布时给本租户全体启用用户写站内消息（type=announcement）并 App 推送，
 // 移动端消息列表可见并计入未读徽章；content 截断至 500 字符（sys_message.content 上限 512）。
 func (s *NoticeService) broadcast(n *model.SysNotice, tenantID string) {
 	var ids []string
 	if err := s.db.Model(&model.SysUser{}).Where("status = ? AND tenant_id = ?", model.StatusEnabled, tenantID).Pluck("id", &ids).Error; err != nil {
 		return
 	}
-	if len(ids) == 0 {
-		return
-	}
 	content := []rune(n.Content)
 	if len(content) > 500 {
 		content = append(content[:500], []rune("……（全文见公告）")...)
 	}
-	msgs := make([]model.SysMessage, 0, len(ids))
-	for _, uid := range ids {
-		msgs = append(msgs, model.SysMessage{
-			TenantID: &tenantID,
-			UserID: uid, Type: "announcement",
-			Title: "公告：" + n.Title, Content: string(content), BizID: &n.ID,
-		})
-	}
-	s.db.Create(&msgs)
+	_ = s.notifier.SendBatch(ids, &tenantID, "announcement", "公告："+n.Title, string(content), &n.ID)
 }
 
 // Update 修改公告（含发布/下线；发布时间仅在首次发布时写入）。跨租户公告按 404 处理。

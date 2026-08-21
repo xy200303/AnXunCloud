@@ -69,3 +69,14 @@ type MessageQuery struct {
 	Type   string `form:"type"`
 	IsRead string `form:"is_read"`
 }
+
+// PushDeviceBindReq 推送设备绑定（cid 为个推 SDK 客户端标识；platform 可选 android/ios）。
+type PushDeviceBindReq struct {
+	CID      string `json:"cid" binding:"required,max=128"`
+	Platform string `json:"platform" binding:"omitempty,oneof=android ios"`
+}
+
+// PushDeviceUnbindReq 推送设备解绑（DELETE 支持 body 或 query 带 cid）。
+type PushDeviceUnbindReq struct {
+	CID string `json:"cid" form:"cid" binding:"required,max=128"`
+}

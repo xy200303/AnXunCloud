@@ -19,6 +19,7 @@ import (
 	sysmodel "anxuncloud/internal/module/system/model"
 	"anxuncloud/internal/pkg/bind"
 	"anxuncloud/internal/pkg/errs"
+	"anxuncloud/internal/pkg/notify"
 	"anxuncloud/internal/pkg/response"
 	"anxuncloud/internal/pkg/timefmt"
 	"anxuncloud/internal/pkg/types"
@@ -28,12 +29,13 @@ var timeWindowRe = regexp.MustCompile(`^\d{2}:\d{2}-\d{2}:\d{2}$`)
 
 // PlanService 巡检计划服务。
 type PlanService struct {
-	db  *gorm.DB
-	rdb *redis.Client
+	db       *gorm.DB
+	rdb      *redis.Client
+	notifier *notify.Notifier
 }
 
-func NewPlanService(db *gorm.DB, rdb *redis.Client) *PlanService {
-	return &PlanService{db: db, rdb: rdb}
+func NewPlanService(db *gorm.DB, rdb *redis.Client, notifier *notify.Notifier) *PlanService {
+	return &PlanService{db: db, rdb: rdb, notifier: notifier}
 }
 
 // List 计划分页列表。
@@ -628,12 +630,10 @@ func (s *PlanService) FlipOverdue() (int64, error) {
 		if t.RoundName != "" {
 			round = "「" + t.RoundName + "」" // 轮次任务带上轮次名，按轮次追责
 		}
-		s.db.Create(&sysmodel.SysMessage{
-			UserID: t.InspectorID, Type: "task",
-			Title:   "巡检任务已逾期",
-			Content: "你的巡检任务" + round + "（" + t.TaskDate.Format("2006-01-02") + "）已逾期未完成，请尽快补巡或向主管说明情况。",
-			BizID:   &t.ID,
-		})
+		_ = s.notifier.Send(t.InspectorID, "task",
+			"巡检任务已逾期",
+			"你的巡检任务"+round+"（"+t.TaskDate.Format("2006-01-02")+"）已逾期未完成，请尽快补巡或向主管说明情况。",
+			&t.ID)
 		lineStats[t.CommunityID+"|"+t.PatrolType]++
 	}
 	for key, n := range lineStats {
@@ -641,11 +641,10 @@ func (s *PlanService) FlipOverdue() (int64, error) {
 		cid, patrolType := parts[0], parts[1]
 		slot := communitysvc.ResolveReportLineSlot(s.db, cid, patrolType)
 		for _, uid := range communitysvc.SlotUserIDs(s.db, cid, slot) {
-			s.db.Create(&sysmodel.SysMessage{
-				UserID: uid, Type: "task",
-				Title:   "巡查任务逾期提醒",
-				Content: fmt.Sprintf("截至昨日，本项目%s有 %d 个巡查任务逾期未巡，请跟进督办。", s.patrolLineName(patrolType), n),
-			})
+			_ = s.notifier.Send(uid, "task",
+				"巡查任务逾期提醒",
+				fmt.Sprintf("截至昨日，本项目%s有 %d 个巡查任务逾期未巡，请跟进督办。", s.patrolLineName(patrolType), n),
+				nil)
 		}
 	}
 	return res.RowsAffected, nil

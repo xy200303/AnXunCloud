@@ -8,6 +8,7 @@ import (
 	"anxuncloud/internal/config"
 	systemsvc "anxuncloud/internal/module/system/service"
 	"anxuncloud/internal/pkg/database"
+	"anxuncloud/internal/pkg/notify"
 	"anxuncloud/internal/pkg/logger"
 	"anxuncloud/internal/pkg/redis"
 	"anxuncloud/internal/pkg/storage"
@@ -42,7 +43,7 @@ func TestRebuildPDFManual(t *testing.T) {
 		t.Fatalf("连接 Redis 失败: %v", err)
 	}
 	configSvc := systemsvc.NewConfigService(db, rdb)
-	svc := NewReportService(db, rdb, storage.New(cfg.Upload, cfg.OSS, cfg.COS, cfg.App.BaseURL), configSvc.Get)
+	svc := NewReportService(db, rdb, storage.New(cfg.Upload, cfg.OSS, cfg.COS, cfg.App.BaseURL), configSvc.Get, notify.New(db, nil))
 	if err := svc.RebuildPDF(id); err != nil {
 		t.Fatalf("重渲染失败: %v", err)
 	}

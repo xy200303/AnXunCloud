@@ -29,6 +29,7 @@ type Config struct {
 	Watermark WatermarkConfig `mapstructure:"watermark"`
 	Admin     AdminConfig     `mapstructure:"admin"`
 	SPA       SPAConfig       `mapstructure:"spa"`
+	UniPush   UniPushConfig   `mapstructure:"unipush"`
 	Env       string          `mapstructure:"-"` // 当前运行环境（dev/prod），来自 APP_ENV
 }
 
@@ -125,6 +126,13 @@ type SPAConfig struct {
 	DistPath string `mapstructure:"dist_path"` // 前端构建产物目录，容器内 /app/dist
 }
 
+// UniPushConfig uniPush 2.0（个推 V2）推送配置；三要素任一为空即关闭推送（站内通知不受影响）。
+type UniPushConfig struct {
+	AppID        string `mapstructure:"appid"`
+	AppKey       string `mapstructure:"appkey"`
+	MasterSecret string `mapstructure:"mastersecret"`
+}
+
 // Load 读取配置：先加载 .env 文件（不覆盖已存在的真实环境变量），再以环境变量覆盖代码默认值。
 func Load() (*Config, error) {
 	loadEnvFile()
@@ -201,6 +209,9 @@ func registerDefaults(v *viper.Viper) {
 		"admin.password":         "Admin@123",
 		"admin.name":             "系统管理员",
 		"spa.dist_path":          "",
+		"unipush.appid":          "",
+		"unipush.appkey":         "",
+		"unipush.mastersecret":   "",
 	}
 	for k, val := range defaults {
 		v.SetDefault(k, val)

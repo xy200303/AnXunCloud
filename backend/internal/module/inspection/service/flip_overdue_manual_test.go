@@ -7,6 +7,7 @@ import (
 
 	"anxuncloud/internal/config"
 	"anxuncloud/internal/pkg/database"
+	"anxuncloud/internal/pkg/notify"
 )
 
 // TestFlipOverdueManual 一次性手动触发：执行逾期翻转（含汇报线/本人通知），验证通知落库。
@@ -27,7 +28,7 @@ func TestFlipOverdueManual(t *testing.T) {
 	if err != nil {
 		t.Fatalf("连接数据库失败: %v", err)
 	}
-	svc := NewPlanService(db, nil)
+	svc := NewPlanService(db, nil, notify.New(db, nil))
 	n, err := svc.FlipOverdue()
 	if err != nil {
 		t.Fatalf("逾期翻转失败: %v", err)

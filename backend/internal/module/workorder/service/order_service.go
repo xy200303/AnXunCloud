@@ -19,6 +19,7 @@ import (
 	"anxuncloud/internal/module/workorder/dto"
 	"anxuncloud/internal/module/workorder/model"
 	"anxuncloud/internal/pkg/errs"
+	"anxuncloud/internal/pkg/notify"
 	"anxuncloud/internal/pkg/response"
 	"anxuncloud/internal/pkg/storage"
 	"anxuncloud/internal/pkg/timefmt"
@@ -27,13 +28,14 @@ import (
 
 // OrderService 工单服务。
 type OrderService struct {
-	db    *gorm.DB
-	rdb   *redis.Client
-	store *storage.Storage
+	db       *gorm.DB
+	rdb      *redis.Client
+	store    *storage.Storage
+	notifier *notify.Notifier
 }
 
-func NewOrderService(db *gorm.DB, rdb *redis.Client, store *storage.Storage) *OrderService {
-	return &OrderService{db: db, rdb: rdb, store: store}
+func NewOrderService(db *gorm.DB, rdb *redis.Client, store *storage.Storage, notifier *notify.Notifier) *OrderService {
+	return &OrderService{db: db, rdb: rdb, store: store, notifier: notifier}
 }
 
 // GenOrderNo 生成工单号：WX+yyyyMMdd+3位日内序号（Redis INCR，唯一索引兜底）。
@@ -48,10 +50,9 @@ func (s *OrderService) GenOrderNo(ctx context.Context) (string, error) {
 	return fmt.Sprintf("WX%s-%03d", day, seq), nil
 }
 
-// Notify 写站内消息（微信订阅消息推送预留：msg.subscribe_enabled 开关后续接微信 SDK）。
+// Notify 写站内消息 + App 推送（统一走 notify.Notifier；推送未配置时仅站内消息，行为不变）。
 func (s *OrderService) Notify(userID string, msgType, title, content string, bizID *string) {
-	msg := sysmodel.SysMessage{UserID: userID, Type: msgType, Title: title, Content: content, BizID: bizID}
-	s.db.Create(&msg)
+	_ = s.notifier.Send(userID, msgType, title, content, bizID)
 }
 
 // notifySlot 按槽位名单发定向通知（名单为空则该环节无待办提醒，与签字名单解析口径一致）。
@@ -854,7 +855,7 @@ func (s *OrderService) grabbableCommunityIDs(userID string) []string {
 // CreateFromCheckin 异常打卡自动生成工单（在打卡事务内调用）；items 为不合格项快照（before_photos=打卡时该项照片）。
 // 巡检异常转单视同已受理（source=inspection，直接进待派单）。
 // 同事务内定向通知：该巡查业务线的汇报线成员（异常归口对应线主管，patrolType 路由）+ 工单派单槽位成员（下一步处理人）。
-func CreateFromCheckin(tx *gorm.DB, orderNo string, checkinID, communityID string, pointID *string, title, description string, photos types.PhotoArray, items types.OrderItemArray, reporterID, patrolType string) (*model.WorkOrder, error) {
+func CreateFromCheckin(tx *gorm.DB, orderNo string, checkinID, communityID string, pointID *string, title, description string, photos types.PhotoArray, items types.OrderItemArray, reporterID, patrolType string, notifier *notify.Notifier) (*model.WorkOrder, error) {
 	order := model.WorkOrder{
 		TenantID: middleware.CommunityTenantID(tx, communityID), // 冗余列（=所属小区租户）
 		OrderNo: orderNo, CheckinID: &checkinID, CommunityID: communityID, PointID: pointID,
@@ -873,8 +874,9 @@ func CreateFromCheckin(tx *gorm.DB, orderNo string, checkinID, communityID strin
 	if tx.Select("name").First(&u, "id = ?", reporterID).Error == nil {
 		reporterName = u.Name
 	}
-	notify := func(uid, msgTitle, content string) { // 通知写入失败不阻断打卡事务
-		_ = tx.Create(&sysmodel.SysMessage{UserID: uid, Type: "workorder", Title: msgTitle, Content: content, BizID: &order.ID}).Error
+	notifyTx := notifier.WithDB(tx) // 事务内通知：随工单事务提交/回滚；失败不阻断打卡事务
+	notify := func(uid, msgTitle, content string) {
+		_ = notifyTx.Send(uid, "workorder", msgTitle, content, &order.ID)
 	}
 	reportLineSlot := communitysvc.ResolveReportLineSlot(tx, communityID, patrolType)
 	for _, uid := range communitysvc.SlotUserIDs(tx, communityID, reportLineSlot) {

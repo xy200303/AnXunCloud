@@ -7,6 +7,7 @@ import (
 
 	"anxuncloud/internal/config"
 	"anxuncloud/internal/pkg/database"
+	"anxuncloud/internal/pkg/notify"
 )
 
 // TestBuildStatsPatrolTypeManual 手动验证 buildStats 巡查类型过滤口径（连 dev 库，只读）：
@@ -36,7 +37,7 @@ func TestBuildStatsPatrolTypeManual(t *testing.T) {
 	if err != nil {
 		t.Fatalf("连接数据库失败: %v", err)
 	}
-	svc := NewReportService(db, nil, nil, nil)
+	svc := NewReportService(db, nil, nil, nil, notify.New(db, nil))
 
 	allStats, allIDs, be := svc.buildStats(communityID, period, "")
 	if be != nil {

@@ -33,6 +33,8 @@ import (
 	workorderctl "anxuncloud/internal/module/workorder/controller"
 	workordersvc "anxuncloud/internal/module/workorder/service"
 	"anxuncloud/internal/pkg/jwtutil"
+	"anxuncloud/internal/pkg/notify"
+	"anxuncloud/internal/pkg/push"
 	"anxuncloud/internal/pkg/response"
 	"anxuncloud/internal/pkg/session"
 	"anxuncloud/internal/pkg/storage"
@@ -54,6 +56,10 @@ func New(cfg *config.Config, db *gorm.DB, rdb *redis.Client) (*gin.Engine, *insp
 	store := storage.New(cfg.Upload, cfg.OSS, cfg.COS, cfg.App.BaseURL)
 	watermark.Init(cfg.Watermark.FontPath, cfg.Watermark.LogoPath)
 
+	// 统一通知出口：站内消息 + App 推送（uniPush 2.0 / 个推 V2；三要素未配置则推送关闭，仅站内消息）
+	pushCli := push.NewClient(cfg.UniPush.AppID, cfg.UniPush.AppKey, cfg.UniPush.MasterSecret)
+	notifier := notify.New(db, pushCli)
+
 	configSvc := systemsvc.NewConfigService(db, rdb)
 	authSvc := authsvc.NewAuthService(db, rdb, sess, jwtm, configSvc.Get, store)
 	signAssetSvc := systemsvc.NewSignAssetService(db, store)
@@ -63,20 +69,20 @@ func New(cfg *config.Config, db *gorm.DB, rdb *redis.Client) (*gin.Engine, *insp
 	menuSvc := systemsvc.NewMenuService(db)
 	dictSvc := systemsvc.NewDictService(db)
 	logSvc := systemsvc.NewLogService(db)
-	noticeSvc := systemsvc.NewNoticeService(db)
+	noticeSvc := systemsvc.NewNoticeService(db, notifier)
 	messageSvc := systemsvc.NewMessageService(db)
 	communitySvc := communitysvc.NewCommunityService(db)
 	staffSvc := communitysvc.NewStaffService(db)
 	pointSvc := inspectionsvc.NewPointService(db, store, configSvc.Get)
-	planSvc := inspectionsvc.NewPlanService(db, rdb)
-	taskSvc := inspectionsvc.NewTaskService(db, store)
+	planSvc := inspectionsvc.NewPlanService(db, rdb, notifier)
+	taskSvc := inspectionsvc.NewTaskService(db, store, notifier)
 	templateSvc := inspectionsvc.NewTemplateService(db)
-	reviewSvc := inspectionsvc.NewReviewService(db)
-	orderSvc := workordersvc.NewOrderService(db, rdb, store)
+	reviewSvc := inspectionsvc.NewReviewService(db, notifier)
+	orderSvc := workordersvc.NewOrderService(db, rdb, store, notifier)
 	statsSvc := statssvc.NewStatsService(db, store)
-	reportSvc := reportsvc.NewReportService(db, rdb, store, configSvc.Get)
+	reportSvc := reportsvc.NewReportService(db, rdb, store, configSvc.Get, notifier)
 	mpSvc := mpsvc.NewMPService(db, rdb, sess, jwtm, cfg.Wechat, orderSvc)
-	checkinSvc := mpsvc.NewCheckinService(db, rdb, store, orderSvc, configSvc.Get)
+	checkinSvc := mpsvc.NewCheckinService(db, rdb, store, orderSvc, configSvc.Get, notifier)
 	uploadSvc := mpsvc.NewUploadService(db, store, cfg.Upload, cfg.OSS)
 	scheduler := inspectionsvc.NewScheduler(db, planSvc, reportSvc, configSvc.Get)
 
@@ -107,6 +113,7 @@ func New(cfg *config.Config, db *gorm.DB, rdb *redis.Client) (*gin.Engine, *insp
 	reportCtl := reportctl.NewReportController(reportSvc)
 	fileCtl := filectl.NewFileController(filesvc.NewFileService(db, store, uploadSvc))
 	mpCtl := mpctl.NewMPController(mpSvc, checkinSvc, uploadSvc, orderSvc, noticeSvc)
+	pushCtl := mpctl.NewPushController(notifier)
 
 	// 健康检查 + 本地文件静态路由（仅非敏感场景：checkin/workorder/avatar/notice 等内容图；
 	// signature/seal/export 由 /api/files 鉴权提供，store.URL 已按前缀分流）
@@ -345,6 +352,8 @@ func New(cfg *config.Config, db *gorm.DB, rdb *redis.Client) (*gin.Engine, *insp
 			mpAuth.POST("/workorders/:id/confirm", mpCtl.OrderConfirm)
 			mpAuth.GET("/messages", mpCtl.Messages)
 			mpAuth.PUT("/messages/:id/read", mpCtl.MarkRead)
+			mpAuth.POST("/push/device", pushCtl.BindDevice) // uniPush 设备 cid 绑定/解绑
+			mpAuth.DELETE("/push/device", pushCtl.UnbindDevice)
 			mpAuth.GET("/announcements", mpCtl.Announcements)
 			mpAuth.GET("/announcements/:id", mpCtl.AnnouncementDetail)
 		}
@@ -387,6 +396,8 @@ func New(cfg *config.Config, db *gorm.DB, rdb *redis.Client) (*gin.Engine, *insp
 			appAuth.POST("/workorders/:id/confirm", mpCtl.OrderConfirm)
 			appAuth.GET("/messages", mpCtl.Messages)
 			appAuth.PUT("/messages/:id/read", mpCtl.MarkRead)
+			appAuth.POST("/push/device", pushCtl.BindDevice) // uniPush 设备 cid 绑定/解绑（与 mp 组同 handler）
+			appAuth.DELETE("/push/device", pushCtl.UnbindDevice)
 			appAuth.GET("/announcements", mpCtl.Announcements)
 			appAuth.GET("/announcements/:id", mpCtl.AnnouncementDetail)
 

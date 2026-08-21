@@ -21,6 +21,7 @@ import (
 	"anxuncloud/internal/pkg/errs"
 	"anxuncloud/internal/pkg/geo"
 	"anxuncloud/internal/pkg/logger"
+	"anxuncloud/internal/pkg/notify"
 	"anxuncloud/internal/pkg/storage"
 	"anxuncloud/internal/pkg/timefmt"
 	"anxuncloud/internal/pkg/types"
@@ -31,18 +32,19 @@ import (
 
 // CheckinService 打卡服务。
 type CheckinService struct {
-	db      *gorm.DB
-	rdb     *redis.Client
-	store   *storage.Storage
-	orders  *wosvc.OrderService
-	getCfg  func(key string) (string, bool)
-	aiCli   *ai.Client
-	fontOn  bool
+	db       *gorm.DB
+	rdb      *redis.Client
+	store    *storage.Storage
+	orders   *wosvc.OrderService
+	getCfg   func(key string) (string, bool)
+	aiCli    *ai.Client
+	fontOn   bool
+	notifier *notify.Notifier
 }
 
-func NewCheckinService(db *gorm.DB, rdb *redis.Client, store *storage.Storage, orders *wosvc.OrderService, getCfg func(string) (string, bool)) *CheckinService {
+func NewCheckinService(db *gorm.DB, rdb *redis.Client, store *storage.Storage, orders *wosvc.OrderService, getCfg func(string) (string, bool), notifier *notify.Notifier) *CheckinService {
 	return &CheckinService{
-		db: db, rdb: rdb, store: store, orders: orders, getCfg: getCfg,
+		db: db, rdb: rdb, store: store, orders: orders, getCfg: getCfg, notifier: notifier,
 		// 租户级挂点预留（P3 设计方案 §9.2）：大模型配置的租户级覆盖（tenant_config 预留 ai.* key）
 		// 后续改为 ConfigService.Resolve(tenantID, ...) 取值，本期统一用平台默认，行为不变。
 		aiCli: ai.NewClient(getCfg, ai.WithStorage(store)),
@@ -257,7 +259,7 @@ func (s *CheckinService) doCheckinLocked(ctx context.Context, inspectorID string
 				return err
 			}
 			title := fmt.Sprintf("%s异常：%s", point.Name, truncateStr(req.Remark, 40))
-			wo, err := wosvc.CreateFromCheckin(tx, orderNo, rec.ID, task.CommunityID, &point.ID, title, req.Remark, photos, failedItemSnapshot(checkItems), inspectorID, task.PatrolType)
+			wo, err := wosvc.CreateFromCheckin(tx, orderNo, rec.ID, task.CommunityID, &point.ID, title, req.Remark, photos, failedItemSnapshot(checkItems), inspectorID, task.PatrolType, s.notifier)
 			if err != nil {
 				return err
 			}
@@ -616,14 +618,10 @@ func (s *CheckinService) notifyAuditors(recID, pointName, reason string) {
 				continue
 			}
 			sent[u.ID] = true
-			msg := sysmodel.SysMessage{
-				UserID:  u.ID,
-				Type:    "checkin_audit",
-				Title:   "AI 审核转人工：" + pointName,
-				Content: fmt.Sprintf("点位「%s」的打卡记录经大模型审核存疑，已转人工审核。理由：%s", pointName, reason),
-				BizID:   &recID,
-			}
-			s.db.Create(&msg)
+			_ = s.notifier.Send(u.ID, "checkin_audit",
+				"AI 审核转人工："+pointName,
+				fmt.Sprintf("点位「%s」的打卡记录经大模型审核存疑，已转人工审核。理由：%s", pointName, reason),
+				&recID)
 			break
 		}
 	}

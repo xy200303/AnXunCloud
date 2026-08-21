@@ -16,6 +16,7 @@ import (
 	womodel "anxuncloud/internal/module/workorder/model"
 	"anxuncloud/internal/pkg/bind"
 	"anxuncloud/internal/pkg/errs"
+	"anxuncloud/internal/pkg/notify"
 	"anxuncloud/internal/pkg/response"
 	"anxuncloud/internal/pkg/storage"
 	"anxuncloud/internal/pkg/timefmt"
@@ -24,12 +25,13 @@ import (
 
 // TaskService 任务监控与打卡记录检索服务（管理后台）。
 type TaskService struct {
-	db    *gorm.DB
-	store *storage.Storage
+	db       *gorm.DB
+	store    *storage.Storage
+	notifier *notify.Notifier
 }
 
-func NewTaskService(db *gorm.DB, store *storage.Storage) *TaskService {
-	return &TaskService{db: db, store: store}
+func NewTaskService(db *gorm.DB, store *storage.Storage, notifier *notify.Notifier) *TaskService {
+	return &TaskService{db: db, store: store, notifier: notifier}
 }
 
 // taskCounters 任务异常/疑似计数。
@@ -538,14 +540,10 @@ func (s *TaskService) Remind(c *gin.Context, id string) *errs.Error {
 	if s.db.Unscoped().Select("name").First(&plan, "id = ?", t.PlanID).Error == nil {
 		planName = plan.Name
 	}
-	msg := sysmodel.SysMessage{
-		UserID:  t.InspectorID,
-		Type:    "task",
-		Title:   "巡检任务催办",
-		Content: fmt.Sprintf("你的巡检任务「%s」（%s）还未完成，当前进度 %d/%d 个点位，请尽快执行。", planName, t.TaskDate.Format("2006-01-02"), t.DonePoints, t.TotalPoints),
-		BizID:   &t.ID,
-	}
-	if err := s.db.Create(&msg).Error; err != nil {
+	if err := s.notifier.Send(t.InspectorID, "task",
+		"巡检任务催办",
+		fmt.Sprintf("你的巡检任务「%s」（%s）还未完成，当前进度 %d/%d 个点位，请尽快执行。", planName, t.TaskDate.Format("2006-01-02"), t.DonePoints, t.TotalPoints),
+		&t.ID); err != nil {
 		return errs.ErrInternal
 	}
 	return nil

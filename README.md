@@ -67,6 +67,7 @@
 | `ADMIN_USERNAME` / `ADMIN_PASSWORD` / `ADMIN_NAME` | 初始超管账号（仅首次 seed 生效，bcrypt 入库；prod 用默认弱密码会打印醒目警告） | admin / Admin@123 / 系统管理员 | 生产必改 |
 | `WECHAT_APPID` / `WECHAT_SECRET` | 微信小程序凭据；**缺失或 MOCK=true 即 mock 登录模式**（code 传 `mock:<手机号>`，仅开发联调） | 空 | 否 |
 | `WECHAT_MOCK` | 强制 mock 登录开关 | true（dev） | 否 |
+| `UNIPUSH_APPID` / `UNIPUSH_APPKEY` / `UNIPUSH_MASTERSECRET` | uniPush 2.0（个推 V2）App 推送凭据；**三要素任一缺失即推送关闭，站内通知（sys_message）不受影响**。开通方式：DCloud 开发者中心开通 uniPush 2.0 → 跳转个推后台（dev.getui.com）取 AppID/AppKey/MasterSecret；厂商离线通道（华为/小米/OPPO/vivo 等）在个推后台「应用配置-厂商通道」填各厂商平台参数 | 空 | 否 |
 | `UPLOAD_MODE` | 上传模式：dev 本地存储 / oss 阿里云直传 | dev | 否 |
 | `UPLOAD_LOCAL_DIR` | dev 模式存储目录（以 /uploads 静态路由提供访问） | uploads | 否 |
 | `UPLOAD_MAX_FILE_SIZE` | 单文件上限（字节） | 20971520 | 否 |

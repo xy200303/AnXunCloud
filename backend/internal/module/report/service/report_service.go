@@ -27,6 +27,7 @@ import (
 	"anxuncloud/internal/pkg/authz"
 	"anxuncloud/internal/pkg/errs"
 	"anxuncloud/internal/pkg/logger"
+	"anxuncloud/internal/pkg/notify"
 	"anxuncloud/internal/pkg/pdf"
 	"anxuncloud/internal/pkg/response"
 	"anxuncloud/internal/pkg/storage"
@@ -38,14 +39,15 @@ import (
 
 // ReportService 月度报告服务。
 type ReportService struct {
-	db     *gorm.DB
-	rdb    *redis.Client
-	store  *storage.Storage
-	getCfg func(key string) (string, bool) // 读取系统参数（report.company_name；公章自 v16 起走 sign_asset 资产表）
+	db       *gorm.DB
+	rdb      *redis.Client
+	store    *storage.Storage
+	getCfg   func(key string) (string, bool) // 读取系统参数（report.company_name；公章自 v16 起走 sign_asset 资产表）
+	notifier *notify.Notifier
 }
 
-func NewReportService(db *gorm.DB, rdb *redis.Client, store *storage.Storage, getCfg func(string) (string, bool)) *ReportService {
-	return &ReportService{db: db, rdb: rdb, store: store, getCfg: getCfg}
+func NewReportService(db *gorm.DB, rdb *redis.Client, store *storage.Storage, getCfg func(string) (string, bool), notifier *notify.Notifier) *ReportService {
+	return &ReportService{db: db, rdb: rdb, store: store, getCfg: getCfg, notifier: notifier}
 }
 
 // cfgString 读取系统参数（未配置返回空串）。
@@ -1145,9 +1147,9 @@ func (s *ReportService) archivePDF(reportID string) {
 	logger.L.Info("月报 PDF 归档完成", zap.String("report_id", reportID), zap.String("file_key", key))
 }
 
-// notify 写站内消息（仿 OrderService.Notify）。
+// notify 写站内消息 + App 推送（统一走 notify.Notifier，仿 OrderService.Notify）。
 func (s *ReportService) notify(userID, msgType, title, content string, bizID *string) {
-	s.db.Create(&sysmodel.SysMessage{UserID: userID, Type: msgType, Title: title, Content: content, BizID: bizID})
+	_ = s.notifier.Send(userID, msgType, title, content, bizID)
 }
 
 // getWithScope 取报告并做数据权限校验（self 档用户放宽到本人相关报告：三级签字名单任一含本人）。

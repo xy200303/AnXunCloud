@@ -18,6 +18,7 @@ import (
 	"anxuncloud/internal/pkg/ai"
 	"anxuncloud/internal/pkg/errs"
 	"anxuncloud/internal/pkg/logger"
+	"anxuncloud/internal/pkg/notify"
 	"anxuncloud/internal/pkg/response"
 	"anxuncloud/internal/pkg/storage"
 	"anxuncloud/internal/pkg/timefmt"
@@ -32,14 +33,14 @@ const spotcheckAILimit = 50
 
 // ReviewService 打卡记录审核与抽查服务。
 type ReviewService struct {
-	db    *gorm.DB
-	aiCli *ai.Client
-	store *storage.Storage // 可空；逐项照片 file_key 转 URL 用
+	db       *gorm.DB
+	aiCli    *ai.Client
+	store    *storage.Storage // 可空；逐项照片 file_key 转 URL 用
+	notifier *notify.Notifier
 }
 
-func NewReviewService(db *gorm.DB) *ReviewService {
-	// router 装配签名固定为 NewReviewService(db)：配置改由 sys_config 直读
-	// （审核/抽查为低频操作，无需走 config:all 缓存），存储抽象按环境配置自装配
+func NewReviewService(db *gorm.DB, notifier *notify.Notifier) *ReviewService {
+	// 配置改由 sys_config 直读（审核/抽查为低频操作，无需走 config:all 缓存），存储抽象按环境配置自装配
 	getCfg := func(key string) (string, bool) {
 		var cfg sysmodel.SysConfig
 		if err := db.Select("value").Where("key = ?", key).First(&cfg).Error; err != nil {
@@ -55,7 +56,7 @@ func NewReviewService(db *gorm.DB) *ReviewService {
 	}
 	// 租户级挂点预留（P3 设计方案 §9.2）：大模型配置的租户级覆盖后续改为
 	// ConfigService.Resolve(tenantID, ...) 取值，本期统一用平台默认，行为不变。
-	return &ReviewService{db: db, aiCli: ai.NewClient(getCfg, opts...), store: store}
+	return &ReviewService{db: db, aiCli: ai.NewClient(getCfg, opts...), store: store, notifier: notifier}
 }
 
 // List 审核记录分页列表（数据权限按小区过滤）。
@@ -169,12 +170,10 @@ func (s *ReviewService) Pass(c *gin.Context, id string) *errs.Error {
 	nextSlot := communitysvc.FlowStepSlot(s.db, r.CommunityID, patrolType, next.Slot)
 	ptName := pointName(s.db, r.PointID)
 	for _, uid := range communitysvc.SlotUserIDs(s.db, r.CommunityID, nextSlot) {
-		s.db.Create(&sysmodel.SysMessage{
-			UserID: uid, Type: "checkin_audit",
-			Title:   "打卡记录待" + next.Name,
-			Content: fmt.Sprintf("点位「%s」的打卡记录已通过「%s」，待您执行「%s」。", ptName, step.Name, next.Name),
-			BizID:   &r.ID,
-		})
+		_ = s.notifier.Send(uid, "checkin_audit",
+			"打卡记录待"+next.Name,
+			fmt.Sprintf("点位「%s」的打卡记录已通过「%s」，待您执行「%s」。", ptName, step.Name, next.Name),
+			&r.ID)
 	}
 	return nil
 }
@@ -328,16 +327,12 @@ func (s *ReviewService) Reject(c *gin.Context, id, reason string) *errs.Error {
 	if err := s.db.Model(&model.CheckinRecord{}).Where("id = ?", r.ID).Updates(updates).Error; err != nil {
 		return errs.ErrInternal
 	}
-	// 站内通知巡检员（微信订阅推送预留）
+	// 站内通知巡检员 + App 推送
 	ptName := pointName(s.db, r.PointID)
-	msg := sysmodel.SysMessage{
-		UserID:  r.InspectorID,
-		Type:    "checkin_audit",
-		Title:   "打卡记录被打回",
-		Content: fmt.Sprintf("你在点位「%s」的打卡记录审核未通过，原因：%s。请核实后按要求补巡。", ptName, reason),
-		BizID:   &r.ID,
-	}
-	s.db.Create(&msg)
+	_ = s.notifier.Send(r.InspectorID, "checkin_audit",
+		"打卡记录被打回",
+		fmt.Sprintf("你在点位「%s」的打卡记录审核未通过，原因：%s。请核实后按要求补巡。", ptName, reason),
+		&r.ID)
 	return nil
 }
 

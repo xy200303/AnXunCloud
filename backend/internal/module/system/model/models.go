@@ -400,6 +400,18 @@ type SysMessage struct {
 
 func (SysMessage) TableName() string { return "sys_message" }
 
+// UserPushDevice App 推送设备绑定（uniPush 2.0 / 个推 V2；cid 全局唯一，换账号登录即改绑）。
+type UserPushDevice struct {
+	types.UUIDModel
+	UserID    string    `gorm:"type:uuid;index" json:"user_id"`
+	CID       string    `gorm:"column:cid;size:128;uniqueIndex" json:"cid"`
+	Platform  string    `gorm:"size:16" json:"platform"` // android / ios
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
+func (UserPushDevice) TableName() string { return "user_push_device" }
+
 // UploadFile 上传文件记录（第二阶段补充表；v21 起补 name/md5/storage 统一文件元数据）
 type UploadFile struct {
 	types.UUIDModel

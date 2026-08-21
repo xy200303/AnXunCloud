@@ -82,17 +82,18 @@ func (n *Notifier) pushAsync(userIDs []string, msgType, title, content string, b
 		start := time.Now()
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
-		err := n.push.PushToCIDs(ctx, cids, title, content, payload)
+		ok, failed, err := n.push.PushToCIDs(ctx, cids, title, content, payload)
 		if err != nil {
-			logger.L.Warn("App 推送失败", zap.Error(err), zap.String("type", msgType), zap.Int("cids", len(cids)))
+			logger.L.Warn("App 推送失败", zap.Error(err), zap.String("type", msgType), zap.Int("ok", ok), zap.Int("failed", failed))
 		}
-		n.logPush(userIDs, msgType, title, bizID, len(cids), int(time.Since(start).Milliseconds()), err)
+		n.logPush(userIDs, msgType, title, bizID, len(cids), ok, failed, int(time.Since(start).Milliseconds()), err)
 	}()
 }
 
 // logPush 推送结果落操作日志（module=push/action=push_send，系统操作员）：按接收人所属租户分组各写一行，
 // 管理端「日志管理 → 操作日志」按租户上下文即可查看推送成败与原因；写日志失败仅记 Warn 不回传。
-func (n *Notifier) logPush(userIDs []string, msgType, title string, bizID *string, cidCount, costMs int, pushErr error) {
+// status 口径：有任一设备送达即 success（部分失败在 params.ok/failed 体现），全部失败才 fail。
+func (n *Notifier) logPush(userIDs []string, msgType, title string, bizID *string, cidCount, okCount, failCount, costMs int, pushErr error) {
 	// 接收人 → 租户分组（租户上下文过滤口径与操作日志查询一致）
 	var users []struct {
 		ID       string  `gorm:"column:id"`
@@ -119,8 +120,10 @@ func (n *Notifier) logPush(userIDs []string, msgType, title string, bizID *strin
 	}
 	status := "success"
 	errText := ""
-	if pushErr != nil {
+	if okCount == 0 && pushErr != nil {
 		status = "fail"
+	}
+	if pushErr != nil {
 		errText = pushErr.Error()
 		if len(errText) > 500 {
 			errText = errText[:500]
@@ -129,7 +132,7 @@ func (n *Notifier) logPush(userIDs []string, msgType, title string, bizID *strin
 	for _, g := range groups {
 		params, _ := json.Marshal(map[string]any{
 			"type": msgType, "biz_id": bizID, "title": title,
-			"recipients": g.count, "cids": cidCount, "error": errText,
+			"recipients": g.count, "cids": cidCount, "ok": okCount, "failed": failCount, "error": errText,
 		})
 		row := sysmodel.SysOperationLog{
 			TenantID: g.tenantID,

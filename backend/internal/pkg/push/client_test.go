@@ -100,12 +100,15 @@ func TestAuthAndPush(t *testing.T) {
 	if !cli.Enabled() {
 		t.Fatal("三要素齐全应 Enabled")
 	}
-	err := cli.PushToCIDs(context.Background(), []string{"cid-1", "cid-2"}, "标题", "内容", map[string]string{
+	ok, failed, err := cli.PushToCIDs(context.Background(), []string{"cid-1", "cid-2"}, "标题", "内容", map[string]string{
 		"type":   "workorder",
 		"biz_id": "2f6f0d6e-0000-7000-8000-000000000001",
 	})
 	if err != nil {
 		t.Fatalf("PushToCIDs 失败: %v", err)
+	}
+	if ok != 2 || failed != 0 {
+		t.Fatalf("ok/failed = %d/%d, 期望 2/0", ok, failed)
 	}
 	if pushCalls != 2 {
 		t.Fatalf("push 调用次数 = %d, 期望 2", pushCalls)
@@ -128,7 +131,7 @@ func TestTokenRefreshOn10001(t *testing.T) {
 
 	cli := NewClient(testAppID, testAppKey, testMasterSecret)
 	cli.SetBaseURL(srv.URL)
-	if err := cli.PushToCIDs(context.Background(), []string{"cid-1"}, "t", "b", nil); err != nil {
+	if _, _, err := cli.PushToCIDs(context.Background(), []string{"cid-1"}, "t", "b", nil); err != nil {
 		t.Fatalf("10001 后应重试成功: %v", err)
 	}
 	if authCalls != 2 {
@@ -147,8 +150,12 @@ func TestPushError(t *testing.T) {
 
 	cli := NewClient(testAppID, testAppKey, testMasterSecret)
 	cli.SetBaseURL(srv.URL)
-	if err := cli.PushToCIDs(context.Background(), []string{"cid-1"}, "t", "b", nil); err == nil {
+	ok, failed, err := cli.PushToCIDs(context.Background(), []string{"cid-1"}, "t", "b", nil)
+	if err == nil {
 		t.Fatal("应返回推送失败错误")
+	}
+	if ok != 0 || failed != 1 {
+		t.Fatalf("ok/failed = %d/%d, 期望 0/1", ok, failed)
 	}
 	if pushCalls != 1 {
 		t.Fatalf("push 调用次数 = %d, 期望 1（非 token 错误不重试）", pushCalls)
@@ -161,7 +168,7 @@ func TestDisabled(t *testing.T) {
 	if cli.Enabled() {
 		t.Fatal("三要素为空不应 Enabled")
 	}
-	if err := cli.PushToCIDs(context.Background(), []string{"cid-1"}, "t", "b", nil); err == nil {
+	if _, _, err := cli.PushToCIDs(context.Background(), []string{"cid-1"}, "t", "b", nil); err == nil {
 		t.Fatal("未配置时应返回错误")
 	}
 }

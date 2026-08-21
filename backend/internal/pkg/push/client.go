@@ -120,14 +120,12 @@ func (c *Client) invalidateToken() {
 	c.tokenExpire = time.Time{}
 }
 
-// PushToCIDs 推送通知到一批 cid（逐个走 /push/single/cid；任一失败返回首个错误，不 panic）。
+// PushToCIDs 推送通知到一批 cid（逐个走 /push/single/cid；不 panic）。
+// 返回 ok/failed 计数与首个错误：部分失败（如解绑前的残留 cid）不影响其他设备送达，调用方按计数记录。
 // payload 为点击通知后传给 App 的自定义数据（至少含 type/biz_id），序列化为 JSON 字符串下发。
-func (c *Client) PushToCIDs(ctx context.Context, cids []string, title, body string, payload map[string]string) error {
+func (c *Client) PushToCIDs(ctx context.Context, cids []string, title, body string, payload map[string]string) (ok, failed int, err error) {
 	if !c.Enabled() {
-		return fmt.Errorf("个推未配置（UNIPUSH_APPID/APPKEY/MASTERSECRET）")
-	}
-	if len(cids) == 0 {
-		return nil
+		return 0, 0, fmt.Errorf("个推未配置（UNIPUSH_APPID/APPKEY/MASTERSECRET）")
 	}
 	payloadJSON, _ := json.Marshal(payload)
 	var firstErr error
@@ -135,11 +133,16 @@ func (c *Client) PushToCIDs(ctx context.Context, cids []string, title, body stri
 		if cid == "" {
 			continue
 		}
-		if err := c.pushSingle(ctx, cid, title, body, string(payloadJSON)); err != nil && firstErr == nil {
-			firstErr = err
+		if e := c.pushSingle(ctx, cid, title, body, string(payloadJSON)); e != nil {
+			failed++
+			if firstErr == nil {
+				firstErr = e
+			}
+		} else {
+			ok++
 		}
 	}
-	return firstErr
+	return ok, failed, firstErr
 }
 
 // pushSingle 单 cid 推送；遇 10001（token 失效）重取 token 后重试一次。

@@ -13,6 +13,7 @@ import {
   saveTokens,
   clearAuthStorage
 } from '@/utils/storage'
+import { bindPushDevice, unbindPushDevice } from '@/utils/push'
 
 function loadCachedUser(): UserInfo | null {
   const raw = uni.getStorageSync(KEY_USER_INFO) as string
@@ -71,6 +72,8 @@ export const useAuthStore = defineStore('auth', {
             this.token = res.access_token
             this.refreshToken = res.refresh_token
             saveTokens(res.access_token, res.refresh_token)
+            // uniPush：登录成功上报 CID 绑定（拿不到 cid/接口失败静默跳过，不阻塞登录）
+            bindPushDevice()
             if (res.user != null) {
               this.setUser(res.user)
               resolve()
@@ -96,11 +99,13 @@ export const useAuthStore = defineStore('auth', {
       this.userInfo = u
       uni.setStorageSync(KEY_USER_INFO, JSON.stringify(u))
     },
-    /** 登出：先调后端注销（失败也继续本地清理），再清登录态回登录页 */
+    /** 登出：先解绑推送设备（须在清 token 前），再调后端注销（失败也继续本地清理），最后清登录态回登录页 */
     logout() {
-      apiLogout()
-        .then(() => { this.resetToLogin() })
-        .catch((_e: any) => { this.resetToLogin() })
+      unbindPushDevice().then(() => {
+        apiLogout()
+          .then(() => { this.resetToLogin() })
+          .catch((_e: any) => { this.resetToLogin() })
+      })
     },
     resetToLogin() {
       this.token = ''

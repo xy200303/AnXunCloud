@@ -3,7 +3,7 @@
  * 参照 docs/接口文档.md §1.3 信封、§3 移动端接口；/api/app 组与 /api/mp 同形（技术方案 §4）。
  */
 
-import { httpGet, httpPost, httpPut, refreshSession, getBaseUrl, getPublicOrigin } from '@/services/request'
+import { httpGet, httpPost, httpPut, httpDelete, refreshSession, getBaseUrl, getPublicOrigin } from '@/services/request'
 import { getAccessToken } from '@/utils/storage'
 
 // ---- 类型定义（与后端 JSON 蛇形字段对齐；ID 字段全系统 v2 起为 UUIDv7 string） ----
@@ -669,6 +669,27 @@ export function apiRegister(username: string, password: string, name: string, ph
 /** 登出 POST /auth/logout */
 export function apiLogout(): Promise<null> {
   return httpPost<null>('/auth/logout', null, true)
+}
+
+// ---- 推送设备绑定（uniPush 2.0；后端契约 /push/device，与 sys_message 同源下发） -------
+
+/** 推送设备绑定请求体（POST /push/device） */
+export type PushDeviceBindPayload = {
+  /** uniPush CID（uni.getPushClientId 获取） */
+  cid: string
+  /** android / ios */
+  platform: string
+}
+
+/** 绑定推送设备 POST /push/device（同 cid 重复绑定会改绑到当前用户；登录态） */
+export function apiBindPushDevice(cid: string, platform: string): Promise<null> {
+  const body: PushDeviceBindPayload = { cid: cid, platform: platform }
+  return httpPost<null>('/push/device', body as unknown as Record<string, any>, true)
+}
+
+/** 解绑推送设备 DELETE /push/device（登出清 token 前调用） */
+export function apiUnbindPushDevice(cid: string): Promise<null> {
+  return httpDelete<null>('/push/device', { cid: cid }, true)
 }
 
 // ---- 业务 ------------------------------------------------------------------------

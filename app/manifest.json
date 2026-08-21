@@ -19,7 +19,9 @@
         "modules" : {
             "Geolocation" : {},
             "Barcode" : {},
-            "Share" : {}
+            "Share" : {},
+            "Camera" : {},
+            "Push" : {}
         },
         "distribute" : {
             "android" : {
@@ -52,7 +54,20 @@
                         "__platform__" : [ "ios", "android" ]
                     }
                 },
-                "share" : {}
+                "share" : {},
+                "push" : {
+                    "unipush" : {
+                        "version" : "2",
+                        "offline" : true,
+                        "hms" : {},
+                        "oppo" : {},
+                        "vivo" : {},
+                        "mi" : {},
+                        "meizu" : {},
+                        "honor" : {},
+                        "fcm" : {}
+                    }
+                }
             },
             "icons" : {
                 "android" : {

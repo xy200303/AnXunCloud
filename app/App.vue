@@ -4,6 +4,7 @@ import { useAuthStore } from '@/stores/auth'
 import { launchCheckinScan, resolvePointCode } from '@/utils/scan'
 import { startGlobalListener, platformOf } from '@/utils/nfc'
 import { syncOfflineCheckins } from '@/utils/offline'
+import { initPushClickListener, bindPushDevice } from '@/utils/push'
 
 export default {
   onLaunch: function () {
@@ -28,6 +29,10 @@ export default {
       })
     })
     // #ifdef APP-PLUS
+    // uniPush 2.0：注册通知点击监听（全局一次，按 payload {type,biz_id} 路由，详见 utils/push.ts）；
+    // 已登录（token 在）时补一次 CID 绑定（cid 可能变化；未登录时 bindPushDevice 内部跳过，登录成功后由 auth.login 触发）
+    initPushClickListener()
+    bindPushDevice()
     // NFC 全局前台识别（技术方案 §5.4）：App 打开任何页面贴标签自动定位任务。
     // 内部按运行时平台分流：Android 注册即听；鸿蒙自动启动无弹窗会话；iOS 忽略（走按钮触发）。
     // 注意：经典 uni-app 不支持 APP-HARMONY 条件编译，这里必须写 APP-PLUS。

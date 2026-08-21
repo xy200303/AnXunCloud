@@ -52,7 +52,7 @@ export type ApiEnvelope<T = any> = {
  */
 function httpRaw(
   url: string,
-  method: 'GET' | 'POST' | 'PUT',
+  method: 'GET' | 'POST' | 'PUT' | 'DELETE',
   data: Record<string, any> | null,
   token: string
 ): Promise<ApiEnvelope> {
@@ -137,15 +137,15 @@ export function forceLogoutToLogin(msg?: string): void {
 /**
  * 统一请求入口。
  * @param path    以 / 开头的接口路径（不含 baseURL）
- * @param method  'GET' | 'POST' | 'PUT'
- * @param data    POST body（GET 忽略）
+ * @param method  'GET' | 'POST' | 'PUT' | 'DELETE'
+ * @param data    POST/PUT/DELETE body（GET 忽略）
  * @param withAuth 是否携带 access_token（登录/注册/刷新等免鉴权接口传 false）
  * @param isRetry 内部参数：40102 刷新后的重放，防止循环
  * @returns 信封中的 data 字段（类型由调用方断言；data 为 null 时 resolve(null)）
  */
 export function request<T = any>(
   path: string,
-  method: 'GET' | 'POST' | 'PUT',
+  method: 'GET' | 'POST' | 'PUT' | 'DELETE',
   data: Record<string, any> | null = null,
   withAuth: boolean = true,
   isRetry: boolean = false
@@ -196,6 +196,10 @@ export function httpPost<T = any>(path: string, data: Record<string, any> | null
 
 export function httpPut<T = any>(path: string, data: Record<string, any> | null, withAuth: boolean = true): Promise<T | null> {
   return request<T>(path, 'PUT', data, withAuth)
+}
+
+export function httpDelete<T = any>(path: string, data: Record<string, any> | null, withAuth: boolean = true): Promise<T | null> {
+  return request<T>(path, 'DELETE', data, withAuth)
 }
 
 /** 当前 baseURL（调试用） */

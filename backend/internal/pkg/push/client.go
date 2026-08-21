@@ -12,6 +12,7 @@ import (
 	"io"
 	"net/http"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -38,11 +39,12 @@ type Client struct {
 }
 
 // NewClient 创建客户端；三要素任一为空时 Enabled()=false（不发起任何请求）。
+// 值做 TrimSpace：docker compose env_file 解析 CRLF 行尾的 .env 时会把 \r 带进值里（个推 400 的常见根因）。
 func NewClient(appID, appKey, masterSecret string) *Client {
 	return &Client{
-		appID:        appID,
-		appKey:       appKey,
-		masterSecret: masterSecret,
+		appID:        strings.TrimSpace(appID),
+		appKey:       strings.TrimSpace(appKey),
+		masterSecret: strings.TrimSpace(masterSecret),
 		baseURL:      defaultBaseURL,
 		http:         &http.Client{Timeout: 10 * time.Second},
 	}

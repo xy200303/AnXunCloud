@@ -205,6 +205,7 @@ func New(cfg *config.Config, db *gorm.DB, rdb *redis.Client) (*gin.Engine, *insp
 		secured.DELETE("/buildings/:id", middleware.RequirePerm("community:building:delete", "community:delete"), middleware.OperLog(db, "community", "delete"), communityCtl.DeleteBuilding)
 
 		// 项目岗位编制与职责槽位绑定（名单制授权的配置入口）
+		secured.GET("/dict-options", dictCtl.Options) // 业务字典只读选项（免权限，登录即可）
 		secured.GET("/post-dict", middleware.RequirePerm("community:staff:list"), staffCtl.PostDict)
 		secured.GET("/communities/:id/staff", middleware.RequirePerm("community:staff:list"), staffCtl.List)
 		secured.POST("/communities/:id/staff", middleware.RequirePerm("community:staff:edit"), middleware.OperLog(db, "community", "staff_create"), staffCtl.Create)
@@ -224,6 +225,7 @@ func New(cfg *config.Config, db *gorm.DB, rdb *redis.Client) (*gin.Engine, *insp
 			points.POST("/qrcodes", middleware.RequirePerm("inspection:point:qrcode"), middleware.OperLog(db, "inspection", "qrcode"), inspectionCtl.QRCodes)
 			points.GET("/import-template", middleware.RequirePerm("inspection:point:import"), inspectionCtl.PointImportTemplate)
 			points.POST("/import", middleware.RequirePerm("inspection:point:import"), middleware.OperLog(db, "inspection", "import"), inspectionCtl.ImportPoints)
+			points.POST("/batch", middleware.RequirePerm("inspection:point:create"), middleware.OperLog(db, "inspection", "batch_create"), inspectionCtl.BatchCreatePoints)
 			points.GET("/:id", middleware.RequirePerm("inspection:point:list"), inspectionCtl.PointDetail)
 			points.PUT("/:id", middleware.RequirePerm("inspection:point:update"), middleware.OperLog(db, "inspection", "update"), inspectionCtl.UpdatePoint)
 			points.DELETE("/:id", middleware.RequirePerm("inspection:point:delete"), middleware.OperLog(db, "inspection", "delete"), inspectionCtl.DeletePoint)
@@ -233,6 +235,7 @@ func New(cfg *config.Config, db *gorm.DB, rdb *redis.Client) (*gin.Engine, *insp
 		{
 			plans.GET("", middleware.RequirePerm("inspection:plan:list"), inspectionCtl.ListPlans)
 			plans.POST("", middleware.RequirePerm("inspection:plan:create"), middleware.OperLog(db, "inspection", "create"), inspectionCtl.CreatePlan)
+			plans.GET("/preview-points", middleware.RequirePerm("inspection:plan:list"), inspectionCtl.PreviewPlanPoints)
 			plans.GET("/:id", middleware.RequirePerm("inspection:plan:list"), inspectionCtl.PlanDetail)
 			plans.PUT("/:id", middleware.RequirePerm("inspection:plan:update"), middleware.OperLog(db, "inspection", "update"), inspectionCtl.UpdatePlan)
 			plans.DELETE("/:id", middleware.RequirePerm("inspection:plan:delete"), middleware.OperLog(db, "inspection", "delete"), inspectionCtl.DeletePlan)
@@ -291,6 +294,7 @@ func New(cfg *config.Config, db *gorm.DB, rdb *redis.Client) (*gin.Engine, *insp
 		{
 			stats.GET("/coverage", middleware.RequirePerm("stats:report", "stats:inspection"), statsCtl.Coverage)
 			stats.GET("/timeliness", middleware.RequirePerm("stats:report", "stats:inspection"), statsCtl.Timeliness)
+			stats.GET("/patrol-rounds", middleware.RequirePerm("stats:report", "stats:inspection"), statsCtl.PatrolRounds)
 			stats.GET("/performance", middleware.RequirePerm("stats:report", "stats:performance"), statsCtl.Performance)
 			stats.POST("/export", middleware.RequirePerm("stats:export"), middleware.OperLog(db, "stats", "export"), statsCtl.Export)
 		}
@@ -329,6 +333,7 @@ func New(cfg *config.Config, db *gorm.DB, rdb *redis.Client) (*gin.Engine, *insp
 			mpAuth.GET("/points", mpCtl.Points)
 			mpAuth.POST("/checkin", mpCtl.Checkin)
 			mpAuth.POST("/checkin/offline-sync", mpCtl.OfflineSync)
+			mpAuth.GET("/checkins/:id/items", mpCtl.CheckinItems) // 本人打卡逐项 AI 结论
 			mpAuth.POST("/upload/sts", mpCtl.STS)
 			mpAuth.POST("/upload/local", mpCtl.Local) // dev 模式本地上传
 			mpAuth.GET("/workorders/mine", mpCtl.MyOrders)
@@ -369,6 +374,7 @@ func New(cfg *config.Config, db *gorm.DB, rdb *redis.Client) (*gin.Engine, *insp
 			appAuth.GET("/points", mpCtl.Points)
 			appAuth.POST("/checkin", mpCtl.Checkin)
 			appAuth.POST("/checkin/offline-sync", mpCtl.OfflineSync)
+			appAuth.GET("/checkins/:id/items", mpCtl.CheckinItems) // 本人打卡逐项 AI 结论
 			appAuth.POST("/upload/sts", mpCtl.STS)
 			appAuth.POST("/upload/local", mpCtl.Local)
 			// 工单 / 消息 / 公告

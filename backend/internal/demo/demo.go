@@ -46,6 +46,12 @@ var demoAssetByLabel = map[string]string{
 	"大堂门禁读卡器故障": "gate.jpg",
 	"门禁读卡器修复":   "gate.jpg",
 	"电梯运行异响":    "lobby.jpg",
+	// 消防专项检查模板项（fire.go）
+	"消防枪头在位":    "fireext.jpg",
+	"水带齐全完好":    "fireext.jpg",
+	"手报按钮正常":    "corridor.jpg",
+	"压力表指针在绿区": "meter.jpg",
+	"在有效期内":     "fireext.jpg",
 }
 
 // DemoPassword 全部演示账号的统一密码（满足 8–32 位含字母数字策略）。
@@ -584,6 +590,13 @@ func (d *demoSeeder) seedTenantA() error {
 		return err
 	}
 
+	// 消防专项 + 两班倒巡更演示（《专项巡检与专项检查报告设计方案》§3.2/§3.3、§5 第 7 条）
+	if err := d.seedFireSpecial(tid, cid, buildingIDs, pointIDs, pointMeta, tplSafetyID, tplEquipID, firePeople{
+		manager: managerID, eng: engID, repair: repairID, xj01: xj01ID, xj02: xj02ID,
+	}); err != nil {
+		return err
+	}
+
 	// 公告
 	notice := sysmodel.SysNotice{
 		TenantID: &tid, Title: "关于开展夏季消防安全专项检查的通知",
@@ -1002,8 +1015,14 @@ func at(t time.Time) *time.Time { return &t }
 func floatptr(f float64) *float64 { return &f }
 
 // orderNo 演示工单号：WX+yyyyMMdd+3 位日内序号（与 OrderService.GenOrderNo 同格式；全局共享计数器保证不撞 uk_order_no）。
+// 日内序号首用时从库里已存在的同日前缀工单数起算（回填路径下库中可能已有当日工单）。
 func (d *demoSeeder) orderNo(day time.Time) string {
 	key := day.Format("20060102")
+	if _, ok := d.orderSeq[key]; !ok {
+		var cnt int64
+		d.db.Model(&womodel.WorkOrder{}).Where("order_no LIKE ?", "WX"+key+"%").Count(&cnt)
+		d.orderSeq[key] = int(cnt)
+	}
 	d.orderSeq[key]++
 	return fmt.Sprintf("WX%s%03d", key, d.orderSeq[key])
 }

@@ -2,6 +2,7 @@
 package model
 
 import (
+	"math"
 	"time"
 
 	"gorm.io/gorm"
@@ -25,7 +26,8 @@ const (
 	TaskOverdue = "overdue"
 )
 
-// 巡查类型（patrol_type，字典 patrol_type；任务生成时从计划快照）
+// 巡查类型（patrol_type，字典 patrol_type；任务生成时从计划快照。
+// 《专项巡检与专项检查报告设计方案》§3.1 起字典驱动，下列常量仅作 seed 未就位时的回落校验与 demo/统计引用）
 const (
 	PatrolSafety      = "safety"      // 安全巡查（默认，存量数据归此）
 	PatrolEquipment   = "equipment"   // 设备设施专项巡查
@@ -33,7 +35,7 @@ const (
 	PatrolBuilding    = "building"    // 楼栋巡查
 )
 
-// ValidPatrolType 巡查类型取值校验。
+// ValidPatrolType 巡查类型取值校验（无 db 场景的内置回落；服务层应走字典驱动校验，见 plan_service）。
 func ValidPatrolType(t string) bool {
 	switch t {
 	case PatrolSafety, PatrolEquipment, PatrolEnvironment, PatrolBuilding:
@@ -86,6 +88,8 @@ type CheckTemplateItem struct {
 	Name       string `gorm:"size:128" json:"name"`
 	// Requirement 检查标准要求文本（可空）
 	Requirement   *string   `gorm:"type:text" json:"requirement"`
+	// AIHint AI 识别要点文本（可空；空=该项不带识别要点，§3.3）
+	AIHint        *string   `gorm:"type:text" json:"ai_hint"`
 	Required      bool      `json:"required"`
 	PhotoRequired string    `gorm:"size:16" json:"photo_required"` // none/optional/required
 	Sort          int       `json:"sort"`
@@ -137,13 +141,19 @@ type InspectionPoint struct {
 
 func (InspectionPoint) TableName() string { return "inspection_point" }
 
+// 计划点位圈选模式（《专项巡检与专项检查报告设计方案》§3.3）
+const (
+	SelectionExplicit     = "explicit"       // 显式点位名单（point_ids）
+	SelectionByPointTypes = "by_point_types" // 按点位类型动态圈选（point_types），任务生成时实时展开
+)
+
 // InspectionPlan 巡检计划
 type InspectionPlan struct {
 	types.UUIDModel
 	TenantID     *string       `gorm:"type:uuid" json:"tenant_id"` // 冗余列（=所属小区租户）
 	CommunityID  string        `gorm:"type:uuid" json:"community_id"`
 	Name         string        `gorm:"size:128" json:"name"`
-	PatrolType   string        `gorm:"size:16" json:"patrol_type"` // 巡查类型：safety/equipment/environment/building
+	PatrolType   string        `gorm:"size:16" json:"patrol_type"` // 巡查类型（字典 patrol_type 的 value，字典驱动）
 	PointIDs     types.IDArray `gorm:"type:jsonb" json:"point_ids"`
 	CycleType    string        `gorm:"size:16" json:"cycle_type"`
 	CycleConfig  types.JSONMap `gorm:"type:jsonb" json:"cycle_config"`
@@ -151,14 +161,60 @@ type InspectionPlan struct {
 	StartDate    time.Time     `gorm:"type:date" json:"start_date"`
 	EndDate      *time.Time    `gorm:"type:date" json:"end_date"`
 	TimeWindow   string        `gorm:"size:32" json:"time_window"`
-	Status       string        `gorm:"size:16" json:"status"`
-	Remark       string        `gorm:"size:255" json:"remark"`
+	// SelectionMode 点位圈选模式（explicit 默认 / by_point_types）；default 标签让零值走 DB 默认值
+	SelectionMode string            `gorm:"size:16;default:explicit" json:"selection_mode"`
+	PointTypes    types.StringArray `gorm:"type:jsonb" json:"point_types"` // 圈选点位类型（by_point_types 时必填）
+	Status        string            `gorm:"size:16" json:"status"`
+	Remark        string            `gorm:"size:255" json:"remark"`
 	CreatedAt    time.Time     `json:"created_at"`
 	UpdatedAt    time.Time     `json:"updated_at"`
 	DeletedAt    gorm.DeletedAt `json:"-"`
 }
 
 func (InspectionPlan) TableName() string { return "inspection_plan" }
+
+// Round 巡更轮次（cycle_config.rounds 元素；window 允许跨零点如 22:00-02:00，任务日期归属开始时刻所在日）。
+type Round struct {
+	Name   string `json:"name"`
+	Window string `json:"window"`
+}
+
+// PlanRounds 解析计划的轮次配置（未配置或结构非法返回 nil）。
+func PlanRounds(cfg types.JSONMap) []Round {
+	raw, ok := cfg["rounds"]
+	if !ok {
+		return nil
+	}
+	arr, ok := raw.([]any)
+	if !ok {
+		return nil
+	}
+	rounds := make([]Round, 0, len(arr))
+	for _, item := range arr {
+		m, ok := item.(map[string]any)
+		if !ok {
+			continue
+		}
+		name, _ := m["name"].(string)
+		window, _ := m["window"].(string)
+		rounds = append(rounds, Round{Name: name, Window: window})
+	}
+	return rounds
+}
+
+// PlanDailyMinRounds 计划每日达标轮次线（cycle_config.daily_min_rounds；未配置或非非负整数返回 nil，即不设线）。
+func PlanDailyMinRounds(cfg types.JSONMap) *int {
+	v, ok := cfg["daily_min_rounds"]
+	if !ok {
+		return nil
+	}
+	f, ok := v.(float64)
+	if !ok || f < 0 || f != math.Trunc(f) {
+		return nil
+	}
+	n := int(f)
+	return &n
+}
 
 // InspectionTask 巡检任务
 type InspectionTask struct {
@@ -169,6 +225,11 @@ type InspectionTask struct {
 	InspectorID string         `gorm:"type:uuid" json:"inspector_id"`
 	PatrolType  string         `gorm:"size:16" json:"patrol_type"` // 巡查类型（生成时从计划快照）
 	TaskDate    time.Time      `gorm:"type:date" json:"task_date"`
+	// RoundName/TimeWindow 巡更轮次快照（非轮次任务为空；TimeWindow 空时展示/统计回落计划 time_window）
+	RoundName  string `gorm:"size:32" json:"round_name"`
+	TimeWindow string `gorm:"size:32" json:"time_window"`
+	// PointIDs 任务点位名单快照（生成时展开；空则消费侧回落计划 point_ids，兼容存量任务）
+	PointIDs    types.IDArray `gorm:"type:jsonb" json:"point_ids"`
 	Status      string         `gorm:"size:16" json:"status"`
 	TotalPoints int            `json:"total_points"`
 	DonePoints  int            `json:"done_points"`
@@ -180,6 +241,22 @@ type InspectionTask struct {
 }
 
 func (InspectionTask) TableName() string { return "inspection_task" }
+
+// TaskPointIDs 任务点位名单：任务快照优先，空则回落计划名单（兼容快照列上线前的存量任务）。
+func TaskPointIDs(t *InspectionTask, p *InspectionPlan) types.IDArray {
+	if len(t.PointIDs) > 0 {
+		return t.PointIDs
+	}
+	return p.PointIDs
+}
+
+// TaskTimeWindow 任务执行时段：任务快照优先（轮次任务），空则回落计划 time_window。
+func TaskTimeWindow(t *InspectionTask, p *InspectionPlan) string {
+	if t.TimeWindow != "" {
+		return t.TimeWindow
+	}
+	return p.TimeWindow
+}
 
 // CheckinRecord 打卡记录（按月分区；主键 id+created_at；id 支持客户端 UUIDv7 幂等写入）
 type CheckinRecord struct {
@@ -223,6 +300,8 @@ type CheckinRecordItem struct {
 	TemplateItemID *string `gorm:"type:uuid" json:"template_item_id"`
 	Name           string  `gorm:"size:128" json:"name"`
 	Requirement    *string `gorm:"type:text" json:"requirement"`
+	// AIHint AI 识别要点快照（打卡当时从模板项复制，与 name/requirement 同机制）
+	AIHint         *string `gorm:"type:text" json:"ai_hint"`
 	PhotoRequired  string  `gorm:"size:16" json:"photo_required"` // none/optional/required
 	Pass           bool    `json:"pass"`
 	Note           string  `gorm:"size:512" json:"note"`

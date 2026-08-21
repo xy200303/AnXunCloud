@@ -99,6 +99,33 @@ func TestBuildMessagesWithItemPhotos(t *testing.T) {
 	}
 }
 
+// TestBuildMessagesItemHints 逐项标注带标准要求与 AI 识别要点（§3.3）；无要点的项不追加标注。
+func TestBuildMessagesItemHints(t *testing.T) {
+	c := NewClient(func(string) (string, bool) { return "", false })
+	msgs := c.buildMessages(ReviewInput{
+		PointName: "1栋1层电梯厅消防箱",
+		ItemPhotos: []ItemPhoto{
+			{Name: "灭火器压力正常", Requirement: "指针在绿区", AIHint: "指针位于绿色区域",
+				Photos: []PhotoRef{{URL: "http://example.com/gauge.jpg"}}},
+			{Name: "箱体与通道", Photos: []PhotoRef{{URL: "http://example.com/box.jpg"}}},
+		},
+	})
+	content := msgs[1]["content"].([]map[string]any)
+	var texts []string
+	for _, part := range content {
+		if part["type"] == "text" {
+			texts = append(texts, part["text"].(string))
+		}
+	}
+	joined := strings.Join(texts, "\n")
+	if !strings.Contains(joined, "检查项「灭火器压力正常」（标准要求：指针在绿区）（AI 识别要点：指针位于绿色区域）的对应照片") {
+		t.Errorf("逐项标注缺标准要求/AI 识别要点：%s", joined)
+	}
+	if strings.Contains(joined, "检查项「箱体与通道」（") {
+		t.Errorf("无标准要求/识别要点的项不应追加标注：%s", joined)
+	}
+}
+
 // TestBuildMessagesLegacyFallback 无逐项照片的旧记录：回退整组照片逻辑，无逐项标注。
 func TestBuildMessagesLegacyFallback(t *testing.T) {
 	c := NewClient(func(string) (string, bool) { return "", false })

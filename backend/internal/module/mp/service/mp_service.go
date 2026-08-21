@@ -374,7 +374,7 @@ func (s *MPService) PointByCode(inspectorID, code string) (gin.H, *errs.Error) {
 		if s.db.Unscoped().Select("id", "name", "point_ids").First(&plan, "id = ?", t.PlanID).Error != nil {
 			continue
 		}
-		if !plan.PointIDs.Contains(pt.ID) {
+		if !insmodel.TaskPointIDs(t, &plan).Contains(pt.ID) {
 			continue
 		}
 		checked := s.db.Where("task_id = ? AND point_id = ?", t.ID, pt.ID).
@@ -498,6 +498,21 @@ func maskName(name string) string {
 	return string(r[0]) + "*"
 }
 
+// patrolTypeLabels 巡查类型 value→字典 label（sys_dict_data type_code=patrol_type）；
+// 新类型（如 fire 消防设施专项）字典化后自动生效，字典缺值回落空串由前端兜底。
+func (s *MPService) patrolTypeLabels(values ...string) map[string]string {
+	labels := map[string]string{}
+	if len(values) == 0 {
+		return labels
+	}
+	var rows []sysmodel.SysDictData
+	s.db.Select("value", "label").Where("type_code = ? AND value IN ?", "patrol_type", values).Find(&rows)
+	for i := range rows {
+		labels[rows[i].Value] = rows[i].Label
+	}
+	return labels
+}
+
 // TodayTasks 今日任务列表 + 总进度（进行中排最前）。
 func (s *MPService) TodayTasks(inspectorID string) (gin.H, *errs.Error) {
 	today := time.Now().Format("2006-01-02")
@@ -506,6 +521,16 @@ func (s *MPService) TodayTasks(inspectorID string) (gin.H, *errs.Error) {
 		Order("CASE WHEN status = 'doing' THEN 0 ELSE 1 END, id ASC").Find(&tasks).Error; err != nil {
 		return nil, errs.ErrInternal
 	}
+	// 收集本批任务的巡查类型，一次 IN 查询取字典 label（避免循环单查）
+	typeSet := map[string]bool{}
+	typeValues := make([]string, 0, 4)
+	for i := range tasks {
+		if v := tasks[i].PatrolType; v != "" && !typeSet[v] {
+			typeSet[v] = true
+			typeValues = append(typeValues, v)
+		}
+	}
+	typeLabels := s.patrolTypeLabels(typeValues...)
 	items := make([]gin.H, 0, len(tasks))
 	totalPts, donePts := 0, 0
 	for i := range tasks {
@@ -513,9 +538,12 @@ func (s *MPService) TodayTasks(inspectorID string) (gin.H, *errs.Error) {
 		totalPts += t.TotalPoints
 		donePts += t.DonePoints
 		var plan insmodel.InspectionPlan
-		planName, timeWindow := "", ""
+		planName, timeWindow := "", t.TimeWindow // 时段取任务快照优先（轮次任务），空回落计划
 		if s.db.Unscoped().Select("name", "time_window", "deleted_at").First(&plan, "id = ?", t.PlanID).Error == nil {
-			planName, timeWindow = plan.Name, plan.TimeWindow
+			planName = plan.Name
+			if timeWindow == "" {
+				timeWindow = plan.TimeWindow
+			}
 			if plan.DeletedAt.Valid {
 				planName += "（已删除）"
 			}
@@ -523,7 +551,8 @@ func (s *MPService) TodayTasks(inspectorID string) (gin.H, *errs.Error) {
 		items = append(items, gin.H{
 			"id": t.ID, "plan_name": planName, "community_name": s.commName(t.CommunityID),
 			"patrol_type": t.PatrolType, // 巡查类型透出，app 端按类型分组展示
-			"task_date": today, "time_window": timeWindow, "status": t.Status,
+			"patrol_type_label": typeLabels[t.PatrolType], // 字典 label（App 直接展示，不再硬编码映射）
+			"task_date": today, "time_window": timeWindow, "round_name": t.RoundName, "status": t.Status,
 			"total_points": t.TotalPoints, "done_points": t.DonePoints,
 			"progress": progressOf(t.DonePoints, t.TotalPoints),
 			"started_at": timefmt.TP(t.StartedAt),
@@ -555,9 +584,11 @@ func (s *MPService) TaskDetail(inspectorID, taskID string) (gin.H, *errs.Error) 
 	for i := range checkins {
 		byPoint[checkins[i].PointID] = &checkins[i]
 	}
-	points := make([]gin.H, 0, len(plan.PointIDs))
+	// 任务点位名单：任务快照优先，空回落计划名单（存量任务）
+	pointIDs := insmodel.TaskPointIDs(&task, &plan)
+	points := make([]gin.H, 0, len(pointIDs))
 	ptTpl := map[int]string{} // points 下标 → 点位绑定的检查项模板 ID（仅非空）
-	for i, pid := range plan.PointIDs {
+	for i, pid := range pointIDs {
 		var pt insmodel.InspectionPoint
 		if s.db.First(&pt, "id = ?", pid).Error != nil {
 			continue
@@ -622,10 +653,40 @@ func (s *MPService) TaskDetail(inspectorID, taskID string) (gin.H, *errs.Error) 
 	return gin.H{
 		"id": task.ID, "plan_name": plan.Name, "community_name": s.commName(task.CommunityID),
 		"patrol_type": task.PatrolType, // 巡查类型透出，app 端按类型分组展示
-		"task_date": task.TaskDate.Format("2006-01-02"), "time_window": plan.TimeWindow,
+		"patrol_type_label": s.patrolTypeLabels(task.PatrolType)[task.PatrolType], // 字典 label（同 TodayTasks 口径）
+		"task_date": task.TaskDate.Format("2006-01-02"), "time_window": insmodel.TaskTimeWindow(&task, &plan),
+		"round_name": task.RoundName,
 		"status": task.Status, "total_points": task.TotalPoints, "done_points": task.DonePoints,
 		"progress": progressOf(task.DonePoints, task.TotalPoints), "points": points,
 	}, nil
+}
+
+// ========== 打卡记录 ==========
+
+// CheckinItems 本人打卡记录的逐项 AI 结论（GET /checkins/:id/items，供 App 提交后回显）。
+// 不透出 ai_hint（内部识别要点，仅供大模型核对）；非本人记录按「不存在」口径返回（防枚举）。
+// ai_verdict 为空串 = 模型未返回该项结论（AI 未启用/异步未完成/无逐项结论）。
+func (s *MPService) CheckinItems(inspectorID, checkinID string) ([]gin.H, *errs.Error) {
+	var rec insmodel.CheckinRecord
+	if err := s.db.Select("id", "inspector_id").First(&rec, "id = ?", checkinID).Error; err != nil {
+		return nil, errs.ErrNotFound
+	}
+	if rec.InspectorID != inspectorID {
+		return nil, errs.ErrNotFound.WithMsg("打卡记录不存在或不属于当前巡检员")
+	}
+	var items []insmodel.CheckinRecordItem
+	if err := s.db.Where("record_id = ?", rec.ID).Order("sort ASC").Find(&items).Error; err != nil {
+		return nil, errs.ErrInternal
+	}
+	out := make([]gin.H, 0, len(items))
+	for i := range items {
+		it := &items[i]
+		out = append(out, gin.H{
+			"name": it.Name, "pass": it.Pass,
+			"ai_verdict": strVal(it.AIVerdict), "ai_reason": strVal(it.AIReason),
+		})
+	}
+	return out, nil
 }
 
 // ========== 我的工单 / 消息 ==========

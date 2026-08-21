@@ -11,11 +11,16 @@ type ReportListQuery struct {
 	PendingMine string `form:"pending_mine"` // 1/true = 只看待我签（当前用户在当前级签字人名单内）
 	// 1/true = 我签过的 + 已归档；doing = 我签过但流程未走完（进行中）
 	SignedMine string `form:"signed_mine"`
+	// 巡查类型筛选：空=全部；none=综合月报（patrol_type 为空）；其余=字典 patrol_type 的 value
+	PatrolType string `form:"patrol_type"`
 }
 
 type GenerateReq struct {
 	CommunityID string `json:"community_id" binding:"required"`
 	Period      string `json:"period" binding:"required"` // YYYY-MM
+	// 巡查类型：空=综合月报（现状）；非空=该类型专项检查报告（须为字典 patrol_type 的启用项）
+	PatrolType string `json:"patrol_type"`
+	PlanID     string `json:"plan_id"` // 溯源计划（可空；非空须为该小区下的巡检计划）
 	// 指定签字人：nil=自动圈选全部候选人；显式数组（含空数组）=按所给名单，空名单该级自动跳过
 	SupervisorIDs []string `json:"supervisor_ids"`
 	ManagerIDs    []string `json:"manager_ids"`

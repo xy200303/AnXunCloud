@@ -142,9 +142,9 @@ func (s *StatsService) Timeliness(c *gin.Context, q *dto.ReportQuery) (gin.H, *e
 		return nil, be
 	}
 	scope := s.taskScope(c, q)
-	// 及时判定：finished_at <= task_date + time_window 结束时刻；SQL 用 split_part 取时段结束
+	// 及时判定：finished_at <= task_date + time_window 结束时刻；时段取任务快照优先（轮次任务按各轮 window）、回落计划
 	onTimeExpr := `CASE WHEN status = 'done' AND finished_at IS NOT NULL AND
-		finished_at <= (task_date + (split_part((SELECT time_window FROM inspection_plan WHERE id = inspection_task.plan_id), '-', 2))::interval) THEN 1 ELSE 0 END`
+		finished_at <= (task_date + (split_part(COALESCE(NULLIF(inspection_task.time_window, ''), (SELECT time_window FROM inspection_plan WHERE id = inspection_task.plan_id)), '-', 2))::interval) THEN 1 ELSE 0 END`
 	var sum struct {
 		Total   int64
 		OnTime  int64

@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/gin-gonic/gin"
 	qrcode "github.com/skip2/go-qrcode"
@@ -462,6 +463,137 @@ func credentialOrDefault(c string) string {
 		return model.CredentialQRCode
 	}
 	return c
+}
+
+// validPointType 点位类型字典驱动校验：仅字典 point_type 的启用项合法（计划圈选/批量建点共用）。
+func validPointType(db *gorm.DB, t string) bool {
+	var status string
+	if err := db.Model(&sysmodel.SysDictData{}).
+		Where("type_code = ? AND value = ?", "point_type", t).
+		Limit(1).Pluck("status", &status).Error; err != nil {
+		return false
+	}
+	return status == sysmodel.StatusEnabled
+}
+
+// pointBatchMaxCount 批量建点单次上限（与导入上限同口径）。
+const pointBatchMaxCount = 500
+
+// BatchCreate 批量建点：按 楼栋×楼层×每层数量 生成点位（《专项巡检与专项检查报告设计方案》§3.3）。
+// 名称占位符 {building}/{floor}/{seq}（负楼层渲染为 B1/B2…）；同楼栋下同名跳过（幂等重入）；
+// 围栏半径取系统参数缺省值，经纬度随入参（小区无坐标字段，缺省 0——扫码凭证不依赖围栏）。
+func (s *PointService) BatchCreate(c *gin.Context, req *dto.PointBatchReq) (*dto.PointBatchResult, *errs.Error) {
+	if be := middleware.CheckCommunity(s.db, c, req.CommunityID); be != nil {
+		return nil, be
+	}
+	var count int64
+	s.db.Model(&sysmodel.Community{}).Where("id = ?", req.CommunityID).Count(&count)
+	if count == 0 {
+		return nil, errs.ErrCommunityNotExist
+	}
+	if !validPointType(s.db, req.Type) {
+		return nil, errs.ErrParam.WithMsg("type 须为字典 point_type 的启用项")
+	}
+	switch credentialOrDefault(req.Credential) {
+	case model.CredentialQRCode, model.CredentialNFC, model.CredentialNone, model.CredentialAny:
+	default:
+		return nil, errs.ErrParam.WithMsg("credential 取值非法（qrcode/nfc/none/any）")
+	}
+	if tid := templatePtr(req.TemplateID); tid != nil {
+		s.db.Model(&model.CheckTemplate{}).Where("id = ?", *tid).Count(&count)
+		if count == 0 {
+			return nil, errs.ErrParam.WithMsg("template_id 对应的检查项模板不存在")
+		}
+	}
+	if req.FloorTo < req.FloorFrom {
+		return nil, errs.ErrParam.WithMsg("floor_to 不能小于 floor_from")
+	}
+	perFloor := req.PerFloor
+	if perFloor <= 0 {
+		perFloor = 1
+	}
+	if req.Longitude < -180 || req.Longitude > 180 || req.Latitude < -90 || req.Latitude > 90 {
+		return nil, errs.ErrParam.WithMsg("经纬度取值非法")
+	}
+	// 楼栋清单：building_ids 空=整个小区下（不挂楼栋，{building} 渲染为空）
+	type buildingRef struct {
+		id   *string
+		name string
+	}
+	buildings := []buildingRef{{}}
+	if len(req.BuildingIDs) > 0 {
+		buildings = buildings[:0]
+		for _, bid := range uniqueIDs(req.BuildingIDs) {
+			var b model.Building
+			if err := s.db.Where("id = ? AND community_id = ?", bid, req.CommunityID).First(&b).Error; err != nil {
+				return nil, errs.ErrParam.WithMsg("building_ids 中存在无效或不属于该小区的楼栋")
+			}
+			buildings = append(buildings, buildingRef{id: &b.ID, name: b.Name})
+		}
+	}
+	if total := len(buildings) * (req.FloorTo - req.FloorFrom + 1) * perFloor; total > pointBatchMaxCount {
+		return nil, errs.ErrParam.WithMsg(fmt.Sprintf("单次最多批量生成 %d 个点位（当前展开 %d 个）", pointBatchMaxCount, total))
+	}
+	tenantID := middleware.CommunityTenantID(s.db, req.CommunityID)
+	result := &dto.PointBatchResult{Skipped: []dto.PointBatchSkip{}}
+	for _, b := range buildings {
+		for floor := req.FloorFrom; floor <= req.FloorTo; floor++ {
+			for seq := 1; seq <= perFloor; seq++ {
+				name := renderBatchPointName(req.NamePattern, b.name, floor, seq)
+				if n := utf8.RuneCountInString(name); n == 0 || n > 128 {
+					result.Skipped = append(result.Skipped, dto.PointBatchSkip{Building: b.name, Name: name, Reason: "渲染后名称为空或超过 128 字"})
+					continue
+				}
+				// 同楼栋下同名已存在则跳过（幂等重入）
+				dup := s.db.Model(&model.InspectionPoint{}).Where("community_id = ? AND name = ?", req.CommunityID, name)
+				if b.id == nil {
+					dup = dup.Where("building_id IS NULL")
+				} else {
+					dup = dup.Where("building_id = ?", *b.id)
+				}
+				if dup.Count(&count); count > 0 {
+					result.Skipped = append(result.Skipped, dto.PointBatchSkip{Building: b.name, Name: name, Reason: "同楼栋下已存在同名点位"})
+					continue
+				}
+				no, be := s.nextQRCodeNo()
+				if be != nil {
+					return nil, be
+				}
+				p := model.InspectionPoint{
+					TenantID: tenantID, CommunityID: req.CommunityID, BuildingID: b.id,
+					Name: name, Type: req.Type, QRCodeNo: no,
+					TemplateID:         templatePtr(req.TemplateID),
+					Longitude:          req.Longitude, Latitude: req.Latitude,
+					FenceRadius:        s.fenceRadius(0),
+					Credential:         credentialOrDefault(req.Credential),
+					RequiredPhotoItems: types.StringArray{},
+					Status:             sysmodel.StatusEnabled,
+				}
+				if err := s.db.Create(&p).Error; err != nil {
+					result.Skipped = append(result.Skipped, dto.PointBatchSkip{Building: b.name, Name: name, Reason: "写入失败"})
+					continue
+				}
+				result.Created++
+			}
+		}
+	}
+	return result, nil
+}
+
+// renderBatchPointName 批量建点名称渲染：{building} 楼栋名、{floor} 楼层、{seq} 每层序号。
+func renderBatchPointName(pattern, building string, floor, seq int) string {
+	name := strings.ReplaceAll(pattern, "{building}", building)
+	name = strings.ReplaceAll(name, "{floor}", floorLabel(floor))
+	name = strings.ReplaceAll(name, "{seq}", strconv.Itoa(seq))
+	return name
+}
+
+// floorLabel 楼层显示名：地下层按惯例渲染 B1/B2…，地上层原样数字。
+func floorLabel(floor int) string {
+	if floor < 0 {
+		return "B" + strconv.Itoa(-floor)
+	}
+	return strconv.Itoa(floor)
 }
 
 // pointImportMaxRows 点位单次导入数据行上限。

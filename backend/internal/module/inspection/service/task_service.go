@@ -128,10 +128,13 @@ func (s *TaskService) loadCounters(tasks []model.InspectionTask) map[string]task
 
 func (s *TaskService) toItem(t *model.InspectionTask, cnt taskCounters) gin.H {
 	var plan model.InspectionPlan
-	planName, timeWindow := "", ""
+	planName, timeWindow := "", t.TimeWindow // 时段取任务快照优先（轮次任务），空回落计划
 	// Unscoped：计划已删除时仍需展示其名称（历史任务可追溯），标注「已删除」
 	if s.db.Unscoped().Select("name", "time_window", "deleted_at").First(&plan, "id = ?", t.PlanID).Error == nil {
-		planName, timeWindow = plan.Name, plan.TimeWindow
+		planName = plan.Name
+		if timeWindow == "" {
+			timeWindow = plan.TimeWindow
+		}
 		if plan.DeletedAt.Valid {
 			planName += "（已删除）"
 		}
@@ -155,6 +158,7 @@ func (s *TaskService) toItem(t *model.InspectionTask, cnt taskCounters) gin.H {
 		"inspector_id": t.InspectorID, "inspector_name": inspectorName,
 		"patrol_type": t.PatrolType,
 		"task_date": t.TaskDate.Format("2006-01-02"), "time_window": timeWindow,
+		"round_name": t.RoundName,
 		"status": t.Status, "total_points": t.TotalPoints, "done_points": t.DonePoints,
 		"progress": progress, "abnormal_count": cnt.abnormal, "suspect_count": cnt.suspect,
 		"missing_count": t.TotalPoints - t.DonePoints,
@@ -187,8 +191,10 @@ func (s *TaskService) Detail(c *gin.Context, id string) (gin.H, *errs.Error) {
 	for i := range checkins {
 		byPoint[checkins[i].PointID] = &checkins[i]
 	}
-	points := make([]gin.H, 0, len(plan.PointIDs))
-	for i, pid := range plan.PointIDs {
+	// 任务点位名单：任务快照优先（by_point_types 圈选/轮次任务均落快照），空回落计划名单（存量任务）
+	pointIDs := model.TaskPointIDs(&t, &plan)
+	points := make([]gin.H, 0, len(pointIDs))
+	for i, pid := range pointIDs {
 		var pt model.InspectionPoint
 		if s.db.First(&pt, "id = ?", pid).Error != nil {
 			continue
@@ -229,7 +235,8 @@ func (s *TaskService) Detail(c *gin.Context, id string) (gin.H, *errs.Error) {
 			"id": t.ID, "plan_name": planName, "community_name": commName,
 			"inspector_id": t.InspectorID, "inspector_name": inspectorName,
 			"patrol_type": t.PatrolType,
-			"task_date": t.TaskDate.Format("2006-01-02"), "time_window": plan.TimeWindow,
+			"task_date": t.TaskDate.Format("2006-01-02"), "time_window": model.TaskTimeWindow(&t, &plan),
+			"round_name": t.RoundName,
 			"status": t.Status, "total_points": t.TotalPoints, "done_points": t.DonePoints,
 			"progress": progress, "started_at": timefmt.TP(t.StartedAt), "finished_at": timefmt.TP(t.FinishedAt),
 		},
@@ -431,7 +438,8 @@ func (s *TaskService) CheckinDetail(c *gin.Context, id string) (gin.H, *errs.Err
 		checkItems = append(checkItems, gin.H{
 			"name": ci.Name, "pass": ci.Pass, "note": ci.Note,
 			"photos": ci.Photos, "photo_urls": urls,
-			"requirement": ci.Requirement, "ai_verdict": ci.AIVerdict, "ai_reason": ci.AIReason,
+			"requirement": ci.Requirement, "ai_hint": ci.AIHint,
+			"ai_verdict": ci.AIVerdict, "ai_reason": ci.AIReason,
 		})
 	}
 	return gin.H{

@@ -84,8 +84,62 @@ func reportTitle(commName, period string) string {
 	return fmt.Sprintf("%s%d年%d月月度巡检工作报告", commName, t.Year(), int(t.Month()))
 }
 
+// specialReportTitle 专项检查报告标题（§3.4）：{小区名}{YYYY年M月}{类型名}专项检查报告。
+// 类型字典 label 尾部含「专项巡查/专项/巡查」时先裁掉再拼接，避免「专项专项/巡查专项」叠字
+// （如「设备设施专项巡查」→「设备设施专项检查报告」）；其他 label 原样拼接。
+func specialReportTitle(commName, period, typeLabel string) string {
+	label := strings.TrimSpace(typeLabel)
+	for _, suffix := range []string{"专项巡查", "专项", "巡查"} {
+		if trimmed := strings.TrimSuffix(label, suffix); trimmed != label && trimmed != "" {
+			label = trimmed
+			break
+		}
+	}
+	t, err := time.ParseInLocation("2006-01", period, time.Local)
+	if err != nil {
+		return commName + period + label + "专项检查报告"
+	}
+	return fmt.Sprintf("%s%d年%d月%s专项检查报告", commName, t.Year(), int(t.Month()), label)
+}
+
+// supervisorSlot 主管级签字默认槽位（§3.4「签字名单怎么定」）：
+// patrolType 空=综合月报，维持固定「月报主管级签字」槽位；非空=该类型汇报线槽位
+// （resolve 为维度槽位解析器：patrol_report_line.<type> 有绑定即命中，否则回落通用 patrol_report_line）。
+func supervisorSlot(patrolType string, resolve func(patrolType string) string) string {
+	if patrolType == "" {
+		return sysmodel.SlotReportSignSupervisor
+	}
+	return resolve(patrolType)
+}
+
+// scopeTaskType 任务查询叠加巡查类型过滤（空=综合口径全类型，不过滤）。
+func scopeTaskType(db *gorm.DB, patrolType string) *gorm.DB {
+	if patrolType == "" {
+		return db
+	}
+	return db.Where("patrol_type = ?", patrolType)
+}
+
+// scopeCheckinType 打卡查询叠加巡查类型过滤（打卡无 patrol_type 列，经 task_id 关联任务快照类型）。
+func scopeCheckinType(db *gorm.DB, patrolType string) *gorm.DB {
+	if patrolType == "" {
+		return db
+	}
+	return db.Where("task_id IN (SELECT id FROM inspection_task WHERE patrol_type = ? AND deleted_at IS NULL)", patrolType)
+}
+
+// scopeOrderType 工单查询叠加巡查类型过滤（仅巡检异常转单可归类型，经 checkin_id → 任务快照类型）。
+func scopeOrderType(db *gorm.DB, patrolType string) *gorm.DB {
+	if patrolType == "" {
+		return db
+	}
+	return db.Where(`checkin_id IN (SELECT id FROM checkin_record
+		WHERE task_id IN (SELECT id FROM inspection_task WHERE patrol_type = ? AND deleted_at IS NULL))`, patrolType)
+}
+
 // buildStats 聚合指定小区指定月度的统计数据与应确认巡检员集合。
-func (s *ReportService) buildStats(communityID, period string) (types.JSONMap, types.IDArray, *errs.Error) {
+// patrolType 空=综合口径（全类型）；非空=只统计该类型（任务/打卡/异常/工单闭环均按类型过滤）。
+func (s *ReportService) buildStats(communityID, period, patrolType string) (types.JSONMap, types.IDArray, *errs.Error) {
 	start, end, be := periodRange(period)
 	if be != nil {
 		return nil, nil, be
@@ -100,7 +154,7 @@ func (s *ReportService) buildStats(communityID, period string) (types.JSONMap, t
 		Should  int64
 		DonePts int64
 	}
-	s.db.Model(&insmodel.InspectionTask{}).
+	scopeTaskType(s.db.Model(&insmodel.InspectionTask{}), patrolType).
 		Where("community_id = ? AND task_date >= ? AND task_date < ?", communityID, startStr, endStr).
 		Select(`COUNT(*) AS total,
 			COUNT(*) FILTER (WHERE status = 'done') AS done,
@@ -110,7 +164,7 @@ func (s *ReportService) buildStats(communityID, period string) (types.JSONMap, t
 
 	// 应确认巡检员：当月该小区有任务的巡检员去重
 	var inspectorIDs []string
-	s.db.Model(&insmodel.InspectionTask{}).Distinct().
+	scopeTaskType(s.db.Model(&insmodel.InspectionTask{}), patrolType).Distinct().
 		Where("community_id = ? AND task_date >= ? AND task_date < ?", communityID, startStr, endStr).
 		Pluck("inspector_id", &inspectorIDs)
 
@@ -119,7 +173,7 @@ func (s *ReportService) buildStats(communityID, period string) (types.JSONMap, t
 		Abnormal int64
 		Suspect  int64
 	}
-	s.db.Model(&insmodel.CheckinRecord{}).
+	scopeCheckinType(s.db.Model(&insmodel.CheckinRecord{}), patrolType).
 		Where("community_id = ? AND checkin_time >= ? AND checkin_time < ?", communityID, start, end).
 		Select("COUNT(*) FILTER (WHERE result = 'abnormal') AS abnormal, COUNT(*) FILTER (WHERE is_suspect) AS suspect").Scan(&ckSum)
 
@@ -128,7 +182,7 @@ func (s *ReportService) buildStats(communityID, period string) (types.JSONMap, t
 		Created int64
 		Closed  int64
 	}
-	s.db.Model(&womodel.WorkOrder{}).
+	scopeOrderType(s.db.Model(&womodel.WorkOrder{}), patrolType).
 		Where("community_id = ? AND created_at >= ? AND created_at < ?", communityID, start, end).
 		Select("COUNT(*) FILTER (WHERE status <> 'closed_invalid') AS created, COUNT(*) FILTER (WHERE status = 'closed') AS closed").Scan(&woSum)
 
@@ -139,7 +193,7 @@ func (s *ReportService) buildStats(communityID, period string) (types.JSONMap, t
 		Done  int64
 	}
 	var taskDays []taskDay
-	s.db.Model(&insmodel.InspectionTask{}).
+	scopeTaskType(s.db.Model(&insmodel.InspectionTask{}), patrolType).
 		Where("community_id = ? AND task_date >= ? AND task_date < ?", communityID, startStr, endStr).
 		Select("to_char(task_date, 'YYYY-MM-DD') AS date, COUNT(*) AS total, COUNT(*) FILTER (WHERE status = 'done') AS done").
 		Group("date").Order("date").Scan(&taskDays)
@@ -148,7 +202,7 @@ func (s *ReportService) buildStats(communityID, period string) (types.JSONMap, t
 		Abnormal int64
 	}
 	var ckDays []ckDay
-	s.db.Model(&insmodel.CheckinRecord{}).
+	scopeCheckinType(s.db.Model(&insmodel.CheckinRecord{}), patrolType).
 		Where("community_id = ? AND checkin_time >= ? AND checkin_time < ? AND result = 'abnormal'", communityID, start, end).
 		Select("to_char(checkin_time, 'YYYY-MM-DD') AS date, COUNT(*) AS abnormal").
 		Group("date").Scan(&ckDays)
@@ -175,16 +229,17 @@ func (s *ReportService) buildStats(communityID, period string) (types.JSONMap, t
 		"wo_unclosed":    woSum.Created - woSum.Closed,
 		"wo_close_rate":  pct(woSum.Closed, woSum.Created),
 		"daily":          daily,
-		"records":        s.collectRecords(communityID, start, end),
+		"records":        s.collectRecords(communityID, start, end, patrolType),
 	}
 	return stats, types.IDArray(inspectorIDs), nil
 }
 
-// collectRecords 收集该小区该期间全部打卡记录明细（按打卡时间正序），供 stats.records 快照存储。
+// collectRecords 收集该小区该期间打卡记录明细（按打卡时间正序；patrolType 非空只取该类型），供 stats.records 快照存储。
 // 字段：打卡时间/巡检员姓名/点位名称/打卡方式/距点位距离/结果/疑似标记/审核状态/照片 file_key 列表。
-func (s *ReportService) collectRecords(communityID string, start, end time.Time) []gin.H {
+func (s *ReportService) collectRecords(communityID string, start, end time.Time, patrolType string) []gin.H {
 	var recs []insmodel.CheckinRecord
-	if err := s.db.Where("community_id = ? AND checkin_time >= ? AND checkin_time < ?", communityID, start, end).
+	if err := scopeCheckinType(s.db, patrolType).
+		Where("community_id = ? AND checkin_time >= ? AND checkin_time < ?", communityID, start, end).
 		Order("checkin_time ASC, id ASC").Find(&recs).Error; err != nil {
 		return []gin.H{}
 	}
@@ -307,7 +362,7 @@ func (s *ReportService) reportRecords(r *model.InspectionReport) []gin.H {
 	if be != nil {
 		return []gin.H{}
 	}
-	return s.collectRecords(r.CommunityID, start, end)
+	return s.collectRecords(r.CommunityID, start, end, r.PatrolType)
 }
 
 // recordsWithURLs 明细行 photo_keys 转 photos[{url}]，供详情接口输出。
@@ -353,6 +408,12 @@ func (s *ReportService) List(c *gin.Context, q *dto.ReportListQuery) (*response.
 	if q.Status != "" {
 		db = db.Where("status = ?", q.Status)
 	}
+	// 巡查类型筛选：none=综合月报（patrol_type 为空）；其余按类型等值（存量行 patrol_type 为 NULL，综合筛选须带上 IS NULL）
+	if q.PatrolType == "none" {
+		db = db.Where("patrol_type IS NULL OR patrol_type = ''")
+	} else if q.PatrolType != "" {
+		db = db.Where("patrol_type = ?", q.PatrolType)
+	}
 	// 只看待我签：当前用户处于该报告当前级签字人名单内（巡检员级按应签名单，主管/经理级按指定名单）
 	if q.PendingMine == "1" || q.PendingMine == "true" {
 		if identity := middleware.CurrentIdentity(c); identity != nil {
@@ -391,6 +452,9 @@ func (s *ReportService) List(c *gin.Context, q *dto.ReportListQuery) (*response.
 		list = append(list, gin.H{
 			"id": r.ID, "community_id": r.CommunityID, "community_name": s.commName(r.CommunityID),
 			"period": r.Period, "title": r.Title, "status": r.Status,
+			"patrol_type":            r.PatrolType,
+			"patrol_type_label":      s.patrolTypeLabel(r.PatrolType),
+			"plan_id":                r.PlanID,
 			"inspector_total":        len(r.InspectorIDs),
 			"inspector_signed_count": len(r.InspectorSigned),
 			"supervisor_name":        s.userNamePtr(r.SupervisorBy),
@@ -440,8 +504,11 @@ func (s *ReportService) Detail(c *gin.Context, id string) (gin.H, *errs.Error) {
 	return gin.H{
 		"id": r.ID, "community_id": r.CommunityID, "community_name": s.commName(r.CommunityID),
 		"period": r.Period, "title": r.Title, "status": r.Status, "stats": r.Stats,
-		"records":       s.recordsWithURLs(s.reportRecords(r)),
-		"inspector_ids": r.InspectorIDs, "inspectors": inspectors,
+		"patrol_type":       r.PatrolType,
+		"patrol_type_label": s.patrolTypeLabel(r.PatrolType),
+		"plan_id":           r.PlanID,
+		"records":           s.recordsWithURLs(s.reportRecords(r)),
+		"inspector_ids":     r.InspectorIDs, "inspectors": inspectors,
 		"inspector_signed":         r.InspectorSigned,
 		"supervisor_ids":           r.SupervisorIDs,
 		"supervisors":              s.signerItems(r.SupervisorIDs, r.SupervisorBy),
@@ -466,7 +533,10 @@ func (s *ReportService) Detail(c *gin.Context, id string) (gin.H, *errs.Error) {
 }
 
 // Generate 手动生成/重算报告（approved 不可重算；已存在则重算 stats 并重置签字流程）。
+// patrol_type 空=综合月报（现状），非空=该类型专项检查报告（§3.4：须为字典 patrol_type 启用项；
+// 判重按 community_id+period+patrol_type，综合与专项可同月共存）；plan_id 仅溯源（须属于该小区）。
 // 签字人名单：req 未传（nil）取槽位默认名单（项目级槽位绑定 → 平台默认 → 编制在职成员）；
+// 专项报告主管级默认槽位换成该类型汇报线槽位（patrol_report_line.<type>，如 fire→工程主管）；
 // 显式传数组按名单（仅校验用户存在且启用），空数组该级跳过。
 func (s *ReportService) Generate(c *gin.Context, req *dto.GenerateReq) (gin.H, *errs.Error) {
 	if _, _, be := periodRange(req.Period); be != nil {
@@ -479,11 +549,29 @@ func (s *ReportService) Generate(c *gin.Context, req *dto.GenerateReq) (gin.H, *
 	if name == "" {
 		return nil, errs.ErrCommunityNotExist
 	}
-	stats, inspectorIDs, be := s.buildStats(req.CommunityID, req.Period)
+	if req.PatrolType != "" && !s.validPatrolType(req.PatrolType) {
+		return nil, errs.ErrParam.WithMsg("patrol_type 取值非法（须为字典 patrol_type 的启用项）")
+	}
+	var planID *string
+	if req.PlanID != "" {
+		var cnt int64
+		if err := s.db.Model(&insmodel.InspectionPlan{}).
+			Where("id = ? AND community_id = ?", req.PlanID, req.CommunityID).Count(&cnt).Error; err != nil {
+			return nil, errs.ErrInternal
+		}
+		if cnt == 0 {
+			return nil, errs.ErrParam.WithMsg("plan_id 须为该小区下的巡检计划")
+		}
+		planID = &req.PlanID
+	}
+	stats, inspectorIDs, be := s.buildStats(req.CommunityID, req.Period, req.PatrolType)
 	if be != nil {
 		return nil, be
 	}
-	supervisorIDs, be := s.resolveSigners(req.CommunityID, sysmodel.SlotReportSignSupervisor, req.SupervisorIDs)
+	supSlot := supervisorSlot(req.PatrolType, func(t string) string {
+		return communitysvc.ResolveReportLineSlot(s.db, req.CommunityID, t)
+	})
+	supervisorIDs, be := s.resolveSigners(req.CommunityID, supSlot, req.SupervisorIDs)
 	if be != nil {
 		return nil, be
 	}
@@ -492,18 +580,23 @@ func (s *ReportService) Generate(c *gin.Context, req *dto.GenerateReq) (gin.H, *
 		return nil, be
 	}
 	title := reportTitle(name, req.Period)
+	if req.PatrolType != "" {
+		title = specialReportTitle(name, req.Period, s.patrolTypeLabel(req.PatrolType))
+	}
 	// 首个有签字人的级别起签；某级无签字人自动跳过（不伪造通过），三级全空则直接归档、签字栏留空
 	initialStatus := firstSignStatus(inspectorIDs, supervisorIDs, managerIDs)
 
 	var r model.InspectionReport
-	err := s.db.Where("community_id = ? AND period = ?", req.CommunityID, req.Period).First(&r).Error
+	// 判重/重算按 community_id+period+patrol_type（COALESCE 归一，综合月报 NULL/'' 等价，与唯一索引一致）
+	err := s.db.Where("community_id = ? AND period = ? AND COALESCE(patrol_type, '') = ?",
+		req.CommunityID, req.Period, req.PatrolType).First(&r).Error
 	if err == nil {
 		if r.Status == model.StatusApproved {
 			return nil, errs.ErrReportApproved
 		}
-		// 重算：重置签字流程
+		// 重算：重置签字流程（plan_id 随请求刷新溯源）
 		updates := map[string]any{
-			"title": title, "status": initialStatus,
+			"title": title, "status": initialStatus, "plan_id": planID,
 			"stats": stats, "inspector_ids": inspectorIDs,
 			"inspector_signed": types.SignArray{},
 			"supervisor_ids":   supervisorIDs, "manager_ids": managerIDs,
@@ -522,9 +615,9 @@ func (s *ReportService) Generate(c *gin.Context, req *dto.GenerateReq) (gin.H, *
 		return gin.H{"id": r.ID, "title": title, "status": initialStatus, "regenerated": true}, nil
 	}
 	r = model.InspectionReport{
-		CommunityID: req.CommunityID, Period: req.Period, Title: title,
+		CommunityID: req.CommunityID, Period: req.Period, PatrolType: req.PatrolType, PlanID: planID, Title: title,
 		TenantID: middleware.CommunityTenantID(s.db, req.CommunityID), // 冗余列（=所属小区租户）
-		Status: initialStatus, Stats: stats,
+		Status:   initialStatus, Stats: stats,
 		InspectorIDs: inspectorIDs, InspectorSigned: types.SignArray{},
 		SupervisorIDs: supervisorIDs, ManagerIDs: managerIDs,
 	}
@@ -548,11 +641,11 @@ func (s *ReportService) GenerateMonthlyAll(period string) (int, error) {
 	for _, comm := range comms {
 		var count int64
 		s.db.Model(&model.InspectionReport{}).
-			Where("community_id = ? AND period = ?", comm.ID, period).Count(&count)
+			Where("community_id = ? AND period = ? AND COALESCE(patrol_type, '') = ''", comm.ID, period).Count(&count)
 		if count > 0 {
 			continue
 		}
-		stats, inspectorIDs, be := s.buildStats(comm.ID, period)
+		stats, inspectorIDs, be := s.buildStats(comm.ID, period, "") // 自动月报只生成综合月报（全类型口径）
 		if be != nil {
 			return created, be
 		}
@@ -566,7 +659,7 @@ func (s *ReportService) GenerateMonthlyAll(period string) (int, error) {
 		}
 		initialStatus := firstSignStatus(inspectorIDs, supervisorIDs, managerIDs)
 		r := model.InspectionReport{
-			TenantID: &comm.TenantID, // 冗余列（=所属小区租户）
+			TenantID:    &comm.TenantID, // 冗余列（=所属小区租户）
 			CommunityID: comm.ID, Period: period, Title: reportTitle(comm.Name, period),
 			Status: initialStatus, Stats: stats,
 			InspectorIDs: inspectorIDs, InspectorSigned: types.SignArray{},
@@ -634,12 +727,19 @@ func (s *ReportService) resolveSigners(communityID, slot string, picked []string
 
 // SignCandidates 生成报告弹窗的签字人选项（名单制授权）：
 // default_supervisor_ids/default_manager_ids 为槽位默认名单（项目级覆盖 → 平台默认绑定 → 编制在职成员）；
+// patrolType 非空时主管级默认名单按该类型汇报线槽位取（同 Generate，§3.4）；
 // users 为全部启用用户（供生成时手动增删调整，授权以报告名单为准，不限岗位/权限点）。
-func (s *ReportService) SignCandidates(c *gin.Context, communityID string) (gin.H, *errs.Error) {
+func (s *ReportService) SignCandidates(c *gin.Context, communityID, patrolType string) (gin.H, *errs.Error) {
 	if be := middleware.CheckCommunity(s.db, c, communityID); be != nil {
 		return nil, be
 	}
-	defaultSupervisorIDs := communitysvc.SlotUserIDs(s.db, communityID, sysmodel.SlotReportSignSupervisor)
+	if patrolType != "" && !s.validPatrolType(patrolType) {
+		return nil, errs.ErrParam.WithMsg("patrol_type 取值非法（须为字典 patrol_type 的启用项）")
+	}
+	supSlot := supervisorSlot(patrolType, func(t string) string {
+		return communitysvc.ResolveReportLineSlot(s.db, communityID, t)
+	})
+	defaultSupervisorIDs := communitysvc.SlotUserIDs(s.db, communityID, supSlot)
 	defaultManagerIDs := communitysvc.SlotUserIDs(s.db, communityID, sysmodel.SlotReportSignManager)
 	var users []sysmodel.SysUser
 	if err := s.db.Select("id", "name").
@@ -1074,6 +1174,33 @@ func (s *ReportService) commName(id string) string {
 		return c.Name
 	}
 	return ""
+}
+
+// validPatrolType 巡查类型字典驱动校验（同 plan_service 写法）：
+// 字典 patrol_type 存在该值时以启用状态为准；字典无此值（seed 未跑/新库初始化顺序）回落内置常量校验。
+func (s *ReportService) validPatrolType(t string) bool {
+	var status string
+	err := s.db.Model(&sysmodel.SysDictData{}).
+		Where("type_code = ? AND value = ?", "patrol_type", t).
+		Limit(1).Pluck("status", &status).Error
+	if err != nil || status == "" {
+		return insmodel.ValidPatrolType(t)
+	}
+	return status == sysmodel.StatusEnabled
+}
+
+// patrolTypeLabel 巡查类型中文名：空=综合月报；非空取字典 patrol_type 的 label，查不到回落原值。
+func (s *ReportService) patrolTypeLabel(t string) string {
+	if t == "" {
+		return "综合月报"
+	}
+	var label string
+	if err := s.db.Model(&sysmodel.SysDictData{}).
+		Where("type_code = ? AND value = ?", "patrol_type", t).
+		Limit(1).Pluck("label", &label).Error; err == nil && label != "" {
+		return label
+	}
+	return t
 }
 
 func (s *ReportService) userName(id string) string {

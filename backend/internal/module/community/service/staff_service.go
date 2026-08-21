@@ -31,19 +31,13 @@ func ResolveSlotPosts(db *gorm.DB, projectID, slot string) types.StringArray {
 	return codes
 }
 
-// reportLineSlotFor 巡查类型 → 汇报线维度槽位 code（未识别类型返回空，直接用通用槽位）。
+// reportLineSlotFor 巡查类型 → 汇报线维度槽位 code（《专项巡检与专项检查报告设计方案》§3.1：
+// 约定 patrol_report_line.<patrol_type>，字典新增类型零代码生效；空类型返回空，直接用通用槽位）。
 func reportLineSlotFor(patrolType string) string {
-	switch patrolType {
-	case insmodel.PatrolSafety:
-		return sysmodel.SlotPatrolReportLineSafety
-	case insmodel.PatrolEquipment:
-		return sysmodel.SlotPatrolReportLineEquipment
-	case insmodel.PatrolEnvironment:
-		return sysmodel.SlotPatrolReportLineEnvironment
-	case insmodel.PatrolBuilding:
-		return sysmodel.SlotPatrolReportLineBuilding
+	if patrolType == "" {
+		return ""
 	}
-	return ""
+	return sysmodel.SlotPatrolReportLine + "." + patrolType
 }
 
 // ResolveReportLineSlot 巡查汇报线槽位解析（《汇报线与审批链扩展设计方案》§2.2）：
@@ -414,7 +408,7 @@ func (s *StaffService) ListDutyBindings(c *gin.Context, communityID string) ([]g
 		overrides[b.Slot] = b.PostCodes
 	}
 	items := make([]gin.H, 0, len(sysmodel.DutySlots))
-	for _, ds := range sysmodel.DutySlots {
+	for _, ds := range AllDutySlots(s.db) {
 		var codes types.StringArray
 		var source string
 		if oc, ok := overrides[ds.Slot]; ok {
@@ -452,7 +446,7 @@ func (s *StaffService) SaveDutyBindings(c *gin.Context, communityID string, req 
 		return be
 	}
 	known := make(map[string]bool, len(sysmodel.DutySlots))
-	for _, ds := range sysmodel.DutySlots {
+	for _, ds := range AllDutySlots(s.db) {
 		known[ds.Slot] = true
 	}
 	seen := map[string]bool{}
@@ -519,7 +513,7 @@ func (s *StaffService) GetReviewFlow(projectID string) (gin.H, *errs.Error) {
 
 // SaveReviewFlow 保存项目级审核链覆盖（upsert project_id 行）。
 func (s *StaffService) SaveReviewFlow(projectID string, steps types.FlowStepArray) *errs.Error {
-	if be := ValidateFlowSteps(steps); be != nil {
+	if be := ValidateFlowSteps(s.db, steps); be != nil {
 		return be
 	}
 	var f sysmodel.ApprovalFlow

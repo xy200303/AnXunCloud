@@ -83,14 +83,15 @@ func (ctl *ReportController) Rebuild(c *gin.Context) {
 	response.OKMsg(c, "已按当前模板重新生成", nil)
 }
 
-// SignCandidates GET /reports/sign-candidates?community_id=（生成报告时的可选签字人）
+// SignCandidates GET /reports/sign-candidates?community_id=[&patrol_type=]（生成报告时的可选签字人；
+// patrol_type 非空时主管级默认名单按该类型汇报线槽位取）
 func (ctl *ReportController) SignCandidates(c *gin.Context) {
 	communityID := c.Query("community_id")
 	if _, err := uuid.Parse(communityID); err != nil {
 		response.Fail(c, errs.ErrParam.WithMsg("community_id 须为 UUID"))
 		return
 	}
-	data, be := ctl.svc.SignCandidates(c, communityID)
+	data, be := ctl.svc.SignCandidates(c, communityID, c.Query("patrol_type"))
 	write(c, data, be)
 }
 

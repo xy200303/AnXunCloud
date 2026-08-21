@@ -127,9 +127,33 @@ func (s *DictService) ListData(q *dto.DictDataQuery) (*response.Page, *errs.Erro
 			"sort":      r.Sort,
 			"status":    model.StatusInt(r.Status),
 			"remark":    r.Remark,
+			"attrs":     r.Attrs, // 扩展属性（如 patrol_type 的 category 大类，前端分组用）
 		})
 	}
 	return &response.Page{List: list, Total: total, Page: q.Page, PageSize: q.PageSize}, nil
+}
+
+// ListOptions 业务字典只读选项（免权限端点 /dict-options 用）：仅启用项，供租户侧表单下拉。
+// 字典是业务枚举（点位类型/巡查类型等），非敏感配置，登录即可读；管理端维护仍走 /system/dict-data 权限点。
+func (s *DictService) ListOptions(typeCode string) ([]map[string]any, *errs.Error) {
+	if typeCode == "" {
+		return nil, errs.ErrParam.WithMsg("type_code 为必填项")
+	}
+	var rows []model.SysDictData
+	if err := s.db.Where("type_code = ? AND status = ?", typeCode, model.StatusEnabled).
+		Order("sort ASC, id ASC").Find(&rows).Error; err != nil {
+		return nil, errs.ErrInternal
+	}
+	list := make([]map[string]any, 0, len(rows))
+	for _, r := range rows {
+		list = append(list, map[string]any{
+			"label": r.Label,
+			"value": r.Value,
+			"sort":  r.Sort,
+			"attrs": r.Attrs, // 扩展属性（如 patrol_type 的 category 大类，前端分组用）
+		})
+	}
+	return list, nil
 }
 
 // CreateData 新增字典数据（类型须存在，同类型下 value 唯一）。

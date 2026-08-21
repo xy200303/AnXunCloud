@@ -25,6 +25,7 @@ type TemplateItemSaveReq struct {
 	Name         string `json:"name" binding:"required"`
 	Required     bool   `json:"required"`
 	Requirement  string `json:"requirement"`
+	AIHint       string `json:"ai_hint"` // AI 识别要点（可空；空=该项不带识别要点）
 	PhotoRequired string `json:"photo_required"`
 	// Sort 排序号；新增时缺省（nil）追加到末尾，修改时缺省保持不变
 	Sort *int `json:"sort"`
@@ -65,6 +66,34 @@ type QRCodeBatchReq struct {
 	WithTitle *bool    `json:"with_title"`
 }
 
+// PointBatchReq 批量建点：按 楼栋×楼层×每层数量 生成点位（楼栋可空=整个小区下不挂楼栋）。
+type PointBatchReq struct {
+	CommunityID string   `json:"community_id" binding:"required"`
+	BuildingIDs []string `json:"building_ids"`
+	FloorFrom   int      `json:"floor_from"` // 支持负数（地下层，-1 渲染为 B1）
+	FloorTo     int      `json:"floor_to"`
+	PerFloor    int      `json:"per_floor"`    // 每层数量，缺省 1
+	NamePattern string   `json:"name_pattern" binding:"required"` // 占位符：{building} {floor} {seq}
+	Type        string   `json:"type" binding:"required"`         // 字典 point_type 启用项
+	Credential  string   `json:"credential"`
+	TemplateID  *string  `json:"template_id"`
+	Longitude   float64  `json:"longitude"` // 小区无坐标字段，缺省 0（扫码凭证不依赖围栏）
+	Latitude    float64  `json:"latitude"`
+}
+
+// PointBatchResult 批量建点结果。
+type PointBatchResult struct {
+	Created int              `json:"created"`
+	Skipped []PointBatchSkip `json:"skipped"`
+}
+
+// PointBatchSkip 批量建点跳过明细（同楼栋下同名视为已存在）。
+type PointBatchSkip struct {
+	Building string `json:"building"`
+	Name     string `json:"name"`
+	Reason   string `json:"reason"`
+}
+
 // PointImportResult 点位导入结果。
 type PointImportResult struct {
 	Total        int               `json:"total"`
@@ -95,15 +124,18 @@ type PlanSaveReq struct {
 	CommunityID  string         `json:"community_id" binding:"required"`
 	Name         string         `json:"name" binding:"required"`
 	PatrolType   string         `json:"patrol_type"` // 巡查类型，缺省 safety（安全巡查）
-	PointIDs     []string       `json:"point_ids" binding:"required,min=1"`
+	PointIDs     []string       `json:"point_ids"`   // explicit 模式必填（service 校验）；by_point_types 模式可空
 	CycleType    string         `json:"cycle_type" binding:"required,oneof=daily weekly monthly"`
 	CycleConfig  map[string]any `json:"cycle_config"`
 	InspectorIDs []string       `json:"inspector_ids" binding:"required,min=1"`
 	StartDate    string         `json:"start_date" binding:"required"`
 	EndDate      string         `json:"end_date"`
-	TimeWindow   string         `json:"time_window" binding:"required"`
-	Status       *int           `json:"status"`
-	Remark       string         `json:"remark"`
+	TimeWindow   string         `json:"time_window"` // 未配 rounds 时必填（service 校验）；配了 rounds 可留空
+	// SelectionMode 点位圈选模式（缺省 explicit）；PointTypes 为 by_point_types 模式的圈选类型
+	SelectionMode string   `json:"selection_mode"`
+	PointTypes    []string `json:"point_types"`
+	Status        *int     `json:"status"`
+	Remark        string   `json:"remark"`
 }
 
 // ========== 任务 ==========

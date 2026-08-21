@@ -64,6 +64,17 @@ func (ctl *StatsController) Performance(c *gin.Context) {
 	write(c, page, be)
 }
 
+// PatrolRounds GET /stats/patrol-rounds
+func (ctl *StatsController) PatrolRounds(c *gin.Context) {
+	var q dto.PatrolRoundsQuery
+	if be := bind.Query(c, &q); be != nil {
+		response.Fail(c, be)
+		return
+	}
+	data, be := ctl.svc.PatrolRounds(c, &q)
+	write(c, data, be)
+}
+
 // Export POST /stats/export
 func (ctl *StatsController) Export(c *gin.Context) {
 	var req dto.ExportReq

@@ -479,7 +479,8 @@ func (s *ReviewService) checkItemViews(recordID string) []gin.H {
 		out = append(out, gin.H{
 			"name": ci.Name, "pass": ci.Pass, "note": ci.Note,
 			"photos": ci.Photos, "photo_urls": urls,
-			"requirement": ci.Requirement, "ai_verdict": ci.AIVerdict, "ai_reason": ci.AIReason,
+			"requirement": ci.Requirement, "ai_hint": ci.AIHint,
+			"ai_verdict": ci.AIVerdict, "ai_reason": ci.AIReason,
 		})
 	}
 	return out
@@ -509,7 +510,9 @@ func (s *ReviewService) reviewInputOf(r *model.CheckinRecord) ai.ReviewInput {
 			for _, key := range it.Photos {
 				irefs = append(irefs, ai.PhotoRef{URL: s.store.URL(key)})
 			}
-			itemPhotos = append(itemPhotos, ai.ItemPhoto{Name: it.Name, Photos: irefs})
+			itemPhotos = append(itemPhotos, ai.ItemPhoto{
+				Name: it.Name, Requirement: strVal(it.Requirement), AIHint: strVal(it.AIHint), Photos: irefs,
+			})
 		}
 	}
 	return ai.ReviewInput{
@@ -524,6 +527,14 @@ func truncateRunes(s string, n int) string {
 		return string(r[:n])
 	}
 	return s
+}
+
+// strVal 可空文本快照取值（nil → 空串）。
+func strVal(p *string) string {
+	if p == nil {
+		return ""
+	}
+	return *p
 }
 
 // writeItemVerdicts 逐项 AI 结论落库（按 record_id+name 匹配快照行；模型未返回逐项结论时为空不做事）。

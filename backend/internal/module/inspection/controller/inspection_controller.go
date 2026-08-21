@@ -171,6 +171,17 @@ func (ctl *InspectionController) MapPoints(c *gin.Context) {
 	write(c, data, be)
 }
 
+// BatchCreatePoints POST /inspection/points/batch（楼栋×楼层×每层数量批量建点，幂等：同名跳过）。
+func (ctl *InspectionController) BatchCreatePoints(c *gin.Context) {
+	var req dto.PointBatchReq
+	if be := bind.JSON(c, &req); be != nil {
+		response.Fail(c, be)
+		return
+	}
+	data, be := ctl.points.BatchCreate(c, &req)
+	write(c, data, be)
+}
+
 // ========== 计划 ==========
 
 func (ctl *InspectionController) ListPlans(c *gin.Context) {
@@ -240,6 +251,12 @@ func (ctl *InspectionController) SetPlanStatus(c *gin.Context) {
 		return
 	}
 	write(c, nil, ctl.plans.SetStatus(c, id, req.Status))
+}
+
+// PreviewPlanPoints GET /inspection/plans/preview-points?community_id=&point_types=a,b（圈选命中预览）。
+func (ctl *InspectionController) PreviewPlanPoints(c *gin.Context) {
+	data, be := ctl.plans.PreviewPoints(c, c.Query("community_id"), c.Query("point_types"))
+	write(c, data, be)
 }
 
 // ========== 任务 ==========

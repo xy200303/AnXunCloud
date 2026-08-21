@@ -147,6 +147,8 @@ type SysDictData struct {
 	Sort      int            `json:"sort"`
 	Status    string         `gorm:"size:16" json:"status"`
 	Remark    string         `gorm:"size:255" json:"remark"`
+	// Attrs 通用扩展属性（迁移 00005；patrol_type 用 attrs.category 标记大类 daily_patrol/special）
+	Attrs     types.JSONMap  `gorm:"type:jsonb" json:"attrs"`
 	CreatedAt time.Time      `json:"created_at"`
 	UpdatedAt time.Time      `json:"updated_at"`
 	DeletedAt gorm.DeletedAt `json:"-"`
@@ -266,7 +268,9 @@ const (
 	SlotPatrolReportLine     = "patrol_report_line"     // 巡查汇报关系（通用兜底）
 
 	// 巡查汇报关系·业务线维度槽位（《汇报线与审批链扩展设计方案》§2：<family>.<dimension> 命名，
-	// 解析时先查维度槽位、未配置回落通用槽位 SlotPatrolReportLine，每级内部仍按 项目→租户→平台 回落）
+	// 解析时先查维度槽位、未配置回落通用槽位 SlotPatrolReportLine，每级内部仍按 项目→租户→平台 回落。
+	// 《专项巡检与专项检查报告设计方案》§3.1 起维度槽位按 patrol_type 字典约定衍生（patrol_report_line.<value>），
+	// 下列 4 个常量仅为存量静态目录；新类型无需再加常量）
 	SlotPatrolReportLineSafety      = "patrol_report_line.safety"      // 安全巡查汇报线
 	SlotPatrolReportLineEquipment   = "patrol_report_line.equipment"   // 设备专项巡查汇报线
 	SlotPatrolReportLineEnvironment = "patrol_report_line.environment" // 环境巡查汇报线

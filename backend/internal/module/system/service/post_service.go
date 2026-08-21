@@ -272,7 +272,7 @@ func (s *PostService) ListDutyBindings(tenantID *string) ([]gin.H, *errs.Error) 
 		}
 	}
 	items := make([]gin.H, 0, len(model.DutySlots))
-	for _, ds := range model.DutySlots {
+	for _, ds := range communitysvc.AllDutySlots(s.db) {
 		codes, source := types.StringArray{}, "platform"
 		if oc, ok := own[ds.Slot]; ok {
 			codes = oc
@@ -307,7 +307,7 @@ func (s *PostService) SaveDutyBindings(tenantID *string, req *dto.PostDutyBindin
 		return be
 	}
 	known := make(map[string]bool, len(model.DutySlots))
-	for _, ds := range model.DutySlots {
+	for _, ds := range communitysvc.AllDutySlots(s.db) {
 		known[ds.Slot] = true
 	}
 	seen := map[string]bool{}
@@ -408,7 +408,7 @@ func (s *PostService) resolveReviewFlow(tenantID *string) (types.FlowStepArray, 
 
 // SaveReviewFlow 保存审核链（tenantID nil=写平台默认行；非空=写租户级覆盖行；upsert 按作用域唯一行）。
 func (s *PostService) SaveReviewFlow(tenantID *string, steps types.FlowStepArray) *errs.Error {
-	if be := communitysvc.ValidateFlowSteps(steps); be != nil {
+	if be := communitysvc.ValidateFlowSteps(s.db, steps); be != nil {
 		return be
 	}
 	var f model.ApprovalFlow

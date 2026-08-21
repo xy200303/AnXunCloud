@@ -149,6 +149,17 @@ func (ctl *MPController) OfflineSync(c *gin.Context) {
 	write(c, data, be)
 }
 
+// CheckinItems GET /checkins/:id/items（本人打卡记录的逐项 AI 结论，提交后回显用）
+func (ctl *MPController) CheckinItems(c *gin.Context) {
+	id, be := pathID(c)
+	if be != nil {
+		response.Fail(c, be)
+		return
+	}
+	data, be := ctl.mp.CheckinItems(uid(c), id)
+	write(c, data, be)
+}
+
 // ========== 上传 ==========
 
 // STS POST /upload/sts

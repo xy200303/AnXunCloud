@@ -406,7 +406,7 @@ func seedDicts(tx *gorm.DB) error {
 		{"data_scope", "数据范围", [][2]string{{"全部数据", "all"}, {"所在项目", "project"}, {"仅本人", "self"}}},
 		{"menu_type", "菜单类型", [][2]string{{"目录", "dir"}, {"菜单", "menu"}, {"按钮", "button"}}},
 		{"building_type", "楼栋类型", [][2]string{{"楼栋", "building"}, {"区域", "area"}}},
-		{"point_type", "点位类型", [][2]string{{"普通点位", "common"}, {"配电房", "power_room"}, {"消防控制室", "fire_control"}, {"水泵房", "pump_room"}, {"电梯机房", "elevator"}, {"地下车库", "garage"}}},
+		{"point_type", "点位类型", [][2]string{{"普通点位", "common"}, {"配电房", "power_room"}, {"消防控制室", "fire_control"}, {"水泵房", "pump_room"}, {"电梯机房", "elevator"}, {"地下车库", "garage"}, {"消防箱", "fire_cabinet"}, {"灭火器", "fire_extinguisher"}}},
 		{"cycle_type", "计划周期", [][2]string{{"每天", "daily"}, {"每周", "weekly"}, {"每月", "monthly"}}},
 		{"task_status", "任务状态", [][2]string{{"待开始", "pending"}, {"进行中", "doing"}, {"已完成", "done"}, {"已逾期", "overdue"}}},
 		{"checkin_type", "打卡类型", [][2]string{{"扫码", "qrcode"}, {"围栏", "fence"}, {"离线补传", "offline"}, {"NFC", "nfc"}}},
@@ -414,7 +414,7 @@ func seedDicts(tx *gorm.DB) error {
 		{"order_priority", "工单优先级", [][2]string{{"低", "low"}, {"普通", "normal"}, {"高", "high"}, {"紧急", "urgent"}}},
 		{"work_order_status", "工单状态", [][2]string{{"待分诊", "reported"}, {"待派单", "pending_dispatch"}, {"处理中", "processing"}, {"待验收", "pending_confirm"}, {"已闭环", "closed"}, {"已作废", "closed_invalid"}}},
 		{"order_source", "工单来源", [][2]string{{"巡检异常转单", "inspection"}, {"主动上报", "active"}, {"前台代录", "frontdesk"}}},
-		{"patrol_type", "巡查类型", [][2]string{{"安全巡查", "safety"}, {"设备设施专项巡查", "equipment"}, {"环境巡查", "environment"}, {"楼栋巡查", "building"}}},
+		{"patrol_type", "巡查类型", [][2]string{{"安全巡查", "safety"}, {"设备设施专项巡查", "equipment"}, {"环境巡查", "environment"}, {"楼栋巡查", "building"}, {"消防设施专项", "fire"}}},
 	}
 	for _, d := range dicts {
 		t := model.SysDictType{Code: d.code, Name: d.name, Remark: "系统预置"}
@@ -432,6 +432,25 @@ func seedDicts(tx *gorm.DB) error {
 			if err := tx.Create(&data).Error; err != nil {
 				return err
 			}
+		}
+	}
+	// patrol_type 大类标记 attrs.category（《专项巡检与专项检查报告设计方案》§3.1：
+	// daily_patrol 日常巡逻 / special 专项检查；前端按大类分组展示）
+	patrolCategories := []struct {
+		value    string
+		category string
+	}{
+		{"safety", "daily_patrol"},
+		{"equipment", "special"},
+		{"environment", "special"},
+		{"building", "special"},
+		{"fire", "special"},
+	}
+	for _, pc := range patrolCategories {
+		if err := tx.Model(&model.SysDictData{}).
+			Where("type_code = ? AND value = ?", "patrol_type", pc.value).
+			Update("attrs", types.JSONMap{"category": pc.category}).Error; err != nil {
+			return err
 		}
 	}
 	return nil
@@ -534,10 +553,12 @@ func seedDutyBindings(tx *gorm.DB) error {
 		{model.SlotPatrolExecute, types.StringArray{"inspector"}},
 		{model.SlotPatrolReportLine, types.StringArray{"safety_supervisor"}},
 		// 汇报线业务线维度槽位（扩展方案 §2.4）：安全线不设默认（回落通用槽位），
-		// 设备/环境/楼栋线分别归工程/环境/客服主管
+		// 设备/环境/楼栋线分别归工程/环境/客服主管；
+		// fire（消防设施专项，专项巡检方案 §3.1）维度槽位按约定 patrol_report_line.<type> 衍生，默认归工程主管
 		{model.SlotPatrolReportLineEquipment, types.StringArray{"engineering_supervisor"}},
 		{model.SlotPatrolReportLineEnvironment, types.StringArray{"environment_supervisor"}},
 		{model.SlotPatrolReportLineBuilding, types.StringArray{"service_supervisor"}},
+		{model.SlotPatrolReportLine + ".fire", types.StringArray{"engineering_supervisor"}},
 		// 项目经理复核槽位（审批链第二环节引用，扩展方案 §3.2）
 		{model.SlotProjectReview, types.StringArray{"project_manager"}},
 	}

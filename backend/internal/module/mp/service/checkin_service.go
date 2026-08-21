@@ -155,12 +155,12 @@ func (s *CheckinService) doCheckinLocked(ctx context.Context, inspectorID string
 	if task.Status == insmodel.TaskDone {
 		return nil, nil, errs.ErrDuplicateCheckin.WithMsg("任务已完成")
 	}
-	// 点位须属于该任务路线
+	// 点位须属于该任务路线（任务点位快照优先，空回落计划名单——兼容存量任务）
 	var plan insmodel.InspectionPlan
 	if err := s.db.First(&plan, "id = ?", task.PlanID).Error; err != nil {
 		return nil, nil, errs.ErrTaskNotOwned
 	}
-	if !plan.PointIDs.Contains(req.PointID) {
+	if !insmodel.TaskPointIDs(&task, &plan).Contains(req.PointID) {
 		return nil, nil, errs.ErrTaskNotOwned.WithMsg("点位不属于该任务")
 	}
 	// ② 重复打卡校验（43103）
@@ -333,7 +333,7 @@ func normalizeQRCode(v string) string {
 
 // resolveCheckItems 检查项模板校验：点位绑定模板时，模板每项都必须有提交结果（按 name 匹配）；
 // 逐项照片硬约束：不合格项（pass=false）与模板 photo_required=required 的项均须 ≥1 张该项照片。
-// 返回逐项快照行（v18 起写 checkin_record_item）：name/requirement/photo_required 打卡当时从模板项复制，
+// 返回逐项快照行（v18 起写 checkin_record_item）：name/requirement/ai_hint/photo_required 打卡当时从模板项复制，
 // template_item_id 仅作可空血缘字段（快照语义：历史内容不依赖模板表）。
 func (s *CheckinService) resolveCheckItems(req *dto.CheckinReq, point *insmodel.InspectionPoint) ([]insmodel.CheckinRecordItem, *errs.Error) {
 	tplByName := map[string]*insmodel.CheckTemplateItem{}
@@ -378,6 +378,7 @@ func (s *CheckinService) resolveCheckItems(req *dto.CheckinReq, point *insmodel.
 		if ti != nil {
 			row.TemplateItemID = &ti.ID
 			row.Requirement = ti.Requirement
+			row.AIHint = ti.AIHint
 			row.PhotoRequired = ti.PhotoRequired
 		}
 		items = append(items, row)
@@ -572,7 +573,8 @@ func writeItemVerdicts(db *gorm.DB, recID string, items []ai.ItemVerdict) {
 	}
 }
 
-// itemPhotoRefs 逐项照片（file_key → 可访问 URL），供大模型逐项核对；无逐项照片返回 nil（回退整组照片逻辑）。
+// itemPhotoRefs 逐项照片（file_key → 可访问 URL）+ 标准要求/AI 识别要点，供大模型逐项核对；
+// 无逐项照片返回 nil（回退整组照片逻辑）。
 func (s *CheckinService) itemPhotoRefs(items []insmodel.CheckinRecordItem) []ai.ItemPhoto {
 	var out []ai.ItemPhoto
 	for _, it := range items {
@@ -583,7 +585,9 @@ func (s *CheckinService) itemPhotoRefs(items []insmodel.CheckinRecordItem) []ai.
 		for _, key := range it.Photos {
 			refs = append(refs, ai.PhotoRef{URL: s.store.URL(key)})
 		}
-		out = append(out, ai.ItemPhoto{Name: it.Name, Photos: refs})
+		out = append(out, ai.ItemPhoto{
+			Name: it.Name, Requirement: strVal(it.Requirement), AIHint: strVal(it.AIHint), Photos: refs,
+		})
 	}
 	return out
 }
@@ -638,6 +642,8 @@ func (s *CheckinService) resultView(rec *insmodel.CheckinRecord, order gin.H) gi
 		"distance_to_point": int(*rec.DistanceToPoint),
 		"is_suspect": rec.IsSuspect, "suspect_reason": rec.SuspectReason,
 		"work_order": order,
+		// AI 审核是否启用：启用时 App 提交后延迟轮询 /checkins/:id/items 拿逐项结论；未启用跳过免白等
+		"ai_enabled": s.aiCli.Enabled(),
 		"task_progress": gin.H{
 			"total_points": task.TotalPoints, "done_points": task.DonePoints,
 			"progress": progress, "task_status": task.Status,
@@ -664,6 +670,14 @@ func truncateStr(s string, n int) string {
 		return string(r[:n])
 	}
 	return s
+}
+
+// strVal 可空文本快照取值（nil → 空串）。
+func strVal(p *string) string {
+	if p == nil {
+		return ""
+	}
+	return *p
 }
 
 // validateClientID 校验客户端打卡 ID：必须 UUIDv7 且时间戳合理（30 天前 ~ 未来 5 分钟内）。

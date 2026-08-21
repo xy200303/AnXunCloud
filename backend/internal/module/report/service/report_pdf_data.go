@@ -53,6 +53,17 @@ func (s *ReportService) pdfData(r *model.InspectionReport) pdf.MonthlyReportData
 	var points []insmodel.InspectionPoint
 	s.db.Select("id", "name", "type", "qrcode_no", "template_id").
 		Where("community_id = ?", r.CommunityID).Order("sort ASC, id ASC").Find(&points)
+	// 专项报告：点位口径收拢到该类型期间任务实际覆盖的点位（应检/实检/漏检清单只列该专项的点位）
+	if r.PatrolType != "" {
+		covered := s.patrolPointIDs(r.CommunityID, start, end, r.PatrolType)
+		filtered := make([]insmodel.InspectionPoint, 0, len(points))
+		for _, pt := range points {
+			if covered[pt.ID] {
+				filtered = append(filtered, pt)
+			}
+		}
+		points = filtered
+	}
 	pointByID := map[string]*insmodel.InspectionPoint{}
 	typesPresent := map[string]bool{}
 	for i := range points {
@@ -68,7 +79,8 @@ func (s *ReportService) pdfData(r *model.InspectionReport) pdf.MonthlyReportData
 
 	// ===== 当期打卡记录 =====
 	var recs []insmodel.CheckinRecord
-	s.db.Select("id", "point_id", "inspector_id", "checkin_time", "result", "remark", "photos").
+	scopeCheckinType(s.db, r.PatrolType).
+		Select("id", "point_id", "inspector_id", "checkin_time", "result", "remark", "photos").
 		Where("community_id = ? AND checkin_time >= ? AND checkin_time < ?", r.CommunityID, start, end).
 		Order("checkin_time ASC").Find(&recs)
 	recsByPoint := map[string][]insmodel.CheckinRecord{}
@@ -91,7 +103,8 @@ func (s *ReportService) pdfData(r *model.InspectionReport) pdf.MonthlyReportData
 
 	// ===== 当期异常工单 =====
 	var orders []womodel.WorkOrder
-	s.db.Where("community_id = ? AND created_at >= ? AND created_at < ?", r.CommunityID, start, end).
+	scopeOrderType(s.db, r.PatrolType).
+		Where("community_id = ? AND created_at >= ? AND created_at < ?", r.CommunityID, start, end).
 		Order("created_at ASC").Find(&orders)
 	for i := range orders {
 		inspectorIDSet[orders[i].ReporterID] = true // 台账「检查人」列
@@ -337,6 +350,40 @@ func (s *ReportService) pdfData(r *model.InspectionReport) pdf.MonthlyReportData
 
 // photoGroupMaxCells 单个设施类别照片上限（防单组撑爆版面）。
 const photoGroupMaxCells = 48
+
+// patrolPointIDs 该小区该期间内指定巡查类型任务覆盖的点位集合（任务点位快照优先，空快照回落计划名单，兼容存量任务）。
+func (s *ReportService) patrolPointIDs(communityID string, start, end time.Time, patrolType string) map[string]bool {
+	var tasks []insmodel.InspectionTask
+	s.db.Select("id", "plan_id", "point_ids").
+		Where("community_id = ? AND task_date >= ? AND task_date < ? AND patrol_type = ?",
+			communityID, start.Format("2006-01-02"), end.Format("2006-01-02"), patrolType).
+		Find(&tasks)
+	set := map[string]bool{}
+	planIDSet := map[string]bool{}
+	for i := range tasks {
+		if len(tasks[i].PointIDs) > 0 {
+			for _, pid := range tasks[i].PointIDs {
+				set[pid] = true
+			}
+		} else {
+			planIDSet[tasks[i].PlanID] = true
+		}
+	}
+	if len(planIDSet) > 0 {
+		ids := make([]string, 0, len(planIDSet))
+		for id := range planIDSet {
+			ids = append(ids, id)
+		}
+		var plans []insmodel.InspectionPlan
+		s.db.Select("id", "point_ids").Where("id IN ?", ids).Find(&plans)
+		for _, p := range plans {
+			for _, pid := range p.PointIDs {
+				set[pid] = true
+			}
+		}
+	}
+	return set
+}
 
 // pointTypeNames 点位类型中文名表（按字典 point_type 排序；字典外类型置后用原 code）。
 type pointTypeNames struct {

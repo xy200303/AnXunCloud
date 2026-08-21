@@ -52,10 +52,12 @@ type PhotoRef struct {
 	URL string
 }
 
-// ItemPhoto 检查项逐项照片（项名 + 该项照片），供大模型逐项核对。
+// ItemPhoto 检查项逐项照片（项名 + 标准要求 + AI 识别要点 + 该项照片），供大模型逐项核对。
 type ItemPhoto struct {
-	Name   string
-	Photos []PhotoRef
+	Name        string
+	Requirement string   // 检查标准要求（可空）
+	AIHint      string   // AI 识别要点（可空；空=该项不带识别要点）
+	Photos      []PhotoRef
 }
 
 // ItemVerdict 逐项大模型结论（检查项名 + 结论 + 理由）。
@@ -220,7 +222,15 @@ func (c *Client) buildMessages(input ReviewInput) []map[string]any {
 			if len(imgs) == 0 || budget <= 0 {
 				continue
 			}
-			content = append(content, map[string]any{"type": "text", "text": "以下是检查项「" + ip.Name + "」的对应照片，请核对该项现场状态："})
+			// 按项标注：项名 + 标准要求 + AI 识别要点（§3.3），让模型逐项对照识别
+			label := "以下是检查项「" + ip.Name + "」"
+			if strings.TrimSpace(ip.Requirement) != "" {
+				label += "（标准要求：" + strings.TrimSpace(ip.Requirement) + "）"
+			}
+			if strings.TrimSpace(ip.AIHint) != "" {
+				label += "（AI 识别要点：" + strings.TrimSpace(ip.AIHint) + "）"
+			}
+			content = append(content, map[string]any{"type": "text", "text": label + "的对应照片，请核对该项现场状态："})
 			for _, img := range imgs {
 				if budget <= 0 {
 					break

@@ -84,13 +84,14 @@ func templateItem(t *model.CheckTemplate, items []model.CheckTemplateItem) gin.H
 	}
 }
 
-// templateItemViews 模板项视图：name/required/photo_required 结构不变，新增 requirement（空=null）。
+// templateItemViews 模板项视图：name/required/photo_required 结构不变，新增 requirement/ai_hint（空=null）。
 func templateItemViews(items []model.CheckTemplateItem) []gin.H {
 	out := make([]gin.H, 0, len(items))
 	for _, it := range items {
 		out = append(out, gin.H{
 			"name": it.Name, "required": it.Required,
 			"photo_required": it.PhotoRequired, "requirement": it.Requirement,
+			"ai_hint": it.AIHint,
 		})
 	}
 	return out
@@ -185,6 +186,7 @@ func validateItem(name, photoRequired string) *errs.Error {
 func itemRowView(it *model.CheckTemplateItem) gin.H {
 	return gin.H{
 		"id": it.ID, "name": it.Name, "requirement": it.Requirement,
+		"ai_hint": it.AIHint,
 		"required": it.Required, "photo_required": it.PhotoRequired,
 		"sort": it.Sort, "created_at": timefmt.T(it.CreatedAt),
 	}
@@ -235,6 +237,9 @@ func (s *TemplateService) AddItem(templateID string, req *dto.TemplateItemSaveRe
 	if r := strings.TrimSpace(req.Requirement); r != "" {
 		row.Requirement = &r
 	}
+	if h := strings.TrimSpace(req.AIHint); h != "" {
+		row.AIHint = &h
+	}
 	if err := s.db.Create(&row).Error; err != nil {
 		return "", errs.ErrInternal
 	}
@@ -270,6 +275,11 @@ func (s *TemplateService) UpdateItem(templateID, itemID string, req *dto.Templat
 		updates["requirement"] = r
 	} else {
 		updates["requirement"] = nil
+	}
+	if h := strings.TrimSpace(req.AIHint); h != "" {
+		updates["ai_hint"] = h
+	} else {
+		updates["ai_hint"] = nil
 	}
 	if req.Sort != nil {
 		updates["sort"] = *req.Sort

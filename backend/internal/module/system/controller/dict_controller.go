@@ -18,6 +18,16 @@ func NewDictController(svc *service.DictService) *DictController {
 	return &DictController{svc: svc}
 }
 
+// Options GET /dict-options?type_code=xx（免权限：登录即可读的业务枚举选项，租户侧表单下拉用）
+func (ctl *DictController) Options(c *gin.Context) {
+	list, be := ctl.svc.ListOptions(c.Query("type_code"))
+	if be != nil {
+		response.Fail(c, be)
+		return
+	}
+	response.OK(c, list)
+}
+
 // ListTypes GET /system/dict-types
 func (ctl *DictController) ListTypes(c *gin.Context) {
 	var q dto.DictTypeQuery

@@ -61,13 +61,13 @@ func FlowStepSlot(db *gorm.DB, projectID, patrolType, stepSlot string) string {
 	return stepSlot
 }
 
-// ValidateFlowSteps 审批链环节入参校验（1-5 环节；槽位须在系统枚举内且不重复；名称 1-32 字）。
-func ValidateFlowSteps(steps types.FlowStepArray) *errs.Error {
+// ValidateFlowSteps 审批链环节入参校验（1-5 环节；槽位须在槽位目录内（含字典衍生维度槽位）且不重复；名称 1-32 字）。
+func ValidateFlowSteps(db *gorm.DB, steps types.FlowStepArray) *errs.Error {
 	if len(steps) == 0 || len(steps) > 5 {
 		return errs.ErrParam.WithMsg("审批链须为 1-5 个环节")
 	}
 	known := make(map[string]bool, len(sysmodel.DutySlots))
-	for _, ds := range sysmodel.DutySlots {
+	for _, ds := range AllDutySlots(db) {
 		known[ds.Slot] = true
 	}
 	seen := map[string]bool{}

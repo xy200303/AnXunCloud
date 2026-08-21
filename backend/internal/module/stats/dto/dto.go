@@ -17,6 +17,14 @@ type PerformanceQuery struct {
 	SortOrder string `form:"sort_order"`
 }
 
+// PatrolRoundsQuery 巡更达成率查询参数（community_id 必填，plan_id 可空=该小区全部带轮次的计划）。
+type PatrolRoundsQuery struct {
+	CommunityID string `form:"community_id" binding:"required"`
+	PlanID      string `form:"plan_id"`
+	From        string `form:"from" binding:"required"`
+	To          string `form:"to" binding:"required"`
+}
+
 type ExportReq struct {
 	ReportType  string `json:"report_type" binding:"required,oneof=coverage timeliness performance monthly operation_log login_log"`
 	Format      string `json:"format" binding:"required,oneof=excel pdf"`

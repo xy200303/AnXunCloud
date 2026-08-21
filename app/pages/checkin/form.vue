@@ -162,7 +162,7 @@
 
 <script lang="ts">
 import { Colors, ColorTokens } from '@/utils/theme'
-import { apiTaskDetail, apiCheckin, apiUploadLocal, TaskPoint, CheckinResult, CheckinReqPayload } from '@/services/api'
+import { apiTaskDetail, apiCheckin, apiCheckinItems, apiUploadLocal, TaskPoint, CheckinResult, CheckinItemAI, CheckinReqPayload } from '@/services/api'
 import { burnWatermark } from '@/utils/watermark'
 import { isNfcSupported, readCardOnce, toastNfcUnavailable } from '@/utils/nfc'
 import { getLocationGcj02 } from '@/utils/geo'
@@ -572,6 +572,63 @@ export default {
         }
       })
     },
+    /**
+     * 轮询逐项 AI 结论：2.5s 后取一次，全部项仍无结论且 retries>0 时再补一次；
+     * 接口失败/超时静默 resolve(null)（记录已提交，结论只是提醒，拿不到不打扰）。
+     */
+    fetchAiItems(checkinId: string, retries: number): Promise<CheckinItemAI[] | null> {
+      return new Promise((resolve) => {
+        setTimeout(() => {
+          apiCheckinItems(checkinId)
+            .then((items) => {
+              const hasVerdict = items.some((it) => it.ai_verdict != '')
+              if (!hasVerdict && retries > 0) {
+                this.fetchAiItems(checkinId, retries - 1).then(resolve)
+              } else {
+                resolve(items)
+              }
+            })
+            .catch(() => resolve(null))
+        }, 2500)
+      })
+    },
+    /** 提交结果提示：有存疑项弹「AI 初判存疑」（提醒不阻断，记录已提交）；否则原成功弹窗 */
+    showSubmitResult(pt: TaskPoint, res: CheckinResult, aiItems: CheckinItemAI[] | null) {
+      uni.hideLoading()
+      this.submitting = false
+      const suspicious = (aiItems ?? []).filter((it) => it.ai_verdict == 'review' || it.ai_verdict == 'error')
+      if (suspicious.length > 0) {
+        const aiLines = suspicious.map((it) => it.name + (it.ai_reason != '' ? ' - ' + it.ai_reason : ''))
+        uni.showModal({
+          title: 'AI 初判存疑',
+          content: aiLines.join('\n') + '\n请确认或重新拍摄',
+          cancelText: '重新打卡',
+          confirmText: '仍要提交',
+          success: () => {
+            // 两个出口均返回任务页：记录已提交，「重新打卡」需管理端驳回/重开后方可再次打卡
+            uni.navigateBack()
+          }
+        })
+        return
+      }
+      const tp = res.task_progress
+      const lines = ['打卡成功，任务进度 ' + tp.done_points + '/' + tp.total_points]
+      if (res.is_suspect) {
+        lines.push('⚠ ' + (res.suspect_reason != '' ? res.suspect_reason : '本次打卡被标记为疑似异常'))
+      }
+      if (this.items.some((it) => !it.pass) && res.work_order != null) {
+        lines.push('已自动生成异常工单')
+      }
+      uni.showModal({
+        title: pt.point_name,
+        content: lines.join('\n'),
+        showCancel: false,
+        confirmText: '知道了',
+        success: () => {
+          uni.navigateBack()
+        }
+      })
+    },
     /** 在线提交：上传照片换 file_key → POST /checkin；网络异常转离线暂存 */
     submitOnline() {
       const pt = this.point as TaskPoint
@@ -623,25 +680,15 @@ export default {
           })
         })
         .then((res: CheckinResult) => {
-          uni.hideLoading()
-          this.submitting = false
-          const tp = res.task_progress
-          const lines = ['打卡成功，任务进度 ' + tp.done_points + '/' + tp.total_points]
-          if (res.is_suspect) {
-            lines.push('⚠ ' + (res.suspect_reason != '' ? res.suspect_reason : '本次打卡被标记为疑似异常'))
+          // AI 审核为后端异步执行：启用时延迟轮询逐项结论（2.5s×2，超时静默按无结论处理），
+          // 未启用直接走原成功提示，不白等
+          if (res.ai_enabled) {
+            uni.showLoading({ title: 'AI 初判中…', mask: true })
+            return this.fetchAiItems(res.checkin_id, 1).then((aiItems) => {
+              this.showSubmitResult(pt, res, aiItems)
+            })
           }
-          if (this.items.some((it) => !it.pass) && res.work_order != null) {
-            lines.push('已自动生成异常工单')
-          }
-          uni.showModal({
-            title: pt.point_name,
-            content: lines.join('\n'),
-            showCancel: false,
-            confirmText: '知道了',
-            success: () => {
-              uni.navigateBack()
-            }
-          })
+          this.showSubmitResult(pt, res, null)
         })
         .catch((e: Error) => {
           // 网络类错误（请求失败/上传失败）→ 转离线暂存；业务错误原样提示

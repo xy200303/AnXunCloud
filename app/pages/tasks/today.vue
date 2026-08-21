@@ -65,28 +65,32 @@
         <text class="empty-filter-text" :style="{ color: colors.textSecondary }">该类型今日暂无任务</text>
       </view>
 
-      <view
-        v-for="t in filteredTasks"
-        :key="t.id"
-        class="card"
-        :style="{ backgroundColor: colors.bgCard }"
-        @click="goDetail(t.id)"
-      >
-        <view class="card-head">
-          <text class="card-title" :style="{ color: colors.textPrimary }">{{ t.community_name }} · {{ t.plan_name }}</text>
-          <text class="card-tag" :style="{ color: t.status_color }">{{ t.status_text }}</text>
+      <!-- 轮次任务按「窗口开始时刻」分组（带组头）；非轮次任务为平铺列表（展示不变） -->
+      <view v-for="row in displayRows" :key="row.key">
+        <text v-if="row.task == null" class="group-title" :style="{ color: colors.textSecondary }">{{ row.header }}</text>
+        <view
+          v-else
+          class="card"
+          :style="{ backgroundColor: colors.bgCard }"
+          @click="goDetail(row.task.id)"
+        >
+          <view class="card-head">
+            <text class="card-title" :style="{ color: colors.textPrimary }">{{ row.task.community_name }} · {{ row.task.plan_name }}</text>
+            <text class="card-tag" :style="{ color: row.task.status_color }">{{ row.task.status_text }}</text>
+          </view>
+          <view class="card-sub-row">
+            <text v-if="row.task.round_name != ''" class="type-tag" :style="{ color: colors.warning, borderColor: colors.warning }">{{ row.task.round_name }}</text>
+            <text v-if="row.task.patrol_text != ''" class="type-tag" :style="{ color: colors.primary, borderColor: colors.primary }">{{ row.task.patrol_text }}</text>
+            <text class="card-sub" :style="{ color: colors.textSecondary }">{{ row.task.time_window != '' ? row.task.time_window : (row.task.round_name != '' ? '不限时段' : '') }}</text>
+          </view>
+          <view class="progress" :style="{ backgroundColor: colors.border }">
+            <view
+              class="progress-inner"
+              :style="{ width: row.task.progress_width, backgroundColor: row.task.bar_color }"
+            ></view>
+          </view>
+          <text class="card-progress-text" :style="{ color: colors.textRegular }">{{ row.task.done_points }}/{{ row.task.total_points }} 点位</text>
         </view>
-        <view class="card-sub-row">
-          <text v-if="t.patrol_text != ''" class="type-tag" :style="{ color: colors.primary, borderColor: colors.primary }">{{ t.patrol_text }}</text>
-          <text class="card-sub" :style="{ color: colors.textSecondary }">{{ t.time_window }}</text>
-        </view>
-        <view class="progress" :style="{ backgroundColor: colors.border }">
-          <view
-            class="progress-inner"
-            :style="{ width: t.progress_width, backgroundColor: t.bar_color }"
-          ></view>
-        </view>
-        <text class="card-progress-text" :style="{ color: colors.textRegular }">{{ t.done_points }}/{{ t.total_points }} 点位</text>
       </view>
     </view>
 
@@ -107,7 +111,7 @@ import { offlineCount, syncOfflineCheckins } from '@/utils/offline'
 import { useMessageStore } from '@/stores/message'
 import { useAuthStore } from '@/stores/auth'
 
-/** 巡查类型文案（对齐后端 Patrol* 枚举） */
+/** 巡查类型文案（内置回落：后端未透传 patrol_type_label 时使用；新类型如 fire 以字典 label 为准） */
 function patrolTextOf(t: string): string {
   if (t == 'safety') return '安全巡查'
   if (t == 'equipment') return '设备专项'
@@ -116,15 +120,37 @@ function patrolTextOf(t: string): string {
   return ''
 }
 
+/** 巡查类型标签：后端字典 label 优先，空回落内置映射 */
+function patrolLabelOf(t: TodayTask): string {
+  return t.patrol_type_label != '' ? t.patrol_type_label : patrolTextOf(t.patrol_type)
+}
+
+/** 窗口开始时刻（分钟数，用于轮次分组排序；无法解析/空窗口排最后） */
+function windowStartOf(w: string): number {
+  const m = (w || '').match(/^(\d{1,2}):(\d{2})/)
+  if (m == null) return 25 * 60
+  return parseInt(m[1], 10) * 60 + parseInt(m[2], 10)
+}
+
+/** 列表行：分组组头（task=null）或任务卡 */
+type TaskRow = {
+  key: string
+  /** 组头文案（窗口时段）；task 行为空串 */
+  header: string
+  task: TaskView | null
+}
+
 /** 列表项视图模型：模板只做简单属性读取，颜色/文案/宽度在数据层预计算 */
 type TaskView = {
   id: string
   plan_name: string
   community_name: string
-  /** 巡查类型原始值（safety/equipment/environment/building），筛选用 */
+  /** 巡查类型原始值（safety/equipment/environment/building/fire…），筛选用 */
   patrol_type: string
   /** 巡查类型中文标签（空 = 不展示标签） */
   patrol_text: string
+  /** 巡更轮次名（非轮次任务为空串） */
+  round_name: string
   time_window: string
   status_text: string
   status_color: string
@@ -174,7 +200,8 @@ function toTaskView(t: TodayTask): TaskView {
     plan_name: t.plan_name,
     community_name: t.community_name,
     patrol_type: t.patrol_type,
-    patrol_text: patrolTextOf(t.patrol_type),
+    patrol_text: patrolLabelOf(t),
+    round_name: t.round_name,
     time_window: t.time_window,
     status_text: statusTextOf(t.status),
     status_color: statusColorOf(t.status),
@@ -197,13 +224,8 @@ export default {
       donePoints: 0,
       tasks: [] as TaskView[],
       typeFilter: '',
-      typeChips: [
-        { label: '全部', value: '' },
-        { label: '安全巡查', value: 'safety' },
-        { label: '设备专项', value: 'equipment' },
-        { label: '环境巡查', value: 'environment' },
-        { label: '楼栋巡查', value: 'building' }
-      ],
+      // 类型筛选 chip：「全部」+ 按当日任务实际类型动态生成（字典新类型如 fire 自动出现）
+      typeChips: [{ label: '全部', value: '' }] as Array<{ label: string; value: string }>,
       orderBadge: 0,
       offlineCount: 0
     }
@@ -213,6 +235,34 @@ export default {
     filteredTasks(): TaskView[] {
       if (this.typeFilter == '') return this.tasks
       return this.tasks.filter((t) => t.patrol_type == this.typeFilter)
+    },
+    /** 是否含轮次任务（含则列表按窗口分组显示组头） */
+    hasRounds(): boolean {
+      return this.tasks.some((t) => t.round_name != '')
+    },
+    /** 渲染行：轮次场景按「窗口开始时刻」分组排序并插组头；非轮次平铺（展示不变） */
+    displayRows(): TaskRow[] {
+      const list = this.filteredTasks
+      if (!this.hasRounds) {
+        return list.map((t) => ({ key: t.id, header: '', task: t }))
+      }
+      // 同窗口归一组，组内保持后端顺序（进行中优先）；组间按窗口开始时刻升序
+      const groups: Array<{ start: number; window: string; tasks: TaskView[] }> = []
+      list.forEach((t) => {
+        let g = groups.find((x) => x.window == t.time_window)
+        if (g == null) {
+          g = { start: windowStartOf(t.time_window), window: t.time_window, tasks: [] }
+          groups.push(g)
+        }
+        g.tasks.push(t)
+      })
+      groups.sort((a, b) => a.start - b.start)
+      const rows: TaskRow[] = []
+      groups.forEach((g) => {
+        rows.push({ key: 'h-' + g.window, header: g.window != '' ? g.window : '全天', task: null })
+        g.tasks.forEach((t) => rows.push({ key: t.id, header: '', task: t }))
+      })
+      return rows
     },
     /**
      * 「工单处理」入口显隐：无岗位字段可依赖，按现有信息判断——
@@ -272,6 +322,7 @@ export default {
             views.push(toTaskView(t))
           })
           this.tasks = views
+          this.buildTypeChips()
           uni.stopPullDownRefresh()
         })
         .catch((e: Error) => {
@@ -284,6 +335,19 @@ export default {
     },
     goDetail(id: string) {
       uni.navigateTo({ url: '/pages/tasks/detail?id=' + encodeURIComponent(id) })
+    },
+    /** 类型筛选 chip：按当日任务实际类型动态生成（label 走后端字典，新类型零改动生效） */
+    buildTypeChips() {
+      const chips: Array<{ label: string; value: string }> = [{ label: '全部', value: '' }]
+      const seen: Record<string, boolean> = {}
+      this.tasks.forEach((t) => {
+        if (t.patrol_type == '' || seen[t.patrol_type]) return
+        seen[t.patrol_type] = true
+        chips.push({ label: t.patrol_text != '' ? t.patrol_text : t.patrol_type, value: t.patrol_type })
+      })
+      this.typeChips = chips
+      // 当前选中类型已不在列表时回落「全部」
+      if (this.typeFilter != '' && !seen[this.typeFilter]) this.typeFilter = ''
     },
     /** 工单处理入口：跳到工单 tab（默认「派给我的」） */
     goWorkorders() {
@@ -484,6 +548,12 @@ export default {
 
 .card-sub {
   font-size: 26rpx;
+}
+
+/* 轮次分组组头 */
+.group-title {
+  font-size: 26rpx;
+  margin: 8rpx 8rpx 16rpx;
 }
 
 .progress {

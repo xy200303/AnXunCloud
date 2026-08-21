@@ -39,10 +39,14 @@ export type TodayTask = {
   id: string
   plan_name: string
   community_name: string
-  /** 巡查类型：safety 安全 / equipment 设备专项 / environment 环境 / building 楼栋 */
+  /** 巡查类型：safety 安全 / equipment 设备专项 / environment 环境 / building 楼栋 / fire 消防设施专项（字典驱动） */
   patrol_type: string
+  /** 巡查类型字典 label（后端透出；空时前端回落内置映射） */
+  patrol_type_label: string
   task_date: string
   time_window: string
+  /** 巡更轮次名（任务快照；非轮次任务为空串） */
+  round_name: string
   /** pending 待开始 / doing 进行中 / done 已完成 / overdue 已逾期 */
   status: string
   total_points: number
@@ -130,10 +134,14 @@ export type TaskDetail = {
   id: string
   plan_name: string
   community_name: string
-  /** 巡查类型：safety/equipment/environment/building */
+  /** 巡查类型：safety/equipment/environment/building/fire（字典驱动） */
   patrol_type: string
+  /** 巡查类型字典 label（后端透出；空时前端回落内置映射） */
+  patrol_type_label: string
   task_date: string
   time_window: string
+  /** 巡更轮次名（任务快照；非轮次任务为空串） */
+  round_name: string
   status: string
   total_points: number
   done_points: number
@@ -169,12 +177,23 @@ export type CheckinResult = {
   suspect_reason: string
   /** 异常打卡自动生成的工单（{id, order_no}），无则 null */
   work_order: any
+  /** 后端是否启用 AI 审核（启用时提交后可轮询 apiCheckinItems 拿逐项结论） */
+  ai_enabled: boolean
   task_progress: {
     total_points: number
     done_points: number
     progress: number
     task_status: string
   }
+}
+
+/** 打卡逐项 AI 结论（GET /checkins/:id/items 元素；ai_verdict 空 = 模型未给该项结论） */
+export type CheckinItemAI = {
+  name: string
+  pass: boolean
+  /** pass / review / error / '' */
+  ai_verdict: string
+  ai_reason: string
 }
 
 // ---- 工单（/workorders，对齐后端 MyOrders / GetForMP / Finish） ----------
@@ -502,8 +521,10 @@ type RawTaskDetail = {
   plan_name?: string
   community_name?: string
   patrol_type?: string
+  patrol_type_label?: string
   task_date?: string
   time_window?: string
+  round_name?: string
   status?: string
   total_points?: number
   done_points?: number
@@ -540,6 +561,7 @@ type RawCheckinResult = {
   is_suspect?: boolean
   suspect_reason?: string
   work_order?: any
+  ai_enabled?: boolean
   task_progress?: {
     total_points?: number
     done_points?: number
@@ -758,8 +780,10 @@ export function apiTaskDetail(id: string): Promise<TaskDetail> {
           plan_name: d.plan_name ?? '',
           community_name: d.community_name ?? '',
           patrol_type: d.patrol_type ?? '',
+          patrol_type_label: d.patrol_type_label ?? '',
           task_date: d.task_date ?? '',
           time_window: d.time_window ?? '',
+          round_name: d.round_name ?? '',
           status: d.status ?? '',
           total_points: d.total_points ?? 0,
           done_points: d.done_points ?? 0,
@@ -816,6 +840,7 @@ export function apiCheckin(req: CheckinReqPayload): Promise<CheckinResult> {
           is_suspect: d.is_suspect ?? false,
           suspect_reason: d.suspect_reason ?? '',
           work_order: d.work_order ?? null,
+          ai_enabled: d.ai_enabled ?? false,
           task_progress: {
             total_points: tp.total_points ?? 0,
             done_points: tp.done_points ?? 0,
@@ -828,8 +853,29 @@ export function apiCheckin(req: CheckinReqPayload): Promise<CheckinResult> {
   })
 }
 
+/** 打卡逐项 AI 结论 GET /checkins/:id/items（本人记录；AI 审核异步，提交后延迟轮询用） */
+export function apiCheckinItems(checkinId: string): Promise<CheckinItemAI[]> {
+  return new Promise<CheckinItemAI[]>((resolve, reject) => {
+    httpGet<CheckinItemAI[]>('/checkins/' + checkinId + '/items')
+      .then((d) => {
+        if (d == null) {
+          reject(new Error('打卡逐项结论响应异常'))
+          return
+        }
+        resolve(
+          d.map((it) => ({
+            name: it.name ?? '',
+            pass: it.pass ?? false,
+            ai_verdict: it.ai_verdict ?? '',
+            ai_reason: it.ai_reason ?? ''
+          }))
+        )
+      })
+      .catch(reject)
+  })
+}
+
 /**
- * 本地（dev）上传 POST /upload/local（multipart）。
  * scene：checkin（打卡）/ workorder（工单维修照片）/ avatar / signature（月报一次性手写签名），默认 checkin，原有调用不受影响。
  * 注意：uni.uploadFile 不走 request.ts 的信封/40102 静默刷新逻辑，token 过期会直接失败，需重新登录后重试。
  */

@@ -25,7 +25,7 @@
           <text v-if="patrolText != ''" class="type-tag" :style="{ color: colors.primary, borderColor: colors.primary }">{{ patrolText }}</text>
           <text class="card-sub" :style="{ color: colors.textSecondary }">{{ communityName }}</text>
         </view>
-        <text class="card-sub" :style="{ color: colors.textSecondary }">{{ taskDate }} · {{ timeWindow }}</text>
+        <text class="card-sub" :style="{ color: colors.textSecondary }">{{ taskDate }} · {{ roundName != '' ? roundName + ' ' : '' }}{{ timeWindow }}</text>
         <view class="progress" :style="{ backgroundColor: colors.border }">
           <view class="progress-inner" :style="{ width: progressWidth, backgroundColor: colors.primary }"></view>
         </view>
@@ -90,6 +90,8 @@ type DetailData = {
   communityName: string
   /** 巡查类型中文标签（空 = 不展示） */
   patrolText: string
+  /** 巡更轮次名（任务快照；非轮次任务为空串，头部回落「日期 · 时间窗」原样） */
+  roundName: string
   taskDate: string
   timeWindow: string
   statusText: string
@@ -121,7 +123,7 @@ function credentialTextOf(c: string): string {
   return '无凭证'
 }
 
-/** 巡查类型文案（对齐后端 Patrol* 枚举） */
+/** 巡查类型文案（内置回落：后端未透传 patrol_type_label 时使用；新类型如 fire 以字典 label 为准） */
 function patrolTextOf(t: string): string {
   if (t == 'safety') return '安全巡查'
   if (t == 'equipment') return '设备专项'
@@ -167,6 +169,7 @@ export default {
       planName: '',
       communityName: '',
       patrolText: '',
+      roundName: '',
       taskDate: '',
       timeWindow: '',
       statusText: '',
@@ -202,7 +205,8 @@ export default {
           this.loaded = true
           this.planName = res.plan_name
           this.communityName = res.community_name
-          this.patrolText = patrolTextOf(res.patrol_type)
+          this.patrolText = res.patrol_type_label != '' ? res.patrol_type_label : patrolTextOf(res.patrol_type)
+          this.roundName = res.round_name
           this.taskDate = res.task_date
           this.timeWindow = res.time_window
           this.statusText = statusTextOf(res.status)

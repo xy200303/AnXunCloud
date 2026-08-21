@@ -43,6 +43,7 @@
           <div class="table-toolbar">
             <div class="table-toolbar-left">
               <el-button v-perms="'inspection:point:create'" type="primary" :icon="Plus" @click="openForm()">新增点位</el-button>
+              <el-button v-perms="'inspection:point:create'" :icon="Files" @click="openBatch">批量建点</el-button>
               <el-button
                 v-perms="'inspection:point:qrcode'"
                 :icon="Grid"
@@ -216,6 +217,92 @@
       </template>
     </el-dialog>
 
+    <!-- 批量建点助手：楼栋 × 楼层 × 每层数量展开，同楼栋同名跳过（幂等） -->
+    <el-dialog v-model="batchVisible" title="批量建点" width="640px" :close-on-click-modal="false">
+      <!-- 结果反馈 -->
+      <template v-if="batchResult">
+        <el-alert
+          :title="`建点完成：新增 ${batchResult.created} 个，跳过 ${batchResult.skipped.length} 个`"
+          :type="batchResult.skipped.length ? 'warning' : 'success'"
+          :closable="false"
+          show-icon
+        />
+        <template v-if="batchResult.skipped.length">
+          <div class="fail-header">
+            <span class="card-title">跳过明细（同楼栋同名不重复创建）</span>
+          </div>
+          <el-table :data="batchResult.skipped" border size="small" max-height="260">
+            <el-table-column prop="name" label="点位名称" min-width="180" show-overflow-tooltip />
+            <el-table-column prop="reason" label="跳过原因" min-width="140" show-overflow-tooltip />
+          </el-table>
+        </template>
+      </template>
+
+      <el-form v-else ref="batchFormRef" :model="batchForm" :rules="batchRules" label-width="110px">
+        <el-form-item label="所属小区" prop="community_id">
+          <el-select v-model="batchForm.community_id" placeholder="选择小区" style="width: 100%" @change="batchForm.building_ids = []">
+            <el-option v-for="c in treeData" :key="c.community_id" :label="c.label" :value="c.community_id" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="楼栋" prop="building_ids">
+          <el-select v-model="batchForm.building_ids" multiple collapse-tags collapse-tags-tooltip placeholder="选择楼栋（可多选）" style="width: 100%">
+            <el-option v-for="b in batchBuildings" :key="b.building_id" :label="b.label" :value="b.building_id" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="楼层范围" prop="floor_from">
+          <div class="floor-row">
+            <el-input-number v-model="batchForm.floor_from" :min="-50" :max="200" controls-position="right" placeholder="起" />
+            <span class="text-secondary">至</span>
+            <el-input-number v-model="batchForm.floor_to" :min="-50" :max="200" controls-position="right" placeholder="止" />
+            <span class="text-secondary">每层</span>
+            <el-input-number v-model="batchForm.per_floor" :min="1" :max="50" controls-position="right" />
+            <span class="text-secondary">个</span>
+          </div>
+          <div class="text-secondary">负数表示地下层（-1 = B1，-2 = B2）</div>
+        </el-form-item>
+        <el-form-item label="命名规则" prop="name_pattern">
+          <el-input v-model="batchForm.name_pattern" placeholder="如：{building}{floor}层消防箱{seq}" />
+          <div class="text-secondary">占位符：{'{building}'} 楼栋名、{'{floor}'} 楼层（地下层自动渲染 B1/B2）、{'{seq}'} 每层序号</div>
+        </el-form-item>
+        <el-form-item label="点位类型" prop="type">
+          <el-select v-model="batchForm.type" placeholder="选择类型" style="width: 100%">
+            <el-option v-for="d in pointTypeOptions" :key="d.value" :label="d.label" :value="d.value" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="点位凭证">
+          <el-radio-group v-model="batchForm.credential">
+            <el-radio value="qrcode">扫码</el-radio>
+            <el-radio value="nfc">NFC</el-radio>
+            <el-radio value="any">任一</el-radio>
+            <el-radio value="none">不需要</el-radio>
+          </el-radio-group>
+        </el-form-item>
+        <el-form-item label="检查项模板">
+          <el-select v-model="batchForm.template_id" placeholder="不关联模板" clearable style="width: 100%">
+            <el-option v-for="t in batchTemplates" :key="t.id" :label="t.name" :value="t.id" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="坐标">
+          <div class="coord-row">
+            <el-input-number v-model="batchForm.longitude" :precision="6" :step="0.0001" :min="70" :max="140" placeholder="经度（选填）" controls-position="right" />
+            <el-input-number v-model="batchForm.latitude" :precision="6" :step="0.0001" :min="3" :max="54" placeholder="纬度（选填）" controls-position="right" />
+          </div>
+          <div class="text-secondary">批量点位共用同一坐标，可留空后续逐个修正</div>
+        </el-form-item>
+      </el-form>
+
+      <template #footer>
+        <template v-if="batchResult">
+          <el-button @click="batchResult = null">继续建点</el-button>
+          <el-button type="primary" @click="batchVisible = false">完成</el-button>
+        </template>
+        <template v-else>
+          <el-button @click="batchVisible = false">取消</el-button>
+          <el-button type="primary" :loading="batchSubmitting" @click="handleBatchSubmit">生成点位</el-button>
+        </template>
+      </template>
+    </el-dialog>
+
     <!-- 批量导入：三步向导对话框 -->
     <el-dialog v-model="importVisible" title="批量导入点位" width="640px" :close-on-click-modal="false" @closed="resetImport">
       <el-steps :active="importStep" align-center finish-status="success" class="import-steps">
@@ -311,17 +398,16 @@ import {
   ElMessage, ElMessageBox,
   type FormInstance, type FormRules, type UploadFile, type UploadInstance, type UploadRawFile
 } from 'element-plus'
-import { Search, Refresh, Plus, RefreshRight, Grid, MapLocation, Delete, Upload, Download, UploadFilled } from '@element-plus/icons-vue'
-import { listPoints, createPoint, updatePoint, deletePoint, generateQrcodes, importPoints, type PointQuery, type PointImportResult } from '@/api/point'
+import { Search, Refresh, Plus, RefreshRight, Grid, MapLocation, Delete, Upload, Download, UploadFilled, Files } from '@element-plus/icons-vue'
+import { listPoints, createPoint, updatePoint, deletePoint, generateQrcodes, importPoints, batchCreatePoints, type PointQuery, type PointImportResult, type PointBatchResult } from '@/api/point'
 import { withFileToken } from '@/api/upload'
 import { listTemplates } from '@/api/template'
 import { listCommunityTree } from '@/api/community'
-import { listDictData } from '@/api/dict'
+import { listDictOptions, type DictOption } from '@/api/dict'
 import { getMapConfig } from '@/api/map'
 import MapPickerDialog from '@/components/MapPickerDialog.vue'
 import { downloadFile } from '@/utils/download'
 import type { PointItem, TemplateItem } from '@/api/biz-types'
-import type { DictData } from '@/api/types'
 
 // ===== 左树 =====
 interface TreeNode {
@@ -364,7 +450,7 @@ const total = ref(0)
 const selected = ref<PointItem[]>([])
 const query = reactive<PointQuery>({ page: 1, page_size: 20, name: '', type: '', status: '' })
 
-const pointTypeOptions = ref<DictData[]>([])
+const pointTypeOptions = ref<DictOption[]>([])
 
 // 启用中的检查项模板（表单下拉用，按点位类型过滤）
 const templates = ref<TemplateItem[]>([])
@@ -423,8 +509,8 @@ onMounted(() => {
   fetchList()
   refreshMapKey()
   // 点位类型字典
-  listDictData({ type_code: 'point_type', page: 1, page_size: 100 }).then((d) => {
-    pointTypeOptions.value = d.list.filter((x) => x.status === 1)
+  listDictOptions('point_type').then((d) => {
+    pointTypeOptions.value = d || []
   })
   // 启用中的检查项模板
   listTemplates({ page: 1, page_size: 100, status: 1 }).then((d) => {
@@ -605,6 +691,77 @@ async function handleBatchQrcode() {
   }
 }
 
+// ===== 批量建点助手 =====
+const batchVisible = ref(false)
+const batchSubmitting = ref(false)
+const batchFormRef = ref<FormInstance>()
+const batchResult = ref<PointBatchResult | null>(null)
+
+const batchForm = reactive({
+  community_id: undefined as string | undefined,
+  building_ids: [] as string[],
+  floor_from: 1,
+  floor_to: 3,
+  per_floor: 1,
+  name_pattern: '',
+  type: '',
+  credential: 'qrcode',
+  template_id: null as string | null,
+  longitude: null as number | null,
+  latitude: null as number | null
+})
+
+const batchRules: FormRules = {
+  community_id: [{ required: true, message: '请选择小区', trigger: 'change' }],
+  name_pattern: [{ required: true, message: '请填写命名规则', trigger: 'blur' }],
+  type: [{ required: true, message: '请选择点位类型', trigger: 'change' }]
+}
+
+// 所选小区下的楼栋选项（复用左树数据）
+const batchBuildings = computed(
+  () => treeData.value.find((c) => c.community_id === batchForm.community_id)?.children || []
+)
+
+// 模板同样按点位类型过滤（与单点表单同口径）
+const batchTemplates = computed(() =>
+  templates.value.filter((t) => !t.point_type || t.point_type === batchForm.type)
+)
+
+function openBatch() {
+  batchResult.value = null
+  batchFormRef.value?.clearValidate()
+  batchVisible.value = true
+}
+
+async function handleBatchSubmit() {
+  await batchFormRef.value?.validate()
+  if (batchForm.floor_from > batchForm.floor_to) {
+    ElMessage.warning('楼层范围起点不能大于终点')
+    return
+  }
+  batchSubmitting.value = true
+  try {
+    batchResult.value = await batchCreatePoints({
+      community_id: batchForm.community_id!,
+      building_ids: batchForm.building_ids.length ? batchForm.building_ids : undefined,
+      floor_from: batchForm.floor_from,
+      floor_to: batchForm.floor_to,
+      per_floor: batchForm.per_floor,
+      name_pattern: batchForm.name_pattern,
+      type: batchForm.type,
+      credential: batchForm.credential,
+      template_id: batchForm.template_id || undefined,
+      longitude: batchForm.longitude ?? undefined,
+      latitude: batchForm.latitude ?? undefined
+    })
+    if (batchResult.value.created > 0) fetchList()
+  } catch {
+    // 拦截器已提示
+  } finally {
+    batchSubmitting.value = false
+  }
+}
+
 // ===== 批量导入：三步向导 =====
 const importVisible = ref(false)
 const importStep = ref(0)
@@ -738,6 +895,12 @@ function downloadFailDetails() {
 }
 
 .coord-row {
+  display: flex;
+  gap: $spacing-sm;
+  align-items: center;
+}
+
+.floor-row {
   display: flex;
   gap: $spacing-sm;
   align-items: center;

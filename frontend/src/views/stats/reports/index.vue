@@ -18,6 +18,14 @@
             style="width: 140px"
           />
         </el-form-item>
+        <el-form-item label="报告类型">
+          <el-select v-model="query.patrol_type" placeholder="全部" clearable style="width: 160px">
+            <el-option label="综合月报" value="none" />
+            <el-option-group v-for="g in patrolTypeGroups" :key="g.label" :label="g.label">
+              <el-option v-for="o in g.options" :key="o.value" :label="o.label" :value="o.value" />
+            </el-option-group>
+          </el-select>
+        </el-form-item>
         <el-form-item label="状态">
           <el-select v-model="query.status" placeholder="全部状态" clearable style="width: 150px">
             <el-option v-for="s in statusOptions" :key="s.value" :label="s.label" :value="s.value" />
@@ -44,6 +52,13 @@
         <el-table-column prop="title" label="报告标题" min-width="220" show-overflow-tooltip />
         <el-table-column prop="community_name" label="小区" min-width="110" show-overflow-tooltip />
         <el-table-column prop="period" label="期间" width="90" align="center" />
+        <el-table-column label="报告类型" width="130" align="center">
+          <template #default="{ row }">
+            <el-tag size="small" :type="row.patrol_type ? 'warning' : 'info'" effect="plain">
+              {{ row.patrol_type_label || '综合月报' }}
+            </el-tag>
+          </template>
+        </el-table-column>
         <el-table-column label="状态" width="130" align="center">
           <template #default="{ row }">
             <el-tag :type="statusTag(row.status).type" size="small">{{ statusTag(row.status).label }}</el-tag>
@@ -111,6 +126,7 @@
           <el-descriptions :column="2" border size="small">
             <el-descriptions-item label="小区">{{ detail.community_name }}</el-descriptions-item>
             <el-descriptions-item label="期间">{{ detail.period }}</el-descriptions-item>
+            <el-descriptions-item label="报告类型">{{ detail.patrol_type_label || '综合月报' }}</el-descriptions-item>
             <el-descriptions-item label="生成时间">{{ detail.created_at }}</el-descriptions-item>
             <el-descriptions-item label="更新时间">{{ detail.updated_at }}</el-descriptions-item>
           </el-descriptions>
@@ -344,6 +360,22 @@
             style="width: 100%"
           />
         </el-form-item>
+        <el-form-item label="报告类型">
+          <!-- 空值 = 综合月报；EP 将 '' 视为未选，placeholder 直接兜住显示 -->
+          <el-select v-model="generateForm.patrol_type" placeholder="综合月报（全部巡查类型）" style="width: 100%" @change="loadCandidates">
+            <el-option label="综合月报（全部巡查类型）" value="" />
+            <el-option-group v-for="g in patrolTypeGroups" :key="g.label" :label="g.label">
+              <el-option v-for="o in g.options" :key="o.value" :label="o.label" :value="o.value" />
+            </el-option-group>
+          </el-select>
+          <el-alert
+            v-if="generateForm.patrol_type"
+            type="warning"
+            :closable="false"
+            title="专项检查报告只统计该类型任务，建议该类型当月任务全部完成后再生成"
+            class="patrol-type-tip"
+          />
+        </el-form-item>
         <el-form-item label="主管签字人">
           <el-select
             v-model="generateForm.supervisor_ids"
@@ -439,9 +471,12 @@ import { updateProfile } from '@/api/user'
 import SignaturePad from '@/components/SignaturePad.vue'
 import { downloadFile } from '@/utils/download'
 import { useUserStore } from '@/store/user'
+import { usePatrolTypes } from '@/composables/usePatrolTypes'
 import type { CommunityItem } from '@/api/biz-types'
 
 const userStore = useUserStore()
+// 巡查类型字典（报告类型筛选/生成下拉，按大类分组）
+const { patrolTypeGroups } = usePatrolTypes()
 const loading = ref(false)
 const list = ref<ReportItem[]>([])
 const total = ref(0)
@@ -471,6 +506,7 @@ const query = reactive({
   page_size: 20,
   community_id: undefined as string | undefined,
   period: undefined as string | undefined,
+  patrol_type: undefined as string | undefined,
   status: undefined as string | undefined
 })
 // 只看待我签（当前用户在报告当前级签字人名单内）
@@ -495,6 +531,7 @@ function handleSearch() {
 function handleReset() {
   query.community_id = undefined
   query.period = undefined
+  query.patrol_type = undefined
   query.status = undefined
   handleSearch()
 }
@@ -849,6 +886,7 @@ const generateFormRef = ref<FormInstance>()
 const generateForm = reactive({
   community_id: undefined as string | undefined,
   period: undefined as string | undefined,
+  patrol_type: '',
   supervisor_ids: [] as string[],
   manager_ids: [] as string[]
 })
@@ -868,7 +906,8 @@ async function loadCandidates() {
   if (!generateForm.community_id) return
   candidatesLoading.value = true
   try {
-    const data = await getSignCandidates(generateForm.community_id)
+    // 专项报告的主管级默认名单取该类型汇报线槽位（如消防→工程主管）
+    const data = await getSignCandidates(generateForm.community_id, generateForm.patrol_type || undefined)
     candidateUsers.value = data.users
     generateForm.supervisor_ids = data.default_supervisor_ids
     generateForm.manager_ids = data.default_manager_ids
@@ -880,6 +919,8 @@ async function loadCandidates() {
 function openGenerate() {
   generateForm.community_id = query.community_id
   generateForm.period = query.period
+  // 列表筛选的综合月报（none）对应生成表单的空值
+  generateForm.patrol_type = query.patrol_type && query.patrol_type !== 'none' ? query.patrol_type : ''
   generateVisible.value = true
   loadCandidates()
 }
@@ -892,6 +933,7 @@ async function submitGenerate() {
     const data = await generateReport({
       community_id: generateForm.community_id!,
       period: generateForm.period!,
+      patrol_type: generateForm.patrol_type || undefined,
       supervisor_ids: generateForm.supervisor_ids,
       manager_ids: generateForm.manager_ids
     })
@@ -1028,6 +1070,10 @@ async function submitGenerate() {
 
 .generate-tip {
   margin-bottom: $spacing-md;
+}
+
+.patrol-type-tip {
+  margin-top: $spacing-xs;
 }
 
 .signer-tip {

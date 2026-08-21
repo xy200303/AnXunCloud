@@ -10,6 +10,10 @@ export interface ReportItem {
   community_name: string
   period: string // YYYY-MM
   title: string
+  // 巡查类型：空=综合月报，非空=该类型专项检查报告（patrol_type_label 为后端透出名称）
+  patrol_type: string
+  patrol_type_label: string
+  plan_id: string | null
   status: ReportStatus
   inspector_total: number
   inspector_signed_count: number
@@ -68,6 +72,9 @@ export interface ReportDetail {
   community_name: string
   period: string
   title: string
+  patrol_type: string
+  patrol_type_label: string
+  plan_id: string | null
   status: ReportStatus
   stats: ReportStats
   records: ReportRecord[]
@@ -101,6 +108,8 @@ export interface ReportListQuery {
   page_size?: number
   community_id?: string
   period?: string
+  // 空=全部；none=仅综合月报；其余按 patrol_type 字典值过滤
+  patrol_type?: string
   status?: string
   pending_mine?: string // '1' = 只看待我签
 }
@@ -113,7 +122,15 @@ export function getReport(id: string) {
   return request<ReportDetail>({ url: `/reports/${id}`, method: 'get' })
 }
 
-export function generateReport(data: { community_id: string; period: string; supervisor_ids?: string[]; manager_ids?: string[] }) {
+// patrol_type 可空=综合月报；非空=该类型专项检查报告（同小区同月按类型各一份）
+export function generateReport(data: {
+  community_id: string
+  period: string
+  patrol_type?: string
+  plan_id?: string
+  supervisor_ids?: string[]
+  manager_ids?: string[]
+}) {
   return request<{ id: string; title: string; status: ReportStatus; regenerated: boolean }>({
     url: '/reports/generate',
     method: 'post',
@@ -129,7 +146,7 @@ export interface SignCandidate {
   has_signature: boolean
 }
 
-export function getSignCandidates(communityId: string) {
+export function getSignCandidates(communityId: string, patrolType?: string) {
   return request<{
     users: SignCandidate[]
     default_supervisor_ids: string[]
@@ -137,7 +154,8 @@ export function getSignCandidates(communityId: string) {
   }>({
     url: '/reports/sign-candidates',
     method: 'get',
-    params: { community_id: communityId }
+    // patrol_type：专项报告主管级默认名单取该类型汇报线槽位
+    params: { community_id: communityId, patrol_type: patrolType || undefined }
   })
 }
 

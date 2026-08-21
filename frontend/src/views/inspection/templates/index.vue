@@ -117,9 +117,8 @@ import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox, type FormInstance, type FormRules } from 'element-plus'
 import { Search, Refresh, Plus, RefreshRight } from '@element-plus/icons-vue'
 import { listTemplates, createTemplate, updateTemplate, deleteTemplate, type TemplateQuery } from '@/api/template'
-import { listDictData } from '@/api/dict'
+import { listDictOptions, type DictOption } from '@/api/dict'
 import type { TemplateItem } from '@/api/biz-types'
-import type { DictData } from '@/api/types'
 
 const router = useRouter()
 const loading = ref(false)
@@ -128,7 +127,7 @@ const total = ref(0)
 const query = reactive<TemplateQuery>({ page: 1, page_size: 20, name: '', point_type: '', status: '' })
 
 // 点位类型字典（与点位页同一字典）
-const pointTypeOptions = ref<DictData[]>([])
+const pointTypeOptions = ref<DictOption[]>([])
 
 function pointTypeLabel(value: string) {
   return pointTypeOptions.value.find((d) => d.value === value)?.label || value
@@ -169,8 +168,8 @@ function handleReset() {
 
 onMounted(() => {
   fetchList()
-  listDictData({ type_code: 'point_type', page: 1, page_size: 100 }).then((d) => {
-    pointTypeOptions.value = d.list.filter((x) => x.status === 1)
+  listDictOptions('point_type').then((d) => {
+    pointTypeOptions.value = d || []
   })
 })
 

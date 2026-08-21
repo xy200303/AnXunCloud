@@ -126,6 +126,8 @@ export interface DictData {
   value: string
   sort: number
   status: number
+  // 通用扩展列（jsonb）；patrol_type 用 attrs.category 标记大类（daily_patrol 日常巡逻 / special 专项检查）
+  attrs?: Record<string, string> | null
 }
 
 export interface ConfigItem {

@@ -54,6 +54,7 @@
               <template #default="{ row: item }">
                 <div>{{ item.name }}</div>
                 <div v-if="item.requirement" class="item-requirement">{{ item.requirement }}</div>
+                <div v-if="item.ai_hint" class="item-ai-hint">AI 要点：{{ item.ai_hint }}</div>
               </template>
             </el-table-column>
             <el-table-column label="结果" width="80" align="center">
@@ -61,6 +62,17 @@
                 <el-tag :type="item.pass ? 'success' : 'danger'" size="small">
                   {{ item.pass ? '合格' : '不合格' }}
                 </el-tag>
+              </template>
+            </el-table-column>
+            <!-- 逐项 AI 初判（辅助参考，最终以人工审核为准，不阻断操作） -->
+            <el-table-column label="AI 结论" min-width="130">
+              <template #default="{ row: item }">
+                <el-tag v-if="item.ai_verdict === 'pass'" type="success" size="small">AI 通过</el-tag>
+                <span v-else-if="item.ai_verdict === 'review'" class="ai-suspect-text">
+                  AI 存疑：{{ item.ai_reason || '请人工核对' }}
+                </span>
+                <el-tag v-else-if="item.ai_verdict === 'error'" type="info" size="small">AI 识别失败</el-tag>
+                <span v-else class="text-secondary">--</span>
               </template>
             </el-table-column>
             <el-table-column label="照片" min-width="110">
@@ -229,6 +241,20 @@ function photoMeta(d: CheckinDetail) {
   font-size: 12px;
   line-height: 1.4;
   color: $color-text-secondary;
+}
+
+// AI 识别要点（内部提示，仅管理端可见）
+.item-ai-hint {
+  font-size: 12px;
+  line-height: 1.4;
+  color: $color-text-placeholder;
+}
+
+// 逐项 AI 存疑：黄色文案提示，不阻断人工审核
+.ai-suspect-text {
+  font-size: 12px;
+  line-height: 1.4;
+  color: $color-warning;
 }
 
 .item-photos {

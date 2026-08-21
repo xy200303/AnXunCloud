@@ -147,10 +147,11 @@ export interface PointForm {
 }
 
 // ===== 巡检计划 =====
-// 巡查类型（字典 patrol_type；任务生成时从计划快照）
-export type PatrolType = 'safety' | 'equipment' | 'environment' | 'building'
+// 巡查类型（字典 patrol_type 驱动，attrs.category 分大类；任务生成时从计划快照）
+export type PatrolType = string
 
-export const PATROL_TYPE_OPTIONS: { value: PatrolType; label: string }[] = [
+// 兼容旧页面的硬编码兜底选项（新入口一律走 usePatrolTypes 字典）
+export const PATROL_TYPE_OPTIONS: { value: string; label: string }[] = [
   { value: 'safety', label: '安全巡查' },
   { value: 'equipment', label: '设备设施专项' },
   { value: 'environment', label: '环境巡查' },
@@ -161,6 +162,23 @@ export function patrolTypeLabel(t: string) {
   return PATROL_TYPE_OPTIONS.find((o) => o.value === t)?.label || t || '安全巡查'
 }
 
+// 巡更轮次（cycle_config.rounds，仅 daily/weekly；window 允许跨零点，起止相等非法）
+export interface PlanRound {
+  name: string
+  window: string // HH:MM-HH:MM
+}
+
+export interface PlanCycleConfig {
+  interval?: number
+  weekdays?: number[]
+  days?: number[]
+  rounds?: PlanRound[]
+  daily_min_rounds?: number | null
+}
+
+// 选点方式：explicit 手动名单 / by_point_types 按点位类型圈选（任务生成时实时展开）
+export type PlanSelectionMode = 'explicit' | 'by_point_types'
+
 export interface PlanItem {
   id: string
   community_id: string
@@ -168,8 +186,10 @@ export interface PlanItem {
   name: string
   patrol_type: PatrolType
   point_count: number
+  selection_mode?: PlanSelectionMode
+  point_types?: string[] | null
   cycle_type: 'daily' | 'weekly' | 'monthly'
-  cycle_config: { weekdays?: number[]; days?: number[] }
+  cycle_config: PlanCycleConfig
   inspector_ids: string[]
   inspector_names: string[]
   start_date: string
@@ -187,13 +207,15 @@ export interface PlanForm {
   community_id: string | null
   name: string
   patrol_type: PatrolType
-  point_ids: string[]
+  selection_mode?: PlanSelectionMode
+  point_ids?: string[]
+  point_types?: string[]
   cycle_type: string
-  cycle_config: { weekdays?: number[]; days?: number[] }
+  cycle_config: PlanCycleConfig
   inspector_ids: string[]
   start_date: string
   end_date: string
-  time_window: string
+  time_window?: string
   status: number
 }
 
@@ -294,6 +316,10 @@ export interface CheckinCheckItem {
   requirement?: string
   // 该项照片 URL 列表（可空，后端并行开发中）
   photo_urls?: string[]
+  // 逐项 AI 初判（仅管理端展示）：ai_hint 识别要点快照，ai_verdict pass/review/error，空=未送 AI
+  ai_hint?: string
+  ai_verdict?: 'pass' | 'review' | 'error' | ''
+  ai_reason?: string
 }
 
 export interface CheckinDetail extends CheckinItem {
@@ -424,6 +450,44 @@ export interface PerformanceItem {
   avg_duration_min: number
   abnormal_found: number
   suspect_count: number
+}
+
+// ===== 巡更达成率（接口文档 §2.23，以轮次任务为最小单元） =====
+export interface PatrolRoundsSummary {
+  should_rounds: number
+  done_rounds: number
+  open_rounds: number // 待开始/进行中
+  overdue_rounds: number
+  achievement_rate: number
+  avg_point_completion: number // 单轮点位完成率
+  daily_min_rounds: number | null // 每日达标轮次线（未设为 null）
+}
+
+export interface PatrolRoundsDaily {
+  date: string
+  should_rounds: number
+  done_rounds: number
+  overdue_rounds: number
+  achievement_rate: number
+  met: boolean | null // 达标线判定；未设达标线为 null
+}
+
+export interface PatrolRoundsOverdueItem {
+  task_id: string
+  task_date: string
+  round_name: string
+  time_window: string
+  inspector_name: string
+  done_points: number
+  total_points: number
+  // overdue 已翻转逾期 / expired_doing 窗口已过未翻转（动态判定）
+  state: 'overdue' | 'expired_doing'
+}
+
+export interface PatrolRoundsData {
+  summary: PatrolRoundsSummary
+  daily: PatrolRoundsDaily[]
+  overdue_list: PatrolRoundsOverdueItem[]
 }
 
 // ===== 通知公告 =====

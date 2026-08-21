@@ -33,3 +33,15 @@ export function updateDictData(id: string, data: Partial<DictData>) {
 export function deleteDictData(id: string) {
   return request<null>({ url: `/system/dict-data/${id}`, method: 'delete' })
 }
+
+// 业务字典只读选项（免权限端点，登录即可）：租户侧表单下拉用，仅返回启用项
+export interface DictOption {
+  label: string
+  value: string
+  sort: number
+  attrs?: Record<string, string> | null
+}
+
+export function listDictOptions(typeCode: string, silent = false) {
+  return request<DictOption[]>({ url: '/dict-options', method: 'get', params: { type_code: typeCode }, silent } as any)
+}

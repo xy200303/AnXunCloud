@@ -25,3 +25,12 @@ export function deletePlan(id: string) {
 export function updatePlanStatus(id: string, status: number) {
   return request<null>({ url: `/inspection/plans/${id}/status`, method: 'put', data: { status } })
 }
+
+// by_point_types 圈选命中预览（计划表单用）
+export function previewPlanPoints(params: { community_id: string; point_types: string }) {
+  return request<{ count: number; points: { id: string; name: string; type: string; building_name: string }[] }>({
+    url: '/inspection/plans/preview-points',
+    method: 'get',
+    params
+  })
+}

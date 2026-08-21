@@ -151,6 +151,115 @@
           </template>
           <el-empty v-else-if="!loading" description="该条件下暂无及时率数据" />
         </el-tab-pane>
+        <!-- ===== 巡更达成率 ===== -->
+        <el-tab-pane label="巡更达成率" name="rounds">
+          <!-- 巡更口径筛选：小区必选（后端必填），按计划/日期段钻取，默认本月 -->
+          <el-form inline class="rounds-filter">
+            <el-form-item label="小区">
+              <el-select v-model="roundsCommunityId" placeholder="选择小区" style="width: 160px" @change="handleRoundsCommunityChange">
+                <el-option v-for="c in communities" :key="c.id" :label="c.name" :value="c.id" />
+              </el-select>
+            </el-form-item>
+            <el-form-item label="计划">
+              <el-select v-model="roundsPlanId" placeholder="全部计划" clearable style="width: 180px">
+                <el-option v-for="p in roundsPlans" :key="p.id" :label="p.name" :value="p.id" />
+              </el-select>
+            </el-form-item>
+            <el-form-item label="日期段">
+              <el-date-picker
+                v-model="roundsRange"
+                type="daterange"
+                range-separator="至"
+                start-placeholder="开始日期"
+                end-placeholder="结束日期"
+                value-format="YYYY-MM-DD"
+                :clearable="false"
+                style="width: 260px"
+              />
+            </el-form-item>
+            <el-form-item>
+              <el-button type="primary" :icon="Search" :loading="roundsLoading" @click="fetchRounds">查询</el-button>
+            </el-form-item>
+          </el-form>
+
+          <template v-if="rounds">
+            <div class="metric-row">
+              <div class="metric-card">
+                <div class="metric-value">{{ rounds.summary.should_rounds }}</div>
+                <div class="metric-label">应巡轮次</div>
+              </div>
+              <div class="metric-card">
+                <div class="metric-value">{{ rounds.summary.done_rounds }}</div>
+                <div class="metric-label">实巡轮次</div>
+              </div>
+              <div class="metric-card">
+                <div class="metric-value">{{ rounds.summary.achievement_rate }}%</div>
+                <div class="metric-label">巡更达成率</div>
+              </div>
+              <div class="metric-card">
+                <div class="metric-value" :class="{ danger: rounds.summary.overdue_rounds > 0 }">
+                  {{ rounds.summary.overdue_rounds }}
+                </div>
+                <div class="metric-label">逾期轮次</div>
+              </div>
+              <div class="metric-card">
+                <div class="metric-value">{{ rounds.summary.avg_point_completion }}%</div>
+                <div class="metric-label">单轮点位完成率</div>
+              </div>
+            </div>
+            <p class="chart-summary">
+              达标线：{{ rounds.summary.daily_min_rounds != null ? `每日 ≥ ${rounds.summary.daily_min_rounds} 轮` : '未设置' }}；进行中/待开始 {{ rounds.summary.open_rounds }} 轮
+            </p>
+
+            <!-- 按天明细：不达标（met=false）或达成率 <100% 标红 -->
+            <el-table
+              :data="rounds.daily"
+              stripe
+              class="detail-table"
+              :row-class-name="roundsRowClass"
+            >
+              <el-table-column prop="date" label="日期" min-width="110" />
+              <el-table-column prop="should_rounds" label="应巡轮次" min-width="90" align="right" sortable />
+              <el-table-column prop="done_rounds" label="实巡" min-width="80" align="right" sortable />
+              <el-table-column label="逾期" min-width="80" align="right">
+                <template #default="{ row }">
+                  <span :class="{ 'danger-text': row.overdue_rounds > 0 }">{{ row.overdue_rounds }}</span>
+                </template>
+              </el-table-column>
+              <el-table-column prop="achievement_rate" label="达成率" min-width="90" align="right" sortable>
+                <template #default="{ row }">{{ row.achievement_rate }}%</template>
+              </el-table-column>
+              <el-table-column label="达标" min-width="90" align="center">
+                <template #default="{ row }">
+                  <el-tag v-if="row.met === true" type="success" size="small">达标</el-tag>
+                  <el-tag v-else-if="row.met === false" type="danger" size="small">不达标</el-tag>
+                  <span v-else class="text-secondary">--</span>
+                </template>
+              </el-table-column>
+            </el-table>
+
+            <!-- 逾期轮次清单：overdue 已翻转 / expired_doing 窗口已过未翻转 -->
+            <template v-if="rounds.overdue_list.length">
+              <h4 class="chart-title">逾期轮次清单</h4>
+              <el-table :data="rounds.overdue_list" stripe class="detail-table">
+                <el-table-column prop="task_date" label="任务日期" min-width="100" />
+                <el-table-column prop="round_name" label="轮次" min-width="100" show-overflow-tooltip />
+                <el-table-column prop="time_window" label="时间窗" min-width="110" align="center" />
+                <el-table-column prop="inspector_name" label="巡检员" min-width="90" />
+                <el-table-column label="点位完成" min-width="90" align="right">
+                  <template #default="{ row }">{{ row.done_points }}/{{ row.total_points }}</template>
+                </el-table-column>
+                <el-table-column label="状态" min-width="130" align="center">
+                  <template #default="{ row }">
+                    <el-tag v-if="row.state === 'expired_doing'" type="warning" size="small">窗口已过未翻转</el-tag>
+                    <el-tag v-else type="danger" size="small">已逾期</el-tag>
+                  </template>
+                </el-table-column>
+              </el-table>
+            </template>
+          </template>
+          <el-empty v-else-if="!roundsLoading" description="请选择小区后查询巡更达成率" />
+        </el-tab-pane>
       </el-tabs>
     </div>
   </div>
@@ -162,12 +271,13 @@
 import { computed, onMounted, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import { Search, Refresh } from '@element-plus/icons-vue'
-import { getCoverage, getTimeliness, exportReport } from '@/api/stats'
+import { getCoverage, getTimeliness, exportReport, getPatrolRounds } from '@/api/stats'
 import { withFileToken } from '@/api/upload'
 import { listCommunities } from '@/api/community'
+import { listPlans } from '@/api/plan'
 import Echart from '@/components/Echart.vue'
 import { CHART_COLORS } from '@/utils/echarts'
-import type { CoverageData, TimelinessData, CommunityItem } from '@/api/biz-types'
+import type { CoverageData, TimelinessData, CommunityItem, PlanItem, PatrolRoundsData, PatrolRoundsDaily } from '@/api/biz-types'
 
 const loading = ref(false)
 const exporting = ref(false)
@@ -209,6 +319,54 @@ onMounted(async () => {
   const cData = await listCommunities({ page: 1, page_size: 100, status: 1 })
   communities.value = cData.list
 })
+
+// ===== 巡更达成率（轮次口径，小区必选；计划下拉跟随小区） =====
+const roundsLoading = ref(false)
+const rounds = ref<PatrolRoundsData | null>(null)
+const roundsCommunityId = ref<string | undefined>()
+const roundsPlanId = ref<string | undefined>()
+const roundsPlans = ref<PlanItem[]>([])
+
+// 默认本月
+function monthRange(): [string, string] {
+  const now = new Date()
+  const fmt = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+  return [fmt(new Date(now.getFullYear(), now.getMonth(), 1)), fmt(now)]
+}
+
+const roundsRange = ref<[string, string]>(monthRange())
+
+async function handleRoundsCommunityChange() {
+  roundsPlanId.value = undefined
+  roundsPlans.value = []
+  if (!roundsCommunityId.value) return
+  const data = await listPlans({ community_id: roundsCommunityId.value, page: 1, page_size: 100 })
+  roundsPlans.value = data.list
+  fetchRounds()
+}
+
+async function fetchRounds() {
+  if (!roundsCommunityId.value) {
+    ElMessage.warning('请先选择小区')
+    return
+  }
+  roundsLoading.value = true
+  try {
+    rounds.value = await getPatrolRounds({
+      community_id: roundsCommunityId.value,
+      from: roundsRange.value[0],
+      to: roundsRange.value[1],
+      plan_id: roundsPlanId.value || undefined
+    })
+  } finally {
+    roundsLoading.value = false
+  }
+}
+
+// 不达标行标红：met=false 或达成率 <100%
+function roundsRowClass({ row }: { row: PatrolRoundsDaily }) {
+  return row.met === false || (row.should_rounds > 0 && row.achievement_rate < 100) ? 'rounds-row-miss' : ''
+}
 
 // ===== 图表组装（折线：主色单系列 + 10% 面积；条图：横向、值标条端） =====
 function lineOption(dates: string[], values: number[], name: string) {
@@ -368,6 +526,15 @@ async function handleExport(reportType: 'coverage' | 'timeliness' | 'monthly', f
 
 .detail-table {
   margin-bottom: $spacing-lg;
+}
+
+.rounds-filter {
+  margin-bottom: $spacing-md;
+}
+
+// 不达标行标红（met=false 或达成率 <100%）
+:deep(.rounds-row-miss) {
+  --el-table-tr-bg-color: var(--el-color-danger-light-9);
 }
 
 .export-row {

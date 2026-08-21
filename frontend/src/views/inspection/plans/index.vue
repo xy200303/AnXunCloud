@@ -19,8 +19,10 @@
           </el-select>
         </el-form-item>
         <el-form-item label="巡查类型">
-          <el-select v-model="query.patrol_type" placeholder="全部" clearable style="width: 140px">
-            <el-option v-for="o in PATROL_TYPE_OPTIONS" :key="o.value" :label="o.label" :value="o.value" />
+          <el-select v-model="query.patrol_type" placeholder="全部" clearable style="width: 160px">
+            <el-option-group v-for="g in patrolTypeGroups" :key="g.label" :label="g.label">
+              <el-option v-for="o in g.options" :key="o.value" :label="o.label" :value="o.value" />
+            </el-option-group>
           </el-select>
         </el-form-item>
         <el-form-item label="状态">
@@ -64,8 +66,27 @@
         <el-table-column label="巡检员" min-width="120" show-overflow-tooltip>
           <template #default="{ row }">{{ row.inspector_names?.join('、') || '--' }}</template>
         </el-table-column>
-        <el-table-column prop="point_count" label="点位数" width="80" align="right" />
-        <el-table-column prop="time_window" label="执行时段" width="120" align="center" />
+        <!-- 点位：手动名单显示点位数；按类型圈选显示圈选的类型标签 -->
+        <el-table-column label="点位" min-width="140" show-overflow-tooltip>
+          <template #default="{ row }">
+            <span v-if="row.selection_mode === 'by_point_types'" class="selection-cell">
+              <el-tag size="small" type="warning" effect="plain">按类型圈选</el-tag>
+              {{ pointTypeNames(row.point_types) }}
+            </span>
+            <span v-else>{{ row.point_count }} 个</span>
+          </template>
+        </el-table-column>
+        <el-table-column label="执行时段" width="120" align="center">
+          <template #default="{ row }">
+            <el-tooltip v-if="row.cycle_config?.rounds?.length" placement="top">
+              <template #content>
+                <div v-for="(r, i) in row.cycle_config.rounds" :key="i">{{ r.name }} {{ r.window || '自由时段' }}</div>
+              </template>
+              <span>{{ row.cycle_config.rounds.length }} 轮次</span>
+            </el-tooltip>
+            <span v-else>{{ row.time_window || '--' }}</span>
+          </template>
+        </el-table-column>
         <el-table-column label="有效期" width="200" align="center">
           <template #default="{ row }">{{ row.start_date }} ~ {{ row.end_date }}</template>
         </el-table-column>
@@ -114,7 +135,7 @@
     </div>
 
     <!-- 新增/编辑对话框（字段多，用对话框） -->
-    <el-dialog v-model="formVisible" :title="form.id ? '编辑巡检计划' : '新增巡检计划'" width="720px" :close-on-click-modal="false">
+    <el-dialog v-model="formVisible" :title="form.id ? '编辑巡检计划' : '新增巡检计划'" width="760px" :close-on-click-modal="false">
       <el-form ref="formRef" :model="form" :rules="formRules" label-width="96px">
         <el-row :gutter="16">
           <el-col :span="12">
@@ -135,14 +156,51 @@
           <el-col :span="12">
             <el-form-item label="巡查类型" prop="patrol_type">
               <el-select v-model="form.patrol_type" style="width: 100%">
-                <el-option v-for="o in PATROL_TYPE_OPTIONS" :key="o.value" :label="o.label" :value="o.value" />
+                <el-option-group v-for="g in patrolTypeGroups" :key="g.label" :label="g.label">
+                  <el-option v-for="o in g.options" :key="o.value" :label="o.label" :value="o.value" />
+                </el-option-group>
               </el-select>
+            </el-form-item>
+          </el-col>
+          <el-col :span="12">
+            <el-form-item label="选点方式">
+              <el-radio-group v-model="form.selection_mode">
+                <el-radio value="explicit">手动选择点位</el-radio>
+                <el-radio value="by_point_types">按点位类型圈选</el-radio>
+              </el-radio-group>
             </el-form-item>
           </el-col>
         </el-row>
 
+        <!-- 按点位类型圈选：point_type 字典多选 + 实时命中预览 -->
+        <el-form-item v-if="form.selection_mode === 'by_point_types'" label="点位类型" prop="point_types">
+          <el-select
+            v-model="form.point_types"
+            multiple
+            collapse-tags
+            collapse-tags-tooltip
+            placeholder="选择要圈选的点位类型"
+            style="width: 100%"
+            :disabled="!form.community_id"
+            @change="refreshPreview"
+          >
+            <el-option v-for="d in pointTypeOptions" :key="d.value" :label="d.label" :value="d.value" />
+          </el-select>
+          <div class="preview-line">
+            <template v-if="form.community_id && form.point_types.length">
+              <span :class="{ 'danger-text': !previewLoading && previewCount === 0 }">
+                当前命中 {{ previewCount }} 个点位
+              </span>
+              <el-button link type="primary" size="small" :disabled="!previewCount" @click="previewVisible = true">
+                查看点位清单
+              </el-button>
+            </template>
+            <span v-else class="text-secondary">任务生成时按类型实时展开命中点位，新增同类型点位自动进入下期任务</span>
+          </div>
+        </el-form-item>
+
         <!-- 巡检路线：可选点位 + 已选点位（有序，可上下移动） -->
-        <el-form-item label="巡检路线" prop="point_ids">
+        <el-form-item v-else label="巡检路线" prop="point_ids">
           <div class="route-picker">
             <div class="route-col">
               <div class="route-col-title">已选点位（按顺序）</div>
@@ -204,7 +262,73 @@
           </el-select>
         </el-form-item>
 
-        <el-form-item label="执行时段" prop="timeRange">
+        <!-- 轮次设置（仅每天/每周）：配了轮次后计划级执行时段忽略 -->
+        <el-form-item v-if="form.cycle_type !== 'monthly'" label="轮次设置">
+          <div class="rounds-editor">
+            <div class="rounds-toolbar">
+              <el-button size="small" :icon="Plus" @click="addRound()">添加轮次</el-button>
+              <el-popover v-model:visible="quickGenVisible" placement="bottom-start" width="320" trigger="click">
+                <template #reference>
+                  <el-button size="small" plain>快捷生成</el-button>
+                </template>
+                <div class="quick-gen">
+                  <div class="quick-gen-row">
+                    <span class="quick-gen-label">开始时刻</span>
+                    <el-time-picker v-model="quickGen.start" format="HH:mm" value-format="HH:mm" placeholder="如 07:00" style="width: 130px" />
+                  </div>
+                  <div class="quick-gen-row">
+                    <span class="quick-gen-label">结束时刻</span>
+                    <el-time-picker v-model="quickGen.end" format="HH:mm" value-format="HH:mm" placeholder="如 19:00" style="width: 130px" />
+                  </div>
+                  <div class="quick-gen-row">
+                    <span class="quick-gen-label">每隔</span>
+                    <el-input-number v-model="quickGen.everyHours" :min="1" :max="12" size="small" style="width: 110px" />
+                    <span class="text-secondary">小时一轮</span>
+                  </div>
+                  <div class="quick-gen-row">
+                    <span class="quick-gen-label">每轮时长</span>
+                    <el-input-number v-model="quickGen.durationMin" :min="15" :max="720" :step="15" size="small" style="width: 110px" />
+                    <span class="text-secondary">分钟</span>
+                  </div>
+                  <el-button size="small" type="primary" style="width: 100%" @click="applyQuickGen">生成并替换轮次</el-button>
+                </div>
+              </el-popover>
+              <el-dropdown trigger="click" @command="applyShiftTemplate">
+                <el-button size="small" plain>班次模板<el-icon><ArrowDown /></el-icon></el-button>
+                <template #dropdown>
+                  <el-dropdown-menu>
+                    <el-dropdown-item command="two">两班倒（07:00-19:00 / 19:00-07:00）</el-dropdown-item>
+                    <el-dropdown-item command="three">三班倒（8 小时制）</el-dropdown-item>
+                  </el-dropdown-menu>
+                </template>
+              </el-dropdown>
+            </div>
+            <div v-if="form.rounds.length" class="rounds-list">
+              <div v-for="(r, i) in form.rounds" :key="i" class="round-row">
+                <el-input v-model="r.name" placeholder="轮次名" style="width: 130px" />
+                <el-time-picker v-model="r.start" format="HH:mm" value-format="HH:mm" placeholder="开始" style="width: 110px" />
+                <span class="text-secondary">至</span>
+                <el-time-picker v-model="r.end" format="HH:mm" value-format="HH:mm" placeholder="结束" style="width: 110px" />
+                <el-button link size="small" :icon="Top" :disabled="i === 0" @click="moveRound(i, -1)" />
+                <el-button link size="small" :icon="Bottom" :disabled="i === form.rounds.length - 1" @click="moveRound(i, 1)" />
+                <el-button link size="small" type="danger" :icon="Close" @click="form.rounds.splice(i, 1)" />
+              </div>
+            </div>
+            <div class="text-secondary rounds-hint">
+              留空则按下方「执行时段」每天一轮；起止留空 = 自由时段（只考核轮次次数）；窗口允许跨零点（如 19:00-07:00），起止相等非法
+            </div>
+            <div v-if="roundsError" class="route-error">{{ roundsError }}</div>
+          </div>
+        </el-form-item>
+
+        <!-- 每日达标轮次（仅每天）：可空 = 不设达标线 -->
+        <el-form-item v-if="form.cycle_type === 'daily'" label="达标轮次">
+          <el-input-number v-model="form.daily_min_rounds" :min="0" :max="50" placeholder="不设达标线" controls-position="right" style="width: 160px" />
+          <span class="text-secondary rounds-hint">每日达标轮次线（履约考核用），留空不考核；巡更达成率报表按此判定标红</span>
+        </el-form-item>
+
+        <!-- 计划级执行时段：配了轮次则忽略 -->
+        <el-form-item v-if="!roundsEnabled" label="执行时段" prop="timeRange">
           <el-time-picker
             v-model="form.timeRange"
             is-range
@@ -251,6 +375,20 @@
         <el-button type="primary" :loading="submitting" @click="handleSubmit">保存</el-button>
       </template>
     </el-dialog>
+
+    <!-- 圈选命中点位清单 -->
+    <el-dialog v-model="previewVisible" title="圈选命中点位" width="560px">
+      <el-table v-loading="previewLoading" :data="previewPoints" border size="small" max-height="380" style="width: 100%">
+        <el-table-column type="index" label="#" width="50" align="center" />
+        <el-table-column prop="name" label="点位名称" min-width="150" show-overflow-tooltip />
+        <el-table-column label="楼栋/区域" min-width="110" show-overflow-tooltip>
+          <template #default="{ row }">{{ row.building_name || '--' }}</template>
+        </el-table-column>
+        <el-table-column label="类型" width="110">
+          <template #default="{ row }">{{ pointTypeName(row.type) }}</template>
+        </el-table-column>
+      </el-table>
+    </el-dialog>
   </div>
 </template>
 
@@ -260,17 +398,20 @@ import { ElMessage, ElMessageBox, type FormInstance, type FormRules } from 'elem
 import {
   Search, Refresh, Plus, RefreshRight, ArrowDown, Top, Bottom, Close, VideoPlay
 } from '@element-plus/icons-vue'
-import { listPlans, getPlan, createPlan, updatePlan, deletePlan, updatePlanStatus } from '@/api/plan'
+import { listPlans, getPlan, createPlan, updatePlan, deletePlan, updatePlanStatus, previewPlanPoints } from '@/api/plan'
 import { generateTasks } from '@/api/task'
 import { listCommunities } from '@/api/community'
 import { listPoints } from '@/api/point'
 import { listUsers } from '@/api/user'
+import { listDictOptions, type DictOption } from '@/api/dict'
 import { useUserStore } from '@/store/user'
-import type { PlanItem, CommunityItem, PointItem, PatrolType } from '@/api/biz-types'
-import { PATROL_TYPE_OPTIONS, patrolTypeLabel } from '@/api/biz-types'
+import { usePatrolTypes } from '@/composables/usePatrolTypes'
+import type { PlanItem, PlanCycleConfig, PlanSelectionMode, CommunityItem, PointItem, PatrolType } from '@/api/biz-types'
 import type { UserItem } from '@/api/types'
 
 const userStore = useUserStore()
+// 巡查类型字典（按大类分组：日常巡逻/专项检查）
+const { patrolTypeGroups, patrolTypeLabel } = usePatrolTypes()
 
 // ===== 列表 =====
 const loading = ref(false)
@@ -278,6 +419,7 @@ const list = ref<PlanItem[]>([])
 const total = ref(0)
 const communities = ref<CommunityItem[]>([])
 const inspectorOptions = ref<UserItem[]>([])
+const pointTypeOptions = ref<DictOption[]>([])
 const query = reactive({ page: 1, page_size: 20, community_id: undefined as string | undefined, name: '', cycle_type: '', patrol_type: '', status: '' as number | '' })
 
 async function fetchList() {
@@ -313,12 +455,14 @@ function handleReset() {
 
 onMounted(async () => {
   fetchList()
-  const [cData, uData] = await Promise.all([
+  const [cData, uData, ptData] = await Promise.all([
     listCommunities({ page: 1, page_size: 100, status: 1 }),
-    listUsers({ page: 1, page_size: 100, status: 1 })
+    listUsers({ page: 1, page_size: 100, status: 1 }),
+    listDictOptions('point_type')
   ])
   communities.value = cData.list
   inspectorOptions.value = uData.list
+  pointTypeOptions.value = ptData || []
 })
 
 function cycleLabel(row: PlanItem) {
@@ -331,6 +475,16 @@ function cycleLabel(row: PlanItem) {
     return `每月 ${(row.cycle_config?.days || []).join('、')} 日`
   }
   return row.cycle_type
+}
+
+// 点位类型值 → 字典标签
+function pointTypeName(v: string) {
+  return pointTypeOptions.value.find((d) => d.value === v)?.label || v
+}
+
+function pointTypeNames(types?: string[] | null) {
+  if (!types?.length) return '--'
+  return types.map(pointTypeName).join('、')
 }
 
 // ===== 行内操作 =====
@@ -386,27 +540,54 @@ const formVisible = ref(false)
 const submitting = ref(false)
 const formRef = ref<FormInstance>()
 const routeError = ref('')
+const roundsError = ref('')
+
+// 轮次编辑行：start/end 拆开编辑，提交时拼成 window（HH:MM-HH:MM）
+interface RoundRow {
+  name: string
+  start: string
+  end: string
+}
 
 const form = reactive({
   id: '',
   name: '',
   community_id: null as string | null,
   patrol_type: 'safety' as PatrolType,
+  selection_mode: 'explicit' as PlanSelectionMode,
   point_ids: [] as string[],
+  point_types: [] as string[],
   cycle_type: 'daily',
-  cycle_config: {} as { weekdays?: number[]; days?: number[] },
+  cycle_config: {} as PlanCycleConfig,
+  rounds: [] as RoundRow[],
+  daily_min_rounds: null as number | null,
   timeRange: null as [string, string] | null,
   inspector_ids: [] as string[],
   dateRange: null as [string, string] | null,
   status: 1
 })
 
+// 配了轮次（每天/每周）时忽略计划级执行时段
+const roundsEnabled = computed(() => form.cycle_type !== 'monthly' && form.rounds.length > 0)
+
 const formRules: FormRules = {
   name: [{ required: true, message: '请输入计划名称', trigger: 'blur' }],
   community_id: [{ required: true, message: '请选择小区', trigger: 'change' }],
   patrol_type: [{ required: true, message: '请选择巡查类型', trigger: 'change' }],
+  point_types: [
+    {
+      validator: (_r, v: string[], cb) =>
+        form.selection_mode === 'by_point_types' && !v?.length ? cb(new Error('请选择要圈选的点位类型')) : cb(),
+      trigger: 'change'
+    }
+  ],
   cycle_type: [{ required: true, message: '请选择周期', trigger: 'change' }],
-  timeRange: [{ required: true, message: '请选择执行时段', trigger: 'change' }],
+  timeRange: [
+    {
+      validator: (_r, v, cb) => (roundsEnabled.value || v ? cb() : cb(new Error('请选择执行时段'))),
+      trigger: 'change'
+    }
+  ],
   inspector_ids: [{ required: true, type: 'array', min: 1, message: '请选择巡检员', trigger: 'change' }],
   dateRange: [{ required: true, message: '请选择有效期', trigger: 'change' }]
 }
@@ -431,6 +612,7 @@ async function handleFormCommunityChange() {
   }
   const data = await listPoints({ community_id: form.community_id, status: 1, page: 1, page_size: 100 })
   candidatePoints.value = data.list
+  refreshPreview()
 }
 
 function addPoints() {
@@ -451,10 +633,122 @@ function movePoint(i: number, dir: number) {
   ;[arr[i], arr[j]] = [arr[j], arr[i]]
 }
 
+// ===== 圈选命中预览 =====
+const previewLoading = ref(false)
+const previewCount = ref(0)
+const previewPoints = ref<{ id: string; name: string; type: string; building_name: string }[]>([])
+const previewVisible = ref(false)
+
+async function refreshPreview() {
+  if (form.selection_mode !== 'by_point_types' || !form.community_id || !form.point_types.length) {
+    previewCount.value = 0
+    previewPoints.value = []
+    return
+  }
+  previewLoading.value = true
+  try {
+    const data = await previewPlanPoints({ community_id: form.community_id, point_types: form.point_types.join(',') })
+    previewCount.value = data.count
+    previewPoints.value = data.points
+  } finally {
+    previewLoading.value = false
+  }
+}
+
+// ===== 轮次编辑 =====
+function addRound(name = '', start = '', end = '') {
+  form.rounds.push({ name: name || `第${form.rounds.length + 1}轮`, start, end })
+  roundsError.value = ''
+}
+
+function moveRound(i: number, dir: number) {
+  const j = i + dir
+  const arr = form.rounds
+  ;[arr[i], arr[j]] = [arr[j], arr[i]]
+}
+
+// 快捷生成：开始/结束时刻 + 每隔 N 小时 + 每轮时长 → 展开轮次（结束早于开始按跨零点处理）
+const quickGenVisible = ref(false)
+const quickGen = reactive({ start: '07:00', end: '19:00', everyHours: 2, durationMin: 120 })
+
+function toMinutes(t: string) {
+  const [h, m] = t.split(':').map(Number)
+  return h * 60 + m
+}
+
+function fmtMinutes(min: number) {
+  const v = ((min % 1440) + 1440) % 1440
+  return `${String(Math.floor(v / 60)).padStart(2, '0')}:${String(v % 60).padStart(2, '0')}`
+}
+
+function applyQuickGen() {
+  if (!quickGen.start || !quickGen.end) {
+    ElMessage.warning('请先选择开始/结束时刻')
+    return
+  }
+  const s = toMinutes(quickGen.start)
+  let e = toMinutes(quickGen.end)
+  if (e <= s) e += 1440 // 跨零点：结束归次日
+  const step = quickGen.everyHours * 60
+  const rounds: RoundRow[] = []
+  for (let t = s; t < e && rounds.length < 48; t += step) {
+    rounds.push({ name: `第${rounds.length + 1}轮`, start: fmtMinutes(t), end: fmtMinutes(t + quickGen.durationMin) })
+  }
+  if (!rounds.length) {
+    ElMessage.warning('该时间段内无法展开轮次')
+    return
+  }
+  form.rounds = rounds
+  roundsError.value = ''
+  quickGenVisible.value = false
+  ElMessage.success(`已生成 ${rounds.length} 个轮次，可继续微调`)
+}
+
+// 班次模板一键填充
+function applyShiftTemplate(cmd: string) {
+  if (cmd === 'two') {
+    form.rounds = [
+      { name: '白班', start: '07:00', end: '19:00' },
+      { name: '夜班', start: '19:00', end: '07:00' }
+    ]
+  } else {
+    form.rounds = [
+      { name: '早班', start: '08:00', end: '16:00' },
+      { name: '中班', start: '16:00', end: '00:00' },
+      { name: '夜班', start: '00:00', end: '08:00' }
+    ]
+  }
+  roundsError.value = ''
+  ElMessage.success('已按班次模板填充轮次')
+}
+
+// 轮次合法性：名称必填；起止同时留空 = 自由时段（window 空），只填一端非法；起止相等非法
+function validateRounds(): boolean {
+  for (const r of form.rounds) {
+    if (!r.name.trim()) {
+      roundsError.value = '轮次名称不能为空'
+      return false
+    }
+    if (!r.start && !r.end) continue // 自由时段
+    if (!r.start || !r.end) {
+      roundsError.value = `轮次「${r.name}」起止时间须同时填写或同时留空（自由时段）`
+      return false
+    }
+    if (r.start === r.end) {
+      roundsError.value = `轮次「${r.name}」起止时间相等非法（全天请配 00:00-23:59）`
+      return false
+    }
+  }
+  roundsError.value = ''
+  return true
+}
+
 async function openForm(row?: PlanItem) {
   formRef.value?.clearValidate()
   routeError.value = ''
+  roundsError.value = ''
   checkedCandidateIds.value = []
+  previewVisible.value = false
   if (row) {
     const detail = await getPlan(row.id)
     Object.assign(form, {
@@ -462,9 +756,17 @@ async function openForm(row?: PlanItem) {
       name: detail.name,
       community_id: detail.community_id,
       patrol_type: detail.patrol_type || 'safety',
+      selection_mode: detail.selection_mode || 'explicit',
       point_ids: (detail.points || []).sort((a, b) => a.sort - b.sort).map((p) => p.id),
+      point_types: [...(detail.point_types || [])],
       cycle_type: detail.cycle_type,
       cycle_config: { ...detail.cycle_config },
+      // window 拆开为起止两个时刻便于编辑
+      rounds: (detail.cycle_config?.rounds || []).map((r) => {
+        const [start = '', end = ''] = (r.window || '').split('-')
+        return { name: r.name, start, end }
+      }),
+      daily_min_rounds: detail.cycle_config?.daily_min_rounds ?? null,
       timeRange: detail.time_window ? (detail.time_window.split('-') as [string, string]) : null,
       inspector_ids: [...detail.inspector_ids],
       dateRange: [detail.start_date, detail.end_date],
@@ -472,21 +774,29 @@ async function openForm(row?: PlanItem) {
     })
     const data = await listPoints({ community_id: detail.community_id, status: 1, page: 1, page_size: 100 })
     candidatePoints.value = data.list
+    refreshPreview()
   } else {
     Object.assign(form, {
-      id: '', name: '', community_id: null, patrol_type: 'safety', point_ids: [], cycle_type: 'daily',
-      cycle_config: {}, timeRange: null, inspector_ids: [], dateRange: null, status: 1
+      id: '', name: '', community_id: null, patrol_type: 'safety', selection_mode: 'explicit' as PlanSelectionMode,
+      point_ids: [], point_types: [], cycle_type: 'daily', cycle_config: {}, rounds: [], daily_min_rounds: null,
+      timeRange: null, inspector_ids: [], dateRange: null, status: 1
     })
     candidatePoints.value = []
+    previewCount.value = 0
+    previewPoints.value = []
   }
   formVisible.value = true
 }
 
 async function handleSubmit() {
   await formRef.value?.validate()
-  // 路线为空前置校验
-  if (!form.point_ids.length) {
+  // 选点校验：手动名单 / 类型圈选二选一
+  if (form.selection_mode === 'explicit' && !form.point_ids.length) {
     routeError.value = '巡检路线为空，请从可选点位中加入至少 1 个点位'
+    return
+  }
+  if (form.selection_mode === 'by_point_types' && !form.point_types.length) {
+    ElMessage.warning('请选择要圈选的点位类型')
     return
   }
   // 周期明细校验
@@ -498,17 +808,36 @@ async function handleSubmit() {
     ElMessage.warning('请选择每月的执行日')
     return
   }
+  // 轮次校验（仅每天/每周）
+  if (form.cycle_type !== 'monthly' && form.rounds.length && !validateRounds()) return
+  // 组装 cycle_config：每周/每月保留原有明细；每天/每周附加轮次与达标线
+  const cycle_config: PlanCycleConfig = {}
+  if (form.cycle_type === 'weekly') cycle_config.weekdays = form.cycle_config.weekdays
+  if (form.cycle_type === 'monthly') cycle_config.days = form.cycle_config.days
+  if (form.cycle_type !== 'monthly' && form.rounds.length) {
+    // 起止留空 = 自由时段（window 空串）
+    cycle_config.rounds = form.rounds.map((r) => ({
+      name: r.name.trim(),
+      window: r.start && r.end ? `${r.start}-${r.end}` : ''
+    }))
+  }
+  if (form.cycle_type === 'daily' && form.daily_min_rounds != null) {
+    cycle_config.daily_min_rounds = form.daily_min_rounds
+  }
   const payload = {
     community_id: form.community_id!,
     name: form.name,
     patrol_type: form.patrol_type,
-    point_ids: form.point_ids,
+    selection_mode: form.selection_mode,
+    point_ids: form.selection_mode === 'explicit' ? form.point_ids : [],
+    point_types: form.selection_mode === 'by_point_types' ? form.point_types : [],
     cycle_type: form.cycle_type,
-    cycle_config: form.cycle_type === 'daily' ? {} : form.cycle_config,
+    cycle_config,
     inspector_ids: form.inspector_ids,
     start_date: form.dateRange![0],
     end_date: form.dateRange![1],
-    time_window: `${form.timeRange![0]}-${form.timeRange![1]}`,
+    // 配了轮次顶层 time_window 留空
+    time_window: roundsEnabled.value ? '' : `${form.timeRange![0]}-${form.timeRange![1]}`,
     status: form.status
   }
   submitting.value = true
@@ -583,5 +912,65 @@ async function handleSubmit() {
   color: $color-danger;
   font-size: $font-size-aux;
   margin-top: $spacing-xs;
+}
+
+.selection-cell {
+  display: inline-flex;
+  align-items: center;
+  gap: $spacing-xs;
+}
+
+.preview-line {
+  width: 100%;
+  font-size: $font-size-aux;
+  display: flex;
+  align-items: center;
+  gap: $spacing-xs;
+}
+
+.rounds-editor {
+  width: 100%;
+
+  .rounds-toolbar {
+    display: flex;
+    gap: $spacing-sm;
+    margin-bottom: $spacing-sm;
+  }
+
+  .rounds-list {
+    display: flex;
+    flex-direction: column;
+    gap: $spacing-sm;
+    margin-bottom: $spacing-xs;
+  }
+
+  .round-row {
+    display: flex;
+    align-items: center;
+    gap: $spacing-xs;
+  }
+
+  .rounds-hint {
+    font-size: $font-size-aux;
+    margin-left: $spacing-sm;
+  }
+}
+
+.quick-gen {
+  display: flex;
+  flex-direction: column;
+  gap: $spacing-sm;
+
+  .quick-gen-row {
+    display: flex;
+    align-items: center;
+    gap: $spacing-sm;
+
+    .quick-gen-label {
+      width: 60px;
+      font-size: $font-size-aux;
+      color: $color-text-secondary;
+    }
+  }
 }
 </style>

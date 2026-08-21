@@ -65,3 +65,27 @@ export function importPoints(file: File) {
     timeout: 60000
   })
 }
+
+// 批量建点助手（接口文档 §2.17）：楼栋 × 楼层 × 每层数量展开，同楼栋同名跳过（幂等）
+export interface PointBatchForm {
+  community_id: string
+  building_ids?: string[]
+  floor_from?: number // 负数 = 地下层（-1 渲染 B1）
+  floor_to?: number
+  per_floor?: number
+  name_pattern: string // 占位符 {building}/{floor}/{seq}
+  type: string
+  credential?: string
+  template_id?: string | null
+  longitude?: number | null
+  latitude?: number | null
+}
+
+export interface PointBatchResult {
+  created: number
+  skipped: { name: string; reason: string }[]
+}
+
+export function batchCreatePoints(data: PointBatchForm) {
+  return request<PointBatchResult>({ url: '/inspection/points/batch', method: 'post', data })
+}

@@ -25,6 +25,10 @@ export type UserInfo = {
   roles: string[]
   /** 我的在职项目（project_staff 推导；name 可空，前端自行解析） */
   projects: Array<{ id: string; name?: string }>
+  /** 所属公司（租户名） */
+  tenant_name?: string
+  /** 在职编制明细：小区 + 岗位名列表 */
+  staffs?: Array<{ community_id: string; community_name: string; post_names: string[] }>
 }
 
 export type LoginResult = {
@@ -482,6 +486,8 @@ type RawUser = {
   perms?: string[]
   roles?: RoleEntry[]
   projects?: Array<{ id?: string | number; name?: string }>
+  tenant_name?: string
+  staffs?: Array<{ community_id?: string | number; community_name?: string; post_names?: string[] }>
 }
 
 type RawLoginData = {
@@ -595,7 +601,13 @@ export function toUserInfo(raw: RawUser): UserInfo {
     roles: (raw.roles ?? [])
       .map((r) => (typeof r == 'string' ? r : r.code ?? ''))
       .filter((c) => c != ''),
-    projects: (raw.projects ?? []).map((p) => ({ id: toId(p.id), name: p.name }))
+    projects: (raw.projects ?? []).map((p) => ({ id: toId(p.id), name: p.name })),
+    tenant_name: raw.tenant_name ?? '',
+    staffs: (raw.staffs ?? []).map((s) => ({
+      community_id: toId(s.community_id),
+      community_name: s.community_name ?? '',
+      post_names: (s.post_names ?? []).map((n) => String(n))
+    }))
   }
 }
 

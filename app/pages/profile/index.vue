@@ -8,7 +8,8 @@
       </view>
       <view class="user-meta">
         <text class="user-name" :style="{ color: colors.textPrimary }">{{ name }}</text>
-        <text class="user-role" :style="{ color: colors.textSecondary }">{{ roleText }}</text>
+        <text class="user-role" :style="{ color: colors.textSecondary }">{{ postText }}</text>
+        <text v-if="orgText != ''" class="user-role" :style="{ color: colors.textSecondary }">{{ orgText }}</text>
       </view>
     </view>
 
@@ -102,18 +103,39 @@ export default {
       if (u == null || u.avatar == null || u.avatar == '') return ''
       return toAbsUrl('/uploads/' + u.avatar)
     },
-    roleText(): string {
+    /** 岗位：在职编制岗位名去重拼接；无编制回落角色名，皆无显示未分配 */
+    postText(): string {
       const u = useAuthStore().userInfo
       if (u == null) return ''
-      if (u.roles.length == 0) return '未分配角色'
-      // 角色 code → 中文名（与 sys_role 种子数据一致；新增角色时同步维护）
-      const names: Record<string, string> = {
+      const names: string[] = []
+      ;(u.staffs ?? []).forEach((s) => {
+        ;(s.post_names ?? []).forEach((n) => {
+          if (n != '' && names.indexOf(n) < 0) names.push(n)
+        })
+      })
+      if (names.length > 0) return names.join(' / ')
+      if (u.roles.length == 0) return '未分配岗位'
+      const roleNames: Record<string, string> = {
         super_admin: '超级管理员',
         manager: '物业主管',
         inspector: '巡检员',
         repair: '维修人员'
       }
-      return u.roles.map((r) => (names[r] != null ? names[r] : r)).join(' / ')
+      return u.roles.map((r) => (roleNames[r] != null ? roleNames[r] : r)).join(' / ')
+    },
+    /** 所属组织：公司 · 小区（多小区顿号拼接） */
+    orgText(): string {
+      const u = useAuthStore().userInfo
+      if (u == null) return ''
+      const comms: string[] = []
+      ;(u.staffs ?? []).forEach((s) => {
+        if (s.community_name != '' && comms.indexOf(s.community_name) < 0) comms.push(s.community_name)
+      })
+      const tenant = u.tenant_name ?? ''
+      if (tenant == '' && comms.length == 0) return ''
+      if (comms.length == 0) return tenant
+      if (tenant == '') return comms.join('、')
+      return `${tenant} · ${comms.join('、')}`
     },
     signatureText(): string {
       const u = useAuthStore().userInfo

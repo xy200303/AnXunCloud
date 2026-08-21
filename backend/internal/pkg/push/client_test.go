@@ -32,9 +32,13 @@ func newTestServer(t *testing.T, authCalls, pushCalls *int64, pushCodeHook func(
 			var req struct {
 				Sign      string `json:"sign"`
 				Timestamp string `json:"timestamp"`
+				AppKey    string `json:"appkey"`
 			}
 			if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 				t.Errorf("auth 请求体解析失败: %v", err)
+			}
+			if req.AppKey != testAppKey {
+				t.Errorf("auth 请求体缺 appkey: got %q", req.AppKey)
 			}
 			sum := sha256.Sum256([]byte(testAppKey + req.Timestamp + testMasterSecret))
 			if req.Sign != hex.EncodeToString(sum[:]) {
@@ -51,8 +55,10 @@ func newTestServer(t *testing.T, authCalls, pushCalls *int64, pushCodeHook func(
 				t.Error("push 请求缺少 token 头")
 			}
 			var req struct {
-				RequestID   string `json:"request_id"`
-				CID         string `json:"cid"`
+				RequestID string `json:"request_id"`
+				Audience  struct {
+					CID []string `json:"cid"`
+				} `json:"audience"`
 				PushMessage struct {
 					Notification struct {
 						Title     string `json:"title"`
@@ -65,8 +71,8 @@ func newTestServer(t *testing.T, authCalls, pushCalls *int64, pushCodeHook func(
 			if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 				t.Errorf("push 请求体解析失败: %v", err)
 			}
-			if req.RequestID == "" || req.CID == "" {
-				t.Errorf("request_id/cid 为空: %+v", req)
+			if req.RequestID == "" || len(req.Audience.CID) == 0 || req.Audience.CID[0] == "" {
+				t.Errorf("request_id/audience.cid 为空: %+v", req)
 			}
 			if req.PushMessage.Notification.ClickType != "payload_custom" {
 				t.Errorf("click_type = %s, 期望 payload_custom", req.PushMessage.Notification.ClickType)

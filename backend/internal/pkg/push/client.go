@@ -70,13 +70,15 @@ type authData struct {
 	ExpireTime string `json:"expire_time"` // 毫秒时间戳字符串
 }
 
-// auth 鉴权取 token：sign=sha256(appkey+timestamp+masterSecret) 十六进制。
+// auth 鉴权取 token：sign=sha256(appkey+timestamp+masterSecret) 十六进制；
+// body 必须带 appkey 字段（个推网关实测：缺失时返回 20001「appkey cannot be empty or null」）。
 func (c *Client) auth(ctx context.Context) error {
 	timestamp := strconv.FormatInt(time.Now().UnixMilli(), 10)
 	sum := sha256.Sum256([]byte(c.appKey + timestamp + c.masterSecret))
 	body, _ := json.Marshal(map[string]string{
 		"sign":      hex.EncodeToString(sum[:]),
 		"timestamp": timestamp,
+		"appkey":    c.appKey,
 	})
 	var resp apiResp
 	if err := c.doPost(ctx, "/v2/"+c.appID+"/auth", "", body, &resp); err != nil {
@@ -141,10 +143,11 @@ func (c *Client) PushToCIDs(ctx context.Context, cids []string, title, body stri
 }
 
 // pushSingle 单 cid 推送；遇 10001（token 失效）重取 token 后重试一次。
+// 请求体结构：audience.cid 为数组（个推网关实测：顶层 cid 字段返回 20001「audience cannot be null」）。
 func (c *Client) pushSingle(ctx context.Context, cid, title, body, payload string) error {
 	reqBody, _ := json.Marshal(map[string]any{
 		"request_id": uuid.Must(uuid.NewV7()).String(),
-		"cid":        cid,
+		"audience":   map[string]any{"cid": []string{cid}},
 		"push_message": map[string]any{
 			"notification": map[string]string{
 				"title":      title,

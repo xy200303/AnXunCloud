@@ -130,6 +130,7 @@ const GROUP_LABELS: Record<string, string> = {
   report: '巡检报告',
   mp: '小程序端',
   msg: '消息通知',
+  map: '地图服务',
   security: '安全设置',
   auth: '认证与注册',
   system: '系统通用'

@@ -469,6 +469,8 @@ func seedConfigs(tx *gorm.DB) error {
 		{Key: "msg.subscribe_enabled", Name: "微信订阅消息开关", Value: "true", ConfigGroup: "msg", Remark: "任务提醒/工单指派/整改驳回"},
 		{Key: "msg.wecom_webhook_enabled", Name: "企业微信工单推送开关", Value: "false", ConfigGroup: "msg", Remark: "开启需配置 webhook 地址（应用配置，不入库）"},
 		{Key: "security.login_fail_limit", Name: "登录失败锁定次数", Value: "5", ConfigGroup: "security", Remark: "连续失败锁定 10 分钟（配合 Redis 计数）"},
+		{Key: "map.tencent_key", Name: "腾讯地图前端 Key", Value: "", ConfigGroup: "map", Remark: "用于管理后台点位地图选点，需在腾讯位置服务配置 JSAPI 域名白名单"},
+		{Key: "map.tencent_ws_key", Name: "腾讯地图 WebService Key", Value: "", ConfigGroup: "map", Remark: "用于后端代理地点搜索；留空时回退 map.tencent_key"},
 		{Key: "ai.enabled", Name: "启用大模型审核", Value: "false", ConfigGroup: "ai", Remark: "开启后打卡照片由大模型辅助审查"},
 		{Key: "ai.base_url", Name: "API 地址", Value: "https://api.openai.com/v1", ConfigGroup: "ai", Remark: "OpenAI 兼容接口地址"},
 		{Key: "ai.api_key", Name: "API Key", Value: "", ConfigGroup: "ai", Remark: "sk-...（服务端保管，不回传前端）"},

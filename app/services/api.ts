@@ -1586,6 +1586,8 @@ export type PointSavePayload = {
 export type CommunityTreeNode = {
   id: string
   name: string
+  tenant_id?: string
+  tenant_name?: string
   buildings: Array<{ id: string; name: string; type: string }>
 }
 
@@ -1754,8 +1756,9 @@ export function apiDispatchCandidates(communityId: string): Promise<DispatchCand
 }
 
 /** 点位列表 GET /inspection/points */
-export function apiPointList(page: number, pageSize: number, communityId: string, name: string): Promise<PointsPage> {
+export function apiPointList(page: number, pageSize: number, communityId: string, name: string, tenantId = ''): Promise<PointsPage> {
   let path = '/inspection/points?page=' + page + '&page_size=' + pageSize
+  if (tenantId != '') path += '&tenant_id=' + encodeURIComponent(tenantId)
   if (communityId != '') path += '&community_id=' + communityId
   if (name != '') path += '&name=' + encodeURIComponent(name)
   return new Promise<PointsPage>((resolve, reject) => {

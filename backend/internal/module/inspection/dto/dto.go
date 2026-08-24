@@ -35,6 +35,7 @@ type TemplateItemSaveReq struct {
 
 type PointListQuery struct {
 	response.PageQuery
+	TenantID    string `form:"tenant_id"` // 租户过滤仅超管生效，由数据权限中间件校验上下文
 	CommunityID string `form:"community_id"`
 	BuildingID  string `form:"building_id"`
 	Name        string `form:"name"`

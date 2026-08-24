@@ -65,7 +65,9 @@ type CommunityTreeBuilding struct {
 
 // CommunityTreeNode 小区/楼栋树（点位管理等左树一次加载）。
 type CommunityTreeNode struct {
-	ID        string                  `json:"id"`
-	Name      string                  `json:"name"`
-	Buildings []CommunityTreeBuilding `json:"buildings"`
+	ID         string                  `json:"id"`
+	Name       string                  `json:"name"`
+	TenantID   string                  `json:"tenant_id"`
+	TenantName string                  `json:"tenant_name"`
+	Buildings  []CommunityTreeBuilding `json:"buildings"`
 }

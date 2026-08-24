@@ -1,8 +1,12 @@
 <template>
   <view class="page" :style="{ backgroundColor: colors.bgPage }">
-    <!-- 筛选栏：小区选择 + 名称搜索 + 新增 -->
+    <!-- 筛选栏：超级管理员支持企业/小区选择 + 名称搜索 + 新增 -->
     <view class="filter-bar" :style="{ backgroundColor: colors.bgCard, borderBottomColor: colors.border }">
       <view class="filter-row">
+        <view v-if="canTenantFilter" class="comm-picker tenant-picker" :style="{ borderColor: colors.border }" @click="openTenantSheet">
+          <text class="comm-picker-text" :style="{ color: tenantId == '' ? colors.textSecondary : colors.textPrimary }">{{ tenantName }}</text>
+          <text class="comm-picker-arrow" :style="{ color: colors.textSecondary }">▾</text>
+        </view>
         <view class="comm-picker" :style="{ borderColor: colors.border }" @click="openCommunitySheet">
           <text class="comm-picker-text" :style="{ color: communityId == '' ? colors.textSecondary : colors.textPrimary }">{{ communityName }}</text>
           <text class="comm-picker-arrow" :style="{ color: colors.textSecondary }">▾</text>
@@ -93,6 +97,7 @@ type PointView = PointItem & {
 type ListData = {
   colors: ColorTokens
   communities: CommunityTreeNode[]
+  tenantId: string
   communityId: string
   keyword: string
   loading: boolean
@@ -138,6 +143,7 @@ export default {
     return {
       colors: Colors,
       communities: [] as CommunityTreeNode[],
+      tenantId: '',
       communityId: '',
       keyword: '',
       loading: true,
@@ -153,9 +159,34 @@ export default {
     canCreate(): boolean {
       return useAuthStore().hasPerm('inspection:point:create')
     },
+    canTenantFilter(): boolean {
+      const roles = useAuthStore().userInfo?.roles ?? []
+      return roles.indexOf('super_admin') >= 0
+    },
+    tenantOptions(): Array<{ id: string; name: string }> {
+      const seen: Record<string, boolean> = {}
+      const options: Array<{ id: string; name: string }> = []
+      this.communities.forEach((c) => {
+        const id = c.tenant_id ?? ''
+        if (id == '' || seen[id]) return
+        seen[id] = true
+        options.push({ id: id, name: c.tenant_name ?? id })
+      })
+      options.sort((a, b) => a.name.localeCompare(b.name, 'zh-CN'))
+      return options
+    },
+    visibleCommunities(): CommunityTreeNode[] {
+      if (this.tenantId == '') return this.communities
+      return this.communities.filter((c) => (c.tenant_id ?? '') == this.tenantId)
+    },
+    tenantName(): string {
+      if (this.tenantId == '') return '全部企业'
+      const t = this.tenantOptions.find((x) => x.id == this.tenantId)
+      return t != null ? t.name : '全部企业'
+    },
     communityName(): string {
       if (this.communityId == '') return '全部小区'
-      const c = this.communities.find((x) => x.id == this.communityId)
+      const c = this.visibleCommunities.find((x) => x.id == this.communityId)
       return c != null ? c.name : '全部小区'
     },
     noMore(): boolean {
@@ -186,13 +217,27 @@ export default {
     },
     /** 小区筛选：action sheet 选择（首项为全部） */
     openCommunitySheet() {
-      const names = ['全部小区'].concat(this.communities.map((c) => c.name))
+      const names = ['全部小区'].concat(this.visibleCommunities.map((c) => c.name))
       uni.showActionSheet({
         itemList: names,
         success: (res) => {
-          const id = res.tapIndex == 0 ? '' : this.communities[res.tapIndex - 1].id
+          const id = res.tapIndex == 0 ? '' : this.visibleCommunities[res.tapIndex - 1].id
           if (id == this.communityId) return
           this.communityId = id
+          this.reload()
+        }
+      })
+    },
+    /** 企业筛选：仅超级管理员可见，首项为全部 */
+    openTenantSheet() {
+      const names = ['全部企业'].concat(this.tenantOptions.map((t) => t.name))
+      uni.showActionSheet({
+        itemList: names,
+        success: (res) => {
+          const id = res.tapIndex == 0 ? '' : this.tenantOptions[res.tapIndex - 1].id
+          if (id == this.tenantId) return
+          this.tenantId = id
+          this.communityId = ''
           this.reload()
         }
       })
@@ -212,7 +257,7 @@ export default {
       } else {
         this.loading = true
       }
-      apiPointList(this.page, PAGE_SIZE, this.communityId, this.keyword.trim())
+      apiPointList(this.page, PAGE_SIZE, this.communityId, this.keyword.trim(), this.tenantId)
         .then((res) => {
           const views: PointView[] = []
           res.list.forEach((p: PointItem) => {
@@ -270,6 +315,10 @@ export default {
   border-style: solid;
   border-radius: 12rpx;
   padding: 0 24rpx;
+}
+
+.tenant-picker {
+  margin-right: 16rpx;
 }
 
 .comm-picker-text {

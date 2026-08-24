@@ -110,8 +110,24 @@ func (s *CommunityService) Tree(c *gin.Context) ([]dto.CommunityTreeNode, *errs.
 		return nil, errs.ErrInternal
 	}
 	ids := make([]string, 0, len(comms))
+	tenantIDs := make([]string, 0, len(comms))
+	seenTenantIDs := map[string]bool{}
 	for _, cm := range comms {
 		ids = append(ids, cm.ID)
+		if cm.TenantID != "" && !seenTenantIDs[cm.TenantID] {
+			tenantIDs = append(tenantIDs, cm.TenantID)
+			seenTenantIDs[cm.TenantID] = true
+		}
+	}
+	tenantNames := map[string]string{}
+	if len(tenantIDs) > 0 {
+		var tenants []sysmodel.Tenant
+		if err := s.db.Select("id", "name").Where("id IN ?", tenantIDs).Find(&tenants).Error; err != nil {
+			return nil, errs.ErrInternal
+		}
+		for _, tenant := range tenants {
+			tenantNames[tenant.ID] = tenant.Name
+		}
 	}
 	byCommunity := map[string][]dto.CommunityTreeBuilding{}
 	if len(ids) > 0 {
@@ -131,7 +147,9 @@ func (s *CommunityService) Tree(c *gin.Context) ([]dto.CommunityTreeNode, *errs.
 		if bList == nil {
 			bList = []dto.CommunityTreeBuilding{}
 		}
-		nodes = append(nodes, dto.CommunityTreeNode{ID: cm.ID, Name: cm.Name, Buildings: bList})
+		nodes = append(nodes, dto.CommunityTreeNode{
+			ID: cm.ID, Name: cm.Name, TenantID: cm.TenantID, TenantName: tenantNames[cm.TenantID], Buildings: bList,
+		})
 	}
 	return nodes, nil
 }

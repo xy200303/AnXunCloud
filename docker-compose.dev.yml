@@ -64,7 +64,7 @@ services:
       target: frontend-dev
     container_name: anxuncloud-dev-frontend
     environment:
-      VITE_PROXY_TARGET: http://backend:8090   # vite dev server 代理到 backend 容器
+      VITE_PROXY_TARGET: https://pi.hbuer.com  # 开发/测试统一代理到公网域名；本地联调可改为 http://backend:8090
     ports:
       - "5181:5180"                 # 容器内与 vite.config.ts 的 dev 端口一致；主机侧 5181 避开冲突
     volumes:

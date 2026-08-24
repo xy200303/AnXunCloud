@@ -58,7 +58,7 @@
 | `SERVER_PORT` | 后端监听端口 | 8090 | 否 |
 | `SERVER_MODE` | gin 模式 debug/release | debug | 否 |
 | `LOG_LEVEL` | 日志级别 debug/info/warn/error | info | 否 |
-| `APP_BASE_URL` | 对外访问地址（拼文件 URL/OSS 回调） | - | 生产必填 |
+| `APP_BASE_URL` | 对外访问地址（拼文件 URL/OSS 回调） | https://pi.hbuer.com | 生产必填 |
 | `POSTGRES_HOST/PORT/USER/PASSWORD/DBNAME/SSLMODE` | PostgreSQL 连接 | 见 .env.example | 是 |
 | `REDIS_ADDR/PASSWORD/DB` | Redis 连接 | 127.0.0.1:6379 | 是 |
 | `JWT_SECRET` | JWT 签名密钥 | - | **是（生产 ≥32 位随机串）** |
@@ -85,7 +85,7 @@ docker compose --env-file .env.dev -f docker-compose.dev.yml up -d --build
 ```
 
 - backend：air 监听 `./backend` 源码变更自动重编译（Windows 挂载卷用轮询）；同时托管官网 `http://localhost:8091/` 与下载页 `http://localhost:8091/download`（主机端口 8091→容器 8090，避开 8090 冲突）
-- frontend：vite dev server + HMR，`/api`、`/uploads` 代理到 backend 容器；后台访问 `http://localhost:5181/admin/`（base 已改为 /admin 子路径；主机端口 5181→容器 5180，避开 5180 冲突）
+- frontend：vite dev server + HMR，`/api`、`/uploads` 默认代理到 `https://pi.hbuer.com`；后台访问 `http://localhost:5181/admin/`（base 已改为 /admin 子路径；主机端口 5181→容器 5180，避开 5180 冲突）。如需联调本地后端，可把 `VITE_PROXY_TARGET` 改为 `http://backend:8090` 或本机后端地址。
 - 首次启动自动完成建表迁移 + seed（超管/角色/菜单/字典/参数）
 
 ### 数据库迁移（goose）
@@ -129,7 +129,7 @@ docker run -d --name pi-local-redis -p 26380:6379 redis:7-alpine
 cd backend
 go run ./cmd/server            # 或 air 热更新：go install github.com/air-verse/air@latest && air
 
-# 3. 前端（主机 5181→容器 5180，/api 代理到 http://localhost:8091）
+# 3. 前端（默认 /api 代理到 https://pi.hbuer.com；本地联调可设置 VITE_PROXY_TARGET）
 cd frontend
 npm install && npm run dev
 ```
@@ -220,7 +220,7 @@ docker compose --env-file .env.prod -f docker-compose.prod.yml down
 ## 生产部署 Checklist
 
 - [ ] `.env.prod`：`POSTGRES_PASSWORD`、`JWT_SECRET`（≥32 位随机）、`ADMIN_PASSWORD` 全部替换为强随机值
-- [ ] `APP_BASE_URL` 改为正式域名；前置 Nginx/网关终止 HTTPS（全站强制 HTTPS）
+- [ ] `APP_BASE_URL=https://pi.hbuer.com`；前置 Nginx/网关终止 HTTPS（全站强制 HTTPS）
 - [ ] `WECHAT_APPID/SECRET` 填真实值并置 `WECHAT_MOCK=false`
 - [ ] 根据部署需要选择文件存储：`UPLOAD_MODE=local`（挂载持久卷）或 `oss`/`cos` 并补齐对应云存储配置
 - [ ] `CORS_ALLOW_ORIGINS` 收敛为前端域名

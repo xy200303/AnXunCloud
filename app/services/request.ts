@@ -2,7 +2,7 @@
  * uni.request 统一封装（四端一致）。
  *
  * 能力：
- * - baseURL 按端/环境条件编译（dev 默认指向本机 8090；发版前切换 PROD，见 README「环境切换」）；
+ * - baseURL 按端/环境条件编译（开发/测试默认使用 https://pi.hbuer.com，见 README「环境切换」）；
  * - 请求拦截：自动携带 Authorization: Bearer <access_token>；
  * - 响应统一解 {code, message, data} 信封（接口文档 §1.3）；
  * - code === 40102（access token 过期）时用 refresh_token 静默刷新并重放原请求，
@@ -18,16 +18,16 @@ import {
 } from '@/utils/storage'
 
 // ---- baseURL：按端 + 环境切换 ------------------------------------------------
-// 本地默认 dev；正式发布通过 VITE_APP_ENV=prod 显式切换，避免调试包误操作生产数据。
+// 本地默认 dev；当前开发/测试与正式 API 域名一致，保留 prod 开关便于后续环境拆分。
 type EnvName = 'dev' | 'prod'
 const ACTIVE_ENV: EnvName = import.meta.env.VITE_APP_ENV === 'prod' ? 'prod' : 'dev'
 
 // #ifndef MP-WEIXIN
-const BASE_URL_DEV = 'http://10.172.17.43:8091/api/app' // 内网调试：PC 局域网 IP（手机与电脑同一内网；IP 变了改这里）
+const BASE_URL_DEV = 'https://pi.hbuer.com/api/app'
 const BASE_URL_PROD = 'https://pi.hbuer.com/api/app'
 // #endif
 // #ifdef MP-WEIXIN
-const BASE_URL_DEV = 'http://10.172.17.43:8091/api/mp' // 内网调试：PC 局域网 IP
+const BASE_URL_DEV = 'https://pi.hbuer.com/api/mp'
 const BASE_URL_PROD = 'https://pi.hbuer.com/api/mp'
 // #endif
 

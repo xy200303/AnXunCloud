@@ -4,7 +4,7 @@ import Components from 'unplugin-vue-components/vite'
 import { ElementPlusResolver } from 'unplugin-vue-components/resolvers'
 import { fileURLToPath, URL } from 'node:url'
 
-// 开发期代理：/api 转发到本地后端
+// 开发期代理：默认转发到统一开发/测试域名；本地联调可用 VITE_PROXY_TARGET 覆盖
 export default defineConfig({
   // 管理后台部署在 /admin 子路径（根路径留给品牌官网）
   base: '/admin/',
@@ -40,12 +40,11 @@ export default defineConfig({
     },
     proxy: {
       '/api': {
-        // 默认代理本地后端（docker dev 后端主机端口 8091）；docker dev 环境经 VITE_PROXY_TARGET 指向 backend 容器
-        target: process.env.VITE_PROXY_TARGET || 'http://localhost:8091',
+        target: process.env.VITE_PROXY_TARGET || 'https://pi.hbuer.com',
         changeOrigin: true
       },
       '/uploads': {
-        target: process.env.VITE_PROXY_TARGET || 'http://localhost:8091',
+        target: process.env.VITE_PROXY_TARGET || 'https://pi.hbuer.com',
         changeOrigin: true
       }
     }

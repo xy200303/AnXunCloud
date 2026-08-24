@@ -10,26 +10,26 @@
 
 - **编译运行一律在 HBuilderX GUI 手动进行**（运行 → 运行到手机或模拟器 → Android App 基座），不用 CLI 驱动；
 - HBuilderX 直接打开**本 `app/` 目录**（中文路径可正常工作）；
-- 真机连后端：`services/request.ts` 的 `BASE_URL_DEV` 已指向开发机内网 IP（IP 变了改这两行）；Windows 防火墙已放行 8090（规则名 `anxuncloud-dev-8090`，换网段连不上时检查它）。
+- 真机连后端：开发/测试默认使用 `https://pi.hbuer.com`，无需随开发机内网 IP 变化修改。
 
 ## 环境要求
 
 - HBuilderX 5.07+（经典 uni-app 项目，打开即用，无需 uts 扩展）
 - 状态管理：**pinia**（经典 uni-app Vue3 内置支持，`import { defineStore } from 'pinia'` 直接可用，无需额外安装）
-- 后端：本仓库 `backend/`，dev 默认 `http://localhost:8090`
+- 后端：开发/测试接口默认使用 `https://pi.hbuer.com`；本地后端仅在专项联调时临时覆盖。
 
 ## 如何运行（Android 真机）
 
 1. HBuilderX → 文件 → 打开目录 → 选择本 `app/` 目录（识别为 uni-app 项目）。
 2. 手机开 USB 调试连电脑；菜单 运行 → 运行到手机或模拟器 → 运行到 Android App 基座（首次需下载标准基座或制作自定义基座）。
-3. 真机访问本机后端时，`localhost` 指的是手机本身：`BASE_URL_DEV` 已配为开发机内网 IP（如 `http://10.172.17.43:8090/api/app`），IP 变化时修改，并确认 Windows 防火墙放行 8090。
+3. 真机默认访问 `https://pi.hbuer.com`，不需要配置电脑局域网 IP；如需临时联调本机后端，再手动把 `BASE_URL_DEV` 改为电脑内网地址。
 4. 其他端：运行 → 运行到小程序模拟器（微信开发者工具）/ iOS / 鸿蒙。
 
 ## 环境切换（baseURL）
 
 `services/request.ts` 顶部：
 
-- `ACTIVE_ENV = 'dev' | 'prod'`：dev 指向 `http://localhost:8090`，prod 预留正式域名（**TODO 发版前填写，HTTPS 强制**）；
+- `ACTIVE_ENV = 'dev' | 'prod'`：dev/prod 当前均指向 `https://pi.hbuer.com`，保留环境开关便于后续拆分；
 - 按端条件编译：`#ifndef MP-WEIXIN` → `/api/app`，`#ifdef MP-WEIXIN` → `/api/mp`。
 
 ## 待申请/待配置（manifest.json 不允许注释，统一在此说明）
@@ -39,7 +39,7 @@
 | DCloud appid | `manifest.json` → `appid` | 待申请（HBuilderX 内一键生成） |
 | 微信小程序 AppID | `manifest.json` → `mp-weixin.appid` | 待申请（小程序主体认证） |
 | 微信开放平台「移动应用」AppID | APP 端微信登录用，与小程序 AppID 不同 | 待申请，登录页按钮为占位 |
-| 正式 API 域名 | `services/request.ts` → `BASE_URL_PROD` | 待填写 |
+| API 域名 | `services/request.ts` → `BASE_URL_DEV` / `BASE_URL_PROD` | 已配置 `https://pi.hbuer.com` |
 | Android keystore / iOS 证书 / 鸿蒙签名 | 打包时配置 | 发布前清单 |
 
 ## 目录约定

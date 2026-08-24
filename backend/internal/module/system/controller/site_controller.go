@@ -110,7 +110,7 @@ func (ctl *SiteController) Download(c *gin.Context) {
 	}
 	isImage := rel.Platform == "wechat_mp"
 	// 本地驱动直接发文件（支持大文件断点续传友好）；云驱动读回转发（当前实现上限 64MB）
-	if ctl.store.IsDev() {
+	if ctl.store.IsLocal() {
 		if !isImage {
 			c.Header("Content-Type", "application/octet-stream")
 			c.Header("Content-Disposition", contentDisposition(rel.Name))

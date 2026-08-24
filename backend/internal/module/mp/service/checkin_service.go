@@ -290,8 +290,8 @@ func (s *CheckinService) doCheckinLocked(ctx context.Context, inspectorID string
 		}
 		return nil, nil, errs.ErrInternal
 	}
-	// dev 模式：打卡成功后异步打水印（点位/时间/坐标/姓名）
-	if s.store.IsDev() && s.cfgBool("inspection.watermark_enabled", true) {
+	// local 模式：打卡成功后异步打水印（点位/时间/坐标/姓名）
+	if s.store.IsLocal() && s.cfgBool("inspection.watermark_enabled", true) {
 		go s.applyWatermarks(&rec, &point, inspectorID)
 	}
 	// 大模型审核：启用时异步执行（与水印并列，不阻断打卡响应）
@@ -495,7 +495,7 @@ func (s *CheckinService) suspectCheck(point *insmodel.InspectionPoint, distance 
 	return false, ""
 }
 
-// applyWatermarks dev 模式本地打水印并回写照片 watermarked_url。
+// applyWatermarks local 模式本地打水印并回写照片 watermarked_url。
 func (s *CheckinService) applyWatermarks(rec *insmodel.CheckinRecord, point *insmodel.InspectionPoint, inspectorID string) {
 	var inspector sysmodel.SysUser
 	if s.db.Select("name").First(&inspector, "id = ?", inspectorID).Error != nil {
@@ -509,7 +509,7 @@ func (s *CheckinService) applyWatermarks(rec *insmodel.CheckinRecord, point *ins
 	}
 	changed := false
 	for i, p := range rec.Photos {
-		// 从 url 反推 file_key（dev 本地路径）
+		// 从 url 反推 file_key（local 本地路径）
 		idx := strings.Index(p.URL, "/uploads/")
 		if idx < 0 {
 			continue

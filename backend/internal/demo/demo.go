@@ -138,7 +138,7 @@ func (d *demoSeeder) addStaff(tenantID, projectID, userID string, posts []string
 
 // photo 生成/复用演示打卡照片（真实图片内置于 demoassets，仅本地存储驱动落盘；返回照片元素与 file_key）。
 func (d *demoSeeder) photo(tenantID, ownerID, label string) (types.PhotoItem, string) {
-	if d.store == nil || !d.store.IsDev() {
+	if d.store == nil || !d.store.IsLocal() {
 		return types.PhotoItem{}, ""
 	}
 	if p, ok := d.photoCache[label]; ok {
@@ -180,7 +180,7 @@ func (d *demoSeeder) photosOf(tenantID, ownerID string, labels ...string) types.
 // SeedOrderPhotos 演示工单照片回填（老库升级用，seed-demo -photos）：
 // 只为演示租户中照片为空的工单补上演示照片（按标题匹配，已补过的跳过，幂等），不动其他数据。
 func SeedOrderPhotos(db *gorm.DB, store *storage.Storage) error {
-	if store == nil || !store.IsDev() {
+	if store == nil || !store.IsLocal() {
 		return nil // 非本地存储无落盘，无照片可补
 	}
 	d := &demoSeeder{db: db, store: store, photoCache: map[string]demoPhotoRef{}}

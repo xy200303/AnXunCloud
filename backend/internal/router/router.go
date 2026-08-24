@@ -349,7 +349,7 @@ func New(cfg *config.Config, db *gorm.DB, rdb *redis.Client) (*gin.Engine, *insp
 			mpAuth.POST("/checkin/offline-sync", mpCtl.OfflineSync)
 			mpAuth.GET("/checkins/:id/items", mpCtl.CheckinItems) // 本人打卡逐项 AI 结论
 			mpAuth.POST("/upload/sts", mpCtl.STS)
-			mpAuth.POST("/upload/local", mpCtl.Local) // dev 模式本地上传
+			mpAuth.POST("/upload/local", mpCtl.Local) // local 模式上传
 			mpAuth.GET("/workorders/mine", mpCtl.MyOrders)
 			mpAuth.GET("/workorders/mine/counts", mpCtl.OrderCounts)
 			mpAuth.POST("/workorders", mpCtl.OrderReport) // 问题上报（任何移动端用户）

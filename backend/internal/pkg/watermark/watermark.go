@@ -1,4 +1,4 @@
-// Package watermark dev 模式本地图片水印（imaging + x/image/font，生产走 OSS 图片处理）。
+// Package watermark local 模式本地图片水印（imaging + x/image/font，云存储模式走对象存储图片处理）。
 package watermark
 
 import (

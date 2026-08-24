@@ -1,4 +1,4 @@
-// Package storage 文件存储抽象：dev 模式本地目录，oss 模式阿里云 STS 直传 + 回调验签。
+// Package storage 文件存储抽象：local 模式本地目录，oss 模式阿里云 STS 直传 + 回调验签，cos 模式腾讯云服务端签名直写。
 package storage
 
 import (
@@ -50,8 +50,8 @@ func (s *Storage) DriverName() string { return s.driver.Name() }
 // ReadFile 按 file_key 读取文件字节（统一文件层用；本地读盘，云存储走 HTTP）。
 func (s *Storage) ReadFile(fileKey string) ([]byte, error) { return s.driver.Read(fileKey) }
 
-// IsDev 是否本地磁盘驱动。
-func (s *Storage) IsDev() bool { return s.driver.Name() == "local" }
+// IsLocal 是否本地磁盘驱动。
+func (s *Storage) IsLocal() bool { return s.driver.Name() == "local" }
 
 // MaxFileSize 单文件上限。
 func (s *Storage) MaxFileSize() int64 { return s.cfg.MaxFileSize }
@@ -76,12 +76,12 @@ func (s *Storage) CheckExt(name string) (string, *errs.Error) {
 	return "", errs.ErrUploadType
 }
 
-// URL 返回文件访问地址（dev：本地静态路由；oss：拼接桶域名，私有读需另签名）。
+// URL 返回文件访问地址（local：本地静态路由；云存储：拼接桶域名，私有读需另签名）。
 func (s *Storage) URL(fileKey string) string {
 	return s.driver.URL(fileKey)
 }
 
-// LocalPath file_key 对应的本地路径（仅 dev 模式有效）。
+// LocalPath file_key 对应的本地路径（仅 local 模式有效）。
 func (s *Storage) LocalPath(fileKey string) string {
 	return filepath.Join(s.cfg.LocalDir, filepath.FromSlash(fileKey))
 }

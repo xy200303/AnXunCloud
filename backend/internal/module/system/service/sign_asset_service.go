@@ -285,9 +285,9 @@ func (s *SignAssetService) sha256Of(fileKey string) string {
 	return hex.EncodeToString(sum[:])
 }
 
-// readFile 按 file_key 读文件字节（dev 读本地目录；oss HTTP 下载）。
+// readFile 按 file_key 读文件字节（local 读本地目录；云存储 HTTP 下载）。
 func (s *SignAssetService) readFile(fileKey string) ([]byte, error) {
-	if s.store.IsDev() {
+	if s.store.IsLocal() {
 		return os.ReadFile(s.store.LocalPath(fileKey))
 	}
 	client := &http.Client{Timeout: 10 * time.Second}

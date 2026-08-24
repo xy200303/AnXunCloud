@@ -173,7 +173,7 @@ func (ctl *MPController) STS(c *gin.Context) {
 	write(c, data, be)
 }
 
-// Local POST /upload/local（dev 模式本地上传）
+// Local POST /upload/local（local 模式上传）
 func (ctl *MPController) Local(c *gin.Context) {
 	scene := c.PostForm("scene")
 	fileHeader, err := c.FormFile("file")

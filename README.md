@@ -68,8 +68,8 @@
 | `WECHAT_APPID` / `WECHAT_SECRET` | 微信小程序凭据；**缺失或 MOCK=true 即 mock 登录模式**（code 传 `mock:<手机号>`，仅开发联调） | 空 | 否 |
 | `WECHAT_MOCK` | 强制 mock 登录开关 | true（dev） | 否 |
 | `UNIPUSH_APPID` / `UNIPUSH_APPKEY` / `UNIPUSH_MASTERSECRET` | uniPush 2.0（个推 V2）App 推送凭据；**三要素任一缺失即推送关闭，站内通知（sys_message）不受影响**。开通方式：DCloud 开发者中心开通 uniPush 2.0 → 跳转个推后台（dev.getui.com）取 AppID/AppKey/MasterSecret；厂商离线通道（华为/小米/OPPO/vivo 等）在个推后台「应用配置-厂商通道」填各厂商平台参数 | 空 | 否 |
-| `UPLOAD_MODE` | 上传模式：dev 本地存储 / oss 阿里云直传 | dev | 否 |
-| `UPLOAD_LOCAL_DIR` | dev 模式存储目录（以 /uploads 静态路由提供访问） | uploads | 否 |
+| `UPLOAD_MODE` | 上传模式：local 本地存储 / oss 阿里云直传 / cos 腾讯云 COS | local | 否 |
+| `UPLOAD_LOCAL_DIR` | local 模式存储目录（以 /uploads 静态路由提供访问） | uploads | 否 |
 | `UPLOAD_MAX_FILE_SIZE` | 单文件上限（字节） | 20971520 | 否 |
 | `OSS_*`（ACCESS_KEY_ID/SECRET/ROLE_ARN/BUCKET/ENDPOINT/EXPIRE_SECONDS） | 阿里云 OSS + STS 配置 | 空 | oss 模式必填 |
 | `WATERMARK_FONT_PATH` | 水印中文字体路径（TTF） | 仓库自带 `backend/fonts/NotoSansSC.ttf`，容器内固定 `/app/fonts/NotoSansSC.ttf` | 否 |
@@ -222,7 +222,7 @@ docker compose --env-file .env.prod -f docker-compose.prod.yml down
 - [ ] `.env.prod`：`POSTGRES_PASSWORD`、`JWT_SECRET`（≥32 位随机）、`ADMIN_PASSWORD` 全部替换为强随机值
 - [ ] `APP_BASE_URL` 改为正式域名；前置 Nginx/网关终止 HTTPS（全站强制 HTTPS）
 - [ ] `WECHAT_APPID/SECRET` 填真实值并置 `WECHAT_MOCK=false`
-- [ ] 照片存储切 OSS：`UPLOAD_MODE=oss` + 完整 `OSS_*`，桶开启版本控制、私有读
+- [ ] 根据部署需要选择文件存储：`UPLOAD_MODE=local`（挂载持久卷）或 `oss`/`cos` 并补齐对应云存储配置
 - [ ] `CORS_ALLOW_ORIGINS` 收敛为前端域名
 - [ ] 超管首次登录后立即改密；按需创建角色与账号
 - [ ] PostgreSQL 每日 `pg_dump` 备份到对象存储，保留 30 天

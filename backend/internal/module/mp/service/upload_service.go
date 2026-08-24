@@ -20,7 +20,7 @@ import (
 	"anxuncloud/internal/pkg/timefmt"
 )
 
-// UploadService 上传服务：STS 凭证、dev 本地上传、OSS 回调。
+// UploadService 上传服务：云端直传凭证、local 本地上传、OSS 回调。
 type UploadService struct {
 	db    *gorm.DB
 	store *storage.Storage
@@ -42,7 +42,7 @@ func (s *UploadService) userTenantID(userID string) *string {
 	return user.TenantID
 }
 
-// STS 申请直传凭证。dev 模式返回本地上传入口；oss 模式走 AssumeRole。
+// STS 申请直传凭证。local 模式返回本地上传入口；云存储模式走临时凭证。
 func (s *UploadService) STS(userID string, req *dto.STSReq) (gin.H, *errs.Error) {
 	// 预校验类型与大小
 	for _, f := range req.Files {
@@ -54,10 +54,10 @@ func (s *UploadService) STS(userID string, req *dto.STSReq) (gin.H, *errs.Error)
 		}
 	}
 	dir := storageDir(s.store, req.Scene, userID)
-	if s.store.IsDev() {
-		// dev 模式：小程序/联调脚本直传本地接口
+	if s.store.IsLocal() {
+		// local 模式：小程序/联调脚本直传本地接口
 		return gin.H{
-			"mode":           "dev",
+			"mode":           "local",
 			"upload_url":     s.store.BaseURL() + "/api/mp/upload/local",
 			"dir":            dir,
 			"max_file_size":  s.store.MaxFileSize(),
@@ -88,7 +88,7 @@ func storageDir(store *storage.Storage, scene string, uid string) string {
 	return fmt.Sprintf("%s/%s/%s/", scene, time.Now().Format("200601"), uid)
 }
 
-// SaveLocal dev 模式本地直传（multipart），写文件记录。
+// SaveLocal local 模式直传（multipart），写文件记录。
 // scene=signature 为 App 端月报签字的一次性手写签名（报告 resolveSignKey 按 scene+user_id 校验归属）。
 func (s *UploadService) SaveLocal(userID string, scene, filename string, size int64, r io.Reader) (gin.H, *errs.Error) {
 	switch scene {
@@ -186,8 +186,8 @@ func checkNoticeExt(name string) (string, *errs.Error) {
 
 // Callback OSS 上传回调：验签（oss 模式）→ 幂等写文件记录 → {"Status":"OK"}。
 func (s *UploadService) Callback(c *gin.Context, body []byte) (int, any) {
-	if s.store.IsDev() {
-		return 400, gin.H{"code": 40001, "message": "dev 模式无 OSS 回调", "data": nil}
+	if s.store.IsLocal() {
+		return 400, gin.H{"code": 40001, "message": "local 模式无 OSS 回调", "data": nil}
 	}
 	if !s.store.VerifyCallback(c.GetHeader("Authorization"), c.GetHeader("x-oss-pub-key-url"), c.Request.URL.RequestURI(), body) {
 		return 401, gin.H{"code": 46001, "message": "OSS 回调验签失败", "data": nil}

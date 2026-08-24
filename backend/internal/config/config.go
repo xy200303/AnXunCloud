@@ -188,7 +188,7 @@ func registerDefaults(v *viper.Viper) {
 		"wechat.appid":           "",
 		"wechat.secret":          "",
 		"wechat.mock":            true,
-		"upload.mode":            "dev",
+		"upload.mode":            "local",
 		"upload.local_dir":       "uploads",
 		"upload.max_file_size":   20971520,
 		"upload.allowed_types":   []string{"jpg", "jpeg", "png", "heic"},

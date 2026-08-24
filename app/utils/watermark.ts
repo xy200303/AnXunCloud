@@ -5,7 +5,7 @@
  * 拍完照后调 burnWatermark 得到烧录后的临时文件路径再展示/上传。
  *
  * 降级策略：任何一步失败（取图信息/绘制/导出）都 console.warn 并 resolve 原图路径，
- * 不阻塞打卡主链路（服务端 dev 模式仍会兜底打水印，见 checkin_service.applyWatermarks）。
+ * 不阻塞打卡主链路（服务端 local 模式仍会兜底打水印，见 checkin_service.applyWatermarks）。
  */
 
 /** 最长边压缩上限（px） */

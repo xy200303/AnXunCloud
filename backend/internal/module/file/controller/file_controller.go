@@ -47,7 +47,7 @@ func (ctl *FileController) Upload(c *gin.Context) {
 	response.OK(c, data)
 }
 
-// STS POST /api/files/sts（直传凭证签发；云模式返回 OSS/COS 凭证，dev 返回本地上传入口）
+// STS POST /api/files/sts（直传凭证签发；云模式返回凭证，local 返回本地上传入口）
 func (ctl *FileController) STS(c *gin.Context) {
 	var req mpdto.STSReq
 	if be := bind.JSON(c, &req); be != nil {

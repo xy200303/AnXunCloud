@@ -302,7 +302,7 @@ func (s *ReportService) collectRecords(communityID string, start, end time.Time,
 	return rows
 }
 
-// photoFileKey 从照片 URL 反推 file_key（dev：.../uploads/{key} 或 .../api/files/{key}（可带 ?token=）；oss：https://{bucket}.{endpoint}/{key}）。
+// photoFileKey 从照片 URL 反推 file_key（local：.../uploads/{key} 或 .../api/files/{key}（可带 ?token=）；云存储：https://{bucket}.{endpoint}/{key}）。
 func photoFileKey(u string) string {
 	if i := strings.Index(u, "?"); i >= 0 {
 		u = u[:i]
@@ -1072,7 +1072,7 @@ func (s *ReportService) PDFByTicket(c *gin.Context, id string, ticket string) ([
 	return s.pdfBytes(&r)
 }
 
-// loadPhoto 按 file_key 读取照片字节与图片类型（dev 读本地文件；oss HTTP 下载）。
+// loadPhoto 按 file_key 读取照片字节与图片类型（local 读本地文件；云存储 HTTP 下载）。
 func (s *ReportService) loadPhoto(fileKey string) ([]byte, string, error) {
 	var imgType string
 	switch strings.ToLower(filepath.Ext(fileKey)) {
@@ -1083,7 +1083,7 @@ func (s *ReportService) loadPhoto(fileKey string) ([]byte, string, error) {
 	default:
 		return nil, "", fmt.Errorf("不支持的照片格式: %s", fileKey)
 	}
-	if s.store.IsDev() {
+	if s.store.IsLocal() {
 		data, err := os.ReadFile(s.store.LocalPath(fileKey))
 		return data, imgType, err
 	}
@@ -1101,7 +1101,7 @@ func (s *ReportService) loadPhoto(fileKey string) ([]byte, string, error) {
 }
 
 // RebuildPDF 用当前模板重渲染报告 PDF 并覆盖归档文件（状态/签字/统计数据保持不变）。
-// 供模板升级后人工刷新存量报告：dev 覆盖 file_key 对应本地文件；oss 重新保存并回写 file_key。
+// 供模板升级后人工刷新存量报告：local 覆盖 file_key 对应本地文件；云存储重新保存并回写 file_key。
 func (s *ReportService) RebuildPDF(reportID string) error {
 	var r model.InspectionReport
 	if err := s.db.First(&r, "id = ?", reportID).Error; err != nil {
@@ -1111,7 +1111,7 @@ func (s *ReportService) RebuildPDF(reportID string) error {
 	if err != nil {
 		return err
 	}
-	if s.store.IsDev() && r.FileKey != "" {
+	if s.store.IsLocal() && r.FileKey != "" {
 		if err := os.WriteFile(s.store.LocalPath(r.FileKey), data, 0o644); err != nil {
 			return err
 		}

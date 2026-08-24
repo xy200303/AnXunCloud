@@ -87,13 +87,13 @@ type ReviewInput struct {
 // Client OpenAI 兼容视觉审核客户端。
 type Client struct {
 	getCfg func(key string) (string, bool)
-	store  *storage.Storage // 可空；dev 模式用于本地读照片转 base64
+	store  *storage.Storage // 可空；local 模式用于本地读照片转 base64
 }
 
 // Option 可选装配项。
 type Option func(*Client)
 
-// WithStorage 注入存储抽象（dev 模式从 URL 反推 file_key 读本地文件转 base64）。
+// WithStorage 注入存储抽象（local 模式从 URL 反推 file_key 读本地文件转 base64）。
 func WithStorage(s *storage.Storage) Option {
 	return func(c *Client) { c.store = s }
 }
@@ -267,7 +267,7 @@ func (c *Client) buildMessages(input ReviewInput) []map[string]any {
 	}
 }
 
-// resolveImages 图片供给：dev 模式读本地文件转 base64 data URL（读失败/超限跳过），OSS 模式直接传 URL。
+// resolveImages 图片供给：local 模式读本地文件转 base64 data URL（读失败/超限跳过），云存储模式直接传 URL。
 func (c *Client) resolveImages(photos []PhotoRef) []string {
 	out := make([]string, 0, maxPhotos)
 	for _, p := range photos {
@@ -277,7 +277,7 @@ func (c *Client) resolveImages(photos []PhotoRef) []string {
 		if p.URL == "" {
 			continue
 		}
-		if c.store != nil && c.store.IsDev() {
+		if c.store != nil && c.store.IsLocal() {
 			idx := strings.Index(p.URL, "/uploads/")
 			if idx < 0 {
 				continue

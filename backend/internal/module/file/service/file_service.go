@@ -47,7 +47,7 @@ var imageExts = map[string]bool{
 	"jpg": true, "jpeg": true, "png": true, "gif": true, "webp": true, "heic": true,
 }
 
-// STS 直传凭证签发（复用上传服务的 dev/OSS 分支逻辑）。
+// STS 直传凭证签发（复用上传服务的 local/云存储分支逻辑）。
 func (s *FileService) STS(userID string, req *mpdto.STSReq) (gin.H, *errs.Error) {
 	return s.upload.STS(userID, req)
 }
@@ -116,7 +116,7 @@ func (s *FileService) Download(c *gin.Context, key string) (data []byte, redirec
 	if mime == "" {
 		mime = mimeByExt(strings.TrimPrefix(strings.ToLower(filepath.Ext(key)), "."))
 	}
-	if s.store.IsDev() {
+	if s.store.IsLocal() {
 		data, err := s.store.ReadFile(key)
 		if err != nil {
 			return nil, "", "", "", errs.ErrNotFound

@@ -228,7 +228,7 @@ type InspectionTask struct {
 	// RoundName/TimeWindow 巡更轮次快照（非轮次任务为空；TimeWindow 空时展示/统计回落计划 time_window）
 	RoundName  string `gorm:"size:32" json:"round_name"`
 	TimeWindow string `gorm:"size:32" json:"time_window"`
-	// PointIDs 任务点位名单快照（生成时展开；空则消费侧回落计划 point_ids，兼容存量任务）
+	// PointIDs 任务点位名单快照（生成时展开；计划更新会同步未完成任务，空则回落计划名单）
 	PointIDs    types.IDArray `gorm:"type:jsonb" json:"point_ids"`
 	Status      string         `gorm:"size:16" json:"status"`
 	TotalPoints int            `json:"total_points"`

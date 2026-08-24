@@ -11,6 +11,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/redis/go-redis/v9"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 
 	"anxuncloud/internal/middleware"
 	communitysvc "anxuncloud/internal/module/community/service"
@@ -186,7 +187,7 @@ func (s *PlanService) Create(c *gin.Context, req *dto.PlanSaveReq) (string, *err
 	return p.ID, nil
 }
 
-// Update 修改计划（仅影响之后生成的任务）。
+// Update 修改计划，并同步所有未完成任务的计划快照。
 func (s *PlanService) Update(c *gin.Context, id string, req *dto.PlanSaveReq) *errs.Error {
 	var p model.InspectionPlan
 	if err := s.db.First(&p, "id = ?", id).Error; err != nil {
@@ -225,8 +226,82 @@ func (s *PlanService) Update(c *gin.Context, id string, req *dto.PlanSaveReq) *e
 	if req.Status != nil {
 		updates["status"] = sysmodel.StatusStr(*req.Status)
 	}
-	if err := s.db.Model(&p).Updates(updates).Error; err != nil {
+	if p.CommunityID != req.CommunityID {
+		var activeCount int64
+		if err := s.db.Model(&model.InspectionTask{}).
+			Where("plan_id = ? AND status IN ?", p.ID, activeTaskStatuses).
+			Count(&activeCount).Error; err != nil {
+			return errs.ErrInternal
+		}
+		if activeCount > 0 {
+			return errs.ErrConflict.WithMsg("计划存在未完成任务，不能变更所属小区")
+		}
+	}
+	p.TenantID, p.CommunityID, p.Name, p.PatrolType = tenantID, req.CommunityID, req.Name, patrolType
+	p.PointIDs, p.CycleType, p.CycleConfig, p.InspectorIDs = types.IDArray(req.PointIDs), req.CycleType, cfg, types.IDArray(req.InspectorIDs)
+	p.StartDate, p.EndDate, p.TimeWindow, p.Remark = start, end, req.TimeWindow, req.Remark
+	p.SelectionMode, p.PointTypes = selectionMode, types.StringArray(pointTypes)
+	if req.Status != nil {
+		p.Status = sysmodel.StatusStr(*req.Status)
+	}
+	if err := s.db.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Model(&p).Updates(updates).Error; err != nil {
+			return err
+		}
+		return s.syncActiveTasks(tx, &p)
+	}); err != nil {
 		return errs.ErrInternal
+	}
+	return nil
+}
+
+var activeTaskStatuses = []string{model.TaskPending, model.TaskDoing, model.TaskOverdue}
+
+// syncActiveTasks 将计划最新的路线、巡查类型和时段同步到未完成任务；已完成任务保留生成时快照。
+func (s *PlanService) syncActiveTasks(tx *gorm.DB, p *model.InspectionPlan) error {
+	var tasks []model.InspectionTask
+	if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
+		Where("plan_id = ? AND status IN ?", p.ID, activeTaskStatuses).
+		Find(&tasks).Error; err != nil {
+		return err
+	}
+	if len(tasks) == 0 {
+		return nil
+	}
+
+	pointIDs := s.expandPlanPointIDsWithDB(tx, p)
+	roundWindows := make(map[string]string)
+	for _, round := range model.PlanRounds(p.CycleConfig) {
+		roundWindows[round.Name] = round.Window
+	}
+	for i := range tasks {
+		task := &tasks[i]
+		updates := map[string]any{
+			"tenant_id":    p.TenantID,
+			"community_id": p.CommunityID,
+			"patrol_type":  p.PatrolType,
+		}
+		if len(pointIDs) > 0 {
+			updates["point_ids"] = pointIDs
+			updates["total_points"] = len(pointIDs)
+			var donePoints int64
+			if err := tx.Model(&model.CheckinRecord{}).
+				Where("task_id = ? AND point_id IN ?", task.ID, pointIDs).
+				Select("COUNT(DISTINCT point_id)").Scan(&donePoints).Error; err != nil {
+				return err
+			}
+			updates["done_points"] = donePoints
+		}
+		if task.RoundName == "" {
+			updates["time_window"] = p.TimeWindow
+		} else if window, ok := roundWindows[task.RoundName]; ok {
+			updates["time_window"] = window
+		}
+		if err := tx.Model(&model.InspectionTask{}).
+			Where("id = ? AND status IN ?", task.ID, activeTaskStatuses).
+			Updates(updates).Error; err != nil {
+			return err
+		}
 	}
 	return nil
 }
@@ -508,8 +583,8 @@ func (s *PlanService) GenerateForDate(ctx context.Context, date time.Time) (int,
 			continue
 		}
 		eligible++
-		// 任务点位名单快照：explicit 照抄计划名单；by_point_types 生成时实时展开
-		//（新装点位进下期任务，已生成任务不受点位增删影响）
+		// 任务点位名单快照：explicit 照抄计划名单；by_point_types 生成时实时展开。
+		// 计划更新时会同步未完成任务，新装点位仍从下一次生成任务开始生效。
 		pointIDs := s.expandPlanPointIDs(p)
 		if len(pointIDs) == 0 {
 			continue
@@ -538,7 +613,7 @@ func (s *PlanService) GenerateForDate(ctx context.Context, date time.Time) (int,
 					PlanID:      p.ID,
 					CommunityID: p.CommunityID,
 					InspectorID: inspectorID,
-					PatrolType:  p.PatrolType, // 巡查类型随任务快照，计划后续改类型不影响已生成任务
+					PatrolType:  p.PatrolType, // 巡查类型随任务快照，计划更新会同步未完成任务
 					TaskDate:    date,
 					RoundName:   rd.Name,
 					TimeWindow:  rd.Window,
@@ -558,11 +633,15 @@ func (s *PlanService) GenerateForDate(ctx context.Context, date time.Time) (int,
 
 // expandPlanPointIDs 计划点位展开：by_point_types 实时圈选启用点位（sort/创建时间序），explicit 照抄名单。
 func (s *PlanService) expandPlanPointIDs(p *model.InspectionPlan) types.IDArray {
+	return s.expandPlanPointIDsWithDB(s.db, p)
+}
+
+func (s *PlanService) expandPlanPointIDsWithDB(db *gorm.DB, p *model.InspectionPlan) types.IDArray {
 	if p.SelectionMode != model.SelectionByPointTypes || len(p.PointTypes) == 0 {
 		return p.PointIDs
 	}
 	var ids types.IDArray
-	s.db.Model(&model.InspectionPoint{}).
+	db.Model(&model.InspectionPoint{}).
 		Where("community_id = ? AND type IN ? AND status = ?", p.CommunityID, []string(p.PointTypes), sysmodel.StatusEnabled).
 		Order("sort ASC, created_at ASC").Pluck("id", &ids)
 	return ids

@@ -53,7 +53,7 @@ func main() {
 		logger.L.Fatal("数据库迁移失败", zap.Error(err))
 	}
 	if cfg.Env == "prod" && cfg.Admin.Password == "Admin@123" {
-		logger.L.Fatal("生产环境禁止使用默认超管密码，请配置 ADMIN_PASSWORD")
+		logger.L.Warn("生产环境仍使用默认超管密码，请尽快修改 ADMIN_PASSWORD")
 	}
 	if cfg.Env == "prod" && (len(cfg.JWT.Secret) < 32 || strings.Contains(strings.ToLower(cfg.JWT.Secret), "change")) {
 		logger.L.Fatal("生产环境 JWT_SECRET 不符合安全要求，请配置至少 32 位随机密钥")

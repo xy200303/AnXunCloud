@@ -118,16 +118,19 @@
 
         <view class="fence-row">
           <text class="label fence-label" :style="{ color: colors.textRegular }">围栏半径：{{ fenceRadius }} m</text>
-          <slider
-            :value="fenceRadius"
-            :min="50"
-            :max="500"
-            :step="10"
-            :disabled="readonly"
-            class="fence-slider"
-            :activeColor="colors.primary"
-            @change="onFenceChange"
-          />
+          <view class="fence-slider-wrap">
+            <slider
+              :value="fenceRadius"
+              :min="50"
+              :max="500"
+              :step="10"
+              :disabled="readonly"
+              class="fence-slider"
+              :activeColor="colors.primary"
+              @changing="onFenceChanging"
+              @change="onFenceChange"
+            />
+          </view>
         </view>
       </view>
 
@@ -431,8 +434,16 @@ export default {
       const i = Number(e.detail.value)
       this.templateId = i == 0 ? '' : this.templates[i - 1].id
     },
+    setFenceRadius(value: any) {
+      const n = Number(value)
+      if (Number.isNaN(n)) return
+      this.fenceRadius = Math.min(500, Math.max(50, Math.round(n / 10) * 10))
+    },
+    onFenceChanging(e: any) {
+      this.setFenceRadius(e.detail.value)
+    },
     onFenceChange(e: any) {
-      this.fenceRadius = Number(e.detail.value)
+      this.setFenceRadius(e.detail.value)
     },
     onCredentialChange(v: string) {
       if (this.readonly) return
@@ -769,8 +780,16 @@ export default {
   margin-top: 16rpx;
 }
 
+.fence-slider-wrap {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 0 32rpx;
+  margin-top: 8rpx;
+}
+
 .fence-slider {
   width: 100%;
+  margin: 0;
 }
 
 .cred-row {

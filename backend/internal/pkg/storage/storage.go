@@ -222,7 +222,12 @@ func (s *Storage) VerifyCallback(authorization, pubKeyURL, requestURI string, bo
 	}
 	// 公钥 URL 必须来自阿里云官方域名，防伪造
 	u, err := url.Parse(string(keyBytes))
-	if err != nil || !strings.HasSuffix(u.Host, "aliyuncs.com") {
+	if err != nil || u == nil {
+		return false
+	}
+	host := strings.ToLower(u.Hostname())
+	if u.Scheme != "https" || u.User != nil || u.Port() != "" ||
+		!(host == "aliyuncs.com" || strings.HasSuffix(host, ".aliyuncs.com") || strings.HasSuffix(host, ".alicdn.com")) {
 		return false
 	}
 	resp, err := s.httpc.Get(u.String())

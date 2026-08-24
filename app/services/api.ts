@@ -21,7 +21,7 @@ export type UserInfo = {
   signature_url: string
   /** 权限点集合（report:sign:* 等；超管以 roles 含 super_admin 兜底） */
   perms: string[]
-  /** 角色 code 数组，如 ['inspector'] / ['repair'] */
+  /** 角色 code 数组；业务身份以 staffs.post_names 岗位为准。 */
   roles: string[]
   /** 我的在职项目（project_staff 推导；name 可空，前端自行解析） */
   projects: Array<{ id: string; name?: string }>
@@ -908,13 +908,11 @@ export function apiCheckinItems(checkinId: string): Promise<CheckinItemAI[]> {
   })
 }
 
-/**
- * scene：checkin（打卡）/ workorder（工单维修照片）/ avatar / signature（月报一次性手写签名），默认 checkin，原有调用不受影响。
- * 注意：uni.uploadFile 不走 request.ts 的信封/40102 静默刷新逻辑，token 过期会直接失败，需重新登录后重试。
- */
+/** scene：checkin / workorder / avatar / signature，默认 checkin。 */
 export function apiUploadLocal(
   filePath: string,
-  scene: 'checkin' | 'workorder' | 'avatar' | 'signature' = 'checkin'
+  scene: 'checkin' | 'workorder' | 'avatar' | 'signature' = 'checkin',
+  retried = false
 ): Promise<{ file_key: string; url: string }> {
   return new Promise((resolve, reject) => {
     uni.uploadFile({
@@ -935,6 +933,16 @@ export function apiUploadLocal(
           return
         }
         if (env.code != 0) {
+          if (env.code == 40102 && !retried) {
+            refreshSession().then((ok) => {
+              if (!ok) {
+                reject(new Error('登录状态已失效，请重新登录'))
+                return
+              }
+              apiUploadLocal(filePath, scene, true).then(resolve).catch(reject)
+            }).catch(() => reject(new Error('登录状态已失效，请重新登录')))
+            return
+          }
           reject(new Error(env.message || '上传失败'))
           return
         }

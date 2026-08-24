@@ -37,10 +37,17 @@ export const useAuthStore = defineStore('auth', {
     isLoggedIn(): boolean {
       return this.token != ''
     },
-    /** 工单 tab 是否可见：巡检员（我上报的）与维修工（待我处理）可见，主管/经理走 PC */
+    /** 工单入口：兼容旧角色，同时按当前项目岗位识别巡检员/维修工。 */
     canSeeWorkorders(): boolean {
       const u = this.userInfo
-      return u != null && (u.roles.indexOf('inspector') >= 0 || u.roles.indexOf('repair') >= 0)
+      if (u == null) return false
+      if (u.roles.indexOf('inspector') >= 0 || u.roles.indexOf('repair') >= 0) return true
+      return (u.staffs ?? []).some((staff) =>
+        staff.post_names.indexOf('巡检员') >= 0 ||
+        staff.post_names.indexOf('维修工') >= 0 ||
+        staff.post_names.indexOf('repairman') >= 0 ||
+        staff.post_names.indexOf('inspector') >= 0
+      )
     },
     /**
      * 权限点判断：传入单个 code 或数组，任一命中即 true；userInfo 为空返回 false。

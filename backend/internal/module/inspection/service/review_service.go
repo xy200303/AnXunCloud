@@ -106,7 +106,7 @@ func (s *ReviewService) reviewItem(r *model.CheckinRecord) gin.H {
 		"point_name":     pointName(s.db, r.PointID),
 		"community_id":   r.CommunityID,
 		"community_name": commName(s.db, r.CommunityID),
-		"inspector_id": r.InspectorID, "inspector_name": userName(s.db, r.InspectorID),
+		"inspector_id":   r.InspectorID, "inspector_name": userName(s.db, r.InspectorID),
 		"checkin_time": timefmt.T(r.CheckinTime), "checkin_type": r.CheckinType,
 		"distance_to_point": distanceOrNil(r), "result": r.Result, "remark": r.Remark,
 		"is_suspect": r.IsSuspect, "suspect_reason": r.SuspectReason,
@@ -156,15 +156,23 @@ func (s *ReviewService) Pass(c *gin.Context, id string) *errs.Error {
 			"audit_status": model.AuditPass, "audit_step": stepIdx + 1,
 			"audit_by": by, "audit_at": now, "audit_remark": "",
 		}
-		if err := s.db.Model(&model.CheckinRecord{}).Where("id = ?", r.ID).Updates(updates).Error; err != nil {
+		res := s.db.Model(&model.CheckinRecord{}).Where("id = ? AND audit_status = ? AND audit_step = ?", r.ID, model.AuditPending, stepIdx).Updates(updates)
+		if res.Error != nil {
 			return errs.ErrInternal
+		}
+		if res.RowsAffected != 1 {
+			return errs.ErrConflict.WithMsg("审核状态已被其他人更新")
 		}
 		return nil
 	}
 	// 非末环节 → 进度 +1，保持 pending，定向通知下一环节名单
 	updates := map[string]any{"audit_step": stepIdx + 1, "audit_by": by, "audit_at": now}
-	if err := s.db.Model(&model.CheckinRecord{}).Where("id = ?", r.ID).Updates(updates).Error; err != nil {
+	res := s.db.Model(&model.CheckinRecord{}).Where("id = ? AND audit_status = ? AND audit_step = ?", r.ID, model.AuditPending, stepIdx).Updates(updates)
+	if res.Error != nil {
 		return errs.ErrInternal
+	}
+	if res.RowsAffected != 1 {
+		return errs.ErrConflict.WithMsg("审核状态已被其他人更新")
 	}
 	next := flow[stepIdx+1]
 	nextSlot := communitysvc.FlowStepSlot(s.db, r.CommunityID, patrolType, next.Slot)
@@ -324,8 +332,12 @@ func (s *ReviewService) Reject(c *gin.Context, id, reason string) *errs.Error {
 	updates := map[string]any{
 		"audit_status": model.AuditRejected, "audit_by": by, "audit_at": now, "audit_remark": reason,
 	}
-	if err := s.db.Model(&model.CheckinRecord{}).Where("id = ?", r.ID).Updates(updates).Error; err != nil {
+	res := s.db.Model(&model.CheckinRecord{}).Where("id = ? AND audit_status = ? AND audit_step = ?", r.ID, model.AuditPending, stepIdx).Updates(updates)
+	if res.Error != nil {
 		return errs.ErrInternal
+	}
+	if res.RowsAffected != 1 {
+		return errs.ErrConflict.WithMsg("审核状态已被其他人更新")
 	}
 	// 站内通知巡检员 + App 推送
 	ptName := pointName(s.db, r.PointID)

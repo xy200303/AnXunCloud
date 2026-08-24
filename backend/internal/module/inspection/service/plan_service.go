@@ -145,6 +145,9 @@ func (s *PlanService) Create(c *gin.Context, req *dto.PlanSaveReq) (string, *err
 	if be := middleware.CheckCommunity(s.db, c, req.CommunityID); be != nil {
 		return "", be
 	}
+	if middleware.CommunityTenantID(s.db, req.CommunityID) == nil {
+		return "", errs.ErrCommunityNotExist
+	}
 	start, end, be := s.validate(req)
 	if be != nil {
 		return "", be
@@ -192,6 +195,13 @@ func (s *PlanService) Update(c *gin.Context, id string, req *dto.PlanSaveReq) *e
 	if be := middleware.CheckCommunity(s.db, c, p.CommunityID); be != nil {
 		return be
 	}
+	if be := middleware.CheckCommunity(s.db, c, req.CommunityID); be != nil {
+		return be
+	}
+	tenantID := middleware.CommunityTenantID(s.db, req.CommunityID)
+	if tenantID == nil {
+		return errs.ErrCommunityNotExist
+	}
 	start, end, be := s.validate(req)
 	if be != nil {
 		return be
@@ -206,7 +216,7 @@ func (s *PlanService) Update(c *gin.Context, id string, req *dto.PlanSaveReq) *e
 	}
 	selectionMode, pointTypes := selectionOf(req)
 	updates := map[string]any{
-		"community_id": req.CommunityID, "name": req.Name, "patrol_type": patrolType,
+		"tenant_id": tenantID, "community_id": req.CommunityID, "name": req.Name, "patrol_type": patrolType,
 		"point_ids": types.IDArray(req.PointIDs), "cycle_type": req.CycleType,
 		"cycle_config": cfg, "inspector_ids": types.IDArray(req.InspectorIDs),
 		"start_date": start, "end_date": end, "time_window": req.TimeWindow, "remark": req.Remark,
@@ -269,6 +279,10 @@ func selectionOf(req *dto.PlanSaveReq) (string, []string) {
 
 // validate 校验计划周期配置、轮次配置、日期范围、时段格式与圈选模式。
 func (s *PlanService) validate(req *dto.PlanSaveReq) (time.Time, *time.Time, *errs.Error) {
+	tenantID := middleware.CommunityTenantID(s.db, req.CommunityID)
+	if tenantID == nil {
+		return time.Time{}, nil, errs.ErrCommunityNotExist
+	}
 	start, err := time.ParseInLocation("2006-01-02", req.StartDate, time.Local)
 	if err != nil {
 		return start, nil, errs.ErrPlanDateInvalid.WithMsg("start_date 格式应为 YYYY-MM-DD")
@@ -361,7 +375,9 @@ func (s *PlanService) validate(req *dto.PlanSaveReq) (time.Time, *time.Time, *er
 		return start, nil, errs.ErrParam.WithMsg("selection_mode 取值非法（explicit/by_point_types）")
 	}
 	var count int64
-	s.db.Model(&sysmodel.SysUser{}).Where("id IN ? AND status = ?", req.InspectorIDs, sysmodel.StatusEnabled).Count(&count)
+	userQuery := s.db.Model(&sysmodel.SysUser{}).Where("id IN ? AND status = ?", req.InspectorIDs, sysmodel.StatusEnabled)
+	userQuery = userQuery.Where("tenant_id = ?", *tenantID)
+	userQuery.Count(&count)
 	if count != int64(len(uniqueIDs(req.InspectorIDs))) {
 		return start, nil, errs.ErrParam.WithMsg("inspector_ids 中存在无效或已停用的巡检员")
 	}

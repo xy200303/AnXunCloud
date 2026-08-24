@@ -265,7 +265,11 @@ func (s *StaffService) CreateStaff(c *gin.Context, communityID string, req *dto.
 	if count == 0 {
 		return "", errs.ErrCommunityNotExist
 	}
-	s.db.Model(&sysmodel.SysUser{}).Where("id = ? AND status = ?", req.UserID, sysmodel.StatusEnabled).Count(&count)
+	tenantID := middleware.CommunityTenantID(s.db, communityID)
+	if tenantID == nil {
+		return "", errs.ErrCommunityNotExist
+	}
+	s.db.Model(&sysmodel.SysUser{}).Where("id = ? AND tenant_id = ? AND status = ?", req.UserID, *tenantID, sysmodel.StatusEnabled).Count(&count)
 	if count == 0 {
 		return "", errs.ErrParam.WithMsg("编制成员须为存在且启用的用户")
 	}

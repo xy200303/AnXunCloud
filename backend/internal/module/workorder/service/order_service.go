@@ -201,6 +201,7 @@ func (s *OrderService) Create(ctx context.Context, c *gin.Context, req *dto.Orde
 	if be := middleware.CheckCommunity(s.db, c, req.CommunityID); be != nil {
 		return nil, be
 	}
+	identity := middleware.CurrentIdentity(c)
 	priority, be := validPriority(req.Priority)
 	if be != nil {
 		return nil, be
@@ -213,11 +214,11 @@ func (s *OrderService) Create(ctx context.Context, c *gin.Context, req *dto.Orde
 	if be := s.checkPointBelongs(req.CommunityID, req.PointID); be != nil {
 		return nil, be
 	}
-	photos, be := s.resolvePhotos(req.Photos)
+	photos, be := s.resolvePhotos(req.Photos, identity.UserID)
 	if be != nil {
 		return nil, be
 	}
-	items, be := s.resolveCreateItems(req.Items)
+	items, be := s.resolveCreateItems(req.Items, identity.UserID)
 	if be != nil {
 		return nil, be
 	}
@@ -225,11 +226,10 @@ func (s *OrderService) Create(ctx context.Context, c *gin.Context, req *dto.Orde
 	if err != nil {
 		return nil, errs.ErrInternal
 	}
-	identity := middleware.CurrentIdentity(c)
 	now := time.Now()
 	order := model.WorkOrder{
 		TenantID: middleware.CommunityTenantID(s.db, req.CommunityID), // 冗余列（=所属小区租户）
-		OrderNo: orderNo, CommunityID: req.CommunityID, PointID: req.PointID,
+		OrderNo:  orderNo, CommunityID: req.CommunityID, PointID: req.PointID,
 		Title: req.Title, Description: req.Description, Photos: photos, Items: items,
 		Source: model.SourceFrontdesk, ReporterID: identity.UserID, AssigneeID: req.AssigneeID,
 		Priority: priority,
@@ -290,7 +290,7 @@ func (s *OrderService) Report(ctx context.Context, userID string, req *dto.Order
 	if be := s.checkPointBelongs(req.CommunityID, req.PointID); be != nil {
 		return nil, be
 	}
-	photos, be := s.resolvePhotos(req.Photos)
+	photos, be := s.resolvePhotos(req.Photos, userID)
 	if be != nil {
 		return nil, be
 	}
@@ -305,7 +305,7 @@ func (s *OrderService) Report(ctx context.Context, userID string, req *dto.Order
 	}
 	order := model.WorkOrder{
 		TenantID: middleware.CommunityTenantID(s.db, req.CommunityID), // 冗余列（=所属小区租户）
-		OrderNo: orderNo, CommunityID: req.CommunityID, PointID: req.PointID,
+		OrderNo:  orderNo, CommunityID: req.CommunityID, PointID: req.PointID,
 		Title: req.Title, Description: req.Description, Photos: photos,
 		Source: model.SourceActive, ReporterID: userID, Priority: priority, Status: status,
 		Items: types.OrderItemArray{},
@@ -351,7 +351,7 @@ func (s *OrderService) detailOf(o *model.WorkOrder) gin.H {
 		"title": o.Title, "community_id": o.CommunityID, "community_name": s.commName(o.CommunityID),
 		"point_id": o.PointID, "point_name": s.pointName(o.PointID),
 		"description": o.Description, "photos": o.Photos,
-		"items": s.itemViews(o.Items),
+		"items":  s.itemViews(o.Items),
 		"source": o.Source, "category": o.Category,
 		"reporter_id": o.ReporterID, "reporter_name": s.userName(o.ReporterID),
 		"assignee_id": o.AssigneeID, "assignee_name": s.userNamePtr(o.AssigneeID),
@@ -367,7 +367,7 @@ func (s *OrderService) detailOf(o *model.WorkOrder) gin.H {
 		// SLA 简化实现：按优先级硬编码期望完成时长，仅展示不推送（见 statemachine.go）
 		"sla_deadline": timefmt.TP(SLADeadline(o.Priority, o.CreatedAt)),
 		"sla_overdue":  SLAOverdue(o.Status, o.Priority, o.CreatedAt, time.Now()),
-		"created_at": timefmt.T(o.CreatedAt), "logs": logItems,
+		"created_at":   timefmt.T(o.CreatedAt), "logs": logItems,
 	}
 }
 
@@ -476,8 +476,12 @@ func (s *OrderService) Triage(c *gin.Context, id string, req *dto.TriageReq) (st
 		}
 	}
 	err := s.db.Transaction(func(tx *gorm.DB) error {
-		if err := tx.Model(o).Updates(updates).Error; err != nil {
-			return err
+		res := tx.Model(&model.WorkOrder{}).Where("id = ? AND status = ?", o.ID, o.Status).Updates(updates)
+		if res.Error != nil {
+			return res.Error
+		}
+		if res.RowsAffected != 1 {
+			return errs.ErrOrderStatusNotAllowed.WithMsg("工单状态已被其他人更新")
 		}
 		detail := "受理通过，进入待派单"
 		if req.Result == "reject" {
@@ -488,6 +492,9 @@ func (s *OrderService) Triage(c *gin.Context, id string, req *dto.TriageReq) (st
 		return tx.Create(&model.WorkOrderLog{OrderID: o.ID, Action: action, OperatorID: identity.UserID, Detail: detail}).Error
 	})
 	if err != nil {
+		if be, ok := err.(*errs.Error); ok {
+			return "", be
+		}
 		return "", errs.ErrInternal
 	}
 	if req.Result == "reject" {
@@ -517,11 +524,15 @@ func (s *OrderService) Dispatch(c *gin.Context, id string, req *dto.DispatchReq)
 	now := time.Now()
 	assigneeName := s.userName(req.AssigneeID)
 	err := s.db.Transaction(func(tx *gorm.DB) error {
-		if err := tx.Model(o).Updates(map[string]any{
+		res := tx.Model(&model.WorkOrder{}).Where("id = ? AND status = ?", o.ID, model.OrderPendingDispatch).Updates(map[string]any{
 			"assignee_id": req.AssigneeID, "dispatcher_id": identity.UserID,
 			"dispatch_at": now, "accept_at": now, "status": model.OrderProcessing,
-		}).Error; err != nil {
-			return err
+		})
+		if res.Error != nil {
+			return res.Error
+		}
+		if res.RowsAffected != 1 {
+			return errs.ErrOrderStatusNotAllowed.WithMsg("工单状态已被其他人更新")
 		}
 		detail := "派单给 " + assigneeName
 		if req.Remark != "" {
@@ -530,6 +541,9 @@ func (s *OrderService) Dispatch(c *gin.Context, id string, req *dto.DispatchReq)
 		return tx.Create(&model.WorkOrderLog{OrderID: o.ID, Action: model.ActionDispatch, OperatorID: identity.UserID, Detail: detail}).Error
 	})
 	if err != nil {
+		if be, ok := err.(*errs.Error); ok {
+			return be
+		}
 		return errs.ErrInternal
 	}
 	s.Notify(req.AssigneeID, "workorder", "新工单指派", fmt.Sprintf("工单 %s「%s」已指派给您，请及时处理", o.OrderNo, o.Title), &o.ID)
@@ -581,26 +595,33 @@ func (s *OrderService) Finish(operatorID string, o *model.WorkOrder, req *dto.Fi
 	if _, ok := CanTransit(model.ActionFinish, o.Status); !ok {
 		return errs.ErrOrderStatusNotAllowed.WithMsg("当前状态不可提交完工")
 	}
-	photos, be := s.resolvePhotos(req.FixPhotos)
+	photos, be := s.resolvePhotos(req.FixPhotos, operatorID)
 	if be != nil {
 		return be
 	}
-	items, be := s.mergeFinishItems(o, req.AfterPhotos)
+	items, be := s.mergeFinishItems(o, req.AfterPhotos, operatorID)
 	if be != nil {
 		return be
 	}
 	now := time.Now()
 	err := s.db.Transaction(func(tx *gorm.DB) error {
-		if err := tx.Model(o).Updates(map[string]any{
+		res := tx.Model(&model.WorkOrder{}).Where("id = ? AND status = ?", o.ID, model.OrderProcessing).Updates(map[string]any{
 			"status": model.OrderPendingConfirm, "finish_note": req.FixRemark,
 			"finish_photos": photos, "items": items, "finish_at": now,
 			"reject_reason": "", // 新一轮完工提交后清空上次退回原因（历史见流转日志）
-		}).Error; err != nil {
-			return err
+		})
+		if res.Error != nil {
+			return res.Error
+		}
+		if res.RowsAffected != 1 {
+			return errs.ErrOrderStatusNotAllowed.WithMsg("工单状态已被其他人更新")
 		}
 		return tx.Create(&model.WorkOrderLog{OrderID: o.ID, Action: model.ActionFinish, OperatorID: operatorID, Detail: "完工提交：" + req.FixRemark}).Error
 	})
 	if err != nil {
+		if be, ok := err.(*errs.Error); ok {
+			return be
+		}
 		return errs.ErrInternal
 	}
 	// 通知验收人：报单人 + 受理名单（验收授权为两者，去重）
@@ -639,8 +660,12 @@ func (s *OrderService) Confirm(identity *middleware.Identity, o *model.WorkOrder
 		updates["reject_reason"] = note
 	}
 	err := s.db.Transaction(func(tx *gorm.DB) error {
-		if err := tx.Model(o).Updates(updates).Error; err != nil {
-			return err
+		res := tx.Model(&model.WorkOrder{}).Where("id = ? AND status = ?", o.ID, model.OrderPendingConfirm).Updates(updates)
+		if res.Error != nil {
+			return res.Error
+		}
+		if res.RowsAffected != 1 {
+			return errs.ErrOrderStatusNotAllowed.WithMsg("工单状态已被其他人更新")
 		}
 		detail := "验收通过，工单闭环"
 		if result == "reject" {
@@ -649,6 +674,9 @@ func (s *OrderService) Confirm(identity *middleware.Identity, o *model.WorkOrder
 		return tx.Create(&model.WorkOrderLog{OrderID: o.ID, Action: action, OperatorID: operatorID, Detail: detail}).Error
 	})
 	if err != nil {
+		if be, ok := err.(*errs.Error); ok {
+			return "", be
+		}
 		return "", errs.ErrInternal
 	}
 	if result == "reject" && o.AssigneeID != nil {
@@ -658,14 +686,14 @@ func (s *OrderService) Confirm(identity *middleware.Identity, o *model.WorkOrder
 }
 
 // resolveCreateItems 手工建单不合格项入参校验与转换（before_photos file_key 须已上传）。
-func (s *OrderService) resolveCreateItems(reqs []dto.OrderItemReq) (types.OrderItemArray, *errs.Error) {
+func (s *OrderService) resolveCreateItems(reqs []dto.OrderItemReq, ownerID string) (types.OrderItemArray, *errs.Error) {
 	items := make(types.OrderItemArray, 0, len(reqs))
 	for _, it := range reqs {
 		if strings.TrimSpace(it.Name) == "" {
 			return nil, errs.ErrParam.WithMsg("不合格项名称不能为空")
 		}
 		for _, key := range it.BeforePhotos {
-			if !s.fileExists(key) {
+			if !s.fileExists(key, ownerID) {
 				return nil, errs.ErrPhotoNotUploaded
 			}
 		}
@@ -678,15 +706,15 @@ func (s *OrderService) resolveCreateItems(reqs []dto.OrderItemReq) (types.OrderI
 }
 
 // fileExists file_key 是否已上传确认。
-func (s *OrderService) fileExists(key string) bool {
+func (s *OrderService) fileExists(key, ownerID string) bool {
 	var count int64
-	s.db.Model(&sysmodel.UploadFile{}).Where("file_key = ?", key).Count(&count)
+	s.db.Model(&sysmodel.UploadFile{}).Where("file_key = ? AND user_id = ?", key, ownerID).Count(&count)
 	return count > 0
 }
 
 // mergeFinishItems 整改回传逐项补图：after_photos（检查项名 → file_key 数组）按 name 合并进
 // items 快照；未知项追加为新条目。map 遍历前先排序键，保证日志与存储顺序稳定。
-func (s *OrderService) mergeFinishItems(o *model.WorkOrder, afterPhotos map[string][]string) (types.OrderItemArray, *errs.Error) {
+func (s *OrderService) mergeFinishItems(o *model.WorkOrder, afterPhotos map[string][]string, ownerID string) (types.OrderItemArray, *errs.Error) {
 	items := o.Items
 	if items == nil {
 		items = types.OrderItemArray{}
@@ -703,7 +731,7 @@ func (s *OrderService) mergeFinishItems(o *model.WorkOrder, afterPhotos map[stri
 		}
 		keys := make(types.StringArray, 0, len(rawKeys))
 		for _, k := range rawKeys {
-			if !s.fileExists(k) {
+			if !s.fileExists(k, ownerID) {
 				return nil, errs.ErrPhotoNotUploaded
 			}
 			keys = append(keys, k)
@@ -858,7 +886,7 @@ func (s *OrderService) grabbableCommunityIDs(userID string) []string {
 func CreateFromCheckin(tx *gorm.DB, orderNo string, checkinID, communityID string, pointID *string, title, description string, photos types.PhotoArray, items types.OrderItemArray, reporterID, patrolType string, notifier *notify.Notifier) (*model.WorkOrder, error) {
 	order := model.WorkOrder{
 		TenantID: middleware.CommunityTenantID(tx, communityID), // 冗余列（=所属小区租户）
-		OrderNo: orderNo, CheckinID: &checkinID, CommunityID: communityID, PointID: pointID,
+		OrderNo:  orderNo, CheckinID: &checkinID, CommunityID: communityID, PointID: pointID,
 		Title: title, Description: description, Photos: photos, Items: items,
 		Source: model.SourceInspection, ReporterID: reporterID, Priority: "normal", Status: model.OrderPendingDispatch,
 	}
@@ -916,11 +944,11 @@ func (s *OrderService) checkAcceptMember(communityID, userID string) *errs.Error
 }
 
 // resolvePhotos 将 file_key 引用解析为照片数组并校验已上传（43106）。
-func (s *OrderService) resolvePhotos(refs []dto.PhotoRef) (types.PhotoArray, *errs.Error) {
+func (s *OrderService) resolvePhotos(refs []dto.PhotoRef, ownerID string) (types.PhotoArray, *errs.Error) {
 	photos := types.PhotoArray{}
 	for _, ref := range refs {
 		var f sysmodel.UploadFile
-		if err := s.db.Where("file_key = ?", ref.FileKey).First(&f).Error; err != nil {
+		if err := s.db.Where("file_key = ? AND user_id = ?", ref.FileKey, ownerID).First(&f).Error; err != nil {
 			return nil, errs.ErrPhotoNotUploaded
 		}
 		photos = append(photos, types.PhotoItem{URL: f.URL, WatermarkedURL: f.WatermarkedURL})

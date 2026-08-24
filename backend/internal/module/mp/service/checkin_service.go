@@ -11,7 +11,9 @@ import (
 	"github.com/google/uuid"
 	"github.com/redis/go-redis/v9"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 
+	communitysvc "anxuncloud/internal/module/community/service"
 	insmodel "anxuncloud/internal/module/inspection/model"
 	"anxuncloud/internal/module/mp/dto"
 	sysmodel "anxuncloud/internal/module/system/model"
@@ -134,14 +136,20 @@ func (s *CheckinService) doCheckin(ctx context.Context, inspectorID string, req 
 
 // doCheckinLocked 打卡主流程（已持有防重锁）。
 func (s *CheckinService) doCheckinLocked(ctx context.Context, inspectorID string, req *dto.CheckinReq, offline bool) (*insmodel.CheckinRecord, gin.H, *errs.Error) {
-	// 客户端 UUIDv7 幂等（UUID 主键的核心收益）：离线暂存时客户端生成 ID，补传/重试携带同一 ID，
-	// 已存在则直接返回已有记录，不产生重复数据
+	var task insmodel.InspectionTask
+	if err := s.db.First(&task, "id = ?", req.TaskID).Error; err != nil || task.InspectorID != inspectorID {
+		return nil, nil, errs.ErrTaskNotOwned
+	}
+	// 客户端 UUIDv7 幂等：必须先确认任务归属，再返回已有记录，避免利用已知 ID 读取他人打卡。
 	if req.ID != "" {
 		if be := validateClientID(req.ID); be != nil {
 			return nil, nil, be
 		}
 		var exist insmodel.CheckinRecord
 		if err := s.db.Where("id = ?", req.ID).First(&exist).Error; err == nil {
+			if exist.TaskID != task.ID || exist.PointID != req.PointID || exist.InspectorID != inspectorID || exist.CommunityID != task.CommunityID {
+				return nil, nil, errs.ErrTaskNotOwned
+			}
 			var order gin.H
 			var wo womodel.WorkOrder
 			if s.db.Select("id", "order_no").Where("checkin_id = ?", exist.ID).First(&wo).Error == nil {
@@ -149,10 +157,6 @@ func (s *CheckinService) doCheckinLocked(ctx context.Context, inspectorID string
 			}
 			return &exist, order, nil
 		}
-	}
-	var task insmodel.InspectionTask
-	if err := s.db.First(&task, "id = ?", req.TaskID).Error; err != nil || task.InspectorID != inspectorID {
-		return nil, nil, errs.ErrTaskNotOwned
 	}
 	if task.Status == insmodel.TaskDone {
 		return nil, nil, errs.ErrDuplicateCheckin.WithMsg("任务已完成")
@@ -164,12 +168,6 @@ func (s *CheckinService) doCheckinLocked(ctx context.Context, inspectorID string
 	}
 	if !insmodel.TaskPointIDs(&task, &plan).Contains(req.PointID) {
 		return nil, nil, errs.ErrTaskNotOwned.WithMsg("点位不属于该任务")
-	}
-	// ② 重复打卡校验（43103）
-	var dupCount int64
-	s.db.Model(&insmodel.CheckinRecord{}).Where("task_id = ? AND point_id = ?", req.TaskID, req.PointID).Count(&dupCount)
-	if dupCount > 0 {
-		return nil, nil, errs.ErrDuplicateCheckin
 	}
 	var point insmodel.InspectionPoint
 	if err := s.db.First(&point, "id = ?", req.PointID).Error; err != nil {
@@ -186,12 +184,12 @@ func (s *CheckinService) doCheckinLocked(ctx context.Context, inspectorID string
 		return nil, nil, be
 	}
 	// ④ 必拍项完整性与照片上传确认（43104 / 43106）
-	photos, be := s.resolvePhotos(req, &point)
+	photos, be := s.resolvePhotos(req, &point, inspectorID)
 	if be != nil {
 		return nil, nil, be
 	}
 	// 检查项模板：点位绑定模板时，模板每项都必须有提交结果（按 name 匹配），并生成逐项快照行
-	checkItems, be := s.resolveCheckItems(req, &point)
+	checkItems, be := s.resolveCheckItems(req, &point, inspectorID)
 	if be != nil {
 		return nil, nil, be
 	}
@@ -209,7 +207,7 @@ func (s *CheckinService) doCheckinLocked(ctx context.Context, inspectorID string
 	now := time.Now()
 	rec := insmodel.CheckinRecord{
 		TenantID: task.TenantID, // 冗余列随任务快照（=所属小区租户）
-		TaskID: req.TaskID, PointID: req.PointID, InspectorID: inspectorID,
+		TaskID:   req.TaskID, PointID: req.PointID, InspectorID: inspectorID,
 		CommunityID: task.CommunityID, CheckinTime: now, ClientTime: &clientTime,
 		Longitude: &req.Longitude, Latitude: &req.Latitude, DistanceToPoint: &distance,
 		CheckinType: checkinType, Photos: photos, Result: req.Result, Remark: req.Remark,
@@ -221,6 +219,23 @@ func (s *CheckinService) doCheckinLocked(ctx context.Context, inspectorID string
 	}
 	var order gin.H
 	err = s.db.Transaction(func(tx *gorm.DB) error {
+		var currentTask insmodel.InspectionTask
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(&currentTask, "id = ?", task.ID).Error; err != nil {
+			return errs.ErrTaskNotOwned
+		}
+		if currentTask.InspectorID != inspectorID {
+			return errs.ErrTaskNotOwned
+		}
+		if currentTask.Status == insmodel.TaskDone {
+			return errs.ErrDuplicateCheckin.WithMsg("任务已完成")
+		}
+		var dupCount int64
+		if err := tx.Model(&insmodel.CheckinRecord{}).Where("task_id = ? AND point_id = ?", currentTask.ID, req.PointID).Count(&dupCount).Error; err != nil {
+			return err
+		}
+		if dupCount > 0 {
+			return errs.ErrDuplicateCheckin
+		}
 		if err := tx.Create(&rec).Error; err != nil {
 			if strings.Contains(err.Error(), "23505") || strings.Contains(err.Error(), "duplicate") {
 				return errs.ErrDuplicateCheckin
@@ -238,18 +253,20 @@ func (s *CheckinService) doCheckinLocked(ctx context.Context, inspectorID string
 		}
 		// 任务进度原子推进
 		updates := map[string]any{"done_points": gorm.Expr("done_points + 1")}
-		if task.StartedAt == nil {
+		if currentTask.StartedAt == nil {
 			updates["started_at"] = now
 		}
-		newDone := task.DonePoints + 1
-		if newDone >= task.TotalPoints {
+		newDone := currentTask.DonePoints + 1
+		if newDone >= currentTask.TotalPoints {
 			updates["status"] = insmodel.TaskDone
 			updates["finished_at"] = now
-		} else if task.Status == insmodel.TaskPending || task.Status == insmodel.TaskOverdue {
+		} else if currentTask.Status == insmodel.TaskPending || currentTask.Status == insmodel.TaskOverdue {
 			updates["status"] = insmodel.TaskDoing
 		}
-		if err := tx.Model(&insmodel.InspectionTask{}).Where("id = ?", task.ID).Updates(updates).Error; err != nil {
-			return err
+		if result := tx.Model(&insmodel.InspectionTask{}).Where("id = ?", currentTask.ID).Updates(updates); result.Error != nil {
+			return result.Error
+		} else if result.RowsAffected != 1 {
+			return errs.ErrTaskNotOwned
 		}
 		task.DonePoints = newDone
 		// ⑥ 异常自动生成工单
@@ -337,7 +354,7 @@ func normalizeQRCode(v string) string {
 // 逐项照片硬约束：不合格项（pass=false）与模板 photo_required=required 的项均须 ≥1 张该项照片。
 // 返回逐项快照行（v18 起写 checkin_record_item）：name/requirement/ai_hint/photo_required 打卡当时从模板项复制，
 // template_item_id 仅作可空血缘字段（快照语义：历史内容不依赖模板表）。
-func (s *CheckinService) resolveCheckItems(req *dto.CheckinReq, point *insmodel.InspectionPoint) ([]insmodel.CheckinRecordItem, *errs.Error) {
+func (s *CheckinService) resolveCheckItems(req *dto.CheckinReq, point *insmodel.InspectionPoint, ownerID string) ([]insmodel.CheckinRecordItem, *errs.Error) {
 	tplByName := map[string]*insmodel.CheckTemplateItem{}
 	if point.TemplateID != nil && *point.TemplateID != "" {
 		var tplCount int64
@@ -370,7 +387,7 @@ func (s *CheckinService) resolveCheckItems(req *dto.CheckinReq, point *insmodel.
 		if ti != nil {
 			photoReq = ti.PhotoRequired
 		}
-		if be := s.checkItemPhotos(it, photoReq); be != nil {
+		if be := s.checkItemPhotos(it, photoReq, ownerID); be != nil {
 			return nil, be
 		}
 		row := insmodel.CheckinRecordItem{
@@ -389,7 +406,7 @@ func (s *CheckinService) resolveCheckItems(req *dto.CheckinReq, point *insmodel.
 }
 
 // checkItemPhotos 逐项照片硬约束与 file_key 上传确认（43104 / 43106）。
-func (s *CheckinService) checkItemPhotos(it dto.CheckinItemReq, photoRequired string) *errs.Error {
+func (s *CheckinService) checkItemPhotos(it dto.CheckinItemReq, photoRequired, ownerID string) *errs.Error {
 	if !it.Pass && len(it.Photos) == 0 {
 		return errs.ErrPhotoMissing.WithMsg("检查项「" + it.Name + "」不合格，须至少上传 1 张该项照片")
 	}
@@ -398,7 +415,7 @@ func (s *CheckinService) checkItemPhotos(it dto.CheckinItemReq, photoRequired st
 	}
 	for _, key := range it.Photos {
 		var count int64
-		s.db.Model(&sysmodel.UploadFile{}).Where("file_key = ?", key).Count(&count)
+		s.db.Model(&sysmodel.UploadFile{}).Where("file_key = ? AND user_id = ?", key, ownerID).Count(&count)
 		if count == 0 {
 			return errs.ErrPhotoNotUploaded
 		}
@@ -407,7 +424,7 @@ func (s *CheckinService) checkItemPhotos(it dto.CheckinItemReq, photoRequired st
 }
 
 // resolvePhotos 必拍项校验 + 照片上传确认，返回落库照片数组。
-func (s *CheckinService) resolvePhotos(req *dto.CheckinReq, point *insmodel.InspectionPoint) (types.PhotoArray, *errs.Error) {
+func (s *CheckinService) resolvePhotos(req *dto.CheckinReq, point *insmodel.InspectionPoint, ownerID string) (types.PhotoArray, *errs.Error) {
 	// 必拍项齐全校验
 	if len(point.RequiredPhotoItems) > 0 {
 		got := map[string]bool{}
@@ -431,7 +448,7 @@ func (s *CheckinService) resolvePhotos(req *dto.CheckinReq, point *insmodel.Insp
 	}
 	for _, ref := range req.Photos {
 		var f sysmodel.UploadFile
-		if err := s.db.Where("file_key = ?", ref.FileKey).First(&f).Error; err != nil {
+		if err := s.db.Where("file_key = ? AND user_id = ?", ref.FileKey, ownerID).First(&f).Error; err != nil {
 			return nil, errs.ErrPhotoNotUploaded
 		}
 		item := types.PhotoItem{
@@ -594,36 +611,31 @@ func (s *CheckinService) itemPhotoRefs(items []insmodel.CheckinRecordItem) []ai.
 	return out
 }
 
-// notifyAuditors AI 转人工时通知 super_admin 与 manager 角色的启用用户（逐人一条站内消息）。
+// notifyAuditors AI 转人工时通知当前项目审批链首环节名单。
 func (s *CheckinService) notifyAuditors(recID, pointName, reason string) {
-	var roleIDs []string
-	s.db.Model(&sysmodel.SysRole{}).Where("code IN ?", []string{sysmodel.SuperAdminCode, "manager"}).Pluck("id", &roleIDs)
-	if len(roleIDs) == 0 {
+	var rec struct {
+		CommunityID string
+		TaskID      string
+	}
+	if s.db.Model(&insmodel.CheckinRecord{}).Select("community_id", "task_id").Where("id = ?", recID).First(&rec).Error != nil {
 		return
 	}
-	roleSet := map[string]bool{}
-	for _, id := range roleIDs {
-		roleSet[id] = true
+	var task struct {
+		PatrolType string
 	}
-	// 用户量小，拉回内存按 jsonb role_ids 过滤（回避 jsonb ?| 运算符与 GORM 占位符冲突）
-	var users []sysmodel.SysUser
-	s.db.Select("id", "role_ids").Where("status = ?", sysmodel.StatusEnabled).Find(&users)
-	sent := map[string]bool{}
-	for _, u := range users {
-		if sent[u.ID] {
-			continue
-		}
-		for _, rid := range u.RoleIDs {
-			if !roleSet[rid] {
-				continue
-			}
-			sent[u.ID] = true
-			_ = s.notifier.Send(u.ID, "checkin_audit",
-				"AI 审核转人工："+pointName,
-				fmt.Sprintf("点位「%s」的打卡记录经大模型审核存疑，已转人工审核。理由：%s", pointName, reason),
-				&recID)
-			break
-		}
+	if s.db.Model(&insmodel.InspectionTask{}).Select("patrol_type").Where("id = ?", rec.TaskID).First(&task).Error != nil {
+		return
+	}
+	flow := communitysvc.ResolveFlow(s.db, rec.CommunityID, sysmodel.FlowCheckinReview)
+	if len(flow) == 0 {
+		return
+	}
+	slot := communitysvc.FlowStepSlot(s.db, rec.CommunityID, task.PatrolType, flow[0].Slot)
+	for _, uid := range communitysvc.SlotUserIDs(s.db, rec.CommunityID, slot) {
+		_ = s.notifier.Send(uid, "checkin_audit",
+			"AI 审核转人工："+pointName,
+			fmt.Sprintf("点位「%s」的打卡记录经大模型审核存疑，已转人工审核。理由：%s", pointName, reason),
+			&recID)
 	}
 }
 
@@ -638,7 +650,7 @@ func (s *CheckinService) resultView(rec *insmodel.CheckinRecord, order gin.H) gi
 	out := gin.H{
 		"checkin_id": rec.ID, "checkin_time": timefmt.T(rec.CheckinTime),
 		"distance_to_point": int(*rec.DistanceToPoint),
-		"is_suspect": rec.IsSuspect, "suspect_reason": rec.SuspectReason,
+		"is_suspect":        rec.IsSuspect, "suspect_reason": rec.SuspectReason,
 		"work_order": order,
 		// AI 审核是否启用：启用时 App 提交后延迟轮询 /checkins/:id/items 拿逐项结论；未启用跳过免白等
 		"ai_enabled": s.aiCli.Enabled(),

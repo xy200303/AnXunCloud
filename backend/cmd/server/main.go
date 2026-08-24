@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -52,7 +53,13 @@ func main() {
 		logger.L.Fatal("数据库迁移失败", zap.Error(err))
 	}
 	if cfg.Env == "prod" && cfg.Admin.Password == "Admin@123" {
-		logger.L.Warn("【安全警告】生产环境正在使用默认超管密码 Admin@123，请立即通过 ADMIN_PASSWORD 修改！")
+		logger.L.Fatal("生产环境禁止使用默认超管密码，请配置 ADMIN_PASSWORD")
+	}
+	if cfg.Env == "prod" && (len(cfg.JWT.Secret) < 32 || strings.Contains(strings.ToLower(cfg.JWT.Secret), "change")) {
+		logger.L.Fatal("生产环境 JWT_SECRET 不符合安全要求，请配置至少 32 位随机密钥")
+	}
+	if cfg.Env == "prod" && cfg.Upload.Mode == "dev" {
+		logger.L.Fatal("生产环境禁止使用 UPLOAD_MODE=dev，请配置私有云存储")
 	}
 	if err := database.Seed(db, cfg.Admin.Username, cfg.Admin.Password, cfg.Admin.Name); err != nil {
 		logger.L.Fatal("初始化数据失败", zap.Error(err))

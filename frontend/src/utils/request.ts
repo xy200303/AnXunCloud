@@ -1,7 +1,7 @@
 // axios 封装：baseURL /api/admin、Bearer token、租户上下文头、统一错误提示、401 跳登录、文件流下载
 import axios, { AxiosError, type AxiosRequestConfig } from 'axios'
 import { ElMessage } from 'element-plus'
-import { getToken, clearToken } from '@/utils/auth'
+import { getToken, getRefreshToken, setToken, setRefreshToken, clearToken } from '@/utils/auth'
 import { useUserStore } from '@/store/user'
 import { useTenantStore } from '@/store/tenant'
 
@@ -22,6 +22,28 @@ export interface PageResult<T = any> {
 
 // 是否需要提示"重新登录"防重复弹
 let reloginPending = false
+let refreshing: Promise<boolean> | null = null
+
+async function refreshSession(): Promise<boolean> {
+  if (refreshing) return refreshing
+  const refreshToken = getRefreshToken()
+  if (!refreshToken) return false
+  refreshing = axios.post<ApiResult<{ access_token: string; refresh_token: string }>>(
+    '/api/admin/auth/refresh',
+    { refresh_token: refreshToken },
+    { timeout: 10000 }
+  ).then((response) => {
+    const data = response.data
+    if (data.code !== 0 || !data.data?.access_token || !data.data?.refresh_token) return false
+    setToken(data.data.access_token)
+    setRefreshToken(data.data.refresh_token)
+    reloginPending = false
+    return true
+  }).catch(() => false).finally(() => {
+    refreshing = null
+  })
+  return refreshing
+}
 
 function toLogin() {
   if (reloginPending) return
@@ -58,7 +80,7 @@ service.interceptors.request.use(
 // 响应拦截：统一按 code 判断；blob 文件流直接放行
 // 返回值实际为 ApiResult（request() 泛型承担类型收敛），故 fulfilled 用 any 收敛
 service.interceptors.response.use(
-  (response): any => {
+  async (response): Promise<any> => {
     // 文件流（导出/模板下载）直接返回完整 response
     if (response.config.responseType === 'blob') {
       return response
@@ -68,10 +90,15 @@ service.interceptors.response.use(
       // 统一收敛为 data 部分，api 层直接拿到业务数据
       return res.data
     }
+    const retryConfig = response.config as AxiosRequestConfig & { _retry?: boolean }
+    if (res.code === 40102 && !retryConfig._retry && await refreshSession()) {
+      retryConfig._retry = true
+      return service(retryConfig)
+    }
     handleBizError(res.code, res.message, !!(response.config as any).silent)
     return Promise.reject(new Error(res.message || '请求失败'))
   },
-  (error: AxiosError<ApiResult>) => {
+  async (error: AxiosError<ApiResult>) => {
     // blob 错误响应需转 JSON 读取错误信息
     if (error.response?.config.responseType === 'blob' && error.response.data instanceof Blob) {
       error.response.data.text().then((text) => {
@@ -86,6 +113,11 @@ service.interceptors.response.use(
     }
     const res = error.response?.data
     if (res && typeof res.code === 'number') {
+      const retryConfig = error.config as (AxiosRequestConfig & { _retry?: boolean }) | undefined
+      if (res.code === 40102 && retryConfig && !retryConfig._retry && await refreshSession()) {
+        retryConfig._retry = true
+        return service(retryConfig)
+      }
       handleBizError(res.code, res.message, !!(error.config as any)?.silent)
     } else if (error.code === 'ECONNABORTED') {
       ElMessage.error('请求超时，请稍后重试')

@@ -705,8 +705,12 @@ func (s *ReportService) resolveSigners(communityID, slot string, picked []string
 	}
 	enabled := map[string]bool{}
 	var valid []string
+	tenantID := middleware.CommunityTenantID(s.db, communityID)
+	if tenantID == nil {
+		return nil, errs.ErrCommunityNotExist
+	}
 	if err := s.db.Model(&sysmodel.SysUser{}).
-		Where("id IN ? AND status = ?", picked, sysmodel.StatusEnabled).
+		Where("id IN ? AND tenant_id = ? AND status = ?", picked, *tenantID, sysmodel.StatusEnabled).
 		Pluck("id", &valid).Error; err != nil {
 		return nil, errs.ErrInternal
 	}
@@ -744,8 +748,12 @@ func (s *ReportService) SignCandidates(c *gin.Context, communityID, patrolType s
 	defaultSupervisorIDs := communitysvc.SlotUserIDs(s.db, communityID, supSlot)
 	defaultManagerIDs := communitysvc.SlotUserIDs(s.db, communityID, sysmodel.SlotReportSignManager)
 	var users []sysmodel.SysUser
+	tenantID := middleware.CommunityTenantID(s.db, communityID)
+	if tenantID == nil {
+		return nil, errs.ErrCommunityNotExist
+	}
 	if err := s.db.Select("id", "name").
-		Where("status = ?", sysmodel.StatusEnabled).Order("id ASC").Find(&users).Error; err != nil {
+		Where("tenant_id = ? AND status = ?", *tenantID, sysmodel.StatusEnabled).Order("id ASC").Find(&users).Error; err != nil {
 		return nil, errs.ErrInternal
 	}
 	return gin.H{

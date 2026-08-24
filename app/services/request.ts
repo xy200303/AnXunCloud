@@ -18,9 +18,9 @@ import {
 } from '@/utils/storage'
 
 // ---- baseURL：按端 + 环境切换 ------------------------------------------------
-// 发版前：将 ACTIVE_ENV 切到 'prod'（HTTPS 强制）。
+// 本地默认 dev；正式发布通过 VITE_APP_ENV=prod 显式切换，避免调试包误操作生产数据。
 type EnvName = 'dev' | 'prod'
-const ACTIVE_ENV: EnvName = 'prod'
+const ACTIVE_ENV: EnvName = import.meta.env.VITE_APP_ENV === 'prod' ? 'prod' : 'dev'
 
 // #ifndef MP-WEIXIN
 const BASE_URL_DEV = 'http://10.172.17.43:8091/api/app' // 内网调试：PC 局域网 IP（手机与电脑同一内网；IP 变了改这里）

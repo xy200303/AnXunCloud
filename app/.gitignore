@@ -6,3 +6,5 @@ unpackage/
 
 # 依赖（如使用 CLI 工程）
 node_modules/
+
+dist

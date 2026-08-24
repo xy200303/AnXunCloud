@@ -269,9 +269,7 @@ export default {
      * 维修角色（roles 含 repair）或存在待处理/待验收/可抢工单时显示。
      */
     showOrderEntry(): boolean {
-      const u = useAuthStore().userInfo
-      if (u != null && (u.roles ?? []).indexOf('repair') >= 0) return true
-      return this.orderBadge > 0
+      return useAuthStore().canSeeWorkorders || this.orderBadge > 0
     }
   },
   onLoad() {

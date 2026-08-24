@@ -114,7 +114,7 @@ func (s *PointService) toItem(p *model.InspectionPoint) gin.H {
 		"longitude": p.Longitude, "latitude": p.Latitude,
 		"fence_radius": p.FenceRadius, "credential": p.Credential, "require_fence": p.RequireFence,
 		"required_photo_items": p.RequiredPhotoItems,
-		"sort": p.Sort, "status": sysmodel.StatusInt(p.Status), "created_at": timefmt.T(p.CreatedAt),
+		"sort":                 p.Sort, "status": sysmodel.StatusInt(p.Status), "created_at": timefmt.T(p.CreatedAt),
 	}
 }
 
@@ -206,16 +206,23 @@ func (s *PointService) Update(c *gin.Context, id string, req *dto.PointSaveReq) 
 	if be := middleware.CheckCommunity(s.db, c, p.CommunityID); be != nil {
 		return be
 	}
+	if be := middleware.CheckCommunity(s.db, c, req.CommunityID); be != nil {
+		return be
+	}
+	tenantID := middleware.CommunityTenantID(s.db, req.CommunityID)
+	if tenantID == nil {
+		return errs.ErrCommunityNotExist
+	}
 	if be := s.validate(req); be != nil {
 		return be
 	}
 	updates := map[string]any{
-		"community_id": req.CommunityID, "building_id": req.BuildingID, "name": req.Name,
+		"tenant_id": tenantID, "community_id": req.CommunityID, "building_id": req.BuildingID, "name": req.Name,
 		"type": req.Type, "template_id": templatePtr(req.TemplateID), "nfc_id": normalizeNfcID(req.NfcID),
 		"longitude": req.Longitude, "latitude": req.Latitude,
 		"fence_radius": s.fenceRadius(req.FenceRadius), "credential": credentialOrDefault(req.Credential), "require_fence": req.RequireFence,
 		"required_photo_items": types.StringArray(req.RequiredPhotoItems),
-		"sort": req.Sort, "remark": req.Remark,
+		"sort":                 req.Sort, "remark": req.Remark,
 	}
 	if req.Status != nil {
 		updates["status"] = sysmodel.StatusStr(*req.Status)
@@ -395,6 +402,10 @@ func appendTitle(pngBytes []byte, name, location, no string) []byte {
 
 // validate 点位参数校验。
 func (s *PointService) validate(req *dto.PointSaveReq) *errs.Error {
+	tenantID := middleware.CommunityTenantID(s.db, req.CommunityID)
+	if tenantID == nil {
+		return errs.ErrCommunityNotExist
+	}
 	var count int64
 	s.db.Model(&sysmodel.Community{}).Where("id = ?", req.CommunityID).Count(&count)
 	if count == 0 {
@@ -413,7 +424,7 @@ func (s *PointService) validate(req *dto.PointSaveReq) *errs.Error {
 		return errs.ErrParam.WithMsg("经纬度取值非法")
 	}
 	if tid := templatePtr(req.TemplateID); tid != nil {
-		s.db.Model(&model.CheckTemplate{}).Where("id = ?", *tid).Count(&count)
+		s.db.Model(&model.CheckTemplate{}).Where("id = ? AND (tenant_id IS NULL OR tenant_id = ?)", *tid, *tenantID).Count(&count)
 		if count == 0 {
 			return errs.ErrParam.WithMsg("template_id 对应的检查项模板不存在")
 		}
@@ -562,8 +573,8 @@ func (s *PointService) BatchCreate(c *gin.Context, req *dto.PointBatchReq) (*dto
 				p := model.InspectionPoint{
 					TenantID: tenantID, CommunityID: req.CommunityID, BuildingID: b.id,
 					Name: name, Type: req.Type, QRCodeNo: no,
-					TemplateID:         templatePtr(req.TemplateID),
-					Longitude:          req.Longitude, Latitude: req.Latitude,
+					TemplateID: templatePtr(req.TemplateID),
+					Longitude:  req.Longitude, Latitude: req.Latitude,
 					FenceRadius:        s.fenceRadius(0),
 					Credential:         credentialOrDefault(req.Credential),
 					RequiredPhotoItems: types.StringArray{},
@@ -601,13 +612,13 @@ const pointImportMaxRows = 500
 
 // importModeMap 导入模板「打卡方式」中文 → (凭证, 是否围栏校验)。
 var importModeMap = map[string][2]any{
-	"扫码":    {model.CredentialQRCode, false},
-	"NFC":   {model.CredentialNFC, false},
-	"任一":    {model.CredentialAny, false},
-	"围栏":    {model.CredentialNone, true},
-	"扫码+围栏": {model.CredentialQRCode, true},
+	"扫码":     {model.CredentialQRCode, false},
+	"NFC":    {model.CredentialNFC, false},
+	"任一":     {model.CredentialAny, false},
+	"围栏":     {model.CredentialNone, true},
+	"扫码+围栏":  {model.CredentialQRCode, true},
 	"NFC+围栏": {model.CredentialNFC, true},
-	"任一+围栏": {model.CredentialAny, true},
+	"任一+围栏":  {model.CredentialAny, true},
 }
 
 // Import 逐行校验导入点位（跳过失败行，成功行落库；二维码编号照常自动发号）。
@@ -810,7 +821,7 @@ func (s *PointService) Import(c *gin.Context, r io.Reader) (*dto.PointImportResu
 			return nil, "", be
 		}
 		p := model.InspectionPoint{
-			TenantID: middleware.CommunityTenantID(s.db, commID), // 冗余列（=所属小区租户）
+			TenantID:    middleware.CommunityTenantID(s.db, commID), // 冗余列（=所属小区租户）
 			CommunityID: commID, BuildingID: buildingID, Name: name, Type: pointType,
 			TemplateID: templateID, NfcID: normalizeNfcID(nfcID), QRCodeNo: no,
 			Longitude: lon, Latitude: lat, FenceRadius: s.fenceRadius(radius),

@@ -32,6 +32,16 @@ func NewUploadService(db *gorm.DB, store *storage.Storage, up config.UploadConfi
 	return &UploadService{db: db, store: store, cfg: up, oss: oss}
 }
 
+func (s *UploadService) userTenantID(userID string) *string {
+	var user struct {
+		TenantID *string `gorm:"column:tenant_id"`
+	}
+	if s.db.Model(&sysmodel.SysUser{}).Select("tenant_id").Where("id = ?", userID).First(&user).Error != nil {
+		return nil
+	}
+	return user.TenantID
+}
+
 // STS 申请直传凭证。dev 模式返回本地上传入口；oss 模式走 AssumeRole。
 func (s *UploadService) STS(userID string, req *dto.STSReq) (gin.H, *errs.Error) {
 	// 预校验类型与大小
@@ -47,11 +57,11 @@ func (s *UploadService) STS(userID string, req *dto.STSReq) (gin.H, *errs.Error)
 	if s.store.IsDev() {
 		// dev 模式：小程序/联调脚本直传本地接口
 		return gin.H{
-			"mode":          "dev",
-			"upload_url":    s.store.BaseURL() + "/api/mp/upload/local",
-			"dir":           dir,
-			"max_file_size": s.store.MaxFileSize(),
-			"allowed_types": s.store.AllowedTypes(),
+			"mode":           "dev",
+			"upload_url":     s.store.BaseURL() + "/api/mp/upload/local",
+			"dir":            dir,
+			"max_file_size":  s.store.MaxFileSize(),
+			"allowed_types":  s.store.AllowedTypes(),
 			"expire_seconds": 3600,
 		}, nil
 	}
@@ -103,7 +113,7 @@ func (s *UploadService) SaveLocal(userID string, scene, filename string, size in
 		exifTime = exifutil.ReadShotTimeBytes(data)
 	}
 	rec := sysmodel.UploadFile{
-		FileKey: key, Scene: scene, UserID: userID, Size: size,
+		TenantID: s.userTenantID(userID), FileKey: key, Scene: scene, UserID: userID, Size: size,
 		MimeType: "image/" + ext, URL: url, ExifTime: exifTime,
 		Name: filepath.Base(filename), MD5: md5, Storage: s.store.DriverName(),
 	}
@@ -142,7 +152,7 @@ func (s *UploadService) SaveAdminLocal(userID string, scene, filename string, si
 		mime = "application/octet-stream"
 	}
 	rec := sysmodel.UploadFile{
-		FileKey: key, Scene: scene, UserID: userID, Size: size,
+		TenantID: s.userTenantID(userID), FileKey: key, Scene: scene, UserID: userID, Size: size,
 		MimeType: mime, URL: url,
 		Name: filepath.Base(filename), MD5: md5, Storage: s.store.DriverName(),
 	}
@@ -195,12 +205,33 @@ func (s *UploadService) Callback(c *gin.Context, body []byte) (int, any) {
 	if err := json.Unmarshal(body, &form); err != nil || form.Object == "" {
 		return 400, gin.H{"Status": "BadRequest"}
 	}
+	if form.Scene == "" {
+		form.Scene = "checkin"
+	}
+	if !isUploadScene(form.Scene) || form.UID == "" || form.Size <= 0 || form.Size > s.store.MaxFileSize() {
+		return 400, gin.H{"Status": "BadRequest"}
+	}
+	if s.oss.Bucket != "" && form.Bucket != "" && form.Bucket != s.oss.Bucket {
+		return 400, gin.H{"Status": "BadRequest"}
+	}
+	parts := strings.Split(strings.TrimPrefix(form.Object, "/"), "/")
+	if len(parts) != 4 || parts[0] != form.Scene || parts[2] != form.UID || parts[3] == "" {
+		return 400, gin.H{"Status": "BadRequest"}
+	}
+	if _, be := s.store.CheckExt(parts[3]); be != nil {
+		return 400, gin.H{"Status": "BadRequest"}
+	}
+	var user sysmodel.SysUser
+	if err := s.db.Select("id", "tenant_id").Where("id = ?", form.UID).First(&user).Error; err != nil {
+		return 400, gin.H{"Status": "BadRequest"}
+	}
 	// 幂等：同一 object 重复回调直接 OK
 	var count int64
 	s.db.Model(&sysmodel.UploadFile{}).Where("file_key = ?", form.Object).Count(&count)
 	if count == 0 {
+		tenantID := user.TenantID
 		rec := sysmodel.UploadFile{
-			FileKey: form.Object, Scene: form.Scene, UserID: form.UID,
+			TenantID: &tenantID, FileKey: form.Object, Scene: form.Scene, UserID: form.UID,
 			Size: form.Size, MimeType: form.MimeType, URL: s.store.URL(form.Object),
 			Name: filepath.Base(form.Name), MD5: strings.Trim(form.ETag, `"`), Storage: s.store.DriverName(),
 		}
@@ -210,4 +241,13 @@ func (s *UploadService) Callback(c *gin.Context, body []byte) (int, any) {
 		s.db.Create(&rec)
 	}
 	return 200, gin.H{"Status": "OK"}
+}
+
+func isUploadScene(scene string) bool {
+	switch scene {
+	case "checkin", "workorder", "avatar", "signature", "seal", "notice":
+		return true
+	default:
+		return false
+	}
 }

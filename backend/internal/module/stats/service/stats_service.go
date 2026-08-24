@@ -71,9 +71,11 @@ func pct(part, total int64) float64 {
 
 // Coverage 巡检覆盖率报表。
 func (s *StatsService) Coverage(c *gin.Context, q *dto.ReportQuery) (gin.H, *errs.Error) {
-	if _, _, be := parseRange(q.StartDate, q.EndDate); be != nil {
+	_, endDate, be := parseRange(q.StartDate, q.EndDate)
+	if be != nil {
 		return nil, be
 	}
+	endExclusive := endDate.AddDate(0, 0, 1)
 	scope := s.taskScope(c, q)
 
 	var sum struct {
@@ -84,7 +86,7 @@ func (s *StatsService) Coverage(c *gin.Context, q *dto.ReportQuery) (gin.H, *err
 
 	// 异常/疑似打卡数
 	ck := s.db.Model(&insmodel.CheckinRecord{}).
-		Where("checkin_time >= ? AND checkin_time < ?", q.StartDate, q.EndDate+" 23:59:59")
+		Where("checkin_time >= ? AND checkin_time < ?", q.StartDate, endExclusive)
 	if q.CommunityID != "" {
 		ck = ck.Where("community_id = ?", q.CommunityID)
 	}
@@ -129,7 +131,7 @@ func (s *StatsService) Coverage(c *gin.Context, q *dto.ReportQuery) (gin.H, *err
 	return gin.H{
 		"summary": gin.H{
 			"should_points": sum.Should, "done_points": sum.Done,
-			"coverage_rate": pct(sum.Done, sum.Should),
+			"coverage_rate":  pct(sum.Done, sum.Should),
 			"abnormal_count": ab.Abnormal, "suspect_count": ab.Suspect,
 		},
 		"daily": daily, "by_community": byComm,
@@ -143,15 +145,20 @@ func (s *StatsService) Timeliness(c *gin.Context, q *dto.ReportQuery) (gin.H, *e
 	}
 	scope := s.taskScope(c, q)
 	// 及时判定：finished_at <= task_date + time_window 结束时刻；时段取任务快照优先（轮次任务按各轮 window）、回落计划
+	windowExpr := "COALESCE(NULLIF(inspection_task.time_window, ''), (SELECT time_window FROM inspection_plan WHERE id = inspection_task.plan_id))"
 	onTimeExpr := `CASE WHEN status = 'done' AND finished_at IS NOT NULL AND
-		finished_at <= (task_date + (split_part(COALESCE(NULLIF(inspection_task.time_window, ''), (SELECT time_window FROM inspection_plan WHERE id = inspection_task.plan_id)), '-', 2))::interval) THEN 1 ELSE 0 END`
+		finished_at <= (
+			task_date + split_part(` + windowExpr + `, '-', 2)::time
+			+ CASE WHEN split_part(` + windowExpr + `, '-', 1)::time >= split_part(` + windowExpr + `, '-', 2)::time
+				THEN interval '1 day' ELSE interval '0 day' END
+		) THEN 1 ELSE 0 END`
 	var sum struct {
 		Total   int64
 		OnTime  int64
 		Overdue int64
 	}
 	scope.Session(&gorm.Session{}).
-		Select("COUNT(*) AS total, COALESCE(SUM("+onTimeExpr+"),0) AS on_time, COUNT(*) FILTER (WHERE status = 'overdue') AS overdue").
+		Select("COUNT(*) AS total, COALESCE(SUM(" + onTimeExpr + "),0) AS on_time, COUNT(*) FILTER (WHERE status = 'overdue') AS overdue").
 		Scan(&sum)
 
 	type dayRow struct {
@@ -161,7 +168,7 @@ func (s *StatsService) Timeliness(c *gin.Context, q *dto.ReportQuery) (gin.H, *e
 	}
 	var days []dayRow
 	scope.Session(&gorm.Session{}).
-		Select("to_char(task_date, 'YYYY-MM-DD') AS date, COUNT(*) AS total, COALESCE(SUM("+onTimeExpr+"),0) AS on_time").
+		Select("to_char(task_date, 'YYYY-MM-DD') AS date, COUNT(*) AS total, COALESCE(SUM(" + onTimeExpr + "),0) AS on_time").
 		Group("date").Order("date").Scan(&days)
 	daily := make([]gin.H, 0, len(days))
 	for _, d := range days {
@@ -174,7 +181,7 @@ func (s *StatsService) Timeliness(c *gin.Context, q *dto.ReportQuery) (gin.H, *e
 	}
 	var commRows []commRow
 	scope.Session(&gorm.Session{}).
-		Select("community_id, COUNT(*) AS total, COALESCE(SUM("+onTimeExpr+"),0) AS on_time").
+		Select("community_id, COUNT(*) AS total, COALESCE(SUM(" + onTimeExpr + "),0) AS on_time").
 		Group("community_id").Scan(&commRows)
 	byComm := make([]gin.H, 0, len(commRows))
 	for _, r := range commRows {
@@ -194,9 +201,11 @@ func (s *StatsService) Timeliness(c *gin.Context, q *dto.ReportQuery) (gin.H, *e
 
 // Performance 巡检员绩效报表。
 func (s *StatsService) Performance(c *gin.Context, q *dto.PerformanceQuery) (*response.Page, *errs.Error) {
-	if _, _, be := parseRange(q.StartDate, q.EndDate); be != nil {
+	_, endDate, be := parseRange(q.StartDate, q.EndDate)
+	if be != nil {
 		return nil, be
 	}
+	endExclusive := endDate.AddDate(0, 0, 1)
 	scope := s.taskScope(c, &q.ReportQuery)
 	type row struct {
 		InspectorID   string
@@ -225,7 +234,7 @@ func (s *StatsService) Performance(c *gin.Context, q *dto.PerformanceQuery) (*re
 			Suspect  int64
 		}
 		ck := s.db.Model(&insmodel.CheckinRecord{}).
-			Where("inspector_id = ? AND checkin_time >= ? AND checkin_time < ?", r.InspectorID, q.StartDate, q.EndDate+" 23:59:59")
+			Where("inspector_id = ? AND checkin_time >= ? AND checkin_time < ?", r.InspectorID, q.StartDate, endExclusive)
 		ck = middleware.ApplyCommunityFilter(ck, c, "checkin_record.community_id")
 		ck.Select("COUNT(*) FILTER (WHERE result = 'abnormal') AS abnormal, COUNT(*) FILTER (WHERE is_suspect) AS suspect").Scan(&ab)
 		// 所辖小区名
@@ -237,11 +246,11 @@ func (s *StatsService) Performance(c *gin.Context, q *dto.PerformanceQuery) (*re
 		items = append(items, gin.H{
 			"inspector_id": r.InspectorID, "inspector_name": s.userName(r.InspectorID),
 			"community_names": commNames,
-			"total_tasks": r.TotalTasks, "done_tasks": r.DoneTasks,
+			"total_tasks":     r.TotalTasks, "done_tasks": r.DoneTasks,
 			"should_points": r.ShouldPoints, "done_points": r.DonePoints,
-			"coverage_rate": pct(r.DonePoints, r.ShouldPoints),
+			"coverage_rate":    pct(r.DonePoints, r.ShouldPoints),
 			"avg_duration_min": int(r.AvgDurationMs / 60000),
-			"abnormal_found": ab.Abnormal, "suspect_count": ab.Suspect,
+			"abnormal_found":   ab.Abnormal, "suspect_count": ab.Suspect,
 		})
 	}
 	// 内存排序（列排序）
@@ -449,7 +458,7 @@ func (s *StatsService) Dashboard(c *gin.Context, communityID string) (gin.H, *er
 		latest = append(latest, gin.H{
 			"id": o.ID, "order_no": o.OrderNo, "title": o.Title,
 			"community_name": s.commName(o.CommunityID),
-			"priority": o.Priority, "status": o.Status, "created_at": timefmt.T(o.CreatedAt),
+			"priority":       o.Priority, "status": o.Status, "created_at": timefmt.T(o.CreatedAt),
 		})
 	}
 	// 今日执行动态（最近 10 条打卡）
@@ -469,14 +478,14 @@ func (s *StatsService) Dashboard(c *gin.Context, communityID string) (gin.H, *er
 		})
 	}
 	return gin.H{
-		"today_completion": gin.H{"total": todaySum.Total, "done": todaySum.Done, "rate": pct(todaySum.Done, todaySum.Total)},
-		"doing_tasks":          todaySum.Doing,
-		"pending_workorders":   pendingWO,
-		"overdue_tasks":        todaySum.Overdue,
-		"trend_7d":             trend,
-		"community_rank":       rankList,
-		"latest_workorders":    latest,
-		"task_timeline":        timeline,
+		"today_completion":   gin.H{"total": todaySum.Total, "done": todaySum.Done, "rate": pct(todaySum.Done, todaySum.Total)},
+		"doing_tasks":        todaySum.Doing,
+		"pending_workorders": pendingWO,
+		"overdue_tasks":      todaySum.Overdue,
+		"trend_7d":           trend,
+		"community_rank":     rankList,
+		"latest_workorders":  latest,
+		"task_timeline":      timeline,
 	}, nil
 }
 
@@ -505,11 +514,15 @@ func (s *StatsService) pointName(id string) string {
 // exportLogs 导出操作/登录日志（时间范围内，上限 5 万行）。
 func (s *StatsService) exportLogs(f *excelize.File, sheet string, writeRow func(int, ...any), req *dto.ExportReq) (string, *errs.Error) {
 	start := req.StartDate + " 00:00:00"
-	end := req.EndDate + " 23:59:59"
+	_, endDate, be := parseRange(req.StartDate, req.EndDate)
+	if be != nil {
+		return "", be
+	}
+	end := endDate.AddDate(0, 0, 1).Format("2006-01-02 15:04:05")
 	const logExportMax = 50000
 	if req.ReportType == "operation_log" {
 		var rows []sysmodel.SysOperationLog
-		if err := s.db.Where("created_at >= ? AND created_at <= ?", start, end).
+		if err := s.db.Where("created_at >= ? AND created_at < ?", start, end).
 			Order("created_at DESC").Limit(logExportMax).Find(&rows).Error; err != nil {
 			return "", errs.ErrInternal
 		}
@@ -521,7 +534,7 @@ func (s *StatsService) exportLogs(f *excelize.File, sheet string, writeRow func(
 		return "操作日志", nil
 	}
 	var rows []sysmodel.SysLoginLog
-	if err := s.db.Where("created_at >= ? AND created_at <= ?", start, end).
+	if err := s.db.Where("created_at >= ? AND created_at < ?", start, end).
 		Order("created_at DESC").Limit(logExportMax).Find(&rows).Error; err != nil {
 		return "", errs.ErrInternal
 	}

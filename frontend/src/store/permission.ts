@@ -3,7 +3,8 @@ import { defineStore } from 'pinia'
 import type { RouteRecordRaw } from 'vue-router'
 import { getRoutes } from '@/api/auth'
 import type { RouteMenu } from '@/api/types'
-import Layout from '@/layout/index.vue'
+
+const Layout = () => import('@/layout/index.vue')
 
 // views 下全部页面组件，按后端 path 约定解析：
 // 例 /system/user -> views/system/user/index.vue

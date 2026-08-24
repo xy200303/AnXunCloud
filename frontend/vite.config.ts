@@ -1,12 +1,20 @@
 import { defineConfig } from 'vite'
 import vue from '@vitejs/plugin-vue'
+import Components from 'unplugin-vue-components/vite'
+import { ElementPlusResolver } from 'unplugin-vue-components/resolvers'
 import { fileURLToPath, URL } from 'node:url'
 
 // 开发期代理：/api 转发到本地后端
 export default defineConfig({
   // 管理后台部署在 /admin 子路径（根路径留给品牌官网）
   base: '/admin/',
-  plugins: [vue()],
+  plugins: [
+    vue(),
+    Components({
+      dts: false,
+      resolvers: [ElementPlusResolver({ importStyle: 'css' })]
+    })
+  ],
   resolve: {
     alias: {
       '@': fileURLToPath(new URL('./src', import.meta.url))

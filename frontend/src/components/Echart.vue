@@ -27,26 +27,40 @@ const isEmpty = computed(() => props.empty || !props.option)
 
 let chart: ReturnType<typeof echarts.init> | null = null
 let observer: ResizeObserver | null = null
+let renderFrame = 0
+let resizeFrame = 0
 
 function render() {
-  if (!el.value || !props.option || isEmpty.value) return
-  if (!chart) {
-    chart = echarts.init(el.value)
-  }
-  chart.setOption(props.option, true)
+  if (renderFrame) cancelAnimationFrame(renderFrame)
+  renderFrame = requestAnimationFrame(() => {
+    renderFrame = 0
+    if (!el.value || !props.option || isEmpty.value) return
+    if (!chart) chart = echarts.init(el.value)
+    chart.setOption(props.option, { notMerge: true, lazyUpdate: true })
+  })
+}
+
+function resize() {
+  if (resizeFrame) cancelAnimationFrame(resizeFrame)
+  resizeFrame = requestAnimationFrame(() => {
+    resizeFrame = 0
+    chart?.resize()
+  })
 }
 
 onMounted(() => {
   render()
   // 容器尺寸变化（侧边栏折叠、窗口缩放）时自适应
-  observer = new ResizeObserver(() => chart?.resize())
+  observer = new ResizeObserver(resize)
   if (el.value) observer.observe(el.value)
 })
 
-watch(() => props.option, render, { deep: true })
+watch(() => props.option, render)
 
 onBeforeUnmount(() => {
   observer?.disconnect()
+  if (renderFrame) cancelAnimationFrame(renderFrame)
+  if (resizeFrame) cancelAnimationFrame(resizeFrame)
   chart?.dispose()
   chart = null
 })

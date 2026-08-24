@@ -1,34 +1,37 @@
 <template>
-  <div class="layout-wrapper" :class="{ collapsed: appStore.sidebarCollapsed }">
-    <aside class="sidebar">
-      <div class="logo">
-        <img class="logo-icon" :src="brandMark" alt="安巡云" />
-        <span v-show="!appStore.sidebarCollapsed" class="logo-text">安巡云</span>
-      </div>
-      <el-scrollbar class="menu-scroll">
-        <el-menu
-          class="sidebar-menu"
-          :collapse="appStore.sidebarCollapsed"
-          :collapse-transition="false"
-          :default-active="activeMenu"
-          :unique-opened="true"
-          router
-        >
-          <sidebar-item v-for="menu in permissionStore.menus" :key="menu.id" :item="menu" />
-        </el-menu>
-      </el-scrollbar>
-    </aside>
+  <el-config-provider :locale="zhCn">
+    <div class="layout-wrapper" :class="{ collapsed: appStore.sidebarCollapsed }">
+      <aside class="sidebar">
+        <div class="logo">
+          <img class="logo-icon" :src="brandMark" alt="安巡云" />
+          <span v-show="!appStore.sidebarCollapsed" class="logo-text">安巡云</span>
+        </div>
+        <el-scrollbar class="menu-scroll">
+          <el-menu
+            class="sidebar-menu"
+            :collapse="appStore.sidebarCollapsed"
+            :collapse-transition="false"
+            :default-active="activeMenu"
+            :unique-opened="true"
+            router
+          >
+            <sidebar-item v-for="menu in permissionStore.menus" :key="menu.id" :item="menu" />
+          </el-menu>
+        </el-scrollbar>
+      </aside>
 
-    <div class="main-area">
-      <navbar />
-      <tags-view />
-      <app-main />
+      <div class="main-area">
+        <navbar />
+        <tags-view />
+        <app-main />
+      </div>
     </div>
-  </div>
+  </el-config-provider>
 </template>
 
 <script setup lang="ts">
 import { computed } from 'vue'
+import zhCn from 'element-plus/es/locale/lang/zh-cn'
 import { useRoute } from 'vue-router'
 import { useAppStore } from '@/store/app'
 import { usePermissionStore } from '@/store/permission'

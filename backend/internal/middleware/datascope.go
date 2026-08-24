@@ -67,7 +67,7 @@ func ManagedProjectIDs(db *gorm.DB, userID string) ([]string, error) {
 
 // ApplyCommunityFilter 为查询追加项目（小区）数据权限过滤。
 // column 为含表前缀的字段名，如 "inspection_task.community_id"。
-// 无 identity（调度/内部调用）放行；超管按「租户上下文」（EffectiveTenantID，缺省=默认租户）过滤，
+// 无 identity（调度/内部调用）放行；超管未指定租户时按平台级查询，显式指定租户时收窄，
 // 解析失败按空结果（1=0）处理并记日志（宁可拒不可放）；非超管先加租户边界
 // （data_scope=all 也只是「本租户全部项目」，不得跨租户）；
 // project 档按可见项目过滤；self 档或无可见项目返回空结果（1=0）。
@@ -79,11 +79,14 @@ func ApplyCommunityFilter(db *gorm.DB, c *gin.Context, column string) *gorm.DB {
 	if identity.SuperAdmin {
 		// NewDB 会话：db 可能已带业务查询条件，租户解析必须用干净句柄
 		clean := db.Session(&gorm.Session{NewDB: true})
-		tid, be := EffectiveTenantID(c, clean)
+		tid, be := ExplicitTenantID(c, clean)
 		if be != nil {
 			logger.L.Warn("超管租户上下文解析失败，按空结果过滤",
 				zap.String("uid", identity.UserID), zap.String("err", be.Msg))
 			return db.Where("1 = 0")
+		}
+		if tid == "" {
+			return db
 		}
 		sub := db.Session(&gorm.Session{}).Model(&model.Community{}).
 			Select("id").Where("tenant_id = ?", tid)
@@ -104,7 +107,8 @@ func ApplyCommunityFilter(db *gorm.DB, c *gin.Context, column string) *gorm.DB {
 }
 
 // CheckCommunity 校验当前用户是否有权访问指定项目数据，越权返回 40302。
-// 无 identity（调度/内部调用）放行；超管校验小区归属「租户上下文」（EffectiveTenantID），
+// 无 identity（调度/内部调用）放行；超管未指定租户时允许访问任意租户小区，
+// 显式指定租户时校验小区归属该租户；
 // 不一致或小区不存在一律按越权处理（不暴露存在性）；
 // 非超管先校验小区归属本租户（data_scope=all 不得跨租户），再按数据范围校验。
 // self 档用户不持有项目级可见范围，一律拒绝（本人相关数据由业务层按名单/归属另行放行）。
@@ -116,15 +120,19 @@ func CheckCommunity(db *gorm.DB, c *gin.Context, communityID string) *errs.Error
 	if identity.SuperAdmin {
 		// NewDB 会话：防御调用方传入带条件的句柄，租户解析必须用干净句柄
 		clean := db.Session(&gorm.Session{NewDB: true})
-		tid, be := EffectiveTenantID(c, clean)
+		tid, be := ExplicitTenantID(c, clean)
 		if be != nil {
 			logger.L.Warn("超管租户上下文解析失败，按越权处理",
 				zap.String("uid", identity.UserID), zap.String("err", be.Msg))
 			return errs.ErrDataScope
 		}
 		t := CommunityTenantID(clean, communityID)
-		// 小区不存在或不属于上下文租户：一律按越权处理，不暴露存在性
-		if t == nil || *t != tid {
+		// 小区不存在一律按越权处理，不暴露存在性
+		if t == nil {
+			return errs.ErrDataScope
+		}
+		// 未指定租户时为平台级操作；指定租户时必须匹配。
+		if tid != "" && *t != tid {
 			return errs.ErrDataScope
 		}
 		return nil

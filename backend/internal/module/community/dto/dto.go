@@ -7,7 +7,7 @@ type CommunityListQuery struct {
 	response.PageQuery
 	Name   string `form:"name"`
 	Status string `form:"status"`
-	// TenantID 租户过滤（仅超管生效，由 EffectiveTenantID 解析为租户上下文；非超管强制按自身租户过滤）
+	// TenantID 租户过滤（仅超管生效；未指定时超级管理员查看全部租户，非超管强制按自身租户过滤）
 	TenantID string `form:"tenant_id"`
 }
 

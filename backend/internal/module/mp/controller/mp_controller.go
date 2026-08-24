@@ -95,7 +95,7 @@ func (ctl *MPController) PointByCode(c *gin.Context) {
 
 // Points GET /points?community_id=（问题上报关联点位的候选列表）
 func (ctl *MPController) Points(c *gin.Context) {
-	data, be := ctl.mp.Points(uid(c), c.Query("community_id"))
+	data, be := ctl.mp.Points(c, uid(c), c.Query("community_id"))
 	write(c, data, be)
 }
 

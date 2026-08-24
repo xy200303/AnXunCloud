@@ -24,7 +24,7 @@ const ctxIdentity = "pi_identity"
 // Identity 当前登录用户身份与权限快照。
 type Identity struct {
 	UserID        string
-	TenantID      string // 所属租户（P3 多租户：超管归属默认租户，跨租户操作走显式参数，无"无租户"态）
+	TenantID      string // 所属租户（P3 多租户：超管账号归属默认租户；业务数据可在未指定上下文时平台级访问）
 	Username      string
 	Name          string
 	JTI           string // 当前 access token 的 jti

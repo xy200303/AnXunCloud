@@ -401,16 +401,21 @@ func (s *MPService) PointByCode(inspectorID, code string) (gin.H, *errs.Error) {
 }
 
 // Points 项目启用点位列表（问题上报关联点位用）。
-// 数据权限：须为该项目在职编制成员（任意岗位），与 OrderReport 同一规则。
-func (s *MPService) Points(userID, communityID string) ([]gin.H, *errs.Error) {
+// 数据权限：普通用户须为该项目在职编制成员（任意岗位）；超级管理员可跨租户访问。
+func (s *MPService) Points(c *gin.Context, userID, communityID string) ([]gin.H, *errs.Error) {
 	if communityID == "" {
 		return nil, errs.ErrParam.WithMsg("community_id 不能为空")
 	}
-	var staffCount int64
-	s.db.Model(&sysmodel.ProjectStaff{}).
-		Where("project_id = ? AND user_id = ? AND status = ?", communityID, userID, sysmodel.StatusEnabled).Count(&staffCount)
-	if staffCount == 0 {
-		return nil, errs.ErrDataScope
+	identity := middleware.CurrentIdentity(c)
+	if identity == nil || !identity.SuperAdmin {
+		var staffCount int64
+		s.db.Model(&sysmodel.ProjectStaff{}).
+			Where("project_id = ? AND user_id = ? AND status = ?", communityID, userID, sysmodel.StatusEnabled).Count(&staffCount)
+		if staffCount == 0 {
+			return nil, errs.ErrDataScope
+		}
+	} else if be := middleware.CheckCommunity(s.db, c, communityID); be != nil {
+		return nil, be
 	}
 	var points []insmodel.InspectionPoint
 	if err := s.db.Select("id", "name", "building_id").

@@ -37,6 +37,29 @@ func CommunityTenantID(db *gorm.DB, communityID string) *string {
 	return &tenantID
 }
 
+// ExplicitTenantID 读取并校验请求中显式指定的租户上下文。
+// 未指定时返回空串，不引入默认租户语义；调用方可据此决定是否执行平台级查询。
+func ExplicitTenantID(c *gin.Context, db *gorm.DB) (string, *errs.Error) {
+	tid := c.Query("tenant_id")
+	if tid == "" {
+		tid = c.GetHeader("X-Tenant-Id")
+	}
+	if tid == "" {
+		return "", nil
+	}
+	if db == nil {
+		return "", errs.ErrInternal
+	}
+	var count int64
+	if err := db.Model(&model.Tenant{}).Where("id = ?", tid).Count(&count).Error; err != nil {
+		return "", errs.ErrInternal
+	}
+	if count == 0 {
+		return "", errs.ErrParam.WithMsg("目标租户不存在")
+	}
+	return tid, nil
+}
+
 // EffectiveTenantID 系统管理（租户级）「租户上下文」解析（《管理后台信息架构与菜单归位方案》第二章）：
 //   - 非超管：固定本人租户（请求参数一律忽略）；
 //   - 超管：优先 ?tenant_id=（或 X-Tenant-Id 头），缺省 = 默认租户；
@@ -51,9 +74,9 @@ func EffectiveTenantID(c *gin.Context, db *gorm.DB) (string, *errs.Error) {
 	if !identity.SuperAdmin {
 		return identity.TenantID, nil
 	}
-	tid := c.Query("tenant_id")
-	if tid == "" {
-		tid = c.GetHeader("X-Tenant-Id")
+	tid, be := ExplicitTenantID(c, db)
+	if be != nil {
+		return "", be
 	}
 	if tid == "" {
 		// 缺省 = 默认租户（私有化部署的唯一租户，体验与无租户一致）
@@ -62,13 +85,6 @@ func EffectiveTenantID(c *gin.Context, db *gorm.DB) (string, *errs.Error) {
 			return "", errs.ErrInternal
 		}
 		return tid, nil
-	}
-	var count int64
-	if err := db.Model(&model.Tenant{}).Where("id = ?", tid).Count(&count).Error; err != nil {
-		return "", errs.ErrInternal
-	}
-	if count == 0 {
-		return "", errs.ErrParam.WithMsg("目标租户不存在")
 	}
 	return tid, nil
 }

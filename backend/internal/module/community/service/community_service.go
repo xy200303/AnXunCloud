@@ -23,17 +23,11 @@ type CommunityService struct {
 func NewCommunityService(db *gorm.DB) *CommunityService { return &CommunityService{db: db} }
 
 // ListCommunities 小区分页列表（数据权限按岗位编制推导的可见项目过滤）。
-// 租户隔离（P3）：非超管强制本租户；超管按「租户上下文」（EffectiveTenantID，?tenant_id= 收窄，缺省=默认租户）。
+// 租户隔离（P3）：非超管强制本租户；超管未指定租户时查看全部租户，显式 tenant_id 时收窄。
 func (s *CommunityService) ListCommunities(c *gin.Context, q *dto.CommunityListQuery) (*response.Page, *errs.Error) {
 	db := s.db.Model(&sysmodel.Community{})
 	if identity := middleware.CurrentIdentity(c); identity != nil {
-		if identity.SuperAdmin {
-			tid, be := middleware.EffectiveTenantID(c, s.db)
-			if be != nil {
-				return nil, be
-			}
-			db = db.Where("tenant_id = ?", tid)
-		} else {
+		if !identity.SuperAdmin {
 			db = db.Where("tenant_id = ?", identity.TenantID)
 		}
 	}
@@ -102,17 +96,11 @@ func (s *CommunityService) ListCommunities(c *gin.Context, q *dto.CommunityListQ
 }
 
 // Tree 小区/楼栋树（启用小区 + 全部楼栋，数据权限过滤），供点位管理等左树一次加载。
-// 租户隔离（P3）：非超管强制本租户；超管按「租户上下文」（EffectiveTenantID，缺省=默认租户）。
+// 租户隔离（P3）：非超管强制本租户；超管未指定租户时查看全部租户，显式 tenant_id 时收窄。
 func (s *CommunityService) Tree(c *gin.Context) ([]dto.CommunityTreeNode, *errs.Error) {
 	db := s.db.Model(&sysmodel.Community{}).Where("status = ?", sysmodel.StatusEnabled)
 	if identity := middleware.CurrentIdentity(c); identity != nil {
-		if identity.SuperAdmin {
-			tid, be := middleware.EffectiveTenantID(c, s.db)
-			if be != nil {
-				return nil, be
-			}
-			db = db.Where("tenant_id = ?", tid)
-		} else {
+		if !identity.SuperAdmin {
 			db = db.Where("tenant_id = ?", identity.TenantID)
 		}
 	}

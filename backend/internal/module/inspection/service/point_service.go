@@ -645,17 +645,19 @@ func (s *PointService) Import(c *gin.Context, r io.Reader) (*dto.PointImportResu
 
 	// 预载名称映射：小区、楼栋、点位类型字典、启用模板、已有点位（防重复）
 	// 租户隔离（P3）：非超管仅解析本租户小区，避免按名称跨租户写入；
-	// 超管同样限定「租户上下文」（EffectiveTenantID，缺省=默认租户），失败直接报错返回
-	commByName := map[string]string{}
+	// 超管未指定租户时允许解析全部租户，显式指定租户时收窄，失败直接报错返回
+	commByName := map[string][]string{}
 	{
 		q := s.db.Select("id", "name")
 		if identity := middleware.CurrentIdentity(c); identity != nil {
 			if identity.SuperAdmin {
-				tid, be := middleware.EffectiveTenantID(c, s.db)
+				tid, be := middleware.ExplicitTenantID(c, s.db)
 				if be != nil {
 					return nil, "", be
 				}
-				q = q.Where("tenant_id = ?", tid)
+				if tid != "" {
+					q = q.Where("tenant_id = ?", tid)
+				}
 			} else {
 				q = q.Where("tenant_id = ?", identity.TenantID)
 			}
@@ -663,7 +665,7 @@ func (s *PointService) Import(c *gin.Context, r io.Reader) (*dto.PointImportResu
 		var comms []sysmodel.Community
 		q.Find(&comms)
 		for _, cm := range comms {
-			commByName[cm.Name] = cm.ID
+			commByName[cm.Name] = append(commByName[cm.Name], cm.ID)
 		}
 	}
 	buildingByKey := map[string]string{} // commID|楼栋名 → id
@@ -727,11 +729,16 @@ func (s *PointService) Import(c *gin.Context, r io.Reader) (*dto.PointImportResu
 			continue
 		}
 		// 2. 小区存在性与数据权限
-		commID, ok := commByName[commText]
+		commIDs, ok := commByName[commText]
 		if !ok {
 			fail("小区「" + commText + "」不存在")
 			continue
 		}
+		if len(commIDs) != 1 {
+			fail("小区「" + commText + "」在多个租户中重名，请通过 tenant_id 指定租户")
+			continue
+		}
+		commID := commIDs[0]
 		if be := middleware.CheckCommunity(s.db, c, commID); be != nil {
 			fail("无小区「" + commText + "」的数据权限")
 			continue

@@ -214,14 +214,6 @@
             <el-radio :value="0">停用</el-radio>
           </el-radio-group>
         </el-form-item>
-        <el-form-item label="工单受理">
-          <el-switch v-model="form.wo_triage_enabled" />
-          <span class="switch-hint">关闭后上报工单直接进待派单，跳过待受理环节</span>
-        </el-form-item>
-        <el-form-item label="工单抢单">
-          <el-switch v-model="form.wo_grab_enabled" />
-          <span class="switch-hint">开启后维修工可从工单池自行抢单</span>
-        </el-form-item>
       </el-form>
       <template #footer>
         <el-button @click="formVisible = false">取消</el-button>
@@ -546,7 +538,7 @@ onMounted(() => {
 const formVisible = ref(false)
 const submitting = ref(false)
 const formRef = ref<FormInstance>()
-const form = reactive({ id: '', name: '', address: '', status: 1, wo_triage_enabled: true, wo_grab_enabled: false })
+const form = reactive({ id: '', name: '', address: '', status: 1 })
 
 const formRules: FormRules = {
   name: [{ required: true, message: '请输入小区名称', trigger: 'blur' }]
@@ -555,8 +547,8 @@ const formRules: FormRules = {
 function openForm(row?: CommunityItem) {
   formRef.value?.clearValidate()
   Object.assign(form, row
-    ? { id: row.id, name: row.name, address: row.address, status: row.status, wo_triage_enabled: row.wo_triage_enabled, wo_grab_enabled: row.wo_grab_enabled }
-    : { id: '', name: '', address: '', status: 1, wo_triage_enabled: true, wo_grab_enabled: false })
+    ? { id: row.id, name: row.name, address: row.address, status: row.status }
+    : { id: '', name: '', address: '', status: 1 })
   formVisible.value = true
 }
 

@@ -146,10 +146,9 @@
             <el-descriptions-item label="疑似作弊">
               <span :class="{ 'danger-text': stats.suspect_count > 0 }">{{ stats.suspect_count }}</span>
             </el-descriptions-item>
-            <el-descriptions-item label="新建工单">{{ stats.wo_created }}</el-descriptions-item>
-            <el-descriptions-item label="已闭环工单">{{ stats.wo_closed }}</el-descriptions-item>
-            <el-descriptions-item label="未闭环工单">{{ stats.wo_unclosed }}</el-descriptions-item>
-            <el-descriptions-item label="工单闭环率">{{ stats.wo_close_rate }}%</el-descriptions-item>
+            <el-descriptions-item label="异常问题数">
+              <span :class="{ 'danger-text': stats.issue_count > 0 }">{{ stats.issue_count }}</span>
+            </el-descriptions-item>
           </el-descriptions>
 
           <!-- 逐日明细 -->
@@ -579,10 +578,7 @@ const emptyStats: ReportStats = {
   coverage_rate: 0,
   abnormal_count: 0,
   suspect_count: 0,
-  wo_created: 0,
-  wo_closed: 0,
-  wo_unclosed: 0,
-  wo_close_rate: 0,
+  issue_count: 0,
   daily: []
 }
 const stats = computed<ReportStats>(() => ({ ...emptyStats, ...(detail.value?.stats || {}), daily: detail.value?.stats?.daily || [] }))
@@ -976,7 +972,7 @@ async function submitGenerate() {
   margin-bottom: $spacing-md;
 }
 
-// 区块标题：上分隔线对齐工单/打卡详情的区块语言（区块间视觉分隔）
+// 区块标题：上分隔线对齐打卡详情的区块语言（区块间视觉分隔）
 .section-title {
   margin: 0 0 $spacing-md;
   padding-top: $spacing-lg;

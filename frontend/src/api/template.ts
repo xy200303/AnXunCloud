@@ -32,6 +32,9 @@ export function deleteTemplate(id: string) {
 
 // ===== 项级粒度：检查项按行增删改 =====
 
+// AI 判定类型配置：metric 为 {metric,unit,min,max}，state/indicator 为 {expected}，其余为 null
+export type JudgeConfig = Record<string, unknown> | null
+
 // 项级接口返回的检查项行（含 id/sort，区别于模板内嵌 items 快照）
 export interface TemplateItemRow {
   id: string
@@ -39,6 +42,9 @@ export interface TemplateItemRow {
   requirement: string | null
   required: boolean
   photo_required: PhotoRequired
+  ai_hint?: string | null
+  judge_type?: string
+  judge_config?: JudgeConfig
   sort: number
   created_at: string
 }
@@ -49,6 +55,8 @@ export interface TemplateItemForm {
   requirement?: string
   required: boolean
   photo_required?: PhotoRequired
+  judge_type?: string
+  judge_config?: JudgeConfig
   sort?: number
 }
 

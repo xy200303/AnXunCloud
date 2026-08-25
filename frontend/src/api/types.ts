@@ -188,18 +188,8 @@ export interface ImportResult {
 export interface DashboardData {
   today_completion: { total: number; done: number; rate: number }
   doing_tasks: number
-  pending_workorders: number
   overdue_tasks: number
   trend_7d: { date: string; total: number; done: number; rate: number }[]
   community_rank: { community_id: string; community_name: string; total: number; done: number; rate: number }[]
-  latest_workorders: {
-    id: string
-    order_no: string
-    title: string
-    community_name: string
-    priority: string
-    status: string
-    created_at: string
-  }[]
   task_timeline: { time: string; inspector_name: string; task_id: string; task_name: string; action: string }[]
 }

@@ -143,7 +143,6 @@ const moduleOptions = [
   { label: '系统管理', value: 'system' },
   { label: '小区管理', value: 'community' },
   { label: '巡检管理', value: 'inspection' },
-  { label: '异常工单', value: 'workorder' },
   { label: '统计分析', value: 'stats' },
   { label: '小程序', value: 'mp' },
   { label: '消息推送', value: 'push' }

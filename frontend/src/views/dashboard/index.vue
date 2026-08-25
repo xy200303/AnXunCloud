@@ -12,9 +12,9 @@
       </div>
     </div>
 
-    <!-- 第一行：统计卡 ×4（可点击下钻） -->
+    <!-- 第一行：统计卡 ×3（可点击下钻） -->
     <el-row :gutter="16" class="block-row">
-      <el-col :xs="12" :md="6">
+      <el-col :xs="12" :md="8">
         <div class="stat-card" @click="drill('/inspection/tasks')">
           <div class="stat-top">
             <div class="stat-icon tone-primary"><el-icon :size="22"><CircleCheck /></el-icon></div>
@@ -37,7 +37,7 @@
           </div>
         </div>
       </el-col>
-      <el-col :xs="12" :md="6">
+      <el-col :xs="12" :md="8">
         <div class="stat-card" @click="drill('/inspection/tasks')">
           <div class="stat-top">
             <div class="stat-icon tone-success"><el-icon :size="22"><Timer /></el-icon></div>
@@ -47,22 +47,7 @@
           <div class="stat-desc">实时执行中的任务</div>
         </div>
       </el-col>
-      <el-col :xs="12" :md="6">
-        <!-- 待处理异常：有值时红色高亮，为 0 时不高亮 -->
-        <div class="stat-card" :class="{ highlight: (data?.pending_workorders ?? 0) > 0 }" @click="drill('/workorders/list')">
-          <div class="stat-top">
-            <div class="stat-icon" :class="(data?.pending_workorders ?? 0) > 0 ? 'tone-danger' : 'tone-neutral'">
-              <el-icon :size="22"><WarningFilled /></el-icon>
-            </div>
-            <div class="stat-title">待处理异常</div>
-          </div>
-          <div class="stat-value" :class="{ danger: (data?.pending_workorders ?? 0) > 0 }">
-            {{ data?.pending_workorders ?? '--' }}
-          </div>
-          <div class="stat-desc">未闭环工单（待受理/待派单/处理中/待验收）</div>
-        </div>
-      </el-col>
-      <el-col :xs="12" :md="6">
+      <el-col :xs="12" :md="8">
         <div class="stat-card" :class="{ highlight: (data?.overdue_tasks ?? 0) > 0 }" @click="drill('/inspection/tasks')">
           <div class="stat-top">
             <div class="stat-icon" :class="(data?.overdue_tasks ?? 0) > 0 ? 'tone-warning' : 'tone-neutral'">
@@ -96,33 +81,9 @@
       </el-col>
     </el-row>
 
-    <!-- 第三行：最新工单 + 执行动态 -->
+    <!-- 第三行：执行动态 -->
     <el-row :gutter="16" class="block-row">
-      <el-col :xs="24" :md="12">
-        <div class="block-card">
-          <div class="block-header">
-            <h3 class="card-title">最新异常工单</h3>
-            <el-button link type="primary" @click="drill('/workorders/list')">全部工单</el-button>
-          </div>
-          <template v-if="data?.latest_workorders?.length">
-            <div
-              v-for="wo in data.latest_workorders"
-              :key="wo.id"
-              class="wo-item"
-              @click="drill(`/workorders/detail/${wo.id}`)"
-            >
-              <el-tag :type="wo.priority === 'urgent' ? 'danger' : wo.priority === 'low' ? 'info' : 'warning'" size="small">
-                {{ priorityLabel(wo.priority) }}
-              </el-tag>
-              <span class="wo-title">{{ wo.title }}</span>
-              <el-tag size="small" :type="woStatusType(wo.status)" effect="plain">{{ woStatusLabel(wo.status) }}</el-tag>
-              <span class="wo-time">{{ wo.created_at.slice(5, 16) }}</span>
-            </div>
-          </template>
-          <el-empty v-else description="今日暂无异常工单" :image-size="72" />
-        </div>
-      </el-col>
-      <el-col :xs="24" :md="12">
+      <el-col :xs="24" :md="24">
         <div class="block-card">
           <h3 class="card-title">今日任务执行动态</h3>
           <template v-if="data?.task_timeline?.length">
@@ -147,7 +108,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
-import { CircleCheck, Timer, WarningFilled, AlarmClock } from '@element-plus/icons-vue'
+import { CircleCheck, Timer, AlarmClock } from '@element-plus/icons-vue'
 import { getDashboard } from '@/api/dashboard'
 import type { DashboardData } from '@/api/types'
 import Echart from '@/components/Echart.vue'
@@ -269,25 +230,6 @@ const rankSummary = computed(() => {
   const incomplete = rank.filter((r) => r.rate < 100).length
   return incomplete ? `${incomplete} 个小区今日未全部完成` : '全部小区今日已完成'
 })
-
-// ===== 工单标签 =====
-function priorityLabel(p: string) {
-  return { urgent: '紧急', high: '高', normal: '一般', low: '低' }[p] || p
-}
-
-function woStatusLabel(s: string) {
-  return {
-    reported: '待受理', pending_dispatch: '待派单', processing: '处理中',
-    pending_confirm: '待验收', closed: '已闭环', closed_invalid: '已作废'
-  }[s] || s
-}
-
-function woStatusType(s: string) {
-  return ({
-    reported: 'danger', pending_dispatch: 'warning', processing: 'primary',
-    pending_confirm: 'warning', closed: 'success', closed_invalid: 'info'
-  } as Record<string, any>)[s] || 'info'
-}
 </script>
 
 <style scoped lang="scss">
@@ -435,12 +377,6 @@ function woStatusType(s: string) {
   padding: $spacing-lg $spacing-xl;
   margin-bottom: $spacing-lg;
 
-  .block-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-  }
-
   .card-title {
     font-size: $font-size-card-title;
     font-weight: 600;
@@ -455,37 +391,6 @@ function woStatusType(s: string) {
     font-size: $font-size-aux;
     color: $color-text-secondary;
     margin: $spacing-xs 0 $spacing-sm;
-  }
-}
-
-.wo-item {
-  display: flex;
-  align-items: center;
-  gap: $spacing-sm;
-  padding: $spacing-sm 0;
-  border-bottom: 1px solid $color-border;
-  cursor: pointer;
-
-  &:last-child {
-    border-bottom: none;
-  }
-
-  &:hover .wo-title {
-    color: $color-primary;
-  }
-
-  .wo-title {
-    flex: 1;
-    min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    color: $color-text-primary;
-  }
-
-  .wo-time {
-    font-size: $font-size-aux;
-    color: $color-text-secondary;
   }
 }
 

@@ -34,10 +34,7 @@ export interface ReportStats {
   coverage_rate: number
   abnormal_count: number
   suspect_count: number
-  wo_created: number
-  wo_closed: number
-  wo_unclosed: number
-  wo_close_rate: number
+  issue_count: number
   daily: { date: string; task_total: number; task_done: number; abnormal: number }[]
 }
 

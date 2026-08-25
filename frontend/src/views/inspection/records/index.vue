@@ -48,6 +48,12 @@
         <el-form-item label="疑似作弊">
           <el-checkbox v-model="onlySuspect" label="仅看疑似" />
         </el-form-item>
+        <el-form-item label="强制提交">
+          <el-checkbox v-model="onlyForceSubmit" label="仅看强制提交" />
+        </el-form-item>
+        <el-form-item label="AI 存疑">
+          <el-checkbox v-model="onlyAiSuspect" label="仅看存疑/失败" />
+        </el-form-item>
         <el-form-item label="打卡时间">
           <el-date-picker
             v-model="timeRange"
@@ -111,9 +117,13 @@
         </el-table-column>
         <el-table-column label="结果" width="110" align="center">
           <template #default="{ row }">
-            <el-tag v-if="row.is_suspect" type="warning" size="small">疑似作弊</el-tag>
-            <el-tag v-else-if="row.result === 'abnormal'" type="danger" size="small">异常</el-tag>
-            <el-tag v-else type="success" size="small">正常</el-tag>
+            <div class="result-tags">
+              <el-tag v-if="row.is_suspect" type="warning" size="small">疑似作弊</el-tag>
+              <el-tag v-else-if="row.result === 'abnormal'" type="danger" size="small">异常</el-tag>
+              <el-tag v-else type="success" size="small">正常</el-tag>
+              <el-tag v-if="row.force_submit" type="warning" size="small" effect="dark">强制提交</el-tag>
+              <el-tag v-if="row.ai_verdict === 'review' || row.ai_verdict === 'error'" type="warning" size="small" effect="plain">AI 存疑</el-tag>
+            </div>
           </template>
         </el-table-column>
         <el-table-column label="AI 结论" width="110" align="center">
@@ -173,7 +183,6 @@
       :row="currentRow"
       :detail="detail"
       :loading="detailLoading"
-      @go-work-order="goWorkOrder"
     />
 
     <!-- 发起抽查对话框 -->
@@ -227,7 +236,7 @@
 
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue'
-import { useRouter, useRoute } from 'vue-router'
+import { useRoute } from 'vue-router'
 import { Search, Refresh, Aim } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox, type FormInstance, type FormRules, type TableInstance } from 'element-plus'
 import { listCheckins, getCheckin, getCheckinAuditCounts, type CheckinQuery, type AuditCounts } from '@/api/checkin'
@@ -238,7 +247,6 @@ import CheckinDetailDrawer from '@/components/CheckinDetailDrawer.vue'
 import type { CheckinItem, CheckinDetail, CommunityItem } from '@/api/biz-types'
 import type { UserItem } from '@/api/types'
 
-const router = useRouter()
 const route = useRoute()
 const loading = ref(false)
 const list = ref<CheckinItem[]>([])
@@ -246,6 +254,9 @@ const total = ref(0)
 const communities = ref<CommunityItem[]>([])
 const inspectors = ref<UserItem[]>([])
 const onlySuspect = ref(false)
+// 强制提交 / AI 存疑筛选：后端列表接口暂未支持对应过滤参数，参数透传备用 + 前端对当页结果兜底过滤
+const onlyForceSubmit = ref(false)
+const onlyAiSuspect = ref(false)
 const activeTab = ref<'all' | 'pending' | 'reviewed'>('all')
 const reviewedStatus = ref<'all' | 'pass' | 'rejected'>('all')
 const tableRef = ref<TableInstance>()
@@ -313,6 +324,8 @@ function filterParams() {
     inspector_id: query.inspector_id,
     result: query.result || undefined,
     is_suspect: onlySuspect.value || undefined,
+    force_submit: onlyForceSubmit.value || undefined,
+    ai_verdict: onlyAiSuspect.value ? 'review,error' : undefined,
     start_time: timeRange.value?.[0],
     end_time: timeRange.value?.[1]
   }
@@ -331,7 +344,11 @@ async function fetchList() {
       ...filterParams(),
       audit_status: currentAuditStatus()
     })
-    list.value = data.list
+    // 兜底前端过滤（后端支持 force_submit/ai_verdict 过滤后此处自然为无操作）；分页总数以后端为准
+    let rows = data.list
+    if (onlyForceSubmit.value) rows = rows.filter((r) => r.force_submit)
+    if (onlyAiSuspect.value) rows = rows.filter((r) => r.ai_verdict === 'review' || r.ai_verdict === 'error')
+    list.value = rows
     total.value = data.total
   } finally {
     loading.value = false
@@ -350,6 +367,8 @@ function handleReset() {
   query.result = ''
   reviewedStatus.value = 'all'
   onlySuspect.value = false
+  onlyForceSubmit.value = false
+  onlyAiSuspect.value = false
   timeRange.value = defaultRange()
   handleSearch()
 }
@@ -465,11 +484,6 @@ async function openDetail(row: CheckinItem) {
   }
 }
 
-function goWorkOrder(orderNo: string) {
-  detailVisible.value = false
-  router.push({ path: '/workorders/list', query: { order_no: orderNo } })
-}
-
 // ===== 发起抽查 =====
 const spotcheckVisible = ref(false)
 const spotcheckLoading = ref(false)
@@ -549,6 +563,13 @@ async function submitSpotcheck() {
   margin-left: $spacing-sm;
   font-size: 13px;
   color: $color-text-secondary;
+}
+
+.result-tags {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
 }
 
 .tab-badge {

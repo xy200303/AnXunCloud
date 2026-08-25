@@ -159,16 +159,12 @@ onUnmounted(() => {
   if (pollTimer) clearInterval(pollTimer)
 })
 
-// 点击消息：标记已读（局部更新角标），工单类消息跳详情
+// 点击消息：标记已读（局部更新角标），不再跳转业务详情
 async function handleMessageClick(msg: MessageItem) {
   if (!msg.is_read) {
     msg.is_read = 1
     unreadCount.value = Math.max(0, unreadCount.value - 1)
     markMessageRead(msg.id).catch(() => {})
-  }
-  if (msg.biz_id && /workorder/i.test(msg.type)) {
-    messageVisible.value = false
-    router.push(`/workorders/detail/${msg.biz_id}`)
   }
 }
 

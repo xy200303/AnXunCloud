@@ -35,6 +35,9 @@
             <el-tag :type="photoTagType(row.photo_required)" size="small" effect="plain">{{ photoLabel(row.photo_required) }}</el-tag>
           </template>
         </el-table-column>
+        <el-table-column label="AI 判定类型" width="110" align="center">
+          <template #default="{ row }">{{ judgeTypeLabel(row.judge_type) }}</template>
+        </el-table-column>
         <el-table-column label="操作" width="130" fixed="right">
           <template #default="{ row }">
             <el-button v-perms="'inspection:template:update'" link type="primary" @click="openForm(row)">编辑</el-button>
@@ -75,6 +78,35 @@
             <el-option label="必拍" value="required" />
           </el-select>
         </el-form-item>
+        <el-form-item label="AI 判定类型">
+          <el-select v-model="form.judge_type" style="width: 100%">
+            <el-option v-for="jt in JUDGE_TYPES" :key="jt.value" :label="jt.label" :value="jt.value">
+              <div class="judge-option">
+                <span>{{ jt.label }}</span>
+                <span class="judge-option-desc">{{ jt.desc }}</span>
+              </div>
+            </el-option>
+          </el-select>
+          <div class="text-secondary judge-desc">{{ judgeTypeDesc(form.judge_type) }}</div>
+        </el-form-item>
+        <!-- metric：指标区间子表单 → judge_config {metric,unit,min,max} -->
+        <template v-if="form.judge_type === 'metric'">
+          <el-form-item label="指标名称">
+            <el-input v-model="form.cfg_metric" placeholder="如：温度" maxlength="32" />
+          </el-form-item>
+          <el-form-item label="单位">
+            <el-input v-model="form.cfg_unit" placeholder="如：℃" maxlength="16" />
+          </el-form-item>
+          <el-form-item label="允许区间">
+            <el-input-number v-model="form.cfg_min" controls-position="right" placeholder="下限" />
+            <span class="range-sep">至</span>
+            <el-input-number v-model="form.cfg_max" controls-position="right" placeholder="上限" />
+          </el-form-item>
+        </template>
+        <!-- state/indicator：期望状态 → judge_config {expected} -->
+        <el-form-item v-if="form.judge_type === 'state' || form.judge_type === 'indicator'" label="期望状态">
+          <el-input v-model="form.cfg_expected" placeholder="如：阀门处于开启状态 / 指示灯为绿色常亮" maxlength="64" />
+        </el-form-item>
         <el-form-item label="排序号">
           <el-input-number v-model="form.sort" :min="0" :max="9999" controls-position="right" />
           <span class="text-secondary sort-hint">新增时留空则追加到末尾</span>
@@ -99,9 +131,32 @@ import {
   createTemplateItem,
   updateTemplateItem,
   deleteTemplateItem,
-  type TemplateItemRow
+  type TemplateItemRow,
+  type JudgeConfig
 } from '@/api/template'
 import type { PhotoRequired } from '@/api/biz-types'
+
+// AI 判定类型选项（与后端 ai.NormalizeJudgeType 对齐；非法/空值后端兜底为 general）
+const JUDGE_TYPES: { value: string; label: string; desc: string }[] = [
+  { value: 'general', label: '通用综合判定', desc: '默认：结合检查要求综合判断照片是否合格' },
+  { value: 'presence', label: '有无', desc: '判断照片中是否存在所述设施/物品' },
+  { value: 'damage', label: '是否损坏', desc: '判断设施外观是否破损、锈蚀、变形' },
+  { value: 'metric', label: '指标区间', desc: '读取表计数值并判断是否处于允许区间（需配置指标与上下限）' },
+  { value: 'state', label: '状态位置', desc: '判断实际状态是否符合期望状态描述' },
+  { value: 'label', label: '有效期标识', desc: '识别检验日期/合格证/铅封，过期或缺失判异常' },
+  { value: 'passage', label: '通道遮挡', desc: '判断通道是否被杂物占用、堵塞' },
+  { value: 'leak', label: '渗漏痕迹', desc: '判断是否存在水渍、渗漏痕迹' },
+  { value: 'indicator', label: '指示灯状态', desc: '判断指示灯颜色/亮灭是否符合期望' },
+  { value: 'tidiness', label: '环境整洁', desc: '判断环境是否整洁、有无垃圾堆放' }
+]
+
+function judgeTypeLabel(jt?: string) {
+  return JUDGE_TYPES.find((o) => o.value === jt)?.label || JUDGE_TYPES[0].label
+}
+
+function judgeTypeDesc(jt: string) {
+  return JUDGE_TYPES.find((o) => o.value === jt)?.desc || ''
+}
 
 const route = useRoute()
 const router = useRouter()
@@ -150,9 +205,41 @@ const form = reactive({
   requirement: '',
   required: true,
   photo_required: 'none' as PhotoRequired,
+  judge_type: 'general',
+  // judge_config 子表单字段（按判定类型取用）
+  cfg_metric: '',
+  cfg_unit: '',
+  cfg_min: null as number | null,
+  cfg_max: null as number | null,
+  cfg_expected: '',
   // null 表示缺省：新增追加到末尾
   sort: null as number | null
 })
+
+// 组装 judge_config：metric → {metric,unit,min,max}；state/indicator → {expected}；其余置空
+function buildJudgeConfig(): JudgeConfig {
+  if (form.judge_type === 'metric') {
+    if (!form.cfg_metric.trim()) return null
+    return {
+      metric: form.cfg_metric.trim(),
+      unit: form.cfg_unit.trim(),
+      min: form.cfg_min,
+      max: form.cfg_max
+    }
+  }
+  if (form.judge_type === 'state' || form.judge_type === 'indicator') {
+    return form.cfg_expected.trim() ? { expected: form.cfg_expected.trim() } : null
+  }
+  return null
+}
+
+function fillJudgeConfig(cfg: JudgeConfig) {
+  form.cfg_metric = (cfg?.metric as string) || ''
+  form.cfg_unit = (cfg?.unit as string) || ''
+  form.cfg_min = typeof cfg?.min === 'number' ? (cfg.min as number) : null
+  form.cfg_max = typeof cfg?.max === 'number' ? (cfg.max as number) : null
+  form.cfg_expected = (cfg?.expected as string) || ''
+}
 
 const formRules: FormRules = {
   name: [{ required: true, message: '请输入检查项名称', trigger: 'blur' }]
@@ -167,10 +254,13 @@ function openForm(row?: TemplateItemRow) {
       requirement: row.requirement || '',
       required: row.required,
       photo_required: row.photo_required || 'none',
+      judge_type: row.judge_type || 'general',
       sort: row.sort
     })
+    fillJudgeConfig(row.judge_config ?? null)
   } else {
-    Object.assign(form, { id: '', name: '', requirement: '', required: true, photo_required: 'none', sort: null })
+    Object.assign(form, { id: '', name: '', requirement: '', required: true, photo_required: 'none', judge_type: 'general', sort: null })
+    fillJudgeConfig(null)
   }
   formVisible.value = true
 }
@@ -182,6 +272,8 @@ async function handleSubmit() {
     requirement: form.requirement.trim(),
     required: form.required,
     photo_required: form.photo_required,
+    judge_type: form.judge_type,
+    judge_config: buildJudgeConfig(),
     ...(form.sort === null ? {} : { sort: form.sort })
   }
   submitting.value = true
@@ -228,5 +320,26 @@ async function handleDelete(row: TemplateItemRow) {
 .sort-hint {
   margin-left: $spacing-sm;
   font-size: 12px;
+}
+
+.judge-option {
+  display: flex;
+  justify-content: space-between;
+  gap: $spacing-md;
+
+  .judge-option-desc {
+    font-size: 12px;
+    color: $color-text-placeholder;
+  }
+}
+
+.judge-desc {
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.range-sep {
+  margin: 0 $spacing-sm;
+  color: $color-text-secondary;
 }
 </style>

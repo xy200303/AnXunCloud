@@ -52,12 +52,6 @@
                   type="primary"
                   @click="openPhotos(p)"
                 >照片（{{ p.checkin.photos.length }}）</el-button>
-                <el-link
-                  v-if="p.checkin.work_order_no"
-                  type="danger"
-                  class="wo-link"
-                  @click="goWorkOrder(p.checkin.work_order_no)"
-                >工单 {{ p.checkin.work_order_no }}</el-link>
                 <span v-if="p.checkin.remark" class="text-secondary">备注：{{ p.checkin.remark }}</span>
               </template>
               <el-tag v-else type="info" size="small">未打卡</el-tag>
@@ -89,7 +83,7 @@
 
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
+import { useRoute } from 'vue-router'
 import {
   CircleCheck, CircleClose, Warning, Remove, Clock, Upload
 } from '@element-plus/icons-vue'
@@ -99,7 +93,6 @@ import type { TaskDetail, TaskPointDetail, CheckinPhoto } from '@/api/biz-types'
 import { patrolTypeLabel } from '@/api/biz-types'
 
 const route = useRoute()
-const router = useRouter()
 const loading = ref(false)
 const loadError = ref(false)
 const detail = ref<TaskDetail | null>(null)
@@ -167,11 +160,6 @@ function openPhotos(p: TaskPointDetail) {
   }
   photoDialogVisible.value = true
 }
-
-// 跳工单详情（先按工单号查列表定位 id；无权限时不可点击）
-function goWorkOrder(orderNo: string) {
-  router.push({ path: '/workorders/list', query: { order_no: orderNo } })
-}
 </script>
 
 <style scoped lang="scss">
@@ -224,10 +212,6 @@ function goWorkOrder(orderNo: string) {
     .point-name {
       color: $color-text-primary;
       font-weight: 600;
-    }
-
-    .wo-link {
-      font-size: $font-size-aux;
     }
   }
 }

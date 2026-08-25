@@ -9,9 +9,12 @@
             <span class="point-name">{{ row.point_name }}</span>
             <span class="text-secondary">{{ row.community_name }}</span>
           </div>
-          <el-tag v-if="row.is_suspect" type="warning">疑似作弊</el-tag>
-          <el-tag v-else-if="row.result === 'abnormal'" type="danger">异常</el-tag>
-          <el-tag v-else type="success">正常</el-tag>
+          <div class="detail-header-tags">
+            <el-tag v-if="detail.force_submit || row.force_submit" type="warning" effect="dark">强制提交</el-tag>
+            <el-tag v-if="row.is_suspect" type="warning">疑似作弊</el-tag>
+            <el-tag v-else-if="row.result === 'abnormal'" type="danger">异常</el-tag>
+            <el-tag v-else type="success">正常</el-tag>
+          </div>
         </div>
 
         <div class="detail-section">
@@ -38,12 +41,26 @@
               <span class="danger-text">{{ detail.suspect_reason }}</span>
             </el-descriptions-item>
             <el-descriptions-item v-if="detail.remark" label="备注">{{ detail.remark }}</el-descriptions-item>
-            <el-descriptions-item v-if="detail.work_order_no" label="关联工单">
-              <el-link type="danger" @click="emit('go-work-order', detail.work_order_no!)">
-                {{ detail.work_order_no }}
-              </el-link>
-            </el-descriptions-item>
           </el-descriptions>
+        </div>
+
+        <!-- AI 质量校验（同步判定；不合格时红色提示原因，误判由人工复核兜底） -->
+        <div v-if="detail.ai_quality_pass !== null && detail.ai_quality_pass !== undefined" class="detail-section">
+          <h4 class="section-title">AI 质量校验</h4>
+          <el-alert
+            v-if="detail.ai_quality_pass"
+            type="success"
+            :closable="false"
+            show-icon
+            title="照片质量校验通过"
+          />
+          <el-alert
+            v-else
+            type="error"
+            :closable="false"
+            show-icon
+            :title="`照片质量不合格：${detail.ai_quality_issue || '未说明原因'}`"
+          />
         </div>
 
         <!-- 检查项结果 -->
@@ -73,6 +90,7 @@
                 </span>
                 <el-tag v-else-if="item.ai_verdict === 'error'" type="info" size="small">AI 识别失败</el-tag>
                 <span v-else class="text-secondary">--</span>
+                <div v-if="item.ai_reading" class="ai-reading">读数：{{ item.ai_reading }}</div>
               </template>
             </el-table-column>
             <el-table-column label="照片" min-width="110">
@@ -144,7 +162,6 @@ defineProps<{
 
 const emit = defineEmits<{
   'update:modelValue': [value: boolean]
-  'go-work-order': [orderNo: string]
 }>()
 
 function checkinTypeLabel(t: string) {
@@ -207,7 +224,7 @@ function photoMeta(d: CheckinDetail) {
   }
 }
 
-// 统一区块：标题 + 内容 + 底部分隔线（与工单详情同一语言）
+// 统一区块：标题 + 内容 + 底部分隔线
 .detail-section {
   padding-bottom: $spacing-lg;
   margin-bottom: $spacing-lg;
@@ -255,6 +272,20 @@ function photoMeta(d: CheckinDetail) {
   font-size: 12px;
   line-height: 1.4;
   color: $color-warning;
+}
+
+.detail-header-tags {
+  display: flex;
+  align-items: center;
+  gap: $spacing-sm;
+}
+
+// AI 表计读数（读数类检查项）
+.ai-reading {
+  margin-top: 2px;
+  font-size: 12px;
+  line-height: 1.4;
+  color: $color-text-secondary;
 }
 
 .item-photos {

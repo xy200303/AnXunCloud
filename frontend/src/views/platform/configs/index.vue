@@ -1,7 +1,7 @@
 <template>
   <div class="app-container">
-    <!-- 搜索区 -->
-    <div class="filter-card">
+    <!-- 搜索区（AI 分组走专用表单，隐藏通用搜索） -->
+    <div v-if="query.group !== 'ai'" class="filter-card">
       <el-form :model="query" inline>
         <el-form-item label="参数名称">
           <el-input v-model="query.name" placeholder="参数名称" clearable style="width: 180px" @keyup.enter="handleSearch" />
@@ -24,8 +24,11 @@
       </el-tabs>
     </div>
 
+    <!-- AI 分组：专用表单卡片（其余分组保持通用表格） -->
+    <ai-config-panel v-if="query.group === 'ai'" />
+
     <!-- 表格 -->
-    <div class="table-card">
+    <div v-else class="table-card">
       <div class="table-toolbar">
         <div class="table-toolbar-left">
           <el-button v-perms="'system:config:create'" type="primary" :icon="Plus" @click="openForm()">新增配置</el-button>
@@ -114,6 +117,7 @@ import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox, type FormInstance, type FormRules } from 'element-plus'
 import { Search, Refresh, Plus, RefreshRight } from '@element-plus/icons-vue'
 import { listConfigs, listConfigGroups, createConfig, updateConfig, deleteConfig } from '@/api/config'
+import AiConfigPanel from './AiConfigPanel.vue'
 import type { ConfigItem } from '@/api/types'
 
 const loading = ref(false)
@@ -133,7 +137,8 @@ const GROUP_LABELS: Record<string, string> = {
   map: '地图服务',
   security: '安全设置',
   auth: '认证与注册',
-  system: '系统通用'
+  system: '系统通用',
+  ai: 'AI 模型'
 }
 
 function groupLabel(g: string) {

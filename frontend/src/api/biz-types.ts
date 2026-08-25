@@ -305,6 +305,11 @@ export interface CheckinItem {
   audit_remark?: string
   ai_verdict?: 'pass' | 'review' | 'error' | ''
   ai_reason?: string
+  // 强制提交（重拍放行后转人工复核）；记录列表接口暂不下发该字段，仅在详情/后端补齐后展示
+  force_submit?: boolean
+  // 同步判定照片质量结论：null=未校验
+  ai_quality_pass?: boolean | null
+  ai_quality_issue?: string
   check_items?: CheckinCheckItem[]
 }
 
@@ -320,6 +325,11 @@ export interface CheckinCheckItem {
   ai_hint?: string
   ai_verdict?: 'pass' | 'review' | 'error' | ''
   ai_reason?: string
+  // 表计读数类检查项的 AI 读数（其余类型为空）
+  ai_reading?: string | null
+  // 打卡当时的判定类型快照
+  judge_type?: string
+  judge_config?: Record<string, unknown> | null
 }
 
 export interface CheckinDetail extends CheckinItem {

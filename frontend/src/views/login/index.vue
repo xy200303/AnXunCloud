@@ -14,7 +14,7 @@
         <ul class="brand-points">
           <li><el-icon :size="15"><CircleCheck /></el-icon><span>巡检计划与任务执行监控</span></li>
           <li><el-icon :size="15"><CircleCheck /></el-icon><span>扫码 / NFC / GPS 围栏打卡</span></li>
-          <li><el-icon :size="15"><CircleCheck /></el-icon><span>异常工单闭环处理</span></li>
+          <li><el-icon :size="15"><CircleCheck /></el-icon><span>AI 识别辅助巡检质检</span></li>
         </ul>
       </div>
       <p class="brand-footer">安巡云 AnxunCloud · 物业巡检管理平台</p>

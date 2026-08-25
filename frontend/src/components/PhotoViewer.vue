@@ -49,7 +49,7 @@
 import { computed, ref } from 'vue'
 import { ArrowLeft, ArrowRight } from '@element-plus/icons-vue'
 
-// 照片项：打卡照片有 item/exif_check；工单照片仅 url/watermarked_url
+// 照片项：打卡照片有 item/exif_check；普通照片仅 url/watermarked_url
 export interface PhotoItem {
   item?: string
   url: string

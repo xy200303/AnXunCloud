@@ -7,8 +7,8 @@
 import { defineStore } from 'pinia'
 import { apiMessages } from '@/services/api'
 
-/** tabBar 中「消息」tab 的索引（pages.json tabBar list 顺序：任务0/工单1/消息2/我的3） */
-const MESSAGE_TAB_INDEX = 2
+/** tabBar 中「消息」tab 的索引（pages.json tabBar list 顺序：任务0/消息1/我的2） */
+const MESSAGE_TAB_INDEX = 1
 
 function applyBadge(n: number) {
   if (n > 0) {

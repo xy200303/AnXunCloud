@@ -8,25 +8,6 @@
       }
     },
     {
-      "path": "pages/workorders/list",
-      "style": {
-        "navigationBarTitleText": "工单",
-        "enablePullDownRefresh": true
-      }
-    },
-    {
-      "path": "pages/workorders/detail",
-      "style": {
-        "navigationBarTitleText": "工单详情"
-      }
-    },
-    {
-      "path": "pages/workorders/report",
-      "style": {
-        "navigationBarTitleText": "问题上报"
-      }
-    },
-    {
       "path": "pages/messages/index",
       "style": {
         "navigationBarTitleText": "消息",
@@ -92,6 +73,12 @@
       }
     },
     {
+      "path": "pages/checkin/quick",
+      "style": {
+        "navigationBarTitleText": "连续巡检"
+      }
+    },
+    {
       "path": "pages/admin/dashboard",
       "style": {
         "navigationBarTitleText": "今日看板",
@@ -109,20 +96,6 @@
       "path": "pages/admin/review",
       "style": {
         "navigationBarTitleText": "打卡审核",
-        "enablePullDownRefresh": true
-      }
-    },
-    {
-      "path": "pages/admin/workorders",
-      "style": {
-        "navigationBarTitleText": "工单管理",
-        "enablePullDownRefresh": true
-      }
-    },
-    {
-      "path": "pages/admin/workorder-detail",
-      "style": {
-        "navigationBarTitleText": "工单详情",
         "enablePullDownRefresh": true
       }
     },
@@ -157,12 +130,6 @@
         "text": "任务",
         "iconPath": "static/tabbar/tasks.png",
         "selectedIconPath": "static/tabbar/tasks_active.png"
-      },
-      {
-        "pagePath": "pages/workorders/list",
-        "text": "工单",
-        "iconPath": "static/tabbar/workorder.png",
-        "selectedIconPath": "static/tabbar/workorder_active.png"
       },
       {
         "pagePath": "pages/messages/index",

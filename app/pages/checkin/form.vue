@@ -616,8 +616,8 @@ export default {
       if (res.is_suspect) {
         lines.push('⚠ ' + (res.suspect_reason != '' ? res.suspect_reason : '本次打卡被标记为疑似异常'))
       }
-      if (this.items.some((it) => !it.pass) && res.work_order != null) {
-        lines.push('已自动生成异常工单')
+      if (this.items.some((it) => !it.pass)) {
+        lines.push('异常已记录，已通知管理员')
       }
       uni.showModal({
         title: pt.point_name,

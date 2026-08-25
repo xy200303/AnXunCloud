@@ -24,10 +24,6 @@
         <text class="row-text" :style="{ color: colors.textRegular }">打卡审核</text>
         <text class="row-arrow" :style="{ color: colors.textSecondary }">></text>
       </view>
-      <view v-if="canWorkorderManage" class="row" @click="goAdmin('/pages/admin/workorders')">
-        <text class="row-text" :style="{ color: colors.textRegular }">工单管理</text>
-        <text class="row-arrow" :style="{ color: colors.textSecondary }">></text>
-      </view>
       <view v-if="canPointManage" class="row" @click="goAdmin('/pages/admin/points')">
         <text class="row-text" :style="{ color: colors.textRegular }">点位管理</text>
         <text class="row-arrow" :style="{ color: colors.textSecondary }">></text>
@@ -36,10 +32,6 @@
 
     <!-- 功能入口 -->
     <view class="card menu-card" :style="{ backgroundColor: colors.bgCard }">
-      <view class="row" @click="goReport">
-        <text class="row-text" :style="{ color: colors.textRegular }">问题上报</text>
-        <text class="row-arrow" :style="{ color: colors.textSecondary }">></text>
-      </view>
       <view class="row" @click="goPendingReports">
         <text class="row-text" :style="{ color: colors.textRegular }">月度报告</text>
         <text class="row-arrow" :style="{ color: colors.textSecondary }">></text>
@@ -149,17 +141,13 @@ export default {
     canReview(): boolean {
       return useAuthStore().hasPerm('inspection:checkin:review')
     },
-    /** 工单管理入口：workorder:list / triage / dispatch / confirm 任一（P2 新权限点） */
-    canWorkorderManage(): boolean {
-      return useAuthStore().hasPerm(['workorder:list', 'workorder:triage', 'workorder:dispatch', 'workorder:confirm'])
-    },
     /** 点位管理入口 */
     canPointManage(): boolean {
       return useAuthStore().hasPerm('inspection:point:list')
     },
     /** 管理区块整体显隐：任一入口可见即显示 */
     showAdmin(): boolean {
-      return this.canDashboard || this.canReview || this.canWorkorderManage || this.canPointManage
+      return this.canDashboard || this.canReview || this.canPointManage
     }
   },
   onShow() {
@@ -201,10 +189,6 @@ export default {
     },
     goPendingReports() {
       uni.navigateTo({ url: '/pages/reports/pending' })
-    },
-    /** 问题上报入口（一线全员可见） */
-    goReport() {
-      uni.navigateTo({ url: '/pages/workorders/report' })
     },
     /** 管理入口跳转（入口显隐已按权限控制） */
     goAdmin(url: string) {

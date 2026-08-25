@@ -29,12 +29,17 @@
         <view class="progress" :style="{ backgroundColor: colors.border }">
           <view class="progress-inner" :style="{ width: progressWidth, backgroundColor: colors.primary }"></view>
         </view>
-        <text class="card-progress-text" :style="{ color: colors.textRegular }">{{ donePoints }}/{{ totalPoints }} 点位</text>
+        <text class="card-progress-text" :style="{ color: colors.textPrimary }">已完成 {{ donePoints }} / {{ totalPoints }} 点位</text>
       </view>
 
-      <!-- 点位列表 -->
+      <!-- 极简连续巡检入口（存在未打卡点位时显示） -->
+      <view v-if="hasUnchecked" class="quick-btn" :style="{ backgroundColor: colors.success }" @click="startQuick">
+        <text class="quick-btn-text" :style="{ color: colors.white }">开始连续巡检</text>
+      </view>
+
+      <!-- 点位列表（未打卡置顶，已打卡沉底；组内保持 sort 顺序） -->
       <view
-        v-for="p in points"
+        v-for="p in sortedPoints"
         :key="p.point_id"
         class="card point-row"
         :style="{ backgroundColor: colors.bgCard }"
@@ -49,7 +54,10 @@
         </view>
         <view class="point-side">
           <text class="point-cred" :style="{ color: colors.textSecondary }">{{ p.credential_text }}</text>
-          <text class="point-status" :style="{ color: p.status_color }">{{ p.status_text }}</text>
+          <view class="point-status-row">
+            <view class="point-dot" :style="{ backgroundColor: p.status_color }"></view>
+            <text class="point-status" :style="{ color: p.status_color }">{{ p.status_text }}</text>
+          </view>
         </view>
       </view>
     </view>
@@ -191,7 +199,34 @@ export default {
   onPullDownRefresh() {
     this.load()
   },
+  computed: {
+    /** 未打卡置顶、已打卡沉底（组内保持 sort 升序；sort 相同按原顺序稳定排列） */
+    sortedPoints(): PointView[] {
+      return this.points
+        .map((p, i) => ({ p: p, i: i }))
+        .sort((a, b) => {
+          if (a.p.checked != b.p.checked) return a.p.checked ? 1 : -1
+          if (a.p.sort != b.p.sort) return a.p.sort - b.p.sort
+          return a.i - b.i
+        })
+        .map((x) => x.p)
+    },
+    /** 存在未打卡点位 → 显示「开始连续巡检」大按钮 */
+    hasUnchecked(): boolean {
+      return this.points.some((p) => !p.checked)
+    }
+  },
   methods: {
+    /** 连续巡检：跳第一个未打卡点位的极简打卡页 */
+    startQuick() {
+      const next = this.sortedPoints.find((p) => !p.checked)
+      if (next == null) return
+      uni.navigateTo({
+        url:
+          '/pages/checkin/quick?task_id=' + encodeURIComponent(this.taskId) +
+          '&point_id=' + encodeURIComponent(next.point_id)
+      })
+    },
     load() {
       if (this.taskId == '') {
         this.loading = false
@@ -358,8 +393,22 @@ export default {
 }
 
 .card-progress-text {
-  font-size: 26rpx;
+  font-size: 32rpx;
+  font-weight: 600;
   margin-top: 12rpx;
+}
+
+.quick-btn {
+  height: 112rpx;
+  border-radius: 20rpx;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 24rpx;
+}
+
+.quick-btn-text {
+  font-size: 44rpx;
+  font-weight: 700;
 }
 
 .point-row {
@@ -407,8 +456,21 @@ export default {
   font-size: 24rpx;
 }
 
-.point-status {
-  font-size: 26rpx;
+.point-status-row {
+  flex-direction: row;
+  align-items: center;
   margin-top: 8rpx;
+}
+
+.point-dot {
+  width: 20rpx;
+  height: 20rpx;
+  border-radius: 10rpx;
+  margin-right: 10rpx;
+}
+
+.point-status {
+  font-size: 32rpx;
+  font-weight: 600;
 }
 </style>

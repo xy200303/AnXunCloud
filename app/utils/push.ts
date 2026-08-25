@@ -159,8 +159,9 @@ export function routePushMessage(payload: PushPayload | null): void {
   }
   const type = payload != null && payload.type != null ? payload.type : ''
   const biz = payload != null && payload.biz_id != null ? String(payload.biz_id) : ''
-  if (type == 'workorder' && biz != '') {
-    uni.navigateTo({ url: '/pages/workorders/detail?id=' + encodeURIComponent(biz) })
+  // workorder 已下线：历史推送兜底到消息列表（tabBar 页须用 switchTab）
+  if (type == 'workorder') {
+    uni.switchTab({ url: '/pages/messages/index' })
     return
   }
   // inspection：biz_id 为巡检任务 id → 任务明细

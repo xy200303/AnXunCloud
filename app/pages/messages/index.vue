@@ -107,9 +107,8 @@ type MessagesData = {
   notices: AnnouncementItem[]
 }
 
-/** 消息类型展示（对齐后端 SysMessage 写入点：workorder 工单 / report 月报 / checkin_audit 打卡审核 / announcement 公告） */
+/** 消息类型展示（对齐后端 SysMessage 写入点：report 月报 / checkin_audit 打卡审核 / announcement 公告） */
 function typeTextOf(t: string): string {
-  if (t == 'workorder') return '工单'
   if (t == 'report') return '月报'
   if (t == 'checkin_audit') return '审核'
   if (t == 'announcement' || t == 'notice') return '公告'
@@ -117,7 +116,6 @@ function typeTextOf(t: string): string {
 }
 
 function typeColorOf(t: string): string {
-  if (t == 'workorder') return Colors.primary
   if (t == 'report') return Colors.warning
   if (t == 'checkin_audit') return Colors.danger
   if (t == 'announcement' || t == 'notice') return Colors.success
@@ -209,7 +207,7 @@ export default {
           uni.showToast({ title: e.message, icon: 'none' })
         })
     },
-    /** 点击单条：标记已读 + 按 biz_id 深链（待签→报告详情；工单→工单详情；无映射→toast 内容） */
+    /** 点击单条：标记已读 + 按 biz_id 深链（待签→报告详情；无映射→toast 内容） */
     onTap(m: MessageItem) {
       if (!m.is_read) {
         apiMarkMessageRead(m.id)
@@ -224,10 +222,6 @@ export default {
       const biz = m.biz_id
       if (m.type == 'report' && biz != null && biz != '') {
         uni.navigateTo({ url: '/pages/reports/detail?id=' + encodeURIComponent(biz) })
-        return
-      }
-      if (m.type == 'workorder' && biz != null && biz != '') {
-        uni.navigateTo({ url: '/pages/workorders/detail?id=' + encodeURIComponent(biz) })
         return
       }
       if (m.type == 'announcement') {

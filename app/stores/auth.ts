@@ -37,18 +37,6 @@ export const useAuthStore = defineStore('auth', {
     isLoggedIn(): boolean {
       return this.token != ''
     },
-    /** 工单入口：兼容旧角色，同时按当前项目岗位识别巡检员/维修工。 */
-    canSeeWorkorders(): boolean {
-      const u = this.userInfo
-      if (u == null) return false
-      if (u.roles.indexOf('inspector') >= 0 || u.roles.indexOf('repair') >= 0) return true
-      return (u.staffs ?? []).some((staff) =>
-        staff.post_names.indexOf('巡检员') >= 0 ||
-        staff.post_names.indexOf('维修工') >= 0 ||
-        staff.post_names.indexOf('repairman') >= 0 ||
-        staff.post_names.indexOf('inspector') >= 0
-      )
-    },
     /**
      * 权限点判断：传入单个 code 或数组，任一命中即 true；userInfo 为空返回 false。
      * 超管以 super_admin 角色兜底（与 api.ts hasPerm 同口径）。

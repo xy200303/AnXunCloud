@@ -10,17 +10,6 @@
       <text class="offline-bar-text" :style="{ color: colors.primary }">离线暂存 {{ offlineCount }} 条打卡，点击立即补传</text>
     </view>
 
-    <!-- 快捷入口：工单处理（维修角色或有待处理/可抢工单时显示）；问题上报入口在「我的」页 -->
-    <view v-if="showOrderEntry" class="entries">
-      <view class="entry" :style="{ backgroundColor: colors.bgCard }" @click="goWorkorders">
-        <view class="entry-title-row">
-          <text class="entry-title" :style="{ color: colors.textPrimary }">工单处理</text>
-          <text v-if="orderBadge > 0" class="entry-badge" :style="{ backgroundColor: colors.danger, color: colors.white }">{{ orderBadge > 99 ? '99+' : orderBadge }}</text>
-        </view>
-        <text class="entry-sub" :style="{ color: colors.textSecondary }">派给我的工单与工单池</text>
-      </view>
-    </view>
-
     <!-- 骨架屏 -->
     <view v-if="loading" class="skeleton">
       <view class="sk-block" :style="{ backgroundColor: colors.border }"></view>
@@ -106,10 +95,9 @@
 
 <script lang="ts">
 import { Colors, ColorTokens } from '@/utils/theme'
-import { apiTasksToday, apiMyOrderCounts, TodayTask } from '@/services/api'
+import { apiTasksToday, TodayTask } from '@/services/api'
 import { offlineCount, syncOfflineCheckins } from '@/utils/offline'
 import { useMessageStore } from '@/stores/message'
-import { useAuthStore } from '@/stores/auth'
 
 /** 巡查类型文案（内置回落：后端未透传 patrol_type_label 时使用；新类型如 fire 以字典 label 为准） */
 function patrolTextOf(t: string): string {
@@ -174,8 +162,6 @@ type TodayData = {
   /** 巡查类型筛选（'' = 全部） */
   typeFilter: string
   typeChips: Array<{ label: string; value: string }>
-  /** 工单待办角标（派给我的处理中/待验收 + 可抢池） */
-  orderBadge: number
   /** 离线暂存待补传条数（>0 显示提示条） */
   offlineCount: number
 }
@@ -226,7 +212,6 @@ export default {
       typeFilter: '',
       // 类型筛选 chip：「全部」+ 按当日任务实际类型动态生成（字典新类型如 fire 自动出现）
       typeChips: [{ label: '全部', value: '' }] as Array<{ label: string; value: string }>,
-      orderBadge: 0,
       offlineCount: 0
     }
   },
@@ -263,13 +248,6 @@ export default {
         g.tasks.forEach((t) => rows.push({ key: t.id, header: '', task: t }))
       })
       return rows
-    },
-    /**
-     * 「工单处理」入口显隐：无岗位字段可依赖，按现有信息判断——
-     * 维修角色（roles 含 repair）或存在待处理/待验收/可抢工单时显示。
-     */
-    showOrderEntry(): boolean {
-      return useAuthStore().canSeeWorkorders || this.orderBadge > 0
     }
   },
   onLoad() {
@@ -284,8 +262,6 @@ export default {
     }
     // 刷新消息 tab 未读角标（轻量请求只取 unread_count，失败静默）
     useMessageStore().refresh()
-    // 刷新工单待办角标（工单处理入口显隐；失败静默）
-    this.fetchOrderBadge()
   },
   onPullDownRefresh() {
     this.load()
@@ -346,18 +322,6 @@ export default {
       this.typeChips = chips
       // 当前选中类型已不在列表时回落「全部」
       if (this.typeFilter != '' && !seen[this.typeFilter]) this.typeFilter = ''
-    },
-    /** 工单处理入口：跳到工单 tab（默认「派给我的」） */
-    goWorkorders() {
-      uni.switchTab({ url: '/pages/workorders/list' })
-    },
-    /** 工单待办角标：派给我的处理中 + 待验收 + 可抢池（counts 接口，失败静默） */
-    fetchOrderBadge() {
-      apiMyOrderCounts('assigned')
-        .then((d) => {
-          this.orderBadge = (d['processing'] ?? 0) + (d['pending_confirm'] ?? 0) + (d['pool'] ?? 0)
-        })
-        .catch((_e) => {})
     }
   }
 }
@@ -378,45 +342,6 @@ export default {
 
 .offline-bar-text {
   font-size: 26rpx;
-}
-
-/* 快捷入口 */
-.entries {
-  flex-direction: row;
-  margin-bottom: 24rpx;
-}
-
-.entry {
-  flex: 1;
-  border-radius: 24rpx; /* Radius.card */
-  padding: 24rpx 32rpx;
-  margin-right: 24rpx;
-}
-
-.entry:last-child {
-  margin-right: 0;
-}
-
-.entry-title-row {
-  flex-direction: row;
-  align-items: center;
-}
-
-.entry-title {
-  font-size: 32rpx;
-  font-weight: 600;
-}
-
-.entry-badge {
-  font-size: 20rpx;
-  border-radius: 16rpx;
-  padding: 2rpx 12rpx;
-  margin-left: 12rpx;
-}
-
-.entry-sub {
-  font-size: 22rpx;
-  margin-top: 8rpx;
 }
 
 /* 巡查类型筛选 chips */

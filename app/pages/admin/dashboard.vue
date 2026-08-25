@@ -28,10 +28,6 @@
           <text class="stat-num" :style="{ color: colors.danger }">{{ board.overdue_tasks }}</text>
           <text class="stat-label" :style="{ color: colors.textSecondary }">已逾期任务</text>
         </view>
-        <view class="stat-card" :style="{ backgroundColor: colors.bgCard }">
-          <text class="stat-num" :style="{ color: colors.warning }">{{ board.pending_workorders }}</text>
-          <text class="stat-label" :style="{ color: colors.textSecondary }">待处理工单</text>
-        </view>
       </view>
 
       <!-- 任务筛选 tab：全部 / 有漏点 / 异常 -->
@@ -106,7 +102,7 @@ type TaskView = MonitorTask & {
 
 type BoardData = {
   colors: ColorTokens
-  board: Pick<DashboardData, 'today_completion' | 'doing_tasks' | 'overdue_tasks' | 'pending_workorders'>
+  board: Pick<DashboardData, 'today_completion' | 'doing_tasks' | 'overdue_tasks'>
   filter: string
   tabs: Array<{ label: string; value: string }>
   loading: boolean
@@ -123,8 +119,7 @@ function emptyBoard(): BoardData['board'] {
   return {
     today_completion: { total: 0, done: 0, rate: 0 },
     doing_tasks: 0,
-    overdue_tasks: 0,
-    pending_workorders: 0
+    overdue_tasks: 0
   }
 }
 
@@ -215,8 +210,7 @@ export default {
           this.board = {
             today_completion: d.today_completion,
             doing_tasks: d.doing_tasks,
-            overdue_tasks: d.overdue_tasks,
-            pending_workorders: d.pending_workorders
+            overdue_tasks: d.overdue_tasks
           }
         })
         .catch((_e: any) => {})

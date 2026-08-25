@@ -203,7 +203,7 @@ function typeTextOf(t: string): string {
   return '围栏'
 }
 
-/** 照片展示：优先水印图，其次原图，统一转绝对地址（与工单详情 photoUrl 同规则） */
+/** 照片展示：优先水印图，其次原图，统一转绝对地址 */
 function photoUrl(p: { url: string; watermarked_url: string }): string {
   return toAbsUrl(p.watermarked_url != '' ? p.watermarked_url : p.url)
 }

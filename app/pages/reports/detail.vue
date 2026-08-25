@@ -340,8 +340,7 @@ export default {
         { label: '点位覆盖率', value: pctText(s.coverage_rate) },
         { label: '异常打卡', value: numText(s.abnormal_count) },
         { label: '疑似作弊', value: numText(s.suspect_count) },
-        { label: '新增工单', value: numText(s.wo_created) },
-        { label: '工单闭环率', value: pctText(s.wo_close_rate) }
+        { label: '异常问题数', value: numText(s.issue_count) }
       ]
     },
     signedInspectorCount(): number {

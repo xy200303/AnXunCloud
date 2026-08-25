@@ -1,6 +1,6 @@
 // 消防专项 + 两班倒巡更演示数据（《专项巡检与专项检查报告设计方案》§3.2/§3.3、§5 第 7 条）：
 // 锦绣华庭消防箱/灭火器点位（绑带 ai_hint 的专项检查模板）、两班倒巡更计划（近 3 天执行 + 今日进行中）、
-// 消防设施月度专项计划（当月任务已完成，含 2 处异常转工程条线工单）、当月专项检查报告（三级签字归档）。
+// 消防设施月度专项计划（当月任务已完成，含 2 处异常）、当月专项检查报告（三级签字归档）。
 // 主种子路径（seedTenantA）与回填命令（seed-demo -fire → SeedFireDemo）共用 seedFireSpecial。
 package demo
 
@@ -13,7 +13,6 @@ import (
 	insmodel "anxuncloud/internal/module/inspection/model"
 	rptmodel "anxuncloud/internal/module/report/model"
 	sysmodel "anxuncloud/internal/module/system/model"
-	womodel "anxuncloud/internal/module/workorder/model"
 	"anxuncloud/internal/pkg/storage"
 	"anxuncloud/internal/pkg/timefmt"
 	"anxuncloud/internal/pkg/types"
@@ -113,7 +112,7 @@ func SeedFireDemo(db *gorm.DB, store *storage.Storage) error {
 	tplSafetyID := templateIDByName(db, tid, "安全巡查通用模板")
 	tplEquipID := templateIDByName(db, tid, "设备设施专项模板")
 
-	d := &demoSeeder{db: db, store: store, photoCache: map[string]demoPhotoRef{}, orderSeq: map[string]int{}}
+	d := &demoSeeder{db: db, store: store, photoCache: map[string]demoPhotoRef{}}
 	return db.Transaction(func(tx *gorm.DB) error {
 		d.db = tx
 		return d.seedFireSpecial(tid, cid, buildingIDs, routePointIDs, routeMeta, tplSafetyID, tplEquipID, p)
@@ -219,7 +218,7 @@ func (d *demoSeeder) seedFireSpecial(tid, cid string, buildingIDs, routePointIDs
 		return err
 	}
 
-	// 5) 当月消防专项任务（全部完成，2 处异常）+ 异常工单（工程条线 1 闭环 1 处理中）+ 当月专项检查报告
+	// 5) 当月消防专项任务（全部完成，2 处异常）+ 当月专项检查报告
 	return d.seedFireMonth(tid, cid, planFire.ID, firePointIDs, fireMeta, p)
 }
 
@@ -381,8 +380,8 @@ func (d *demoSeeder) seedPatrolRounds(tid, cid, planID string, routePointIDs []s
 	return d.db.CreateInBatches(&items, 200).Error
 }
 
-// seedFireMonth 当月消防专项：任务全部完成（24 点逐点打卡，2 处故意异常）→ 异常工单转工程条线
-// （1 闭环 1 处理中）→ 当月专项检查报告（approved，三级签字齐全；主管级=工程主管，对应 patrol_report_line.fire 槽位）。
+// seedFireMonth 当月消防专项：任务全部完成（24 点逐点打卡，2 处故意异常）
+// → 当月专项检查报告（approved，三级签字齐全；主管级=工程主管，对应 patrol_report_line.fire 槽位）。
 func (d *demoSeeder) seedFireMonth(tid, cid, planID string, firePointIDs []string,
 	fireMeta map[string]demoPoint, p firePeople) error {
 
@@ -402,8 +401,8 @@ func (d *demoSeeder) seedFireMonth(tid, cid, planID string, firePointIDs []strin
 	// 2 处故意异常（整改清单样例）+ 逐项 AI 初判断演示值
 	type abSpec struct{ itemName, note, remark string }
 	abs := map[string]abSpec{
-		"2栋3层消防箱":   {"消防枪头在位", "消防枪头缺失，需补充", "消防枪头缺失，已拍照上报转工单"},
-		"1栋大堂灭火器点": {"在有效期内", "铭牌显示有效期至 2026-06，已过期", "灭火器已过有效期，已拍照上报转工单"},
+		"2栋3层消防箱":   {"消防枪头在位", "消防枪头缺失，需补充", "消防枪头缺失，已拍照上报"},
+		"1栋大堂灭火器点": {"在有效期内", "铭牌显示有效期至 2026-06，已过期", "灭火器已过有效期，已拍照上报"},
 	}
 	aiDemo := map[string]map[string][2]string{ // 点位 → 检查项 → {verdict, reason}
 		"2栋3层消防箱":   {"消防枪头在位": {insmodel.AIVerdictReview, "未在画面中识别到消防枪头"}},
@@ -411,8 +410,6 @@ func (d *demoSeeder) seedFireMonth(tid, cid, planID string, firePointIDs []strin
 		"1栋1层消防箱":   {"消防枪头在位": {insmodel.AIVerdictPass, "画面中可见消防枪头，安装在位"}},
 	}
 
-	abRec := map[string]string{} // 点位名 → 异常打卡记录 ID
-	abPt := map[string]string{}  // 点位名 → 点位 ID
 	for i, pid := range firePointIDs {
 		pm := fireMeta[pid]
 		ct := startT.Add(time.Duration(5+i*6) * time.Minute)
@@ -471,60 +468,6 @@ func (d *demoSeeder) seedFireMonth(tid, cid, planID string, firePointIDs []strin
 				return err
 			}
 		}
-		if isAb {
-			abRec[pm.name] = rec.ID
-			abPt[pm.name] = pid
-		}
-	}
-
-	// 异常工单（视同已受理，工程条线闭环：周建国派单 → 吴永强处理 → 陈刚验收）
-	cabPoint, cabRec := abPt["2栋3层消防箱"], abRec["2栋3层消防箱"]
-	extPoint, extRec := abPt["1栋大堂灭火器点"], abRec["1栋大堂灭火器点"]
-	woF1Items := types.OrderItemArray{{Name: "消防枪头在位", Remark: "消防枪头缺失，需补充"}}
-	if _, key := d.photo(tid, p.xj01, "消防枪头在位"); key != "" {
-		woF1Items[0].BeforePhotos = types.StringArray{key}
-	}
-	woF1 := womodel.WorkOrder{
-		TenantID: &tid, OrderNo: d.orderNo(monthDayAt(1, 0, 0)), CommunityID: cid,
-		PointID: &cabPoint, CheckinID: &cabRec,
-		Title: "2栋3层消防箱枪头缺失", Description: "消防专项检查发现 2栋3层消防箱内消防枪头缺失，需补充同型号枪头。",
-		Source: womodel.SourceInspection, Category: "消防设施", ReporterID: p.xj01,
-		Photos:     d.photosOf(tid, p.xj01, "消防枪头在位"),
-		Items:      woF1Items,
-		AssigneeID: &p.repair, DispatcherID: &p.eng, Priority: "high", Status: womodel.OrderClosed,
-		DispatchAt: at(monthDayAt(1, 14, 0)), AcceptAt: at(monthDayAt(1, 14, 0)),
-		FinishNote: "已补充同型号消防枪头并复位，箱内器材齐全。", FinishAt: at(monthDayAt(2, 10, 30)),
-		ConfirmBy:  &p.xj01, ConfirmAt: at(monthDayAt(3, 9, 0)), ConfirmNote: "现场复核枪头在位，验收通过",
-		CreatedAt:  monthDayAt(1, 11, 50), UpdatedAt: monthDayAt(3, 9, 0),
-	}
-	if err := d.createOrderWithLogs(woF1, []womodel.WorkOrderLog{
-		{Action: womodel.ActionCreate, OperatorID: p.xj01, Detail: "巡检异常上报，自动生成工单（视同已受理）", CreatedAt: monthDayAt(1, 11, 50)},
-		{Action: womodel.ActionDispatch, OperatorID: p.eng, Detail: "派单给吴永强", CreatedAt: monthDayAt(1, 14, 0)},
-		{Action: womodel.ActionFinish, OperatorID: p.repair, Detail: "完工：补充消防枪头", CreatedAt: monthDayAt(2, 10, 30)},
-		{Action: womodel.ActionConfirmPass, OperatorID: p.xj01, Detail: "验收通过", CreatedAt: monthDayAt(3, 9, 0)},
-	}); err != nil {
-		return err
-	}
-	woF2Items := types.OrderItemArray{{Name: "在有效期内", Remark: "铭牌显示有效期至 2026-06，已过期"}}
-	if _, key := d.photo(tid, p.xj01, "在有效期内"); key != "" {
-		woF2Items[0].BeforePhotos = types.StringArray{key}
-	}
-	woF2 := womodel.WorkOrder{
-		TenantID: &tid, OrderNo: d.orderNo(monthDayAt(1, 0, 0)), CommunityID: cid,
-		PointID: &extPoint, CheckinID: &extRec,
-		Title: "1栋大堂灭火器过期更换", Description: "消防专项检查发现 1栋大堂灭火器已过有效期（铭牌 2026-06 到期），需更换。",
-		Source: womodel.SourceInspection, Category: "消防设施", ReporterID: p.xj01,
-		Photos:     d.photosOf(tid, p.xj01, "在有效期内"),
-		Items:      woF2Items,
-		AssigneeID: &p.repair, DispatcherID: &p.eng, Priority: "high", Status: womodel.OrderProcessing,
-		DispatchAt: at(monthDayAt(1, 14, 10)), AcceptAt: at(monthDayAt(1, 14, 10)),
-		CreatedAt:  monthDayAt(1, 11, 55), UpdatedAt: monthDayAt(1, 14, 10),
-	}
-	if err := d.createOrderWithLogs(woF2, []womodel.WorkOrderLog{
-		{Action: womodel.ActionCreate, OperatorID: p.xj01, Detail: "巡检异常上报，自动生成工单（视同已受理）", CreatedAt: monthDayAt(1, 11, 55)},
-		{Action: womodel.ActionDispatch, OperatorID: p.eng, Detail: "派单给吴永强", CreatedAt: monthDayAt(1, 14, 10)},
-	}); err != nil {
-		return err
 	}
 
 	// 当月专项检查报告（stats 快照与落库数据一致；PDF 明细按报告期实时查询，无需预生成 file_key）
@@ -553,8 +496,9 @@ func (d *demoSeeder) seedFireMonth(tid, cid, planID string, firePointIDs []strin
 		"task_total": int64(1), "task_done": int64(1), "task_overdue": int64(0),
 		"should_points": total, "done_points": total, "coverage_rate": float64(100),
 		"abnormal_count": int64(2), "suspect_count": int64(0),
-		"wo_created": int64(2), "wo_closed": int64(1), "wo_unclosed": int64(1),
-		"wo_close_rate": pct1(1, 2),
+		// 工单模块已下线：wo_* 指标固定为 0
+		"wo_created": int64(0), "wo_closed": int64(0), "wo_unclosed": int64(0),
+		"wo_close_rate": int64(0),
 		"daily": []any{map[string]any{
 			"date": period + "-01", "task_total": int64(1), "task_done": int64(1), "abnormal": int64(2),
 		}},

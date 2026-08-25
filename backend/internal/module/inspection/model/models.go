@@ -48,6 +48,7 @@ func ValidPatrolType(t string) bool {
 const (
 	ResultNormal   = "normal"
 	ResultAbnormal = "abnormal"
+	ResultAuto     = "auto" // AI 代判模式（仅同步 AI 判定开启时可用；落库时折算为 normal/abnormal）
 )
 
 // 记录审核状态（上传默认通过，打回不级联任务进度）
@@ -60,9 +61,10 @@ const (
 
 // 大模型审核结论
 const (
-	AIVerdictPass   = "pass"
-	AIVerdictReview = "review"
-	AIVerdictError  = "error"
+	AIVerdictPass     = "pass"
+	AIVerdictReview   = "review"
+	AIVerdictAbnormal = "abnormal" // 逐项结论专用：确认存在明确异常
+	AIVerdictError    = "error"
 )
 
 // CheckTemplate 检查项模板（point_type 空为通用；检查项见 check_template_item 独立表）。
@@ -90,6 +92,10 @@ type CheckTemplateItem struct {
 	Requirement   *string   `gorm:"type:text" json:"requirement"`
 	// AIHint AI 识别要点文本（可空；空=该项不带识别要点，§3.3）
 	AIHint        *string   `gorm:"type:text" json:"ai_hint"`
+	// JudgeType 判定类型（general/presence/damage/metric/state/label/passage/leak/indicator/tidiness/baseline）
+	JudgeType   string        `gorm:"size:24;default:general" json:"judge_type"`
+	// JudgeConfig 判定参数（metric: {metric,unit,min,max}；state/indicator: {expected}），NULL 按通用判定
+	JudgeConfig types.JSONMap `gorm:"type:jsonb" json:"judge_config"`
 	Required      bool      `json:"required"`
 	PhotoRequired string    `gorm:"size:16" json:"photo_required"` // none/optional/required
 	Sort          int       `json:"sort"`
@@ -285,6 +291,11 @@ type CheckinRecord struct {
 	AuditRemark     string              `gorm:"size:512" json:"audit_remark"`
 	AIVerdict       string              `gorm:"size:16" json:"ai_verdict"`
 	AIReason        string              `gorm:"size:512" json:"ai_reason"`
+	// ForceSubmit 重拍次数用尽后强制提交（跳过同步 AI 判定，转人工复核）
+	ForceSubmit    bool  `json:"force_submit"`
+	// AIQualityPass/AIQualityIssue AI 照片质量判定（第一层）；AIQualityPass 为 NULL=未做质量判定
+	AIQualityPass  *bool  `json:"ai_quality_pass"`
+	AIQualityIssue string `gorm:"size:255" json:"ai_quality_issue"`
 	CreatedAt       time.Time           `gorm:"primaryKey" json:"created_at"`
 }
 
@@ -302,6 +313,9 @@ type CheckinRecordItem struct {
 	Requirement    *string `gorm:"type:text" json:"requirement"`
 	// AIHint AI 识别要点快照（打卡当时从模板项复制，与 name/requirement 同机制）
 	AIHint         *string `gorm:"type:text" json:"ai_hint"`
+	// JudgeType/JudgeConfig 判定类型与参数快照（打卡当时从模板项复制）
+	JudgeType      string        `gorm:"size:24;default:general" json:"judge_type"`
+	JudgeConfig    types.JSONMap `gorm:"type:jsonb" json:"judge_config"`
 	PhotoRequired  string  `gorm:"size:16" json:"photo_required"` // none/optional/required
 	Pass           bool    `json:"pass"`
 	Note           string  `gorm:"size:512" json:"note"`
@@ -310,6 +324,8 @@ type CheckinRecordItem struct {
 	// AIVerdict/AIReason 逐项大模型结论（预留；模型未返回逐项结论时为空）
 	AIVerdict *string   `gorm:"size:16" json:"ai_verdict"`
 	AIReason  *string   `gorm:"size:512" json:"ai_reason"`
+	// AIReading AI 读取的表计读数文本（metric 类检查项；NULL=无读数）
+	AIReading *string   `gorm:"size:64" json:"ai_reading"`
 	Sort      int       `json:"sort"`
 	CreatedAt time.Time `json:"created_at"`
 }

@@ -11,8 +11,6 @@ import (
 	"anxuncloud/internal/module/mp/dto"
 	"anxuncloud/internal/module/mp/service"
 	systemsvc "anxuncloud/internal/module/system/service"
-	wodto "anxuncloud/internal/module/workorder/dto"
-	wosvc "anxuncloud/internal/module/workorder/service"
 	"anxuncloud/internal/pkg/bind"
 	"anxuncloud/internal/pkg/errs"
 	"anxuncloud/internal/pkg/response"
@@ -23,12 +21,11 @@ type MPController struct {
 	mp      *service.MPService
 	checkin *service.CheckinService
 	upload  *service.UploadService
-	orders  *wosvc.OrderService
 	notices *systemsvc.NoticeService
 }
 
-func NewMPController(mp *service.MPService, checkin *service.CheckinService, upload *service.UploadService, orders *wosvc.OrderService, notices *systemsvc.NoticeService) *MPController {
-	return &MPController{mp: mp, checkin: checkin, upload: upload, orders: orders, notices: notices}
+func NewMPController(mp *service.MPService, checkin *service.CheckinService, upload *service.UploadService, notices *systemsvc.NoticeService) *MPController {
+	return &MPController{mp: mp, checkin: checkin, upload: upload, notices: notices}
 }
 
 func uid(c *gin.Context) string { return middleware.CurrentUserID(c) }
@@ -196,100 +193,6 @@ func (ctl *MPController) Callback(c *gin.Context) {
 	body, _ := io.ReadAll(io.LimitReader(c.Request.Body, 64<<10))
 	status, resp := ctl.upload.Callback(c, body)
 	c.JSON(status, resp)
-}
-
-// ========== 我的工单 ==========
-
-// MyOrders GET /workorders/mine
-func (ctl *MPController) MyOrders(c *gin.Context) {
-	var q dto.MyOrdersQuery
-	if be := bind.Query(c, &q); be != nil {
-		response.Fail(c, be)
-		return
-	}
-	page, be := ctl.mp.MyOrders(uid(c), &q)
-	write(c, page, be)
-}
-
-// OrderCounts GET /workorders/mine/counts（按状态计数，query: type；附带 pool 可抢池数量）
-func (ctl *MPController) OrderCounts(c *gin.Context) {
-	data, be := ctl.mp.MyOrderCounts(uid(c), c.DefaultQuery("type", ""))
-	write(c, data, be)
-}
-
-// OrderReport POST /workorders（移动端主动上报，source=active）
-func (ctl *MPController) OrderReport(c *gin.Context) {
-	var req wodto.OrderReportReq
-	if be := bind.JSON(c, &req); be != nil {
-		response.Fail(c, be)
-		return
-	}
-	data, be := ctl.orders.Report(c.Request.Context(), uid(c), &req)
-	write(c, data, be)
-}
-
-// OrderGrab POST /workorders/:id/grab（抢单：项目开启抢单且本人在 order_accept 名单）
-func (ctl *MPController) OrderGrab(c *gin.Context) {
-	id, be := pathID(c)
-	if be != nil {
-		response.Fail(c, be)
-		return
-	}
-	if be := ctl.orders.Grab(id, middleware.CurrentIdentity(c)); be != nil {
-		response.Fail(c, be)
-		return
-	}
-	response.OK(c, gin.H{"status": "processing"})
-}
-
-// OrderConfirm POST /workorders/:id/confirm（验收：报单人本人或受理名单成员）
-func (ctl *MPController) OrderConfirm(c *gin.Context) {
-	id, be := pathID(c)
-	if be != nil {
-		response.Fail(c, be)
-		return
-	}
-	var req wodto.ConfirmReq
-	if be := bind.JSON(c, &req); be != nil {
-		response.Fail(c, be)
-		return
-	}
-	status, be := ctl.orders.ConfirmForMP(id, middleware.CurrentIdentity(c), &req)
-	write(c, gin.H{"status": status}, be)
-}
-
-// OrderDetail GET /workorders/:id
-func (ctl *MPController) OrderDetail(c *gin.Context) {
-	id, be := pathID(c)
-	if be != nil {
-		response.Fail(c, be)
-		return
-	}
-	data, be := ctl.orders.GetForMP(id, middleware.CurrentIdentity(c))
-	write(c, data, be)
-}
-
-// OrderFinish POST /workorders/:id/finish
-func (ctl *MPController) OrderFinish(c *gin.Context) {
-	id, be := pathID(c)
-	if be != nil {
-		response.Fail(c, be)
-		return
-	}
-	var req wodto.FinishReq
-	if be := bind.JSON(c, &req); be != nil {
-		response.Fail(c, be)
-		return
-	}
-	if len(req.FixPhotos) == 0 {
-		response.Fail(c, errs.ErrParam.WithMsg("维修照片至少 1 张"))
-		return
-	}
-	if be := ctl.orders.FinishForMP(id, uid(c), &req); be != nil {
-		response.Fail(c, be)
-		return
-	}
-	response.OK(c, gin.H{"status": "review"})
 }
 
 // ========== 消息与公告 ==========

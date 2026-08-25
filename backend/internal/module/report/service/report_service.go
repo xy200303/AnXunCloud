@@ -23,7 +23,6 @@ import (
 	"anxuncloud/internal/module/report/model"
 	sysmodel "anxuncloud/internal/module/system/model"
 	systemsvc "anxuncloud/internal/module/system/service"
-	womodel "anxuncloud/internal/module/workorder/model"
 	"anxuncloud/internal/pkg/authz"
 	"anxuncloud/internal/pkg/errs"
 	"anxuncloud/internal/pkg/logger"
@@ -130,17 +129,8 @@ func scopeCheckinType(db *gorm.DB, patrolType string) *gorm.DB {
 	return db.Where("task_id IN (SELECT id FROM inspection_task WHERE patrol_type = ? AND deleted_at IS NULL)", patrolType)
 }
 
-// scopeOrderType 工单查询叠加巡查类型过滤（仅巡检异常转单可归类型，经 checkin_id → 任务快照类型）。
-func scopeOrderType(db *gorm.DB, patrolType string) *gorm.DB {
-	if patrolType == "" {
-		return db
-	}
-	return db.Where(`checkin_id IN (SELECT id FROM checkin_record
-		WHERE task_id IN (SELECT id FROM inspection_task WHERE patrol_type = ? AND deleted_at IS NULL))`, patrolType)
-}
-
 // buildStats 聚合指定小区指定月度的统计数据与应确认巡检员集合。
-// patrolType 空=综合口径（全类型）；非空=只统计该类型（任务/打卡/异常/工单闭环均按类型过滤）。
+// patrolType 空=综合口径（全类型）；非空=只统计该类型（任务/打卡/异常均按类型过滤）。
 func (s *ReportService) buildStats(communityID, period, patrolType string) (types.JSONMap, types.IDArray, *errs.Error) {
 	start, end, be := periodRange(period)
 	if be != nil {
@@ -178,15 +168,6 @@ func (s *ReportService) buildStats(communityID, period, patrolType string) (type
 	scopeCheckinType(s.db.Model(&insmodel.CheckinRecord{}), patrolType).
 		Where("community_id = ? AND checkin_time >= ? AND checkin_time < ?", communityID, start, end).
 		Select("COUNT(*) FILTER (WHERE result = 'abnormal') AS abnormal, COUNT(*) FILTER (WHERE is_suspect) AS suspect").Scan(&ckSum)
-
-	// 工单：当月新建（closed_invalid 已作废不计入分母）/ 其中已闭环
-	var woSum struct {
-		Created int64
-		Closed  int64
-	}
-	scopeOrderType(s.db.Model(&womodel.WorkOrder{}), patrolType).
-		Where("community_id = ? AND created_at >= ? AND created_at < ?", communityID, start, end).
-		Select("COUNT(*) FILTER (WHERE status <> 'closed_invalid') AS created, COUNT(*) FILTER (WHERE status = 'closed') AS closed").Scan(&woSum)
 
 	// 逐日明细：任务（日期/任务/完成）+ 当日异常打卡
 	type taskDay struct {
@@ -226,10 +207,7 @@ func (s *ReportService) buildStats(communityID, period, patrolType string) (type
 		"coverage_rate":  pct(taskSum.DonePts, taskSum.Should),
 		"abnormal_count": ckSum.Abnormal,
 		"suspect_count":  ckSum.Suspect,
-		"wo_created":     woSum.Created,
-		"wo_closed":      woSum.Closed,
-		"wo_unclosed":    woSum.Created - woSum.Closed,
-		"wo_close_rate":  pct(woSum.Closed, woSum.Created),
+		"issue_count":    ckSum.Abnormal, // 当期异常打卡数（原 wo_created 口径的替代指标）
 		"daily":          daily,
 		"records":        s.collectRecords(communityID, start, end, patrolType),
 	}

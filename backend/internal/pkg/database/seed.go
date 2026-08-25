@@ -83,7 +83,7 @@ func seedRoles(tx *gorm.DB) (map[string]string, error) {
 		{Code: "super_admin", Name: "超级管理员", DataScope: model.ScopeAll, Remark: "拥有全部权限", IsBuiltin: true},
 		{Code: "tenant_admin", Name: "租户管理员", DataScope: model.ScopeAll, Remark: "物业公司负责人：租户内全部业务功能与租户级系统管理", IsBuiltin: true},
 		{Code: "project_admin", Name: "项目管理员", DataScope: model.ScopeProject, Remark: "项目经理/主管等项目级后台使用人员：业务菜单全开", IsBuiltin: true},
-		{Code: "field_staff", Name: "一线人员", DataScope: model.ScopeSelf, Remark: "巡检员/维修工/楼管员/前台等移动端使用人员：打卡、任务、工单、月报确认", IsBuiltin: true},
+		{Code: "field_staff", Name: "一线人员", DataScope: model.ScopeSelf, Remark: "巡检员/维修工/楼管员/前台等移动端使用人员：打卡、任务、月报确认", IsBuiltin: true},
 	}
 	ids := make(map[string]string, len(roles))
 	for i := range roles {
@@ -136,22 +136,12 @@ func seedMenus(tx *gorm.DB) (map[string]string, error) {
 				{title: "记录审核", typ: model.MenuTypeButton, perms: "inspection:checkin:review", sort: 2},
 				{title: "发起抽查", typ: model.MenuTypeButton, perms: "inspection:checkin:spotcheck", sort: 3},
 			}},
-			{title: "检查项模板", path: "/inspection/templates", icon: "Finished", typ: model.MenuTypeMenu, perms: "inspection:template:list", sort: 5, children: []menuSeed{
+			// 问题清单：异常打卡记录只读出口（perm 复用巡检记录列表权限点）
+			{title: "问题清单", path: "/inspection/issues", icon: "Warning", typ: model.MenuTypeMenu, perms: "inspection:record:list", sort: 5},
+			{title: "检查项模板", path: "/inspection/templates", icon: "Finished", typ: model.MenuTypeMenu, perms: "inspection:template:list", sort: 6, children: []menuSeed{
 				{title: "新增模板", typ: model.MenuTypeButton, perms: "inspection:template:create", sort: 1},
 				{title: "编辑模板", typ: model.MenuTypeButton, perms: "inspection:template:update", sort: 2},
 				{title: "删除模板", typ: model.MenuTypeButton, perms: "inspection:template:delete", sort: 3},
-			}},
-		}},
-		{title: "工单管理", path: "/workorders", icon: "Tools", typ: model.MenuTypeDir, sort: 30, children: []menuSeed{
-			{title: "工单列表", path: "/workorders/list", icon: "List", typ: model.MenuTypeMenu, perms: "workorder:list", sort: 1, children: []menuSeed{
-				{title: "新建工单", typ: model.MenuTypeButton, perms: "workorder:create", sort: 1},
-				{title: "编辑工单", typ: model.MenuTypeButton, perms: "workorder:update", sort: 2},
-				{title: "删除工单", typ: model.MenuTypeButton, perms: "workorder:delete", sort: 3},
-				{title: "处理反馈", typ: model.MenuTypeButton, perms: "workorder:finish", sort: 5},
-				{title: "导出", typ: model.MenuTypeButton, perms: "workorder:export", sort: 7},
-				{title: "工单受理", typ: model.MenuTypeButton, perms: "workorder:triage", sort: 8},
-				{title: "工单派单", typ: model.MenuTypeButton, perms: "workorder:dispatch", sort: 9},
-				{title: "工单验收", typ: model.MenuTypeButton, perms: "workorder:confirm", sort: 10},
 			}},
 		}},
 		{title: "统计分析", path: "/stats", icon: "DataAnalysis", typ: model.MenuTypeDir, sort: 40, children: []menuSeed{
@@ -301,7 +291,7 @@ func seedMenus(tx *gorm.DB) (map[string]string, error) {
 }
 
 // seedRoleMenus 分配角色菜单：超管全量；租户管理员为全部非平台级菜单（is_platform=false，即系统管理 + 业务模块）；
-// 项目管理员含工作台/巡检/工单/统计/小区编制/个人中心。
+// 项目管理员含工作台/巡检/统计/小区编制/个人中心。
 func seedRoleMenus(tx *gorm.DB, roleIDs, menuIDs map[string]string) error {
 	var allMenus []model.SysMenu
 	if err := tx.Select("id", "perms", "path", "is_platform").Find(&allMenus).Error; err != nil {
@@ -322,10 +312,9 @@ func seedRoleMenus(tx *gorm.DB, roleIDs, menuIDs map[string]string) error {
 		"/inspection", "inspection:point:list", "inspection:point:create", "inspection:point:update", "inspection:point:delete", "inspection:point:qrcode", "inspection:point:import",
 		"inspection:plan:list", "inspection:plan:create", "inspection:plan:update", "inspection:plan:disable",
 		"inspection:task:monitor", "inspection:task:list", "inspection:record:list", "inspection:checkin:list",
+		// 巡检记录与问题清单共用 inspection:record:list 权限点（perms 键只映射后写的菜单），两个菜单按 path 各补一条
+		"/inspection/records", "/inspection/issues",
 		"inspection:template:list", "inspection:checkin:review", "inspection:checkin:spotcheck",
-		"/workorders", "workorder:list", "workorder:create", "workorder:update", "workorder:delete",
-		"workorder:finish", "workorder:export",
-		"workorder:triage", "workorder:dispatch", "workorder:confirm",
 		"/stats", "stats:inspection", "stats:performance", "stats:report", "stats:export",
 		"report:list", "report:generate", "report:download",
 		"/community", "community:list", "community:staff:list", "community:staff:edit", "community:duty:edit",
@@ -411,9 +400,6 @@ func seedDicts(tx *gorm.DB) error {
 		{"task_status", "任务状态", [][2]string{{"待开始", "pending"}, {"进行中", "doing"}, {"已完成", "done"}, {"已逾期", "overdue"}}},
 		{"checkin_type", "打卡类型", [][2]string{{"扫码", "qrcode"}, {"围栏", "fence"}, {"离线补传", "offline"}, {"NFC", "nfc"}}},
 		{"checkin_result", "打卡结果", [][2]string{{"正常", "normal"}, {"异常", "abnormal"}}},
-		{"order_priority", "工单优先级", [][2]string{{"低", "low"}, {"普通", "normal"}, {"高", "high"}, {"紧急", "urgent"}}},
-		{"work_order_status", "工单状态", [][2]string{{"待受理", "reported"}, {"待派单", "pending_dispatch"}, {"处理中", "processing"}, {"待验收", "pending_confirm"}, {"已闭环", "closed"}, {"已作废", "closed_invalid"}}},
-		{"order_source", "工单来源", [][2]string{{"巡检异常转单", "inspection"}, {"主动上报", "active"}, {"前台代录", "frontdesk"}}},
 		{"patrol_type", "巡查类型", [][2]string{{"安全巡查", "safety"}, {"设备设施专项巡查", "equipment"}, {"环境巡查", "environment"}, {"楼栋巡查", "building"}, {"消防设施专项", "fire"}}},
 	}
 	for _, d := range dicts {
@@ -466,8 +452,8 @@ func seedConfigs(tx *gorm.DB) error {
 		{Key: "inspection.task_generate_days", Name: "任务提前生成天数", Value: "1", ConfigGroup: "inspection", Remark: "每日 00:05 生成未来 N 天任务"},
 		{Key: "inspection.overdue_check_time", Name: "逾期翻转时间", Value: "00:10", ConfigGroup: "inspection", Remark: "每日该时刻将昨日未完成任务置 overdue"},
 		{Key: "mp.offline_sync_limit", Name: "离线补传单批上限", Value: "50", ConfigGroup: "mp", Remark: "单次补传最大条数"},
-		{Key: "msg.subscribe_enabled", Name: "微信订阅消息开关", Value: "true", ConfigGroup: "msg", Remark: "任务提醒/工单指派/整改驳回"},
-		{Key: "msg.wecom_webhook_enabled", Name: "企业微信工单推送开关", Value: "false", ConfigGroup: "msg", Remark: "开启需配置 webhook 地址（应用配置，不入库）"},
+		{Key: "msg.subscribe_enabled", Name: "微信订阅消息开关", Value: "true", ConfigGroup: "msg", Remark: "任务提醒/审核通知"},
+		{Key: "msg.wecom_webhook_enabled", Name: "企业微信消息推送开关", Value: "false", ConfigGroup: "msg", Remark: "开启需配置 webhook 地址（应用配置，不入库）"},
 		{Key: "security.login_fail_limit", Name: "登录失败锁定次数", Value: "5", ConfigGroup: "security", Remark: "连续失败锁定 10 分钟（配合 Redis 计数）"},
 		{Key: "map.tencent_key", Name: "腾讯地图前端 Key", Value: "", ConfigGroup: "map", Remark: "用于管理后台点位地图选点，需在腾讯位置服务配置 JSAPI 域名白名单"},
 		{Key: "map.tencent_ws_key", Name: "腾讯地图 WebService Key", Value: "", ConfigGroup: "map", Remark: "用于后端代理地点搜索；留空时回退 map.tencent_key"},
@@ -477,8 +463,13 @@ func seedConfigs(tx *gorm.DB) error {
 		{Key: "ai.model", Name: "模型名称", Value: "gpt-4o-mini", ConfigGroup: "ai", Remark: "须支持图像理解（vision）"},
 		{Key: "ai.timeout_seconds", Name: "超时秒数", Value: "60", ConfigGroup: "ai", Remark: "超时/失败默认通过并记录 ai_verdict=error"},
 		{Key: "ai.prompt", Name: "审查规则", Value: "", ConfigGroup: "ai", Remark: "留空用内置规则：判断照片清晰度、与点位/检查项匹配度、有无明显异常，输出 pass/review"},
+		{Key: "ai.protocol", Name: "AI 接口协议", Value: "openai_chat", ConfigGroup: "ai", Remark: "openai_chat（OpenAI 兼容 Chat Completions）/openai_responses/gemini/claude"},
+		{Key: "ai.platform", Name: "AI 平台预设", Value: "", ConfigGroup: "ai", Remark: "平台预设标识（仅展示用，如 openai/qwen/doubao/gemini/claude）；实际生效以 protocol/base_url/model 为准"},
+		{Key: "ai.sync_enabled", Name: "打卡同步 AI 判定", Value: "true", ConfigGroup: "ai", Remark: "开启后打卡提交时同步做质量+内容两层判定：质量不达标拒绝打卡，失败/超时放行转人工复核"},
+		{Key: "ai.sync_timeout_seconds", Name: "同步判定超时秒数", Value: "15", ConfigGroup: "ai", Remark: "打卡同步 AI 判定的超时时间；超时按失败放行（ai_verdict=error 转人工复核）"},
+		{Key: "ai.max_photo_attempts", Name: "照片质量重拍放行次数", Value: "3", ConfigGroup: "ai", Remark: "照片质量不达标允许重拍的次数，达到上限后 App 端可强制提交（App 端读取）"},
 		{Key: "report.company_name", Name: "管理单位落款", Value: "", ConfigGroup: "report", Remark: "月报封面\"管理单位\"与页尾落款单位名称；空则留白"},
-		{Key: "site.slogan", Name: "官网标语", Value: "二维码 / NFC / GPS 围栏三重到点校验，拍照留证、工单闭环、月度报告电子签，巡检情况后台一目了然。", ConfigGroup: "site", Remark: "官网首页主标题下的一句话介绍"},
+		{Key: "site.slogan", Name: "官网标语", Value: "二维码 / NFC / GPS 围栏三重到点校验，拍照留证、异常复核、月度报告电子签，巡检情况后台一目了然。", ConfigGroup: "site", Remark: "官网首页主标题下的一句话介绍"},
 		{Key: "site.contact_phone", Name: "联系电话", Value: "", ConfigGroup: "site", Remark: "官网页脚展示，留空不显示"},
 		{Key: "site.contact_email", Name: "联系邮箱", Value: "", ConfigGroup: "site", Remark: "官网页脚展示，留空不显示"},
 		{Key: "site.theme_color", Name: "官网主题色", Value: "#2b5aed", ConfigGroup: "site", Remark: "官网按钮/强调色，十六进制色值"},
@@ -515,8 +506,8 @@ func seedPosts(tx *gorm.DB, roleIDs map[string]string) error {
 		{"project_manager", "项目经理", "general", false, "project_admin", 1, model.StatusEnabled, "项目第一负责人，月报终审，全员管理"},
 		{"safety_supervisor", "安全主管", "safety", true, "project_admin", 2, model.StatusEnabled, "管理巡检员，安全/秩序巡查，月报主管审批"},
 		{"inspector", "巡检员", "safety", false, "field_staff", 3, model.StatusEnabled, "按计划执行巡查打卡"},
-		{"engineering_supervisor", "工程主管", "engineering", true, "project_admin", 4, model.StatusEnabled, "管理维修工，设备设施专项巡查，工单派单"},
-		{"repairman", "维修工", "engineering", false, "field_staff", 5, model.StatusEnabled, "设备设施专项巡查 + 接工单维修"},
+		{"engineering_supervisor", "工程主管", "engineering", true, "project_admin", 4, model.StatusEnabled, "管理维修工，设备设施专项巡查"},
+		{"repairman", "维修工", "engineering", false, "field_staff", 5, model.StatusEnabled, "设备设施专项巡查与维修"},
 		{"environment_supervisor", "环境主管", "environment", true, "project_admin", 6, model.StatusEnabled, "环境卫生/绿化巡查管理"},
 		{"cleaner", "保洁员", "environment", false, "field_staff", 7, model.StatusDisabled, "预留岗位，本期不进系统"},
 		{"service_supervisor", "客服主管", "service", true, "project_admin", 8, model.StatusEnabled, "管理前台接待和楼管员，报单受理"},
@@ -549,9 +540,6 @@ func seedDutyBindings(tx *gorm.DB) error {
 	}{
 		{model.SlotReportSignSupervisor, types.StringArray{"safety_supervisor"}},
 		{model.SlotReportSignManager, types.StringArray{"project_manager"}},
-		{model.SlotOrderTriage, types.StringArray{"service_supervisor"}},
-		{model.SlotOrderDispatch, types.StringArray{"engineering_supervisor"}},
-		{model.SlotOrderAccept, types.StringArray{"repairman"}},
 		{model.SlotPatrolExecute, types.StringArray{"inspector"}},
 		{model.SlotPatrolReportLine, types.StringArray{"safety_supervisor"}},
 		// 汇报线业务线维度槽位（扩展方案 §2.4）：安全线不设默认（回落通用槽位），

@@ -3,6 +3,7 @@ package service
 import (
 	"fmt"
 	"math"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -115,6 +116,8 @@ func (s *ReviewService) reviewItem(r *model.CheckinRecord) gin.H {
 		"audit_by": r.AuditBy,
 		"audit_at": timefmt.TP(r.AuditAt), "audit_remark": r.AuditRemark,
 		"ai_verdict": r.AIVerdict, "ai_reason": r.AIReason,
+		"ai_quality_pass": r.AIQualityPass, "ai_quality_issue": r.AIQualityIssue,
+		"force_submit":    r.ForceSubmit,
 	}
 }
 
@@ -448,6 +451,8 @@ func (s *ReviewService) spotcheckAI(c *gin.Context, req *dto.SpotcheckReq) (gin.
 			failed++
 		default:
 			updates["ai_reason"] = truncateRunes(res.Reason, 500)
+			updates["ai_quality_pass"] = res.Quality.Pass
+			updates["ai_quality_issue"] = truncateRunes(res.Quality.Issue, 255)
 			writeItemVerdicts(s.db, r.ID, res.Items)
 			if res.Verdict == model.AIVerdictPass {
 				updates["ai_verdict"] = model.AIVerdictPass
@@ -487,7 +492,8 @@ func (s *ReviewService) checkItemViews(recordID string) []gin.H {
 			"name": ci.Name, "pass": ci.Pass, "note": ci.Note,
 			"photos": ci.Photos, "photo_urls": urls,
 			"requirement": ci.Requirement, "ai_hint": ci.AIHint,
-			"ai_verdict": ci.AIVerdict, "ai_reason": ci.AIReason,
+			"judge_type": ci.JudgeType, "judge_config": ci.JudgeConfig,
+			"ai_verdict": ci.AIVerdict, "ai_reason": ci.AIReason, "ai_reading": ci.AIReading,
 		})
 	}
 	return out
@@ -518,7 +524,8 @@ func (s *ReviewService) reviewInputOf(r *model.CheckinRecord) ai.ReviewInput {
 				irefs = append(irefs, ai.PhotoRef{URL: s.store.URL(key)})
 			}
 			itemPhotos = append(itemPhotos, ai.ItemPhoto{
-				Name: it.Name, Requirement: strVal(it.Requirement), AIHint: strVal(it.AIHint), Photos: irefs,
+				Name: it.Name, Requirement: strVal(it.Requirement), AIHint: strVal(it.AIHint),
+				JudgeType: it.JudgeType, JudgeConfig: it.JudgeConfig, Photos: irefs,
 			})
 		}
 	}
@@ -548,9 +555,13 @@ func strVal(p *string) string {
 func writeItemVerdicts(db *gorm.DB, recID string, items []ai.ItemVerdict) {
 	for _, iv := range items {
 		v, r := iv.Verdict, truncateRunes(iv.Reason, 500)
+		updates := map[string]any{"ai_verdict": v, "ai_reason": r}
+		if rd := truncateRunes(strings.TrimSpace(iv.Reading), 64); rd != "" {
+			updates["ai_reading"] = rd
+		}
 		if err := db.Model(&model.CheckinRecordItem{}).
 			Where("record_id = ? AND name = ?", recID, iv.Name).
-			Updates(map[string]any{"ai_verdict": v, "ai_reason": r}).Error; err != nil {
+			Updates(updates).Error; err != nil {
 			logger.L.Warn("逐项 AI 结论回写失败", zap.String("rec_id", recID), zap.String("item", iv.Name), zap.Error(err))
 		}
 	}

@@ -4,6 +4,7 @@ package controller
 import (
 	"bytes"
 	"fmt"
+	"net/url"
 	"path/filepath"
 	"strings"
 	"time"
@@ -339,4 +340,48 @@ func (ctl *InspectionController) CheckinDetail(c *gin.Context) {
 	}
 	data, be := ctl.tasks.CheckinDetail(c, id)
 	write(c, data, be)
+}
+
+// ========== 问题清单（异常打卡记录只读出口） ==========
+
+// ListIssues GET /inspection/issues（仅 result=abnormal 记录）。
+func (ctl *InspectionController) ListIssues(c *gin.Context) {
+	var q dto.IssueListQuery
+	if be := bind.Query(c, &q); be != nil {
+		response.Fail(c, be)
+		return
+	}
+	page, be := ctl.tasks.IssueList(c, &q)
+	write(c, page, be)
+}
+
+// ExportIssues GET /inspection/issues/export（同列表筛选，不分页，上限 5000 条，xlsx 附件）。
+func (ctl *InspectionController) ExportIssues(c *gin.Context) {
+	var q dto.IssueListQuery
+	if be := bind.Query(c, &q); be != nil {
+		response.Fail(c, be)
+		return
+	}
+	rows, be := ctl.tasks.IssueExport(c, &q)
+	if be != nil {
+		response.Fail(c, be)
+		return
+	}
+	f, err := excel.ExportIssues(rows)
+	if err != nil {
+		response.Fail(c, errs.ErrInternal)
+		return
+	}
+	defer f.Close()
+	var buf bytes.Buffer
+	if err := f.Write(&buf); err != nil {
+		response.Fail(c, errs.ErrInternal)
+		return
+	}
+	// 中文文件名：ASCII 兜底 + RFC 5987 filename*
+	name := fmt.Sprintf("问题清单_%s.xlsx", time.Now().Format("20060102_150405"))
+	c.Header("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+	c.Header("Content-Disposition", fmt.Sprintf(`attachment; filename="issues_%s.xlsx"; filename*=UTF-8''%s`,
+		time.Now().Format("20060102_150405"), url.PathEscape(name)))
+	c.Data(200, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", buf.Bytes())
 }

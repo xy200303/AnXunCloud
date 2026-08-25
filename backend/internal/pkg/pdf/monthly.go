@@ -43,7 +43,7 @@ type SummaryRow struct {
 	Normal      int     // 正常完好（正常打卡数）
 	InspectRate float64 // 巡检完成率 %
 	Problems    int     // 存在问题（异常打卡数）
-	Rectified   int     // 整改完毕（已闭环工单数）
+	Rectified   int     // 整改完毕（已复核异常打卡数）
 	RectifyRate float64 // 整改完成率 %
 	Remark      string
 }
@@ -65,14 +65,14 @@ type DetailTable struct {
 	Rows     []DetailRow
 }
 
-// LedgerRow 问题清单及整改台账行（v2 模板：异常工单一行）。
+// LedgerRow 问题清单及整改台账行（v2 模板：一条异常打卡记录一行）。
 type LedgerRow struct {
-	Date          string   // 日期（工单创建日）
-	Problem       string   // 故障/问题描述
+	Date          string   // 日期（异常打卡日）
+	Problem       string   // 故障/问题描述（异常备注）
 	ProblemPhotos []string // 问题照片 file_key（渲染取首张）
-	FixText       string   // 处理情况（整改说明，空回退工单状态）
+	FixText       string   // 处理情况（异常打卡的复核结论）
 	FixPhotos     []string // 整改后照片 file_key（渲染取首张）
-	Inspector     string   // 检查人（工单上报人）
+	Inspector     string   // 检查人（打卡巡检员）
 }
 
 // PhotoCell 现场照片单元（标注 + 图片 file_key）。

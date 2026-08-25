@@ -92,7 +92,7 @@ func storageDir(store *storage.Storage, scene string, uid string) string {
 // scene=signature 为 App 端月报签字的一次性手写签名（报告 resolveSignKey 按 scene+user_id 校验归属）。
 func (s *UploadService) SaveLocal(userID string, scene, filename string, size int64, r io.Reader) (gin.H, *errs.Error) {
 	switch scene {
-	case "checkin", "workorder", "avatar", "signature":
+	case "checkin", "avatar", "signature":
 	default:
 		return nil, errs.ErrParam.WithMsg("scene 取值非法")
 	}
@@ -123,10 +123,10 @@ func (s *UploadService) SaveLocal(userID string, scene, filename string, size in
 	return gin.H{"file_key": key, "url": url}, nil
 }
 
-// SaveAdminLocal 管理端本地上传（/api/admin/system/upload）：签名/公章/头像/工单整改图片/公告附件。
+// SaveAdminLocal 管理端本地上传（/api/admin/system/upload）：签名/公章/头像/公告附件。
 func (s *UploadService) SaveAdminLocal(userID string, scene, filename string, size int64, r io.Reader) (gin.H, *errs.Error) {
 	switch scene {
-	case "signature", "seal", "avatar", "workorder", "notice":
+	case "signature", "seal", "avatar", "notice":
 	default:
 		return nil, errs.ErrParam.WithMsg("scene 取值非法")
 	}
@@ -245,7 +245,7 @@ func (s *UploadService) Callback(c *gin.Context, body []byte) (int, any) {
 
 func isUploadScene(scene string) bool {
 	switch scene {
-	case "checkin", "workorder", "avatar", "signature", "seal", "notice":
+	case "checkin", "avatar", "signature", "seal", "notice":
 		return true
 	default:
 		return false

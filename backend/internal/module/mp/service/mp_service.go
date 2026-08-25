@@ -19,13 +19,9 @@ import (
 	insmodel "anxuncloud/internal/module/inspection/model"
 	"anxuncloud/internal/module/mp/dto"
 	sysmodel "anxuncloud/internal/module/system/model"
-	womodel "anxuncloud/internal/module/workorder/model"
-	wodto "anxuncloud/internal/module/workorder/dto"
-	wosvc "anxuncloud/internal/module/workorder/service"
 	"anxuncloud/internal/pkg/bind"
 	"anxuncloud/internal/pkg/errs"
 	"anxuncloud/internal/pkg/jwtutil"
-	"anxuncloud/internal/pkg/response"
 	"anxuncloud/internal/pkg/session"
 	"anxuncloud/internal/pkg/timefmt"
 	"anxuncloud/internal/pkg/types"
@@ -35,19 +31,18 @@ import (
 // 会话通道自 v21 起与 App 合并为 ChannelApp：app/mp 共用一套会话体系，token 两端正通用。
 const ChannelMP = "mp"
 
-// MPService 小程序端服务（登录/任务/工单/消息/公告）。
+// MPService 小程序端服务（登录/任务/消息/公告）。
 type MPService struct {
 	db     *gorm.DB
 	rdb    *redis.Client
 	sess   *session.Store
 	jwtm   *jwtutil.Manager
 	wechat config.WechatConfig
-	orders *wosvc.OrderService
 	httpc  *http.Client
 }
 
-func NewMPService(db *gorm.DB, rdb *redis.Client, sess *session.Store, jwtm *jwtutil.Manager, wechat config.WechatConfig, orders *wosvc.OrderService) *MPService {
-	return &MPService{db: db, rdb: rdb, sess: sess, jwtm: jwtm, wechat: wechat, orders: orders, httpc: &http.Client{Timeout: 8 * time.Second}}
+func NewMPService(db *gorm.DB, rdb *redis.Client, sess *session.Store, jwtm *jwtutil.Manager, wechat config.WechatConfig) *MPService {
+	return &MPService{db: db, rdb: rdb, sess: sess, jwtm: jwtm, wechat: wechat, httpc: &http.Client{Timeout: 8 * time.Second}}
 }
 
 // ========== 登录 ==========
@@ -689,89 +684,13 @@ func (s *MPService) CheckinItems(inspectorID, checkinID string) ([]gin.H, *errs.
 		out = append(out, gin.H{
 			"name": it.Name, "pass": it.Pass,
 			"ai_verdict": strVal(it.AIVerdict), "ai_reason": strVal(it.AIReason),
+			"ai_reading": strVal(it.AIReading),
 		})
 	}
 	return out, nil
 }
 
-// ========== 我的工单 / 消息 ==========
-
-// MyOrders 我的工单（我上报的 + 指派给我的；type=pool 为可抢工单池）。
-func (s *MPService) MyOrders(userID string, q *dto.MyOrdersQuery) (*response.Page, *errs.Error) {
-	if q.Type == "pool" {
-		// 可抢池：开启抢单项目 + 本人在 order_accept 名单的待派单工单（名单制判定在 OrderService 内）
-		return s.orders.PoolOrders(userID, &wodto.OrderListQuery{PageQuery: q.PageQuery, Status: q.Status})
-	}
-	db := s.db.Model(&womodel.WorkOrder{})
-	switch q.Type {
-	case "reported":
-		db = db.Where("reporter_id = ?", userID)
-	case "assigned":
-		db = db.Where("assignee_id = ?", userID)
-	default:
-		db = db.Where("reporter_id = ? OR assignee_id = ?", userID, userID)
-	}
-	if q.Status != "" {
-		// 支持逗号多值（如 pending,assigned 合并为「待处理」筛选）
-		db = db.Where("status IN ?", strings.Split(q.Status, ","))
-	}
-	var total int64
-	if err := db.Count(&total).Error; err != nil {
-		return nil, errs.ErrInternal
-	}
-	var rows []womodel.WorkOrder
-	offset, limit := q.Normalize()
-	if err := db.Order("id DESC").Offset(offset).Limit(limit).Find(&rows).Error; err != nil {
-		return nil, errs.ErrInternal
-	}
-	list := make([]gin.H, 0, len(rows))
-	for _, o := range rows {
-		myRole := "reporter"
-		if o.AssigneeID != nil && *o.AssigneeID == userID && o.ReporterID != userID {
-			myRole = "assignee"
-		}
-		pointName := ""
-		if o.PointID != nil {
-			s.db.Table("inspection_point").Select("name").Where("id = ?", *o.PointID).Scan(&pointName)
-		}
-		list = append(list, gin.H{
-			"id": o.ID, "order_no": o.OrderNo, "title": o.Title,
-			"community_name": s.commName(o.CommunityID), "point_name": pointName,
-			"priority": o.Priority, "status": o.Status, "my_role": myRole,
-			"created_at": timefmt.T(o.CreatedAt),
-		})
-	}
-	return &response.Page{List: list, Total: total, Page: q.Page, PageSize: q.PageSize}, nil
-}
-
-// MyOrderCounts 我的工单按状态计数（type 过滤口径与 MyOrders 一致），
-// 供移动端状态筛选 chip 角标与「指派给我」红点使用。返回 {status: count}。
-func (s *MPService) MyOrderCounts(userID string, typ string) (gin.H, *errs.Error) {
-	db := s.db.Model(&womodel.WorkOrder{})
-	switch typ {
-	case "reported":
-		db = db.Where("reporter_id = ?", userID)
-	case "assigned":
-		db = db.Where("assignee_id = ?", userID)
-	default:
-		db = db.Where("reporter_id = ? OR assignee_id = ?", userID, userID)
-	}
-	type statusCount struct {
-		Status string
-		Cnt    int64
-	}
-	var rows []statusCount
-	if err := db.Select("status, COUNT(*) AS cnt").Group("status").Scan(&rows).Error; err != nil {
-		return nil, errs.ErrInternal
-	}
-	out := gin.H{}
-	for _, r := range rows {
-		out[r.Status] = r.Cnt
-	}
-	// 可抢池数量（移动端「可抢」入口角标）
-	out["pool"] = s.orders.PoolCount(userID)
-	return out, nil
-}
+// ========== 消息 ==========
 
 // Messages 消息列表 + 未读数。
 func (s *MPService) Messages(userID string, q *dto.MessageQuery) (gin.H, *errs.Error) {

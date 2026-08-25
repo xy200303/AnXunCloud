@@ -31,8 +31,6 @@ import (
 	statssvc "anxuncloud/internal/module/stats/service"
 	systemctl "anxuncloud/internal/module/system/controller"
 	systemsvc "anxuncloud/internal/module/system/service"
-	workorderctl "anxuncloud/internal/module/workorder/controller"
-	workordersvc "anxuncloud/internal/module/workorder/service"
 	"anxuncloud/internal/pkg/jwtutil"
 	"anxuncloud/internal/pkg/logger"
 	"anxuncloud/internal/pkg/notify"
@@ -85,11 +83,10 @@ func New(cfg *config.Config, db *gorm.DB, rdb *redis.Client) (*gin.Engine, *insp
 	taskSvc := inspectionsvc.NewTaskService(db, store, notifier)
 	templateSvc := inspectionsvc.NewTemplateService(db)
 	reviewSvc := inspectionsvc.NewReviewService(db, notifier)
-	orderSvc := workordersvc.NewOrderService(db, rdb, store, notifier)
 	statsSvc := statssvc.NewStatsService(db, store)
 	reportSvc := reportsvc.NewReportService(db, rdb, store, configSvc.Get, notifier)
-	mpSvc := mpsvc.NewMPService(db, rdb, sess, jwtm, cfg.Wechat, orderSvc)
-	checkinSvc := mpsvc.NewCheckinService(db, rdb, store, orderSvc, configSvc.Get, notifier)
+	mpSvc := mpsvc.NewMPService(db, rdb, sess, jwtm, cfg.Wechat)
+	checkinSvc := mpsvc.NewCheckinService(db, rdb, store, configSvc.Get, notifier)
 	uploadSvc := mpsvc.NewUploadService(db, store, cfg.Upload, cfg.OSS)
 	scheduler := inspectionsvc.NewScheduler(db, planSvc, reportSvc, configSvc.Get)
 
@@ -115,14 +112,13 @@ func New(cfg *config.Config, db *gorm.DB, rdb *redis.Client) (*gin.Engine, *insp
 	inspectionCtl := inspectionctl.NewInspectionController(pointSvc, planSvc, taskSvc)
 	templateCtl := inspectionctl.NewTemplateController(templateSvc)
 	reviewCtl := inspectionctl.NewReviewController(reviewSvc)
-	orderCtl := workorderctl.NewOrderController(orderSvc)
 	statsCtl := statsctl.NewStatsController(statsSvc)
 	reportCtl := reportctl.NewReportController(reportSvc)
 	fileCtl := filectl.NewFileController(filesvc.NewFileService(db, store, uploadSvc))
-	mpCtl := mpctl.NewMPController(mpSvc, checkinSvc, uploadSvc, orderSvc, noticeSvc)
+	mpCtl := mpctl.NewMPController(mpSvc, checkinSvc, uploadSvc, noticeSvc)
 	pushCtl := mpctl.NewPushController(notifier)
 
-	// 健康检查 + 本地文件静态路由（仅非敏感场景：checkin/workorder/avatar/notice 等内容图；
+	// 健康检查 + 本地文件静态路由（仅非敏感场景：checkin/avatar/notice 等内容图；
 	// signature/seal/export 由 /api/files 鉴权提供，store.URL 已按前缀分流）
 	r.GET("/healthz", func(c *gin.Context) { response.OK(c, gin.H{"status": "up"}) })
 	r.GET("/uploads/*key", func(c *gin.Context) {
@@ -262,6 +258,9 @@ func New(cfg *config.Config, db *gorm.DB, rdb *redis.Client) (*gin.Engine, *insp
 		secured.GET("/inspection/checkins", middleware.RequirePerm("inspection:checkin:list", "inspection:record:list"), inspectionCtl.ListCheckins)
 		secured.GET("/inspection/checkins/audit-counts", middleware.RequirePerm("inspection:checkin:list", "inspection:record:list"), inspectionCtl.CheckinAuditCounts)
 		secured.GET("/inspection/checkins/:id", middleware.RequirePerm("inspection:checkin:list", "inspection:record:list"), inspectionCtl.CheckinDetail)
+		// 问题清单：异常打卡记录只读出口（权限点复用打卡记录列表）
+		secured.GET("/inspection/issues", middleware.RequirePerm("inspection:checkin:list", "inspection:record:list"), inspectionCtl.ListIssues)
+		secured.GET("/inspection/issues/export", middleware.RequirePerm("inspection:checkin:list", "inspection:record:list"), middleware.OperLog(db, "inspection", "issues_export"), inspectionCtl.ExportIssues)
 
 		// 检查项模板
 		templates := secured.Group("/inspection/templates")
@@ -286,21 +285,6 @@ func New(cfg *config.Config, db *gorm.DB, rdb *redis.Client) (*gin.Engine, *insp
 			review.POST("/:id/pass", middleware.RequirePerm("inspection:checkin:review"), middleware.OperLog(db, "inspection", "review_pass"), reviewCtl.Pass)
 			review.POST("/:id/reject", middleware.RequirePerm("inspection:checkin:review"), middleware.OperLog(db, "inspection", "review_reject"), reviewCtl.Reject)
 			review.POST("/:id/reopen", middleware.RequirePerm("inspection:checkin:review"), middleware.OperLog(db, "inspection", "review_reopen"), reviewCtl.Reopen)
-		}
-
-		// 异常工单（P2 闭环：受理→派单/抢单→完工→验收）
-		orders := secured.Group("/workorders")
-		{
-			orders.GET("", middleware.RequirePerm("workorder:list"), orderCtl.List)
-			orders.POST("", middleware.RequirePerm("workorder:create"), middleware.OperLog(db, "workorder", "create"), orderCtl.Create)
-			orders.GET("/dispatch-candidates", middleware.RequirePerm("workorder:dispatch"), orderCtl.DispatchCandidates)
-			orders.GET("/:id", middleware.RequirePerm("workorder:list"), orderCtl.Detail)
-			orders.PUT("/:id", middleware.RequirePerm("workorder:update"), middleware.OperLog(db, "workorder", "update"), orderCtl.Update)
-			orders.DELETE("/:id", middleware.RequirePerm("workorder:delete"), middleware.OperLog(db, "workorder", "delete"), orderCtl.Delete)
-			orders.POST("/:id/triage", middleware.RequirePerm("workorder:triage"), middleware.OperLog(db, "workorder", "triage"), orderCtl.Triage)
-			orders.POST("/:id/dispatch", middleware.RequirePerm("workorder:dispatch"), middleware.OperLog(db, "workorder", "dispatch"), orderCtl.Dispatch)
-			orders.POST("/:id/confirm", middleware.RequirePerm("workorder:confirm"), middleware.OperLog(db, "workorder", "confirm"), orderCtl.Confirm)
-			orders.POST("/:id/finish", middleware.RequirePerm("workorder:finish"), middleware.OperLog(db, "workorder", "finish"), orderCtl.Finish)
 		}
 
 		// 统计报表
@@ -350,13 +334,6 @@ func New(cfg *config.Config, db *gorm.DB, rdb *redis.Client) (*gin.Engine, *insp
 			mpAuth.GET("/checkins/:id/items", mpCtl.CheckinItems) // 本人打卡逐项 AI 结论
 			mpAuth.POST("/upload/sts", mpCtl.STS)
 			mpAuth.POST("/upload/local", mpCtl.Local) // local 模式上传
-			mpAuth.GET("/workorders/mine", mpCtl.MyOrders)
-			mpAuth.GET("/workorders/mine/counts", mpCtl.OrderCounts)
-			mpAuth.POST("/workorders", mpCtl.OrderReport) // 问题上报（任何移动端用户）
-			mpAuth.GET("/workorders/:id", mpCtl.OrderDetail)
-			mpAuth.POST("/workorders/:id/grab", mpCtl.OrderGrab)
-			mpAuth.POST("/workorders/:id/finish", mpCtl.OrderFinish)
-			mpAuth.POST("/workorders/:id/confirm", mpCtl.OrderConfirm)
 			mpAuth.GET("/messages", mpCtl.Messages)
 			mpAuth.PUT("/messages/:id/read", mpCtl.MarkRead)
 			mpAuth.POST("/push/device", pushCtl.BindDevice) // uniPush 设备 cid 绑定/解绑
@@ -393,14 +370,7 @@ func New(cfg *config.Config, db *gorm.DB, rdb *redis.Client) (*gin.Engine, *insp
 			appAuth.GET("/checkins/:id/items", mpCtl.CheckinItems) // 本人打卡逐项 AI 结论
 			appAuth.POST("/upload/sts", mpCtl.STS)
 			appAuth.POST("/upload/local", mpCtl.Local)
-			// 工单 / 消息 / 公告
-			appAuth.GET("/workorders/mine", mpCtl.MyOrders)
-			appAuth.GET("/workorders/mine/counts", mpCtl.OrderCounts)
-			appAuth.POST("/workorders", mpCtl.OrderReport) // 问题上报（任何移动端用户）
-			appAuth.GET("/workorders/:id", mpCtl.OrderDetail)
-			appAuth.POST("/workorders/:id/grab", mpCtl.OrderGrab)
-			appAuth.POST("/workorders/:id/finish", mpCtl.OrderFinish)
-			appAuth.POST("/workorders/:id/confirm", mpCtl.OrderConfirm)
+			// 消息 / 公告
 			appAuth.GET("/messages", mpCtl.Messages)
 			appAuth.PUT("/messages/:id/read", mpCtl.MarkRead)
 			appAuth.POST("/push/device", pushCtl.BindDevice) // uniPush 设备 cid 绑定/解绑（与 mp 组同 handler）
@@ -411,7 +381,7 @@ func New(cfg *config.Config, db *gorm.DB, rdb *redis.Client) (*gin.Engine, *insp
 			// ===== 管理功能（App 端）：复用 PC 控制器 + 同一套权限点，入口由 App 按 perms 显隐 =====
 			appAuth.GET("/dashboard", statsCtl.Dashboard)
 			appAuth.GET("/communities/tree", middleware.RequirePerm("community:list", "inspection:point:list"), communityCtl.Tree)
-			appAuth.GET("/system/users", middleware.RequirePerm("system:user:list", "workorder:dispatch"), userCtl.List)
+			appAuth.GET("/system/users", middleware.RequirePerm("system:user:list"), userCtl.List)
 			// 点位管理（现场建点：GPS 录坐标 + NFC 写卡；删除仅 PC 端）
 			appPoints := appAuth.Group("/inspection/points")
 			{
@@ -432,16 +402,6 @@ func New(cfg *config.Config, db *gorm.DB, rdb *redis.Client) (*gin.Engine, *insp
 				appReview.GET("/records", middleware.RequirePerm("inspection:checkin:review"), reviewCtl.Records)
 				appReview.POST("/:id/pass", middleware.RequirePerm("inspection:checkin:review"), middleware.OperLog(db, "inspection", "review_pass"), reviewCtl.Pass)
 				appReview.POST("/:id/reject", middleware.RequirePerm("inspection:checkin:review"), middleware.OperLog(db, "inspection", "review_reject"), reviewCtl.Reject)
-			}
-			// 工单管理（受理/派单/验收）：与巡检员「我的工单」路径隔离
-			appOrders := appAuth.Group("/manage/workorders")
-			{
-				appOrders.GET("", middleware.RequirePerm("workorder:list"), orderCtl.List)
-				appOrders.GET("/dispatch-candidates", middleware.RequirePerm("workorder:dispatch"), orderCtl.DispatchCandidates)
-				appOrders.GET("/:id", middleware.RequirePerm("workorder:list"), orderCtl.Detail)
-				appOrders.POST("/:id/triage", middleware.RequirePerm("workorder:triage"), middleware.OperLog(db, "workorder", "triage"), orderCtl.Triage)
-				appOrders.POST("/:id/dispatch", middleware.RequirePerm("workorder:dispatch"), middleware.OperLog(db, "workorder", "dispatch"), orderCtl.Dispatch)
-				appOrders.POST("/:id/confirm", middleware.RequirePerm("workorder:confirm"), middleware.OperLog(db, "workorder", "confirm"), orderCtl.Confirm)
 			}
 			// 月报签字（权限点与 PC 完全一致；待我签用 ?pending_mine=1）
 			appReports := appAuth.Group("/reports")

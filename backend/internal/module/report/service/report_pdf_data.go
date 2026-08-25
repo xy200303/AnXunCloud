@@ -9,7 +9,6 @@ import (
 	insmodel "anxuncloud/internal/module/inspection/model"
 	"anxuncloud/internal/module/report/model"
 	sysmodel "anxuncloud/internal/module/system/model"
-	womodel "anxuncloud/internal/module/workorder/model"
 	"anxuncloud/internal/pkg/logger"
 	"anxuncloud/internal/pkg/pdf"
 	"anxuncloud/internal/pkg/timefmt"
@@ -18,7 +17,7 @@ import (
 )
 
 // pdfData 由报告记录组装 PDF 版面数据（v2 模板）。
-// 汇总表/分项明细/整改台账按期间实时查询（点位+打卡记录+异常工单）；
+// 汇总表/分项明细/整改台账按期间实时查询（点位+打卡记录+异常打卡）；
 // 签字信息取报告留痕（含签名图快照）；管理单位取 report 配置，公章取报告快照/签章资产表。
 func (s *ReportService) pdfData(r *model.InspectionReport) pdf.MonthlyReportData {
 	start, end, be := periodRange(r.Period)
@@ -80,7 +79,7 @@ func (s *ReportService) pdfData(r *model.InspectionReport) pdf.MonthlyReportData
 	// ===== 当期打卡记录 =====
 	var recs []insmodel.CheckinRecord
 	scopeCheckinType(s.db, r.PatrolType).
-		Select("id", "point_id", "inspector_id", "checkin_time", "result", "remark", "photos").
+		Select("id", "point_id", "inspector_id", "checkin_time", "result", "remark", "photos", "audit_status").
 		Where("community_id = ? AND checkin_time >= ? AND checkin_time < ?", r.CommunityID, start, end).
 		Order("checkin_time ASC").Find(&recs)
 	recsByPoint := map[string][]insmodel.CheckinRecord{}
@@ -101,18 +100,11 @@ func (s *ReportService) pdfData(r *model.InspectionReport) pdf.MonthlyReportData
 		}
 	}
 
-	// ===== 当期异常工单 =====
-	var orders []womodel.WorkOrder
-	scopeOrderType(s.db, r.PatrolType).
-		Where("community_id = ? AND created_at >= ? AND created_at < ?", r.CommunityID, start, end).
-		Order("created_at ASC").Find(&orders)
-	for i := range orders {
-		inspectorIDSet[orders[i].ReporterID] = true // 台账「检查人」列
-		if orders[i].AssigneeID != nil {
-			inspectorIDSet[*orders[i].AssigneeID] = true
-		}
-		if orders[i].ConfirmBy != nil {
-			inspectorIDSet[*orders[i].ConfirmBy] = true
+	// ===== 当期异常打卡记录（整改台账数据源；复核通过视为已闭环） =====
+	abnormalRecs := make([]insmodel.CheckinRecord, 0)
+	for i := range recs {
+		if recs[i].Result == insmodel.ResultAbnormal {
+			abnormalRecs = append(abnormalRecs, recs[i])
 		}
 	}
 	userNames := s.userNamesOf(inspectorIDSet)
@@ -149,15 +141,12 @@ func (s *ReportService) pdfData(r *model.InspectionReport) pdf.MonthlyReportData
 			}
 		}
 		row.InspectRate = pct(int64(checked), int64(row.Total))
-		// 该类型工单：创建数（存在问题关联）与已闭环数
+		// 该类型异常打卡：当期数（存在问题关联）与已复核数
 		created := 0
-		for i := range orders {
-			if orders[i].PointID == nil {
-				continue
-			}
-			if pt, ok := pointByID[*orders[i].PointID]; ok && pt.Type == t {
+		for i := range abnormalRecs {
+			if pt, ok := pointByID[abnormalRecs[i].PointID]; ok && pt.Type == t {
 				created++
-				if orders[i].Status == womodel.OrderClosed {
+				if abnormalRecs[i].AuditStatus == insmodel.AuditPass {
 					row.Rectified++
 				}
 			}
@@ -274,33 +263,24 @@ func (s *ReportService) pdfData(r *model.InspectionReport) pdf.MonthlyReportData
 	}
 
 	// ===== 5.问题清单及整改台账（v2 列：日期/故障问题+照片/处理情况+照片/检查人） =====
-	for i := range orders {
-		o := &orders[i]
+	for i := range abnormalRecs {
+		rec := &abnormalRecs[i]
 		row := pdf.LedgerRow{
-			Date:      o.CreatedAt.Format("2006-01-02"),
-			Problem:   orderProblem(*o),
-			Inspector: userNames[o.ReporterID],
+			Date:      rec.CheckinTime.Format("2006-01-02"),
+			Problem:   checkinProblem(*rec),
+			Inspector: userNames[rec.InspectorID],
 		}
 		// 问题描述带上点位位置（v2 表无位置列，位置信息并入问题描述）
-		if o.PointID != nil {
-			if pt, ok := pointByID[*o.PointID]; ok {
-				row.Problem = pointLocation(pt) + "：" + row.Problem
-			}
+		if pt, ok := pointByID[rec.PointID]; ok {
+			row.Problem = pointLocation(pt) + "：" + row.Problem
 		}
-		for _, ph := range o.Photos {
+		for _, ph := range rec.Photos {
 			if k := photoFileKey(ph.URL); k != "" {
 				row.ProblemPhotos = append(row.ProblemPhotos, k)
 			}
 		}
-		row.FixText = o.FinishNote
-		if row.FixText == "" {
-			row.FixText = orderStatusCN(o.Status)
-		}
-		for _, ph := range o.FinishPhotos {
-			if k := photoFileKey(ph.URL); k != "" {
-				row.FixPhotos = append(row.FixPhotos, k)
-			}
-		}
+		// 处理情况列：异常打卡的复核结论（无整改闭环流程后以此替代）
+		row.FixText = auditStatusCN(rec.AuditStatus)
 		d.Ledger = append(d.Ledger, row)
 	}
 
@@ -464,29 +444,25 @@ func pointLocation(pt *insmodel.InspectionPoint) string {
 	return fmt.Sprintf("%s %s", pt.Name, code)
 }
 
-// orderProblem 工单问题描述：优先详情描述，空则标题。
-func orderProblem(o womodel.WorkOrder) string {
-	if o.Description != "" {
-		return o.Description
+// checkinProblem 异常打卡问题描述：优先异常备注，空则兜底。
+func checkinProblem(rec insmodel.CheckinRecord) string {
+	if rec.Remark != "" {
+		return rec.Remark
 	}
-	return o.Title
+	return "打卡异常"
 }
 
-// orderStatusCN 工单状态中文。
-func orderStatusCN(status string) string {
+// auditStatusCN 打卡复核状态中文（台账「处理情况」列）。
+func auditStatusCN(status string) string {
 	switch status {
-	case womodel.OrderReported:
-		return "待受理"
-	case womodel.OrderPendingDispatch:
-		return "待派单"
-	case womodel.OrderProcessing:
-		return "处理中"
-	case womodel.OrderPendingConfirm:
-		return "待验收"
-	case womodel.OrderClosed:
-		return "已闭环"
-	case womodel.OrderClosedInvalid:
-		return "已作废"
+	case insmodel.AuditPending:
+		return "待复核"
+	case insmodel.AuditPass:
+		return "复核通过"
+	case insmodel.AuditRejected:
+		return "复核驳回"
+	case insmodel.AuditAutoPass:
+		return "自动通过"
 	}
 	return status
 }

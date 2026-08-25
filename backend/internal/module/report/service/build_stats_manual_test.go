@@ -51,7 +51,7 @@ func TestBuildStatsPatrolTypeManual(t *testing.T) {
 		v, _ := m[key].(int64)
 		return v
 	}
-	for _, key := range []string{"task_total", "task_done", "abnormal_count", "wo_created"} {
+	for _, key := range []string{"task_total", "task_done", "abnormal_count", "issue_count"} {
 		if num(typedStats, key) > num(allStats, key) {
 			t.Fatalf("专项口径 %s=%d 不应大于综合口径 %d", key, num(typedStats, key), num(allStats, key))
 		}

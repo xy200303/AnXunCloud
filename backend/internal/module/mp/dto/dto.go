@@ -40,8 +40,10 @@ type CheckinReq struct {
 	Longitude   float64           `json:"longitude" binding:"required"`
 	Latitude    float64           `json:"latitude" binding:"required"`
 	ClientTime  string            `json:"client_time" binding:"required"`
-	Result      string            `json:"result" binding:"required,oneof=normal abnormal"`
+	Result      string            `json:"result" binding:"required,oneof=normal abnormal auto"` // auto=AI 代判（仅同步 AI 判定开启时可用）
 	Remark      string            `json:"remark"`
+	// Force 重拍次数用尽后的强制提交：跳过同步 AI 判定直接落库，转人工复核
+	Force      bool              `json:"force"`
 	CheckItems  []CheckinItemReq  `json:"check_items"`
 	Photos      []CheckinPhotoRef `json:"photos" binding:"required,min=1"`
 }
@@ -51,7 +53,7 @@ type OfflineSyncReq struct {
 }
 
 type STSReq struct {
-	Scene string `json:"scene" binding:"required,oneof=checkin workorder avatar"`
+	Scene string `json:"scene" binding:"required,oneof=checkin avatar"`
 	Files []struct {
 		Name string `json:"name" binding:"required"`
 		Size int64  `json:"size"`

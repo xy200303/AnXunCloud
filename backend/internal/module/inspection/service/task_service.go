@@ -13,7 +13,6 @@ import (
 	"anxuncloud/internal/module/inspection/dto"
 	"anxuncloud/internal/module/inspection/model"
 	sysmodel "anxuncloud/internal/module/system/model"
-	womodel "anxuncloud/internal/module/workorder/model"
 	"anxuncloud/internal/pkg/bind"
 	"anxuncloud/internal/pkg/errs"
 	"anxuncloud/internal/pkg/notify"
@@ -246,13 +245,8 @@ func (s *TaskService) Detail(c *gin.Context, id string) (gin.H, *errs.Error) {
 	}, nil
 }
 
-// checkinBrief 打卡摘要（任务明细内嵌），附带关联工单号。
+// checkinBrief 打卡摘要（任务明细内嵌）。
 func checkinBrief(db *gorm.DB, ck *model.CheckinRecord) gin.H {
-	var orderNo *string
-	var wo womodel.WorkOrder
-	if db.Select("order_no").Where("checkin_id = ?", ck.ID).First(&wo).Error == nil {
-		orderNo = &wo.OrderNo
-	}
 	distance := any(nil)
 	if ck.DistanceToPoint != nil {
 		distance = int(*ck.DistanceToPoint)
@@ -262,7 +256,7 @@ func checkinBrief(db *gorm.DB, ck *model.CheckinRecord) gin.H {
 		"checkin_type": ck.CheckinType, "distance_to_point": distance,
 		"longitude": ck.Longitude, "latitude": ck.Latitude,
 		"result": ck.Result, "is_suspect": ck.IsSuspect, "suspect_reason": ck.SuspectReason,
-		"remark": ck.Remark, "photos": ck.Photos, "work_order_no": orderNo,
+		"remark": ck.Remark, "photos": ck.Photos,
 		"check_items": briefItemViews(db, ck.ID),
 		"audit_status": ck.AuditStatus, "audit_by": ck.AuditBy,
 		"audit_at": timefmt.TP(ck.AuditAt), "audit_remark": ck.AuditRemark,
@@ -309,6 +303,17 @@ func (s *TaskService) applyCheckinFilters(c *gin.Context, q *dto.CheckinListQuer
 	}
 	if v, ok, _ := bind.BoolFilter(q.IsSuspect); ok {
 		db = db.Where("is_suspect = ?", v)
+	}
+	if v, ok, _ := bind.BoolFilter(q.ForceSubmit); ok {
+		db = db.Where("force_submit = ?", v)
+	}
+	if q.AIVerdict != "" {
+		// 支持逗号多值（如 review,error 查"AI 存疑"合集）
+		if verdicts := strings.Split(q.AIVerdict, ","); len(verdicts) > 1 {
+			db = db.Where("ai_verdict IN ?", verdicts)
+		} else {
+			db = db.Where("ai_verdict = ?", q.AIVerdict)
+		}
 	}
 	var be *errs.Error
 	if db, be = timeRangeOn(db, "checkin_time", q.StartTime, q.EndTime); be != nil {
@@ -376,6 +381,7 @@ func (s *TaskService) CheckinList(c *gin.Context, q *dto.CheckinListQuery) (*res
 			"audit_status": r.AuditStatus, "audit_step": r.AuditStep,
 			"current_step_name": s.currentStepName(flows, r),
 			"ai_verdict":        r.AIVerdict, "ai_reason": r.AIReason,
+			"force_submit":      r.ForceSubmit,
 		})
 	}
 	return &response.Page{List: list, Total: total, Page: q.Page, PageSize: q.PageSize}, nil
@@ -415,11 +421,6 @@ func (s *TaskService) CheckinDetail(c *gin.Context, id string) (gin.H, *errs.Err
 			planName = plan.Name
 		}
 	}
-	var orderNo *string
-	var wo womodel.WorkOrder
-	if s.db.Select("order_no").Where("checkin_id = ?", r.ID).First(&wo).Error == nil {
-		orderNo = &wo.OrderNo
-	}
 	// 照片带 EXIF 校验结论
 	photos := make([]gin.H, 0, len(r.Photos))
 	for _, p := range r.Photos {
@@ -441,7 +442,8 @@ func (s *TaskService) CheckinDetail(c *gin.Context, id string) (gin.H, *errs.Err
 			"name": ci.Name, "pass": ci.Pass, "note": ci.Note,
 			"photos": ci.Photos, "photo_urls": urls,
 			"requirement": ci.Requirement, "ai_hint": ci.AIHint,
-			"ai_verdict": ci.AIVerdict, "ai_reason": ci.AIReason,
+			"judge_type": ci.JudgeType, "judge_config": ci.JudgeConfig,
+			"ai_verdict": ci.AIVerdict, "ai_reason": ci.AIReason, "ai_reading": ci.AIReading,
 		})
 	}
 	return gin.H{
@@ -454,10 +456,12 @@ func (s *TaskService) CheckinDetail(c *gin.Context, id string) (gin.H, *errs.Err
 		"distance_to_point": distanceOrNil(&r), "result": r.Result, "remark": r.Remark,
 		"is_offline_sync": r.IsOfflineSync,
 		"is_suspect": r.IsSuspect, "suspect_reason": r.SuspectReason,
-		"photos": photos, "check_items": checkItems, "work_order_no": orderNo,
+		"photos": photos, "check_items": checkItems,
 		"audit_status": r.AuditStatus, "audit_by": r.AuditBy, "audit_by_name": userNamePtr(s.db, r.AuditBy),
 		"audit_at": timefmt.TP(r.AuditAt), "audit_remark": r.AuditRemark,
 		"ai_verdict": r.AIVerdict, "ai_reason": r.AIReason,
+		"ai_quality_pass": r.AIQualityPass, "ai_quality_issue": r.AIQualityIssue,
+		"force_submit":    r.ForceSubmit,
 		"created_at": timefmt.T(r.CreatedAt),
 	}, nil
 }

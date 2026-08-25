@@ -27,6 +27,9 @@ type TemplateItemSaveReq struct {
 	Requirement  string `json:"requirement"`
 	AIHint       string `json:"ai_hint"` // AI 识别要点（可空；空=该项不带识别要点）
 	PhotoRequired string `json:"photo_required"`
+	// JudgeType 判定类型（非法值服务端归一为 general）；JudgeConfig 判定参数（metric 需 metric/unit/min/max）
+	JudgeType   string         `json:"judge_type"`
+	JudgeConfig map[string]any `json:"judge_config"`
 	// Sort 排序号；新增时缺省（nil）追加到末尾，修改时缺省保持不变
 	Sort *int `json:"sort"`
 }
@@ -170,8 +173,23 @@ type CheckinListQuery struct {
 	CheckinType string `form:"checkin_type"`
 	IsSuspect   string `form:"is_suspect"`
 	AuditStatus string `form:"audit_status"`
+	ForceSubmit string `form:"force_submit"`
+	AIVerdict   string `form:"ai_verdict"` // 支持逗号多值（如 review,error 查"AI 存疑"合集）
 	StartTime   string `form:"start_time"`
 	EndTime     string `form:"end_time"`
+}
+
+// IssueListQuery 问题清单（异常打卡记录）检索条件；date_from/date_to 按 checkin_time 过滤（YYYY-MM-DD，date_to 含当天）。
+type IssueListQuery struct {
+	response.PageQuery
+	CommunityID string `form:"community_id"`
+	PatrolType  string `form:"patrol_type"`
+	PointType   string `form:"point_type"`
+	AuditStatus string `form:"audit_status"`
+	ForceSubmit string `form:"force_submit"`
+	Keyword     string `form:"keyword"`
+	DateFrom    string `form:"date_from"`
+	DateTo      string `form:"date_to"`
 }
 
 // ========== 记录审核 ==========

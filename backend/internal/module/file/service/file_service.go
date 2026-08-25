@@ -34,7 +34,7 @@ func NewFileService(db *gorm.DB, store *storage.Storage, upload *mpsvc.UploadSer
 
 // 上传 scene 白名单（各端合集）：图片类走全局扩展名，notice 放宽到办公文档
 var uploadScenes = map[string]bool{
-	"checkin": true, "workorder": true, "avatar": true, "signature": true, "seal": true, "notice": true,
+	"checkin": true, "avatar": true, "signature": true, "seal": true, "notice": true,
 }
 
 var noticeExts = map[string]bool{
@@ -138,7 +138,7 @@ func sceneOfKey(key string) string {
 // checkRead 按 scene 的读权限规则：
 // - export/{reports,stats,qrcode}：对应权限点（报告下载/统计导出/点位二维码）；
 // - signature/seal：本人或签章/报告相关权限；
-// - 其余（checkin/workorder/avatar/notice）：登录即可（内部系统内容图）。
+// - 其余（checkin/avatar/notice）：登录即可（内部系统内容图）。
 func (s *FileService) checkRead(c *gin.Context, rec *sysmodel.UploadFile) *errs.Error {
 	id := middleware.CurrentIdentity(c)
 	if id == nil {

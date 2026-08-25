@@ -98,6 +98,7 @@ var (
 	ErrPhotoMissing     = New(43104, http.StatusBadRequest, "必拍项照片缺失")
 	ErrTaskNotOwned     = New(43105, http.StatusForbidden, "任务不存在或不属于当前巡检员")
 	ErrPhotoNotUploaded = New(43106, http.StatusBadRequest, "照片尚未上传完成，请稍后重试")
+	ErrPhotoQuality     = New(43107, http.StatusBadRequest, "照片质量不达标，请重新拍摄")
 )
 
 // 44xxx 工单

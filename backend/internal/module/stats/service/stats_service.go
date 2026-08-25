@@ -14,7 +14,6 @@ import (
 	"anxuncloud/internal/module/stats/dto"
 	sysmodel "anxuncloud/internal/module/system/model"
 	systemsvc "anxuncloud/internal/module/system/service"
-	womodel "anxuncloud/internal/module/workorder/model"
 	"anxuncloud/internal/pkg/errs"
 	"anxuncloud/internal/pkg/response"
 	"anxuncloud/internal/pkg/storage"
@@ -410,11 +409,6 @@ func (s *StatsService) Dashboard(c *gin.Context, communityID string) (gin.H, *er
 		Select("COALESCE(SUM(total_points),0) AS total, COALESCE(SUM(done_points),0) AS done, COUNT(*) FILTER (WHERE status = 'doing') AS doing, COUNT(*) FILTER (WHERE status = 'overdue') AS overdue").
 		Scan(&todaySum)
 
-	woQ := s.db.Model(&womodel.WorkOrder{}).Where("status IN ?", []string{womodel.OrderReported, womodel.OrderPendingDispatch, womodel.OrderProcessing, womodel.OrderPendingConfirm})
-	woQ = middleware.ApplyCommunityFilter(woQ, c, "work_order.community_id")
-	var pendingWO int64
-	woQ.Session(&gorm.Session{}).Count(&pendingWO)
-
 	// 近 7 天趋势
 	trend := make([]gin.H, 0, 7)
 	for i := 6; i >= 0; i-- {
@@ -448,19 +442,6 @@ func (s *StatsService) Dashboard(c *gin.Context, communityID string) (gin.H, *er
 			"total": r.Total, "done": r.Done, "rate": pct(r.Done, r.Total),
 		})
 	}
-	// 最新工单（前 5）
-	var orders []womodel.WorkOrder
-	latestQ := s.db.Model(&womodel.WorkOrder{})
-	latestQ = middleware.ApplyCommunityFilter(latestQ, c, "work_order.community_id")
-	latestQ.Session(&gorm.Session{}).Order("id DESC").Limit(5).Find(&orders)
-	latest := make([]gin.H, 0, len(orders))
-	for _, o := range orders {
-		latest = append(latest, gin.H{
-			"id": o.ID, "order_no": o.OrderNo, "title": o.Title,
-			"community_name": s.commName(o.CommunityID),
-			"priority":       o.Priority, "status": o.Status, "created_at": timefmt.T(o.CreatedAt),
-		})
-	}
 	// 今日执行动态（最近 10 条打卡）
 	var cks []insmodel.CheckinRecord
 	ckQ := s.db.Model(&insmodel.CheckinRecord{}).Where("checkin_time >= ?", today)
@@ -478,14 +459,12 @@ func (s *StatsService) Dashboard(c *gin.Context, communityID string) (gin.H, *er
 		})
 	}
 	return gin.H{
-		"today_completion":   gin.H{"total": todaySum.Total, "done": todaySum.Done, "rate": pct(todaySum.Done, todaySum.Total)},
-		"doing_tasks":        todaySum.Doing,
-		"pending_workorders": pendingWO,
-		"overdue_tasks":      todaySum.Overdue,
-		"trend_7d":           trend,
-		"community_rank":     rankList,
-		"latest_workorders":  latest,
-		"task_timeline":      timeline,
+		"today_completion":  gin.H{"total": todaySum.Total, "done": todaySum.Done, "rate": pct(todaySum.Done, todaySum.Total)},
+		"doing_tasks":       todaySum.Doing,
+		"overdue_tasks":     todaySum.Overdue,
+		"trend_7d":          trend,
+		"community_rank":    rankList,
+		"task_timeline":     timeline,
 	}, nil
 }
 

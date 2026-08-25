@@ -10,6 +10,7 @@ import (
 	"anxuncloud/internal/module/inspection/dto"
 	"anxuncloud/internal/module/inspection/model"
 	sysmodel "anxuncloud/internal/module/system/model"
+	"anxuncloud/internal/pkg/ai"
 	"anxuncloud/internal/pkg/bind"
 	"anxuncloud/internal/pkg/errs"
 	"anxuncloud/internal/pkg/response"
@@ -91,7 +92,7 @@ func templateItemViews(items []model.CheckTemplateItem) []gin.H {
 		out = append(out, gin.H{
 			"name": it.Name, "required": it.Required,
 			"photo_required": it.PhotoRequired, "requirement": it.Requirement,
-			"ai_hint": it.AIHint,
+			"ai_hint": it.AIHint, "judge_type": it.JudgeType, "judge_config": it.JudgeConfig,
 		})
 	}
 	return out
@@ -186,7 +187,7 @@ func validateItem(name, photoRequired string) *errs.Error {
 func itemRowView(it *model.CheckTemplateItem) gin.H {
 	return gin.H{
 		"id": it.ID, "name": it.Name, "requirement": it.Requirement,
-		"ai_hint": it.AIHint,
+		"ai_hint": it.AIHint, "judge_type": it.JudgeType, "judge_config": it.JudgeConfig,
 		"required": it.Required, "photo_required": it.PhotoRequired,
 		"sort": it.Sort, "created_at": timefmt.T(it.CreatedAt),
 	}
@@ -230,6 +231,11 @@ func (s *TemplateService) AddItem(templateID string, req *dto.TemplateItemSaveRe
 	row := model.CheckTemplateItem{
 		TemplateID: templateID, Name: strings.TrimSpace(req.Name),
 		Required: req.Required, PhotoRequired: req.PhotoRequired, Sort: sort,
+		// 判定类型非法值归一 general（不报错，容错旧客户端）
+		JudgeType: ai.NormalizeJudgeType(req.JudgeType),
+	}
+	if len(req.JudgeConfig) > 0 {
+		row.JudgeConfig = types.JSONMap(req.JudgeConfig)
 	}
 	if row.PhotoRequired == "" {
 		row.PhotoRequired = types.PhotoReqNone
@@ -270,6 +276,12 @@ func (s *TemplateService) UpdateItem(templateID, itemID string, req *dto.Templat
 	}
 	updates := map[string]any{
 		"name": strings.TrimSpace(req.Name), "required": req.Required, "photo_required": pr,
+		"judge_type": ai.NormalizeJudgeType(req.JudgeType),
+	}
+	if len(req.JudgeConfig) > 0 {
+		updates["judge_config"] = types.JSONMap(req.JudgeConfig)
+	} else {
+		updates["judge_config"] = nil
 	}
 	if r := strings.TrimSpace(req.Requirement); r != "" {
 		updates["requirement"] = r

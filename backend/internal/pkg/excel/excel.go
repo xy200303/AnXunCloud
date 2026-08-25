@@ -110,6 +110,53 @@ func ParsePointImport(r io.Reader) ([][]string, error) {
 	return parseImportRows(r)
 }
 
+// IssueExportRow 问题清单（异常打卡记录）导出行。
+type IssueExportRow struct {
+	CheckinTime   string
+	CommunityName string
+	BuildingName  string
+	PointName     string
+	PointType     string
+	InspectorName string
+	Remark        string
+	AIVerdict     string
+	AIReason      string
+	AuditStatus   string
+	ForceSubmit   string
+	IsSuspect     string
+}
+
+// ExportIssues 生成问题清单导出文件（列序与接口文档一致；中文枚举由调用方折算）。
+func ExportIssues(list []IssueExportRow) (*excelize.File, error) {
+	f := excelize.NewFile()
+	sheet := "Sheet1"
+	headers := []string{"打卡时间", "小区", "楼栋/区域", "点位名称", "点位类型", "巡检员", "异常描述", "AI 结论", "AI 说明", "复核状态", "强制提交", "疑似作弊"}
+	for i, h := range headers {
+		cell, _ := excelize.CoordinatesToCellName(i+1, 1)
+		if err := f.SetCellValue(sheet, cell, h); err != nil {
+			return nil, err
+		}
+	}
+	style, err := f.NewStyle(&excelize.Style{Font: &excelize.Font{Bold: true}})
+	if err != nil {
+		return nil, err
+	}
+	if err := f.SetCellStyle(sheet, "A1", "L1", style); err != nil {
+		return nil, err
+	}
+	for r, row := range list {
+		vals := []string{row.CheckinTime, row.CommunityName, row.BuildingName, row.PointName, row.PointType, row.InspectorName, row.Remark, row.AIVerdict, row.AIReason, row.AuditStatus, row.ForceSubmit, row.IsSuspect}
+		for i, v := range vals {
+			cell, _ := excelize.CoordinatesToCellName(i+1, r+2)
+			if err := f.SetCellValue(sheet, cell, v); err != nil {
+				return nil, err
+			}
+		}
+	}
+	f.SetColWidth(sheet, "A", "L", 18)
+	return f, nil
+}
+
 // ExportUsers 生成用户导出文件（不含密码、openid 等敏感字段）。
 func ExportUsers(list []UserExportRow) (*excelize.File, error) {
 	f := excelize.NewFile()

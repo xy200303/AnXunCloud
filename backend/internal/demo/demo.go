@@ -1,7 +1,7 @@
 // Package demo 演示数据播种（独立命令 cmd/seed-demo 调用）：与 server 主流程和系统预置 seed 完全解耦，
 // 仅显式运行 seed-demo 命令时触发，不随服务启动执行。
-// 内容：两家演示物业公司（租户）+ 小区/楼栋/编制/模板/点位/计划/任务/打卡/工单/公告，
-// 覆盖工单六态与打卡正常/异常/逾期，用于演示与验收。幂等：演示租户已存在则整体跳过。
+// 内容：两家演示物业公司（租户）+ 小区/楼栋/编制/模板/点位/计划/任务/打卡/公告，
+// 覆盖打卡正常/异常/逾期，用于演示与验收。幂等：演示租户已存在则整体跳过。
 package demo
 
 import (
@@ -17,7 +17,6 @@ import (
 	rptmodel "anxuncloud/internal/module/report/model"
 	sysmodel "anxuncloud/internal/module/system/model"
 	systemsvc "anxuncloud/internal/module/system/service"
-	womodel "anxuncloud/internal/module/workorder/model"
 	"anxuncloud/internal/pkg/password"
 	"anxuncloud/internal/pkg/storage"
 	"anxuncloud/internal/pkg/timefmt"
@@ -39,13 +38,6 @@ var demoAssetByLabel = map[string]string{
 	"灭火器压力正常":   "fireext.jpg",
 	"设备运行无异响":   "pump.jpg",
 	"仪表读数在正常范围": "meter.jpg",
-	// 演示工单上报/完工照片
-	"水泵房地面渗水":   "pump.jpg",
-	"水泵房渗水修复":   "pump.jpg",
-	"B 区照明灯损坏":  "garage.jpg",
-	"大堂门禁读卡器故障": "gate.jpg",
-	"门禁读卡器修复":   "gate.jpg",
-	"电梯运行异响":    "lobby.jpg",
 	// 消防专项检查模板项（fire.go）
 	"消防枪头在位":    "fireext.jpg",
 	"水带齐全完好":    "fireext.jpg",
@@ -71,7 +63,6 @@ type demoSeeder struct {
 	photoCache map[string]demoPhotoRef
 	roleIDs    map[string]string
 	pwdHash    string
-	orderSeq   map[string]int // 工单号日内序号（uk_order_no 全局唯一，两个演示租户共享计数）
 }
 
 // Seed 写入演示数据。store 用于落演示打卡照片（仅本地存储驱动写盘，云存储跳过照片）。
@@ -83,7 +74,7 @@ func Seed(db *gorm.DB, store *storage.Storage) error {
 	if count > 0 {
 		return nil
 	}
-	d := &demoSeeder{store: store, photoCache: map[string]demoPhotoRef{}, roleIDs: map[string]string{}, orderSeq: map[string]int{}}
+	d := &demoSeeder{store: store, photoCache: map[string]demoPhotoRef{}, roleIDs: map[string]string{}}
 	return db.Transaction(func(tx *gorm.DB) error {
 		d.db = tx
 		return d.run()
@@ -163,74 +154,6 @@ func (d *demoSeeder) photo(tenantID, ownerID, label string) (types.PhotoItem, st
 	ref := demoPhotoRef{item: types.PhotoItem{Item: label, URL: url, WatermarkedURL: url, Required: true}, key: key}
 	d.photoCache[label] = ref
 	return ref.item, ref.key
-}
-
-// photosOf 按标签批量取演示照片（空 URL 自动跳过）。
-func (d *demoSeeder) photosOf(tenantID, ownerID string, labels ...string) types.PhotoArray {
-	arr := types.PhotoArray{}
-	for _, lb := range labels {
-		item, _ := d.photo(tenantID, ownerID, lb)
-		if item.URL != "" {
-			arr = append(arr, item)
-		}
-	}
-	return arr
-}
-
-// SeedOrderPhotos 演示工单照片回填（老库升级用，seed-demo -photos）：
-// 只为演示租户中照片为空的工单补上演示照片（按标题匹配，已补过的跳过，幂等），不动其他数据。
-func SeedOrderPhotos(db *gorm.DB, store *storage.Storage) error {
-	if store == nil || !store.IsLocal() {
-		return nil // 非本地存储无落盘，无照片可补
-	}
-	d := &demoSeeder{db: db, store: store, photoCache: map[string]demoPhotoRef{}}
-	var tenants []sysmodel.Tenant
-	if err := db.Select("id").Where("code IN ?", []string{demoTenantACode, "jinyuan"}).Find(&tenants).Error; err != nil {
-		return err
-	}
-	type photoPatch struct {
-		title  string
-		before []string // 上报照片标签（属主取上报人）
-		finish []string // 完工照片标签（属主取处理人）
-		item   []string // 异常项整改前照片标签（挂 items[0].before_photos，属主取上报人）
-	}
-	patches := []photoPatch{
-		{"水泵房地面渗水维修", []string{"水泵房地面渗水"}, []string{"水泵房渗水修复"}, nil},
-		{"地下车库 B 区照明灯损坏", nil, nil, []string{"B 区照明灯损坏"}},
-		{"1 栋大堂门禁刷卡无响应", []string{"大堂门禁读卡器故障"}, []string{"门禁读卡器修复"}, nil},
-		{"2 栋电梯运行异响", []string{"电梯运行异响"}, nil, nil},
-	}
-	for _, t := range tenants {
-		for _, p := range patches {
-			var o womodel.WorkOrder
-			if err := db.Where("tenant_id = ? AND title = ?", t.ID, p.title).First(&o).Error; err != nil {
-				continue
-			}
-			changed := false
-			if len(p.before) > 0 && len(o.Photos) == 0 {
-				o.Photos = d.photosOf(t.ID, o.ReporterID, p.before...)
-				changed = len(o.Photos) > 0
-			}
-			if len(p.finish) > 0 && len(o.FinishPhotos) == 0 && o.AssigneeID != nil {
-				o.FinishPhotos = d.photosOf(t.ID, *o.AssigneeID, p.finish...)
-				changed = changed || len(o.FinishPhotos) > 0
-			}
-			if len(p.item) > 0 && len(o.Items) > 0 && len(o.Items[0].BeforePhotos) == 0 {
-				if _, key := d.photo(t.ID, o.ReporterID, p.item[0]); key != "" {
-					o.Items[0].BeforePhotos = types.StringArray{key}
-					changed = true
-				}
-			}
-			if !changed {
-				continue
-			}
-			if err := db.Model(&womodel.WorkOrder{}).Where("id = ?", o.ID).
-				Updates(map[string]any{"photos": o.Photos, "finish_photos": o.FinishPhotos, "items": o.Items}).Error; err != nil {
-				return err
-			}
-		}
-	}
-	return nil
 }
 
 // demoAssetByLabel_ 按标签取内置演示照片字节。
@@ -514,8 +437,7 @@ func (d *demoSeeder) seedTenantA() error {
 		}
 	}
 
-	// 昨日 xj01 的 7 条打卡（地下车库一条异常 → 转工单 WO2）
-	var abnormalCheckinID string
+	// 昨日 xj01 的 7 条打卡（地下车库一条异常）
 	for i, pid := range pointIDs {
 		p := pointMeta[pid]
 		checkinTime := yesterdayAt(9, 5+i*14)
@@ -567,21 +489,10 @@ func (d *demoSeeder) seedTenantA() error {
 				return err
 			}
 		}
-		if abnormal {
-			abnormalCheckinID = rec.ID
-		}
 	}
 
-	// 工单（六态全覆盖 + 已作废）
-	if err := d.seedOrdersA(tid, cid, pointIDs, abnormalCheckinID, orderPeopleA{
-		manager: managerID, eng: engID, repair: repairID, service: serviceID,
-		bm: bmID, fd: fdID, xj01: xj01ID,
-	}); err != nil {
-		return err
-	}
-
-	// 上月（报告期）真实工作量 + 当月工单 + 月度报告：PDF 汇总/明细/照片/台账按报告期实时查询，
-	// 三者与报告 stats 快照口径一致（月报已三级签字归档）
+	// 上月（报告期）真实工作量 + 月度报告：PDF 汇总/明细/照片按报告期实时查询，
+	// 与报告 stats 快照口径一致（月报已三级签字归档）
 	if err := d.seedReportsA(tid, cid, planSafety.ID, pointIDs, pointMeta, tplSafetyID, tplEquipID,
 		orderPeopleA{
 			manager: managerID, eng: engID, repair: repairID, service: serviceID,
@@ -608,147 +519,6 @@ func (d *demoSeeder) seedTenantA() error {
 
 type orderPeopleA struct {
 	manager, eng, repair, service, bm, fd, xj01 string
-}
-
-func (d *demoSeeder) seedOrdersA(tid, cid string, pointIDs []string, abnormalCheckinID string, p orderPeopleA) error {
-	garagePoint := pointIDs[4]
-	type logStep struct {
-		action, operator, detail string
-		at                       time.Time
-	}
-	create := func(o womodel.WorkOrder, logs []logStep) error {
-		if err := d.db.Create(&o).Error; err != nil {
-			return err
-		}
-		for _, l := range logs {
-			row := womodel.WorkOrderLog{OrderID: o.ID, Action: l.action, OperatorID: l.operator, Detail: l.detail, CreatedAt: l.at}
-			if err := d.db.Create(&row).Error; err != nil {
-				return err
-			}
-		}
-		return nil
-	}
-	d3 := daysAgo(3)
-	d1 := daysAgo(1)
-
-	// 演示工单照片（仅本地存储驱动落盘；非本地存储时返回空数组，工单照常无照片）。
-	photosOf := func(ownerID string, labels ...string) types.PhotoArray {
-		return d.photosOf(tid, ownerID, labels...)
-	}
-
-	// WO1 已闭环：前台代录 → 受理 → 派单 → 完工 → 验收通过
-	wo1 := womodel.WorkOrder{
-		TenantID: &tid, OrderNo: d.orderNo(d3), CommunityID: cid,
-		Title: "水泵房地面渗水维修", Description: "前台接业主电话反映水泵房门口地面有渗水，请工程部核实处理。",
-		Source: womodel.SourceFrontdesk, Category: "给排水", ReporterID: p.fd,
-		Photos:     photosOf(p.fd, "水泵房地面渗水"),
-		AssigneeID: &p.repair, DispatcherID: &p.eng, Priority: "normal", Status: womodel.OrderClosed,
-		TriageBy: &p.service, TriageAt: at(d3.Add(30 * time.Minute)), TriageNote: "属实，转工程维修",
-		DispatchAt: at(d3.Add(time.Hour)), AcceptAt: at(d3.Add(time.Hour)),
-		FinishNote: "更换老化密封圈，渗水已止，观察 24 小时无复发。", FinishAt: at(d1.Add(-2 * time.Hour)),
-		FinishPhotos: photosOf(p.repair, "水泵房渗水修复"),
-		ConfirmBy:    &p.fd, ConfirmAt: at(d1), ConfirmNote: "现场复核无渗水，验收通过",
-		CreatedAt: d3, UpdatedAt: d1,
-	}
-	if err := create(wo1, []logStep{
-		{womodel.ActionCreate, p.fd, "前台代录工单", d3},
-		{womodel.ActionTriagePass, p.service, "受理通过：属实，转工程维修", d3.Add(30 * time.Minute)},
-		{womodel.ActionDispatch, p.eng, "派单给吴永强", d3.Add(time.Hour)},
-		{womodel.ActionFinish, p.repair, "完工：更换老化密封圈", d1.Add(-2 * time.Hour)},
-		{womodel.ActionConfirmPass, p.fd, "验收通过", d1},
-	}); err != nil {
-		return err
-	}
-
-	// WO2 处理中：巡检异常转单（关联异常打卡与点位）
-	wo2Items := types.OrderItemArray{{Name: "门禁与监控运行正常", Remark: "B 区一盏照明灯损坏"}}
-	if _, key := d.photo(tid, p.xj01, "B 区照明灯损坏"); key != "" {
-		wo2Items[0].BeforePhotos = types.StringArray{key}
-	}
-	wo2 := womodel.WorkOrder{
-		TenantID: &tid, OrderNo: d.orderNo(d1), CommunityID: cid, PointID: &garagePoint,
-		CheckinID: &abnormalCheckinID,
-		Title:     "地下车库 B 区照明灯损坏", Description: "巡检发现车库 B 区一盏照明灯不亮，影响车辆通行安全，需更换。",
-		Source: womodel.SourceInspection, Category: "强电", ReporterID: p.xj01,
-		AssigneeID: &p.repair, DispatcherID: &p.eng, Priority: "high", Status: womodel.OrderProcessing,
-		DispatchAt: at(yesterdayAt(11, 20)), AcceptAt: at(yesterdayAt(11, 20)),
-		Items:     wo2Items,
-		CreatedAt: yesterdayAt(11, 0), UpdatedAt: yesterdayAt(11, 20),
-	}
-	if err := create(wo2, []logStep{
-		{womodel.ActionCreate, p.xj01, "巡检异常转工单", yesterdayAt(11, 0)},
-		{womodel.ActionDispatch, p.eng, "派单给吴永强", yesterdayAt(11, 20)},
-	}); err != nil {
-		return err
-	}
-
-	// WO3 待验收：楼管员主动上报，已完工待报单方验收
-	wo3 := womodel.WorkOrder{
-		TenantID: &tid, OrderNo: d.orderNo(d1), CommunityID: cid,
-		Title: "1 栋大堂门禁刷卡无响应", Description: "1 栋大堂门禁读卡器刷卡无反应，多户业主反映，请尽快检修。",
-		Source: womodel.SourceActive, Category: "弱电智能化", ReporterID: p.bm,
-		Photos:     photosOf(p.bm, "大堂门禁读卡器故障"),
-		AssigneeID: &p.repair, DispatcherID: &p.eng, Priority: "urgent", Status: womodel.OrderPendingConfirm,
-		TriageBy: &p.service, TriageAt: at(yesterdayAt(14, 5)), TriageNote: "影响业主出行，加急",
-		DispatchAt: at(yesterdayAt(14, 30)), AcceptAt: at(yesterdayAt(14, 30)),
-		FinishNote: "读卡器排线松脱，重新插拔固定后恢复正常。", FinishAt: at(yesterdayAt(17, 40)),
-		FinishPhotos: photosOf(p.repair, "门禁读卡器修复"),
-		CreatedAt:    yesterdayAt(14, 0), UpdatedAt: yesterdayAt(17, 40),
-	}
-	if err := create(wo3, []logStep{
-		{womodel.ActionCreate, p.bm, "楼管员主动上报", yesterdayAt(14, 0)},
-		{womodel.ActionTriagePass, p.service, "受理通过：影响业主出行，加急", yesterdayAt(14, 5)},
-		{womodel.ActionDispatch, p.eng, "派单给吴永强", yesterdayAt(14, 30)},
-		{womodel.ActionFinish, p.repair, "完工：读卡器排线修复", yesterdayAt(17, 40)},
-	}); err != nil {
-		return err
-	}
-
-	// WO4 待派单：主动上报，受理已通过
-	wo4 := womodel.WorkOrder{
-		TenantID: &tid, OrderNo: d.orderNo(daysAgo(0)), CommunityID: cid,
-		Title: "2 栋电梯运行异响", Description: "2 栋西梯上行至 7 层附近有明显异响，建议维保单位检查曳引系统。",
-		Source: womodel.SourceActive, Category: "电梯", ReporterID: p.bm,
-		Photos:   photosOf(p.bm, "电梯运行异响"),
-		Priority: "high", Status: womodel.OrderPendingDispatch,
-		TriageBy: &p.service, TriageAt: at(todayAt(9, 10)), TriageNote: "属实，转工程安排电梯维保",
-		CreatedAt: todayAt(8, 50), UpdatedAt: todayAt(9, 10),
-	}
-	if err := create(wo4, []logStep{
-		{womodel.ActionCreate, p.bm, "楼管员主动上报", todayAt(8, 50)},
-		{womodel.ActionTriagePass, p.service, "受理通过：属实，转工程安排电梯维保", todayAt(9, 10)},
-	}); err != nil {
-		return err
-	}
-
-	// WO5 待受理：前台代录刚进池
-	wo5 := womodel.WorkOrder{
-		TenantID: &tid, OrderNo: d.orderNo(daysAgo(0)), CommunityID: cid,
-		Title: "3 栋楼道堆放杂物", Description: "业主来电反映 3 栋 12 层楼道堆放纸箱杂物，存在消防隐患，请安排清理。",
-		Source: womodel.SourceFrontdesk, ReporterID: p.fd,
-		Priority: "normal", Status: womodel.OrderReported,
-		CreatedAt: todayAt(9, 40), UpdatedAt: todayAt(9, 40),
-	}
-	if err := create(wo5, []logStep{
-		{womodel.ActionCreate, p.fd, "前台代录工单", todayAt(9, 40)},
-	}); err != nil {
-		return err
-	}
-
-	// WO6 已作废：重复报单受理驳回
-	wo6 := womodel.WorkOrder{
-		TenantID: &tid, OrderNo: d.orderNo(d3), CommunityID: cid,
-		Title: "北门路灯不亮（重复报单）", Description: "业主反映园区北门路灯不亮。",
-		Source: womodel.SourceFrontdesk, ReporterID: p.fd,
-		Priority: "normal", Status: womodel.OrderClosedInvalid,
-		TriageBy: &p.service, TriageAt: at(d3.Add(time.Hour)), TriageNote: "与 WX 工单重复，驳回",
-		RejectReason: "与既有工单重复",
-		CreatedAt:    d3, UpdatedAt: d3.Add(time.Hour),
-	}
-	return create(wo6, []logStep{
-		{womodel.ActionCreate, p.fd, "前台代录工单", d3},
-		{womodel.ActionTriageReject, p.service, "受理驳回：与既有工单重复", d3.Add(time.Hour)},
-	})
 }
 
 // demoTemplateItemsOf 演示点位对应的模板项快照源（安全类点位 → 安全模板，设备类 → 设备模板）。
@@ -931,56 +701,7 @@ func (d *demoSeeder) seedTenantB() error {
 		}
 	}
 
-	// 两条工单：待派单池（抢单模式演示）+ 处理中
-	d0 := daysAgo(0)
-	wo1 := womodel.WorkOrder{
-		TenantID: &tid, OrderNo: d.orderNo(d0), CommunityID: cid,
-		Title: "南门道闸杆起降卡顿", Description: "早高峰南门道闸杆起降明显卡顿，影响车辆通行。",
-		Source: womodel.SourceActive, Category: "弱电智能化", ReporterID: xjID,
-		Priority: "high", Status: womodel.OrderPendingDispatch,
-		TriageBy: &serviceID, TriageAt: at(todayAt(8, 20)), TriageNote: "属实，转工程",
-		CreatedAt: todayAt(8, 5), UpdatedAt: todayAt(8, 20),
-	}
-	if err := d.db.Create(&wo1).Error; err != nil {
-		return err
-	}
-	for _, l := range []struct {
-		action, op, detail string
-		at                 time.Time
-	}{
-		{womodel.ActionCreate, xjID, "巡检员主动上报", todayAt(8, 5)},
-		{womodel.ActionTriagePass, serviceID, "受理通过：属实，转工程", todayAt(8, 20)},
-	} {
-		row := womodel.WorkOrderLog{OrderID: wo1.ID, Action: l.action, OperatorID: l.op, Detail: l.detail, CreatedAt: l.at}
-		if err := d.db.Create(&row).Error; err != nil {
-			return err
-		}
-	}
-	wo2 := womodel.WorkOrder{
-		TenantID: &tid, OrderNo: d.orderNo(daysAgo(1)), CommunityID: cid,
-		Title: "中心花园休闲椅螺丝松动", Description: "中心花园两张休闲椅螺丝松动，存在安全隐患。",
-		Source: womodel.SourceActive, Category: "公共设施", ReporterID: xjID,
-		AssigneeID: &repairID, Priority: "low", Status: womodel.OrderProcessing,
-		DispatchAt: at(yesterdayAt(10, 10)), AcceptAt: at(yesterdayAt(10, 10)),
-		CreatedAt: yesterdayAt(9, 50), UpdatedAt: yesterdayAt(10, 10),
-	}
-	if err := d.db.Create(&wo2).Error; err != nil {
-		return err
-	}
-	for _, l := range []struct {
-		action, op, detail string
-		at                 time.Time
-	}{
-		{womodel.ActionCreate, xjID, "巡检员主动上报", yesterdayAt(9, 50)},
-		{womodel.ActionGrab, repairID, "抢单成功", yesterdayAt(10, 10)},
-	} {
-		row := womodel.WorkOrderLog{OrderID: wo2.ID, Action: l.action, OperatorID: l.op, Detail: l.detail, CreatedAt: l.at}
-		if err := d.db.Create(&row).Error; err != nil {
-			return err
-		}
-	}
-
-	// 上月（报告期）真实工作量 + 当月工单 + 月度报告（待巡检员确认，与租户 A 的已归档形成对照）
+	// 上月（报告期）真实工作量 + 月度报告（待巡检员确认，与租户 A 的已归档形成对照）
 	if err := d.seedReportsB(tid, cid, plan.ID, pointIDs, pointMeta, tplID, managerID, serviceID, repairID, xjID); err != nil {
 		return err
 	}
@@ -1014,23 +735,10 @@ func at(t time.Time) *time.Time { return &t }
 
 func floatptr(f float64) *float64 { return &f }
 
-// orderNo 演示工单号：WX+yyyyMMdd+3 位日内序号（与 OrderService.GenOrderNo 同格式；全局共享计数器保证不撞 uk_order_no）。
-// 日内序号首用时从库里已存在的同日前缀工单数起算（回填路径下库中可能已有当日工单）。
-func (d *demoSeeder) orderNo(day time.Time) string {
-	key := day.Format("20060102")
-	if _, ok := d.orderSeq[key]; !ok {
-		var cnt int64
-		d.db.Model(&womodel.WorkOrder{}).Where("order_no LIKE ?", "WX"+key+"%").Count(&cnt)
-		d.orderSeq[key] = int(cnt)
-	}
-	d.orderSeq[key]++
-	return fmt.Sprintf("WX%s%03d", key, d.orderSeq[key])
-}
-
-// ---------- 月度报告演示（报告期真实工作量 → 当月工单 → 报告，三者口径一致） ----------
+// ---------- 月度报告演示（报告期真实工作量 → 报告，口径一致） ----------
 //
-// 背景：月报 PDF（pdfData）不按 stats 快照渲染，而是按报告期实时查询任务/打卡/工单，
-// 所以演示数据必须在报告期（上月）落真实的任务、打卡与工单，月报才有明细、照片与台账。
+// 背景：月报 PDF（pdfData）不按 stats 快照渲染，而是按报告期实时查询任务/打卡，
+// 所以演示数据必须在报告期（上月）落真实的任务与打卡，月报才有明细与照片。
 
 // monthWorkload 上月每日巡查工作量参数。
 type monthWorkload struct {
@@ -1166,21 +874,7 @@ func jday(day, hour, min int) time.Time {
 	return time.Date(lm.Year(), lm.Month(), day, hour, min, 0, 0, time.Local)
 }
 
-// createOrderWithLogs 写工单 + 流转留痕（seedOrdersA 同款模式的轻量版，供上月台账用）。
-func (d *demoSeeder) createOrderWithLogs(o womodel.WorkOrder, logs []womodel.WorkOrderLog) error {
-	if err := d.db.Create(&o).Error; err != nil {
-		return err
-	}
-	for _, l := range logs {
-		l.OrderID = o.ID
-		if err := d.db.Create(&l).Error; err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-// seedReportsA 租户 A 上月报告：先落报告期真实工作量与台账工单，再按实际数据生成已归档报告。
+// seedReportsA 租户 A 上月报告：先落报告期真实工作量，再按实际数据生成已归档报告。
 func (d *demoSeeder) seedReportsA(tid, cid, planID string, pointIDs []string, pointMeta map[string]demoPoint,
 	tplSafetyID, tplEquipID string, p orderPeopleA, safetyID, xj02ID string) error {
 	period := lastMonthPeriod()
@@ -1197,45 +891,7 @@ func (d *demoSeeder) seedReportsA(tid, cid, planID string, pointIDs []string, po
 		return err
 	}
 
-	// 2) 上月台账工单：2 创建 1 闭环（配电房积水已闭环；车库照明完工待验收）
-	powerPoint, garagePoint := pointIDs[1], pointIDs[4]
-	woJ1 := womodel.WorkOrder{
-		TenantID: &tid, OrderNo: d.orderNo(jday(10, 0, 0)), CommunityID: cid, PointID: &powerPoint,
-		Title: "配电房电缆沟积水处理", Description: "巡查发现配电房电缆沟有积水，需排水并查明渗漏点。",
-		Source: womodel.SourceInspection, Category: "强电", ReporterID: p.xj01,
-		AssigneeID: &p.repair, DispatcherID: &p.eng, Priority: "high", Status: womodel.OrderClosed,
-		DispatchAt: at(jday(10, 11, 0)), AcceptAt: at(jday(10, 11, 0)),
-		FinishNote: "已排水，渗漏点为穿墙管密封老化，已重新封堵。", FinishAt: at(jday(11, 16, 30)),
-		ConfirmBy: &p.xj01, ConfirmAt: at(jday(12, 9, 0)), ConfirmNote: "现场复核无积水，验收通过",
-		CreatedAt: jday(10, 10, 20), UpdatedAt: jday(12, 9, 0),
-	}
-	if err := d.createOrderWithLogs(woJ1, []womodel.WorkOrderLog{
-		{Action: womodel.ActionCreate, OperatorID: p.xj01, Detail: "巡检异常转工单", CreatedAt: jday(10, 10, 20)},
-		{Action: womodel.ActionDispatch, OperatorID: p.eng, Detail: "派单给吴永强", CreatedAt: jday(10, 11, 0)},
-		{Action: womodel.ActionFinish, OperatorID: p.repair, Detail: "完工：排水并封堵渗漏点", CreatedAt: jday(11, 16, 30)},
-		{Action: womodel.ActionConfirmPass, OperatorID: p.xj01, Detail: "验收通过", CreatedAt: jday(12, 9, 0)},
-	}); err != nil {
-		return err
-	}
-	woJ2 := womodel.WorkOrder{
-		TenantID: &tid, OrderNo: d.orderNo(jday(18, 0, 0)), CommunityID: cid, PointID: &garagePoint,
-		Title: "地下车库 B 区照明灯更换", Description: "巡查发现车库 B 区一盏照明灯不亮，需更换。",
-		Source: womodel.SourceInspection, Category: "强电", ReporterID: p.xj01,
-		AssigneeID: &p.repair, DispatcherID: &p.eng, Priority: "normal", Status: womodel.OrderPendingConfirm,
-		DispatchAt: at(jday(18, 11, 0)), AcceptAt: at(jday(18, 11, 0)),
-		FinishNote: "已更换同规格 LED 灯管，照明恢复。", FinishAt: at(jday(19, 15, 20)),
-		CreatedAt: jday(18, 10, 40), UpdatedAt: jday(19, 15, 20),
-	}
-	if err := d.createOrderWithLogs(woJ2, []womodel.WorkOrderLog{
-		{Action: womodel.ActionCreate, OperatorID: p.xj01, Detail: "巡检异常转工单", CreatedAt: jday(18, 10, 40)},
-		{Action: womodel.ActionDispatch, OperatorID: p.eng, Detail: "派单给吴永强", CreatedAt: jday(18, 11, 0)},
-		{Action: womodel.ActionFinish, OperatorID: p.repair, Detail: "完工：更换 LED 灯管", CreatedAt: jday(19, 15, 20)},
-	}); err != nil {
-		return err
-	}
-	woCreated, woClosed := int64(2), int64(1)
-
-	// 3) 报告（stats 快照 = 实际数据统计；三级签字齐全，已归档）
+	// 2) 报告（stats 快照 = 实际数据统计；三级签字齐全，已归档）
 	_, key1 := d.photo(tid, p.xj01, "消防通道畅通无阻")
 	_, key2 := d.photo(tid, p.xj01, "灭火器压力正常")
 	var photoKeys []string
@@ -1261,7 +917,7 @@ func (d *demoSeeder) seedReportsA(tid, cid, planID string, pointIDs []string, po
 		TenantID: &tid, CommunityID: cid, Period: period,
 		Title:        demoReportTitle("锦绣华庭", period),
 		Status:       rptmodel.StatusApproved,
-		Stats:        demoReportStats(st, 0, woCreated, woClosed, records),
+		Stats:        demoReportStats(st, 0, records),
 		InspectorIDs: types.IDArray{p.xj01, xj02ID},
 		InspectorSigned: types.SignArray{
 			{UserID: p.xj01, Name: "陈刚", SignedAt: timefmt.T(monthDayAt(1, 9, 10))},
@@ -1275,7 +931,7 @@ func (d *demoSeeder) seedReportsA(tid, cid, planID string, pointIDs []string, po
 	return d.db.Create(&report).Error
 }
 
-// seedReportsB 租户 B 上月报告：报告期真实工作量 + 1 条已闭环台账工单；报告待巡检员确认。
+// seedReportsB 租户 B 上月报告：报告期真实工作量；报告待巡检员确认。
 func (d *demoSeeder) seedReportsB(tid, cid, planID string, pointIDs []string, pointMeta map[string]demoPoint,
 	tplID, managerID, serviceID, repairID, xjID string) error {
 	period := lastMonthPeriod()
@@ -1292,33 +948,12 @@ func (d *demoSeeder) seedReportsB(tid, cid, planID string, pointIDs []string, po
 		return err
 	}
 
-	// 2) 上月台账工单：配电房异响已闭环
-	powerPoint := pointIDs[1]
-	woJ1 := womodel.WorkOrder{
-		TenantID: &tid, OrderNo: d.orderNo(jday(15, 0, 0)), CommunityID: cid, PointID: &powerPoint,
-		Title: "配电房变压器运行异响检查", Description: "巡查发现配电房变压器运行声音异常，需检查。",
-		Source: womodel.SourceInspection, Category: "强电", ReporterID: xjID,
-		AssigneeID: &repairID, Priority: "high", Status: womodel.OrderClosed,
-		DispatchAt: at(jday(15, 11, 0)), AcceptAt: at(jday(15, 11, 0)),
-		FinishNote: "紧固件松动已处理，运行声音恢复正常。", FinishAt: at(jday(16, 10, 0)),
-		ConfirmBy: &xjID, ConfirmAt: at(jday(16, 14, 0)), ConfirmNote: "复核正常，验收通过",
-		CreatedAt: jday(15, 10, 30), UpdatedAt: jday(16, 14, 0),
-	}
-	if err := d.createOrderWithLogs(woJ1, []womodel.WorkOrderLog{
-		{Action: womodel.ActionCreate, OperatorID: xjID, Detail: "巡检异常转工单", CreatedAt: jday(15, 10, 30)},
-		{Action: womodel.ActionGrab, OperatorID: repairID, Detail: "抢单成功", CreatedAt: jday(15, 11, 0)},
-		{Action: womodel.ActionFinish, OperatorID: repairID, Detail: "完工：紧固件处理", CreatedAt: jday(16, 10, 0)},
-		{Action: womodel.ActionConfirmPass, OperatorID: xjID, Detail: "验收通过", CreatedAt: jday(16, 14, 0)},
-	}); err != nil {
-		return err
-	}
-
-	// 3) 报告：待巡检员确认（签字流程第一级；项目无安全主管，主管级自动跳过）
+	// 2) 报告：待巡检员确认（签字流程第一级；项目无安全主管，主管级自动跳过）
 	report := rptmodel.InspectionReport{
 		TenantID: &tid, CommunityID: cid, Period: period,
 		Title:           demoReportTitle("金源世纪城", period),
 		Status:          rptmodel.StatusPendingInspector,
-		Stats:           demoReportStats(st, 0, 1, 1, []any{}),
+		Stats:           demoReportStats(st, 0, []any{}),
 		InspectorIDs:    types.IDArray{xjID},
 		InspectorSigned: types.SignArray{},
 		SupervisorIDs:   types.IDArray{},
@@ -1358,14 +993,15 @@ func demoReportTitle(commName, period string) string {
 }
 
 // demoReportStats 与 ReportService.buildStats 同结构的统计快照（数字来自实际落库的上月工作量）。
-func demoReportStats(st monthStat, suspect, woCreated, woClosed int64, records []any) types.JSONMap {
+// 工单模块已下线：wo_* 指标固定为 0。
+func demoReportStats(st monthStat, suspect int64, records []any) types.JSONMap {
 	return types.JSONMap{
 		"task_total": st.taskTotal, "task_done": st.taskDone, "task_overdue": st.taskOverdue,
 		"should_points": st.shouldPts, "done_points": st.donePts,
 		"coverage_rate":  pct1(st.donePts, st.shouldPts),
 		"abnormal_count": st.abnormal, "suspect_count": suspect,
-		"wo_created": woCreated, "wo_closed": woClosed, "wo_unclosed": woCreated - woClosed,
-		"wo_close_rate": pct1(woClosed, woCreated),
+		"wo_created": int64(0), "wo_closed": int64(0), "wo_unclosed": int64(0),
+		"wo_close_rate": int64(0),
 		"daily":         st.daily, "records": records,
 	}
 }

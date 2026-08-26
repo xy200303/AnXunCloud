@@ -73,8 +73,24 @@
 
       <el-form-item>
         <el-button v-perms="'system:config:update'" type="primary" :loading="saving" @click="handleSave">保存配置</el-button>
+        <el-button v-perms="'system:config:update'" :loading="testing" @click="handleTest">测试连接</el-button>
         <el-button :icon="RefreshRight" circle @click="fetchItems" />
       </el-form-item>
+
+      <!-- 连接测试结果（成功显示耗时与模型回复；失败显示具体原因） -->
+      <el-alert
+        v-if="testResult"
+        :type="testResult.ok ? 'success' : 'error'"
+        :title="testResult.ok ? `连接成功，耗时 ${testResult.latencyMs}ms` : '连接失败'"
+        :closable="true"
+        class="test-result"
+        @close="testResult = null"
+      >
+        <template #default>
+          <span v-if="testResult.ok">模型回复：{{ testResult.reply }}</span>
+          <span v-else>{{ testResult.reply }}</span>
+        </template>
+      </el-alert>
     </el-form>
   </div>
 </template>
@@ -83,7 +99,7 @@
 import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import { RefreshRight } from '@element-plus/icons-vue'
-import { listConfigs, createConfig, updateConfig } from '@/api/config'
+import { listConfigs, createConfig, updateConfig, testAIConnection } from '@/api/config'
 import type { ConfigItem } from '@/api/types'
 
 // 平台预设表：选择后回填协议与接口地址；custom 不回填
@@ -214,6 +230,28 @@ async function handleSave() {
     saving.value = false
   }
 }
+
+// ===== 连接性测试（用表单当前值，不要求先保存） =====
+const testing = ref(false)
+const testResult = ref<{ ok: boolean; latencyMs: number; reply: string } | null>(null)
+
+async function handleTest() {
+  testResult.value = null
+  testing.value = true
+  try {
+    const res = await testAIConnection({
+      protocol: form.protocol,
+      base_url: form.base_url.trim(),
+      api_key: form.api_key.trim(),
+      model: form.model.trim()
+    })
+    testResult.value = { ok: true, latencyMs: res.latency_ms, reply: res.reply }
+  } catch (e: any) {
+    testResult.value = { ok: false, latencyMs: 0, reply: e?.message || '请求失败' }
+  } finally {
+    testing.value = false
+  }
+}
 </script>
 
 <style scoped lang="scss">
@@ -229,5 +267,10 @@ async function handleSave() {
   margin-left: $spacing-sm;
   font-size: 12px;
   color: $color-text-secondary;
+}
+
+.test-result {
+  max-width: 640px;
+  margin-top: $spacing-sm;
 }
 </style>

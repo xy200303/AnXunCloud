@@ -1,10 +1,13 @@
 package controller
 
 import (
+	"time"
+
 	"github.com/gin-gonic/gin"
 
 	"anxuncloud/internal/module/system/dto"
 	"anxuncloud/internal/module/system/service"
+	"anxuncloud/internal/pkg/ai"
 	"anxuncloud/internal/pkg/bind"
 	"anxuncloud/internal/pkg/errs"
 	"anxuncloud/internal/pkg/response"
@@ -113,4 +116,33 @@ func (ctl *ConfigController) Delete(c *gin.Context) {
 		return
 	}
 	response.OK(c, nil)
+}
+
+// TestAI POST /system/configs/ai-test — AI 连接性测试。
+// 用表单当前值（可未保存）向模型发一个最小文本请求，返回耗时与模型回复；失败返回具体原因。
+func (ctl *ConfigController) TestAI(c *gin.Context) {
+	var req struct {
+		Protocol       string `json:"protocol"`
+		BaseURL        string `json:"base_url"`
+		APIKey         string `json:"api_key"`
+		Model          string `json:"model"`
+		TimeoutSeconds int    `json:"timeout_seconds"`
+	}
+	if be := bind.JSON(c, &req); be != nil {
+		response.Fail(c, be)
+		return
+	}
+	start := time.Now()
+	reply, err := ai.Ping(c.Request.Context(), ai.PingParams{
+		Protocol:       req.Protocol,
+		BaseURL:        req.BaseURL,
+		APIKey:         req.APIKey,
+		Model:          req.Model,
+		TimeoutSeconds: req.TimeoutSeconds,
+	})
+	if err != nil {
+		response.Fail(c, errs.ErrParam.WithMsg("连接失败："+err.Error()))
+		return
+	}
+	response.OK(c, gin.H{"latency_ms": time.Since(start).Milliseconds(), "reply": reply})
 }

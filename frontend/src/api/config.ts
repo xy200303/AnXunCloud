@@ -21,3 +21,8 @@ export function updateConfig(id: string, data: { name?: string; value?: string; 
 export function deleteConfig(id: string) {
   return request<null>({ url: `/system/configs/${id}`, method: 'delete' })
 }
+
+// AI 连接性测试：用表单当前值（可未保存）向模型发最小文本请求
+export function testAIConnection(data: { protocol: string; base_url: string; api_key: string; model: string }) {
+  return request<{ latency_ms: number; reply: string }>({ url: '/system/configs/ai-test', method: 'post', data, timeout: 60000 })
+}

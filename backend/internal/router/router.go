@@ -576,6 +576,7 @@ func registerSystemRoutes(sys *gin.RouterGroup, db *gorm.DB,
 		configs.GET("", middleware.RequirePerm("system:config:list"), configCtl.List)
 		configs.GET("/groups", middleware.RequirePerm("system:config:list"), configCtl.Groups)
 		configs.POST("", middleware.RequirePerm("system:config:create"), middleware.OperLog(db, "system", "create"), configCtl.Create)
+		configs.POST("/ai-test", middleware.RequirePerm("system:config:update"), configCtl.TestAI)
 		configs.PUT("/:id", middleware.RequirePerm("system:config:update"), middleware.OperLog(db, "system", "update"), configCtl.Update)
 		configs.DELETE("/:id", middleware.RequirePerm("system:config:delete"), middleware.OperLog(db, "system", "delete"), configCtl.Delete)
 	}

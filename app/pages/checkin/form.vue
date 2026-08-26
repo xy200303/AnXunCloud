@@ -203,6 +203,11 @@ type FormData = {
   scenePhotos: string[]
   remark: string
   submitting: boolean
+  /** AI 照片质量拦截计数与放行上限（43107 分支用；达到上限允许强制提交转人工复核） */
+  qualityAttempts: number
+  maxAttempts: number
+  /** 强制提交标记（用户确认后重发带 force=true） */
+  forceSubmit: boolean
   canvasW: number
   canvasH: number
   inspectorName: string
@@ -264,6 +269,9 @@ export default {
       scenePhotos: [] as string[],
       remark: '',
       submitting: false,
+      qualityAttempts: 0,
+      maxAttempts: 3,
+      forceSubmit: false,
       canvasW: 0,
       canvasH: 0,
       inspectorName: ''
@@ -676,7 +684,8 @@ export default {
               note: it.note.trim(),
               photos: itemKeys[idx]
             })),
-            photos: photoRefs
+            photos: photoRefs,
+            force: this.forceSubmit || undefined
           })
         })
         .then((res: CheckinResult) => {
@@ -690,7 +699,7 @@ export default {
           }
           this.showSubmitResult(pt, res, null)
         })
-        .catch((e: Error) => {
+        .catch((e: Error & { code?: number; data?: any }) => {
           // 网络类错误（请求失败/上传失败）→ 转离线暂存；业务错误原样提示
           if (e.message != null && e.message.indexOf(NETWORK_ERR_PREFIX) == 0) {
             this.saveOffline()
@@ -698,6 +707,34 @@ export default {
           }
           uni.hideLoading()
           this.submitting = false
+          // AI 照片质量不合格（43107）：提示重拍并计数，达到放行上限允许强制提交转人工复核
+          if (e.code === 43107) {
+            this.qualityAttempts += 1
+            const max = e.data != null && typeof e.data.max_attempts == 'number' ? e.data.max_attempts : this.maxAttempts
+            this.maxAttempts = max
+            if (this.qualityAttempts >= max) {
+              uni.showModal({
+                title: '照片仍未通过检查',
+                content: e.message + '\n已达重拍上限，可强制提交，由管理员人工复核。',
+                confirmText: '强制提交',
+                cancelText: '重新拍摄',
+                success: (r) => {
+                  if (r.confirm) {
+                    this.forceSubmit = true
+                    this.submit()
+                  }
+                }
+              })
+              return
+            }
+            uni.showModal({
+              title: '照片不合格',
+              content: e.message + '\n请重新拍摄（第 ' + this.qualityAttempts + ' 次，' + max + ' 次后可强制提交）',
+              showCancel: false,
+              confirmText: '重新拍摄'
+            })
+            return
+          }
           uni.showToast({ title: e.message, icon: 'none' })
         })
     }

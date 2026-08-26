@@ -32,9 +32,9 @@
         <text class="card-progress-text" :style="{ color: colors.textPrimary }">已完成 {{ donePoints }} / {{ totalPoints }} 点位</text>
       </view>
 
-      <!-- 极简连续巡检入口（存在未打卡点位时显示） -->
+      <!-- 连续巡检入口（AI 启用进向导；未启用进手动表单；有本地快照时显示继续巡检） -->
       <view v-if="hasUnchecked" class="quick-btn" :style="{ backgroundColor: colors.success }" @click="startQuick">
-        <text class="quick-btn-text" :style="{ color: colors.white }">开始连续巡检</text>
+        <text class="quick-btn-text" :style="{ color: colors.white }">{{ quickBtnText }}</text>
       </view>
 
       <!-- 点位列表（未打卡置顶，已打卡沉底；组内保持 sort 顺序） -->
@@ -60,6 +60,10 @@
           </view>
         </view>
       </view>
+
+      <!-- 手动模式入口（弱化文字链，给熟手留后路） -->
+      <text v-if="aiEnabled && hasUnchecked" class="manual-link" :style="{ color: colors.textSecondary }" @click="goManual">手动模式（逐项填写）</text>
+      <view class="bottom-space"></view>
     </view>
 
     <!-- 加载失败 -->
@@ -73,6 +77,7 @@
 <script lang="ts">
 import { Colors, ColorTokens } from '@/utils/theme'
 import { apiTaskDetail, TaskPoint } from '@/services/api'
+import { WizardSnap, loadWizardSnap, wizardSnapKey, wizardSnapProgress } from '@/utils/checkinWizard'
 
 /** 点位行视图模型：文案/颜色在数据层预计算 */
 type PointView = {
@@ -85,6 +90,8 @@ type PointView = {
   status_text: string
   status_color: string
   checked: boolean
+  /** 已打卡且已归档锁定（不可修改） */
+  locked: boolean
   my_checkin: TaskPoint['my_checkin']
 }
 
@@ -107,6 +114,10 @@ type DetailData = {
   progressWidth: string
   totalPoints: number
   donePoints: number
+  /** AI 识别是否启用（false = 大按钮与点位打卡均回退手动表单） */
+  aiEnabled: boolean
+  /** 本地向导快照（有 = 显示「继续巡检」并标注 AI 检查中点位） */
+  snap: WizardSnap | null
   points: PointView[]
 }
 
@@ -140,7 +151,7 @@ function patrolTextOf(t: string): string {
   return ''
 }
 
-function toPointView(p: TaskPoint): PointView {
+function toPointView(p: TaskPoint, snapDoing: Record<string, boolean>): PointView {
   const ck = p.my_checkin
   let statusText = '待打卡'
   let statusColor = Colors.info
@@ -149,9 +160,13 @@ function toPointView(p: TaskPoint): PointView {
       statusText = '异常'
       statusColor = Colors.danger
     } else {
-      statusText = '已打卡'
+      statusText = '正常'
       statusColor = Colors.success
     }
+  } else if (snapDoing[p.point_id]) {
+    // 本地快照里该点位识别未完成（已拍待收尾）
+    statusText = 'AI 检查中'
+    statusColor = Colors.primary
   }
   return {
     point_id: p.point_id,
@@ -162,6 +177,7 @@ function toPointView(p: TaskPoint): PointView {
     status_text: statusText,
     status_color: statusColor,
     checked: ck != null,
+    locked: ck != null && ck.locked,
     my_checkin: ck
   }
 }
@@ -185,6 +201,8 @@ export default {
       progressWidth: '0%',
       totalPoints: 0,
       donePoints: 0,
+      aiEnabled: false,
+      snap: null,
       points: [] as PointView[]
     }
   },
@@ -211,19 +229,43 @@ export default {
         })
         .map((x) => x.p)
     },
-    /** 存在未打卡点位 → 显示「开始连续巡检」大按钮 */
+    /** 存在未打卡点位 → 显示大按钮 */
     hasUnchecked(): boolean {
       return this.points.some((p) => !p.checked)
+    },
+    /** 有本地向导快照（含未提交点位）→ 大按钮显示「继续巡检」 */
+    hasSnapshot(): boolean {
+      if (this.snap == null) return false
+      return this.snap.points.some((p) => p.status != 'submitted')
+    },
+    /** 大按钮文案：继续巡检（带进度）/ 开始连续巡检 / 开始巡检（手动） */
+    quickBtnText(): string {
+      if (!this.aiEnabled) return '开始巡检'
+      if (this.hasSnapshot && this.snap != null) {
+        const pr = wizardSnapProgress(this.snap)
+        return '继续巡检（已完成 ' + pr.done + '/' + pr.total + ' 点位）'
+      }
+      return '开始连续巡检'
     }
   },
   methods: {
-    /** 连续巡检：跳第一个未打卡点位的极简打卡页 */
+    /** 大按钮入口：AI 启用 → 连续巡检向导（自动恢复本地快照）；未启用 → 手动表单 */
     startQuick() {
+      if (!this.aiEnabled) {
+        this.goManual()
+        return
+      }
+      uni.navigateTo({
+        url: '/pages/checkin/quick?task_id=' + encodeURIComponent(this.taskId)
+      })
+    },
+    /** 手动模式（熟手后路 / AI 未启用）：跳第一个未打卡点位的打卡表单 */
+    goManual() {
       const next = this.sortedPoints.find((p) => !p.checked)
       if (next == null) return
       uni.navigateTo({
         url:
-          '/pages/checkin/quick?task_id=' + encodeURIComponent(this.taskId) +
+          '/pages/checkin/form?task_id=' + encodeURIComponent(this.taskId) +
           '&point_id=' + encodeURIComponent(next.point_id)
       })
     },
@@ -249,7 +291,16 @@ export default {
           this.progressWidth = res.progress + '%'
           this.totalPoints = res.total_points
           this.donePoints = res.done_points
-          this.points = res.points.map((p: TaskPoint) => toPointView(p))
+          this.aiEnabled = res.ai_enabled ?? false
+          // 本地向导快照：标注「AI 检查中」点位 + 大按钮续巡进度
+          this.snap = loadWizardSnap(wizardSnapKey(this.taskId))
+          const snapDoing: Record<string, boolean> = {}
+          if (this.snap != null) {
+            this.snap.points.forEach((sp) => {
+              if (sp.status != 'submitted') snapDoing[sp.point_id] = true
+            })
+          }
+          this.points = res.points.map((p: TaskPoint) => toPointView(p, snapDoing))
           uni.stopPullDownRefresh()
         })
         .catch((e: Error) => {
@@ -261,15 +312,25 @@ export default {
     },
     onPointTap(p: PointView) {
       if (!p.checked) {
-        // 待打卡 → 跳打卡表单
+        // 点位清单只读：未打卡引导走大按钮（AI 启用进向导，未启用进手动表单）
+        uni.showToast({ title: '请点上方按钮开始巡检', icon: 'none' })
+        return
+      }
+      if (p.locked) {
+        uni.showToast({ title: '已归档，不可修改', icon: 'none' })
+        return
+      }
+      if (this.aiEnabled) {
+        // 已打卡未锁定 → 进向导「修改模式」（只走该点位，提交走覆盖语义）
         uni.navigateTo({
           url:
-            '/pages/checkin/form?task_id=' + encodeURIComponent(this.taskId) +
-            '&point_id=' + encodeURIComponent(p.point_id)
+            '/pages/checkin/quick?task_id=' + encodeURIComponent(this.taskId) +
+            '&point_id=' + encodeURIComponent(p.point_id) +
+            '&mode=modify'
         })
         return
       }
-      // 已打卡 → 展示打卡记录
+      // AI 未启用：展示打卡记录（只读）
       const ck = p.my_checkin
       if (ck == null) return
       const lines = [
@@ -409,6 +470,17 @@ export default {
 .quick-btn-text {
   font-size: 44rpx;
   font-weight: 700;
+}
+
+/* 手动模式入口（弱化文字链） */
+.manual-link {
+  font-size: 26rpx;
+  text-align: center;
+  padding: 24rpx;
+}
+
+.bottom-space {
+  height: 64rpx;
 }
 
 .point-row {

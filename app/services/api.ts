@@ -6,6 +6,15 @@
 import { httpGet, httpPost, httpPut, httpDelete, refreshSession, getBaseUrl, getPublicOrigin } from '@/services/request'
 import { getAccessToken } from '@/utils/storage'
 
+// ---- 业务错误码常量 ----
+
+/** 照片质量不达标（信封 data.max_attempts 含放行次数） */
+export const CODE_QUALITY_FAIL = 43107
+/** AI 未启用（ErrAIDisabled，后端 errs.go 实际值） */
+export const CODE_AI_DISABLED = 43108
+/** 点位打卡已锁定不可覆盖（ErrCheckinLocked，后端 errs.go 实际值） */
+export const CODE_CHECKIN_LOCKED = 43109
+
 // ---- 类型定义（与后端 JSON 蛇形字段对齐；ID 字段全系统 v2 起为 UUIDv7 string） ----
 
 /** 后端 /profile roles 元素：对象（{id, code, name}）或纯字符串 code，两种均兼容 */
@@ -103,6 +112,8 @@ export type CheckItemTpl = {
   requirement: string
   /** none/optional/required */
   photo_required: string
+  /** 判定方式：manual=感官项（人工正常/异常），其余=拍照 AI 识别项；缺省按拍照项处理（待与后端对齐下发） */
+  judge_type: string
 }
 
 /** 任务明细点位（含我的打卡状态） */
@@ -131,6 +142,8 @@ export type TaskPoint = {
     /** normal/abnormal */
     result: string
     is_suspect: boolean
+    /** true = 已归档锁定，不可覆盖修改 */
+    locked: boolean
   } | null
 }
 
@@ -150,7 +163,23 @@ export type TaskDetail = {
   total_points: number
   done_points: number
   progress: number
+  /** 后端是否启用 AI 识别（false/缺省 = 连续巡检回退手动模式） */
+  ai_enabled?: boolean
+  /** true = 向导异常确认页允许巡检员编辑 AI 描述 */
+  ai_result_editable?: boolean
   points: TaskPoint[]
+}
+
+/** 打卡逐项填报元素（ai_* 为 AI 预览结论透传落库，可选） */
+export type CheckinItemReqPayload = {
+  name: string
+  pass: boolean
+  note: string
+  photos: string[]
+  /** AI 逐项判定透传：pass/review/abnormal/'' */
+  ai_verdict?: string
+  ai_reason?: string
+  ai_reading?: string
 }
 
 /** 打卡提交请求体（对齐后端 dto.CheckinReq） */
@@ -170,10 +199,37 @@ export type CheckinReqPayload = {
   result: 'normal' | 'abnormal' | 'auto'
   /** 可选：质量不达标超放行次数后强制提交（结果转待复核） */
   force?: boolean
+  /** true = 巡检员已在识别概要页确认 AI 结论，服务端跳过二次 AI */
+  ai_confirmed?: boolean
   remark: string
   /** 逐项填报（result=auto 时不传，由后端快照模板） */
-  check_items?: Array<{ name: string; pass: boolean; note: string; photos: string[] }>
+  check_items?: CheckinItemReqPayload[]
   photos: Array<{ item: string; file_key: string }>
+}
+
+/** AI 逐项识别 job 创建请求（POST /checkin/ai-item-jobs） */
+export type AiItemJobCreateReq = {
+  task_id: string
+  point_id: string
+  /** 检查项名（与点位模板对齐） */
+  name: string
+  /** 该项照片 file_key（1~3 张） */
+  file_keys: string[]
+}
+
+/** AI 逐项识别 job 状态（GET /checkin/ai-item-jobs?ids= 元素） */
+export type AiItemJob = {
+  job_id: string
+  /** pending 识别中 / done 完成 / failed 失败（含过期，前端回退重拍） */
+  status: 'pending' | 'done' | 'failed' | string
+  /** pass / review / abnormal / ''（done 时有效） */
+  verdict: string
+  reason: string
+  /** 仪表读数等识别值，无则空串 */
+  reading: string
+  /** 照片质量：false 时 quality_issue 为不达标原因，该项需补拍 */
+  quality_pass: boolean
+  quality_issue: string
 }
 
 /** AI 逐项判定（同步判定响应 ai_items 元素；reading 为仪表读数等识别值，无则空串） */
@@ -457,6 +513,8 @@ type RawTaskDetail = {
   total_points?: number
   done_points?: number
   progress?: number
+  ai_enabled?: boolean
+  ai_result_editable?: boolean
   points?: Array<{
     point_id?: string | number
     point_name?: string
@@ -470,7 +528,7 @@ type RawTaskDetail = {
     latitude?: number
     fence_radius?: number
     required_photo_items?: string[]
-    check_items?: Array<{ name?: string; requirement?: string; photo_required?: string }>
+    check_items?: Array<{ name?: string; requirement?: string; photo_required?: string; judge_type?: string }>
     my_checkin?: {
       id?: string | number
       checkin_time?: string
@@ -478,8 +536,19 @@ type RawTaskDetail = {
       distance_to_point?: number | null
       result?: string
       is_suspect?: boolean
+      locked?: boolean
     } | null
   }>
+}
+
+type RawAiItemJob = {
+  job_id?: string
+  status?: string
+  verdict?: string
+  reason?: string
+  reading?: string
+  quality_pass?: boolean
+  quality_issue?: string
 }
 
 type RawCheckinResult = {
@@ -749,6 +818,8 @@ export function apiTaskDetail(id: string): Promise<TaskDetail> {
           total_points: d.total_points ?? 0,
           done_points: d.done_points ?? 0,
           progress: d.progress ?? 0,
+          ai_enabled: d.ai_enabled ?? false,
+          ai_result_editable: d.ai_result_editable ?? false,
           points: (d.points ?? []).map((p) => ({
             point_id: toId(p.point_id),
             point_name: p.point_name ?? '',
@@ -765,7 +836,8 @@ export function apiTaskDetail(id: string): Promise<TaskDetail> {
             check_items: (p.check_items ?? []).map((c) => ({
               name: c.name ?? '',
               requirement: c.requirement ?? '',
-              photo_required: c.photo_required ?? ''
+              photo_required: c.photo_required ?? '',
+              judge_type: c.judge_type ?? ''
             })),
             my_checkin: p.my_checkin == null
               ? null
@@ -775,7 +847,8 @@ export function apiTaskDetail(id: string): Promise<TaskDetail> {
                   checkin_type: p.my_checkin.checkin_type ?? '',
                   distance_to_point: p.my_checkin.distance_to_point ?? null,
                   result: p.my_checkin.result ?? '',
-                  is_suspect: p.my_checkin.is_suspect ?? false
+                  is_suspect: p.my_checkin.is_suspect ?? false,
+                  locked: p.my_checkin.locked ?? false
                 }
           }))
         })
@@ -822,6 +895,42 @@ export function apiCheckin(req: CheckinReqPayload): Promise<CheckinResult> {
             task_status: tp.task_status ?? ''
           }
         })
+      })
+      .catch(reject)
+  })
+}
+
+/** 创建 AI 逐项识别 job POST /checkin/ai-item-jobs（拍照项拍完立即调用，异步轮询结果） */
+export function apiAiItemJobCreate(req: AiItemJobCreateReq): Promise<{ job_id: string }> {
+  return new Promise<{ job_id: string }>((resolve, reject) => {
+    httpPost<{ job_id?: string | number }>('/checkin/ai-item-jobs', req as unknown as Record<string, any>)
+      .then((d) => {
+        if (d == null || d.job_id == null) {
+          reject(new Error('识别任务响应异常'))
+          return
+        }
+        resolve({ job_id: toId(d.job_id) })
+      })
+      .catch(reject)
+  })
+}
+
+/** 批量查询 AI 逐项识别 job GET /checkin/ai-item-jobs?ids=a,b,c（点位收尾轮询用） */
+export function apiAiItemJobs(ids: string[]): Promise<AiItemJob[]> {
+  return new Promise<AiItemJob[]>((resolve, reject) => {
+    httpGet<{ jobs?: RawAiItemJob[] }>('/checkin/ai-item-jobs?ids=' + ids.map(encodeURIComponent).join(','))
+      .then((d) => {
+        resolve(
+          (d?.jobs ?? []).map((j) => ({
+            job_id: j.job_id ?? '',
+            status: j.status ?? '',
+            verdict: j.verdict ?? '',
+            reason: j.reason ?? '',
+            reading: j.reading ?? '',
+            quality_pass: j.quality_pass ?? true,
+            quality_issue: j.quality_issue ?? ''
+          }))
+        )
       })
       .catch(reject)
   })

@@ -147,7 +147,8 @@ const JUDGE_TYPES: { value: string; label: string; desc: string }[] = [
   { value: 'passage', label: '通道遮挡', desc: '判断通道是否被杂物占用、堵塞' },
   { value: 'leak', label: '渗漏痕迹', desc: '判断是否存在水渍、渗漏痕迹' },
   { value: 'indicator', label: '指示灯状态', desc: '判断指示灯颜色/亮灭是否符合期望' },
-  { value: 'tidiness', label: '环境整洁', desc: '判断环境是否整洁、有无垃圾堆放' }
+  { value: 'tidiness', label: '环境整洁', desc: '判断环境是否整洁、有无垃圾堆放' },
+  { value: 'manual', label: '手动确认', desc: 'AI 无法判定的感官项（噪音/气味等）：巡检员手选正常/异常，默认正常，不调 AI' }
 ]
 
 function judgeTypeLabel(jt?: string) {

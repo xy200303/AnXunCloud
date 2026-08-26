@@ -151,7 +151,10 @@ function patrolTextOf(t: string): string {
   return ''
 }
 
-function toPointView(p: TaskPoint, snapDoing: Record<string, boolean>): PointView {
+/** 快照内点位进度档：recognizing=有项 AI 识别中；doing=已拍/已答未提交；''=未开始（不标注） */
+type SnapStage = 'recognizing' | 'doing' | ''
+
+function toPointView(p: TaskPoint, snapStage: Record<string, SnapStage>): PointView {
   const ck = p.my_checkin
   let statusText = '待打卡'
   let statusColor = Colors.info
@@ -163,10 +166,17 @@ function toPointView(p: TaskPoint, snapDoing: Record<string, boolean>): PointVie
       statusText = '正常'
       statusColor = Colors.success
     }
-  } else if (snapDoing[p.point_id]) {
-    // 本地快照里该点位识别未完成（已拍待收尾）
-    statusText = 'AI 检查中'
-    statusColor = Colors.primary
+  } else {
+    const stage = snapStage[p.point_id]
+    if (stage == 'recognizing') {
+      // 有照片在 AI 识别队列中
+      statusText = 'AI 检查中'
+      statusColor = Colors.primary
+    } else if (stage == 'doing') {
+      // 已拍/已答但无识别中项（待收尾提交）
+      statusText = '巡检中'
+      statusColor = Colors.warning
+    }
   }
   return {
     point_id: p.point_id,
@@ -292,15 +302,23 @@ export default {
           this.totalPoints = res.total_points
           this.donePoints = res.done_points
           this.aiEnabled = res.ai_enabled ?? false
-          // 本地向导快照：标注「AI 检查中」点位 + 大按钮续巡进度
+          // 本地向导快照：按点位进度分档标注（识别中/巡检中）+ 大按钮续巡进度
           this.snap = loadWizardSnap(wizardSnapKey(this.taskId))
-          const snapDoing: Record<string, boolean> = {}
+          const snapStage: Record<string, SnapStage> = {}
           if (this.snap != null) {
             this.snap.points.forEach((sp) => {
-              if (sp.status != 'submitted') snapDoing[sp.point_id] = true
+              if (sp.status == 'submitted') return
+              let stage: SnapStage = ''
+              sp.items.forEach((it) => {
+                if (it.status == 'recognizing') stage = 'recognizing'
+                else if (stage == '' && (it.status == 'done' || it.status == 'failed')) stage = 'doing'
+              })
+              // 已核验凭证/围栏也算已开始
+              if (stage == '' && (sp.scannedNo != '' || sp.nfcCardId != '')) stage = 'doing'
+              if (stage != '') snapStage[sp.point_id] = stage
             })
           }
-          this.points = res.points.map((p: TaskPoint) => toPointView(p, snapDoing))
+          this.points = res.points.map((p: TaskPoint) => toPointView(p, snapStage))
           uni.stopPullDownRefresh()
         })
         .catch((e: Error) => {

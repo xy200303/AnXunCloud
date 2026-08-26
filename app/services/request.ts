@@ -66,6 +66,7 @@ function httpRaw(
       method: method,
       data: method != 'GET' ? data ?? undefined : undefined,
       header: header,
+      timeout: 30000, // 弱网（泵房/地下室）保底：30s 必 fail，防止遮罩/等待永久挂起
       success: (res) => {
         const body = res.data as ApiEnvelope | null
         if (body == null || typeof body.code != 'number') {

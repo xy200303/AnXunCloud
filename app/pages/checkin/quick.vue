@@ -176,8 +176,8 @@
         </view>
       </view>
 
-      <!-- 底部「上一项」 -->
-      <text v-if="showPrev" class="prev-link" :style="{ color: colors.textSecondary }" @click="prevStep">上一项</text>
+      <!-- 底部「上一项」（向导起点时变为「退出巡检」，与返回键语义一致） -->
+      <text v-if="showPrev" class="prev-link" :style="{ color: colors.textSecondary }" @click="onPrevTap">{{ atWizardStart ? '退出巡检' : '上一项' }}</text>
       <view class="bottom-space"></view>
     </view>
 
@@ -279,6 +279,8 @@ type QuickData = {
   canvasW: number
   canvasH: number
   inspectorName: string
+  /** 遮罩看门狗定时器 */
+  overlayWatchdog: any
 }
 
 /** haversine 距离（米） */
@@ -383,7 +385,9 @@ export default {
       snapKey: '',
       canvasW: 0,
       canvasH: 0,
-      inspectorName: ''
+      inspectorName: '',
+      /** 遮罩看门狗定时器 */
+      overlayWatchdog: null
     }
   },
   computed: {
@@ -457,6 +461,12 @@ export default {
     showPrev(): boolean {
       if (this.overlayMsg != '' || this.submitting) return false
       return this.phase == 'cred' || this.phase == 'items' || this.phase == 'gate'
+    },
+    /** 是否已到向导起点（第一点位第一步）：此时 prevStep 返回 false，底部显示「退出巡检」 */
+    atWizardStart(): boolean {
+      if (this.pointIdx != 0) return false
+      if (this.phase == 'cred') return true
+      return this.phase == 'items' && this.itemIdx == 0 && !this.needsCred
     }
   },
   onLoad(options: any) {
@@ -473,19 +483,46 @@ export default {
   onUnload() {
     this.destroyed = true
     this.stopPoll()
+    if (this.overlayWatchdog != null) {
+      clearTimeout(this.overlayWatchdog)
+      this.overlayWatchdog = null
+    }
   },
   onBackPress(): boolean {
-    // 遮盖层（上传/AI 检查/提交中）与点位完成过渡页：拦截返回，不打断流程
-    if (this.overlayMsg != '' || this.submitting || this.phase == 'pointDone') return true
-    if (this.phase == 'taskDone') return false
+    // 遮盖层（上传/AI 检查/提交中）：拦截返回并提示，避免用户误以为卡死
+    if (this.overlayMsg != '' || this.submitting) {
+      uni.showToast({ title: '处理中，请稍候…', icon: 'none' })
+      return true
+    }
+    // 点位完成过渡页（1.2s 自动推进）：放行返回，onUnload 后定时器自查 destroyed 不执行
+    if (this.phase == 'taskDone' || this.phase == 'pointDone') return false
     if (this.phase == 'retake' || this.phase == 'abnormal') {
       // 收尾页返回 = 回到提交本点位
       this.phase = 'gate'
       this.persist()
       return true
     }
-    this.prevStep()
-    return true
+    // 到起点（第一点位第一步）时 prevStep 返回 false：放行系统默认返回退出向导。
+    // 注意：onBackPress 拦截（return true）的同时手动 navigateBack 会被抑制，造成"返回卡死退不出"。
+    return this.prevStep()
+  },
+  watch: {
+    /** 遮罩看门狗：任何链路异常导致遮罩超过 75s（> 请求 30s / 上传 60s 超时）时强制解除，防永久卡死 */
+    overlayMsg(v: string) {
+      if (this.overlayWatchdog != null) {
+        clearTimeout(this.overlayWatchdog)
+        this.overlayWatchdog = null
+      }
+      if (v == '') return
+      this.overlayWatchdog = setTimeout(() => {
+        this.overlayWatchdog = null
+        if (this.overlayMsg == '') return
+        this.overlayMsg = ''
+        this.submitting = false
+        this.stopPoll()
+        uni.showToast({ title: '网络较慢，请检查后重试', icon: 'none' })
+      }, 75000)
+    }
   },
   methods: {
     load() {
@@ -866,12 +903,19 @@ export default {
       }
       this.persist()
     },
-    /** 回退：上一项 → 凭证步 → 上一点位 → 任务第一步时退出向导 */
-    prevStep() {
+    /** 底部「上一项」点击：到起点时退出向导（非 onBackPress 上下文，navigateBack 有效） */
+    onPrevTap() {
+      if (!this.prevStep()) this.exitWizard()
+    },
+    /**
+     * 回退：上一项 → 凭证步 → 上一点位。
+     * 返回 true=已回退；false=已在起点（第一点位第一步，应退出向导）。
+     * 「上一项」按钮场景收到 false 时手动退出（非 onBackPress 上下文，navigateBack 有效）。
+     */
+    prevStep(): boolean {
       const wp = this.curWizPoint
       if (wp == null) {
-        this.exitWizard()
-        return
+        return false
       }
       this.manualAbnormalOpen = false
       if (this.phase == 'gate') {
@@ -879,25 +923,25 @@ export default {
           this.itemIdx = wp.items.length - 1
           this.phase = 'items'
           this.persist()
-          return
+          return true
         }
         this.phase = 'cred'
         this.persist()
-        return
+        return true
       }
       if (this.phase == 'items') {
         if (this.itemIdx > 0) {
           this.itemIdx -= 1
           this.persist()
-          return
+          return true
         }
         if (this.needsCred) {
           this.phase = 'cred'
           this.persist()
-          return
+          return true
         }
       }
-      // phase == 'cred' 或无凭证点位的第一项：上一点位 / 退出
+      // phase == 'cred' 或无凭证点位的第一项：上一点位 / 到起点
       if (this.pointIdx > 0) {
         this.pointIdx -= 1
         const prev = this.curWizPoint
@@ -905,9 +949,9 @@ export default {
         this.phase = prev != null && prev.items.length > 0 ? 'items' : 'gate'
         this.locate()
         this.persist()
-        return
+        return true
       }
-      this.exitWizard()
+      return false
     },
     /** 提交本点位：轮询未完成的识别 job → 汇总分流（全过 / 补拍 / 异常确认） */
     submitPoint() {
@@ -1203,7 +1247,12 @@ export default {
       saveWizardSnap(this.snapKey, snap)
     },
     exitWizard() {
-      uni.navigateBack()
+      uni.navigateBack({
+        fail: () => {
+          // 页面栈异常兜底：回任务 tab，避免 navigateBack 静默失败造成假死
+          uni.switchTab({ url: '/pages/tasks/today' })
+        }
+      })
     }
   }
 }

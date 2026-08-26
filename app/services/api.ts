@@ -971,6 +971,7 @@ export function apiUploadLocal(
       name: 'file',
       formData: { scene: scene },
       header: { Authorization: 'Bearer ' + getAccessToken() },
+      timeout: 60000, // 弱网保底：60s 必 fail，防止上传永久挂起
       success: (res) => {
         let env: ApiEnvelopeLike | null = null
         try {

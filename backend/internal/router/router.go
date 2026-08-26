@@ -87,6 +87,7 @@ func New(cfg *config.Config, db *gorm.DB, rdb *redis.Client) (*gin.Engine, *insp
 	reportSvc := reportsvc.NewReportService(db, rdb, store, configSvc.Get, notifier)
 	mpSvc := mpsvc.NewMPService(db, rdb, sess, jwtm, cfg.Wechat)
 	checkinSvc := mpsvc.NewCheckinService(db, rdb, store, configSvc.Get, notifier)
+	checkinSvc.StartAIItemWorkers() // 逐项 AI 识别队列消费 worker（ai.worker_concurrency，随 router 装配启动）
 	uploadSvc := mpsvc.NewUploadService(db, store, cfg.Upload, cfg.OSS)
 	scheduler := inspectionsvc.NewScheduler(db, planSvc, reportSvc, configSvc.Get)
 
@@ -331,6 +332,8 @@ func New(cfg *config.Config, db *gorm.DB, rdb *redis.Client) (*gin.Engine, *insp
 			mpAuth.GET("/points", mpCtl.Points)
 			mpAuth.POST("/checkin", mpCtl.Checkin)
 			mpAuth.POST("/checkin/offline-sync", mpCtl.OfflineSync)
+			mpAuth.POST("/checkin/ai-item-jobs", mpCtl.SubmitAIItemJob) // 逐项 AI 识别：提交
+			mpAuth.GET("/checkin/ai-item-jobs", mpCtl.AIItemJobs)       // 逐项 AI 识别：批量轮询结果
 			mpAuth.GET("/checkins/:id/items", mpCtl.CheckinItems) // 本人打卡逐项 AI 结论
 			mpAuth.POST("/upload/sts", mpCtl.STS)
 			mpAuth.POST("/upload/local", mpCtl.Local) // local 模式上传
@@ -367,6 +370,8 @@ func New(cfg *config.Config, db *gorm.DB, rdb *redis.Client) (*gin.Engine, *insp
 			appAuth.GET("/points", mpCtl.Points)
 			appAuth.POST("/checkin", mpCtl.Checkin)
 			appAuth.POST("/checkin/offline-sync", mpCtl.OfflineSync)
+			appAuth.POST("/checkin/ai-item-jobs", mpCtl.SubmitAIItemJob) // 逐项 AI 识别：提交
+			appAuth.GET("/checkin/ai-item-jobs", mpCtl.AIItemJobs)       // 逐项 AI 识别：批量轮询结果
 			appAuth.GET("/checkins/:id/items", mpCtl.CheckinItems) // 本人打卡逐项 AI 结论
 			appAuth.POST("/upload/sts", mpCtl.STS)
 			appAuth.POST("/upload/local", mpCtl.Local)

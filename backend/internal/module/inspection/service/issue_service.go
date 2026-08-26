@@ -23,9 +23,10 @@ import (
 // issueExportLimit 导出上限，防止全量异常记录打爆内存。
 const issueExportLimit = 5000
 
-// applyIssueFilters 问题清单公共过滤条件（固定 result='abnormal'，含小区数据权限）。
+// applyIssueFilters 问题清单公共过滤条件（固定 result='abnormal'，含小区数据权限；
+// 固定过滤 superseded_by 非空的旧记录，覆盖修改后仅最新记录计入问题清单）。
 func (s *TaskService) applyIssueFilters(c *gin.Context, q *dto.IssueListQuery) (*gorm.DB, *errs.Error) {
-	db := s.db.Model(&model.CheckinRecord{}).Where("result = ?", model.ResultAbnormal)
+	db := s.db.Model(&model.CheckinRecord{}).Where("result = ? AND superseded_by IS NULL", model.ResultAbnormal)
 	if q.CommunityID != "" {
 		db = db.Where("community_id = ?", q.CommunityID)
 	}

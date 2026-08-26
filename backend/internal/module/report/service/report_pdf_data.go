@@ -76,11 +76,11 @@ func (s *ReportService) pdfData(r *model.InspectionReport) pdf.MonthlyReportData
 		d.TypeNames = append(d.TypeNames, typeNames.label(code)) // 封面设施类别用中文名
 	}
 
-	// ===== 当期打卡记录 =====
+	// ===== 当期打卡记录（过滤已被覆盖的旧记录，台账只取有效记录） =====
 	var recs []insmodel.CheckinRecord
 	scopeCheckinType(s.db, r.PatrolType).
 		Select("id", "point_id", "inspector_id", "checkin_time", "result", "remark", "photos", "audit_status").
-		Where("community_id = ? AND checkin_time >= ? AND checkin_time < ?", r.CommunityID, start, end).
+		Where("community_id = ? AND checkin_time >= ? AND checkin_time < ? AND superseded_by IS NULL", r.CommunityID, start, end).
 		Order("checkin_time ASC").Find(&recs)
 	recsByPoint := map[string][]insmodel.CheckinRecord{}
 	inspectorIDSet := map[string]bool{}

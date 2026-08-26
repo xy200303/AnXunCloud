@@ -166,7 +166,7 @@ func (s *ReportService) buildStats(communityID, period, patrolType string) (type
 		Suspect  int64
 	}
 	scopeCheckinType(s.db.Model(&insmodel.CheckinRecord{}), patrolType).
-		Where("community_id = ? AND checkin_time >= ? AND checkin_time < ?", communityID, start, end).
+		Where("community_id = ? AND checkin_time >= ? AND checkin_time < ? AND superseded_by IS NULL", communityID, start, end).
 		Select("COUNT(*) FILTER (WHERE result = 'abnormal') AS abnormal, COUNT(*) FILTER (WHERE is_suspect) AS suspect").Scan(&ckSum)
 
 	// 逐日明细：任务（日期/任务/完成）+ 当日异常打卡
@@ -186,7 +186,7 @@ func (s *ReportService) buildStats(communityID, period, patrolType string) (type
 	}
 	var ckDays []ckDay
 	scopeCheckinType(s.db.Model(&insmodel.CheckinRecord{}), patrolType).
-		Where("community_id = ? AND checkin_time >= ? AND checkin_time < ? AND result = 'abnormal'", communityID, start, end).
+		Where("community_id = ? AND checkin_time >= ? AND checkin_time < ? AND result = 'abnormal' AND superseded_by IS NULL", communityID, start, end).
 		Select("to_char(checkin_time, 'YYYY-MM-DD') AS date, COUNT(*) AS abnormal").
 		Group("date").Scan(&ckDays)
 	abByDay := map[string]int64{}
@@ -214,12 +214,27 @@ func (s *ReportService) buildStats(communityID, period, patrolType string) (type
 	return stats, types.IDArray(inspectorIDs), nil
 }
 
+// lockPeriodCheckins 报告生成成功后归档锁定当期打卡记录：锁定后该点位打卡不可覆盖修改（43109）。
+// 紧随报告写库之后的写操作（报告生成本身非事务，失败仅记日志不影响报告结果）；
+// 已被覆盖的旧记录（superseded_by 非空）与已锁定记录不重复处理。
+func (s *ReportService) lockPeriodCheckins(communityID, period string) {
+	start, end, be := periodRange(period)
+	if be != nil {
+		return
+	}
+	if err := s.db.Model(&insmodel.CheckinRecord{}).
+		Where("community_id = ? AND checkin_time >= ? AND checkin_time < ? AND superseded_by IS NULL AND locked_at IS NULL", communityID, start, end).
+		Update("locked_at", time.Now()).Error; err != nil {
+		logger.L.Warn("打卡记录归档锁定失败", zap.String("community_id", communityID), zap.String("period", period), zap.Error(err))
+	}
+}
+
 // collectRecords 收集该小区该期间打卡记录明细（按打卡时间正序；patrolType 非空只取该类型），供 stats.records 快照存储。
 // 字段：打卡时间/巡检员姓名/点位名称/打卡方式/距点位距离/结果/疑似标记/审核状态/照片 file_key 列表。
 func (s *ReportService) collectRecords(communityID string, start, end time.Time, patrolType string) []gin.H {
 	var recs []insmodel.CheckinRecord
 	if err := scopeCheckinType(s.db, patrolType).
-		Where("community_id = ? AND checkin_time >= ? AND checkin_time < ?", communityID, start, end).
+		Where("community_id = ? AND checkin_time >= ? AND checkin_time < ? AND superseded_by IS NULL", communityID, start, end).
 		Order("checkin_time ASC, id ASC").Find(&recs).Error; err != nil {
 		return []gin.H{}
 	}
@@ -589,6 +604,7 @@ func (s *ReportService) Generate(c *gin.Context, req *dto.GenerateReq) (gin.H, *
 		if err := s.db.Model(&r).Updates(updates).Error; err != nil {
 			return nil, errs.ErrInternal
 		}
+		s.lockPeriodCheckins(req.CommunityID, req.Period) // 归档锁定当期打卡（不可再覆盖修改）
 		if initialStatus == model.StatusApproved {
 			go s.archivePDF(r.ID)
 		}
@@ -604,6 +620,7 @@ func (s *ReportService) Generate(c *gin.Context, req *dto.GenerateReq) (gin.H, *
 	if err := s.db.Create(&r).Error; err != nil {
 		return nil, errs.ErrInternal
 	}
+	s.lockPeriodCheckins(req.CommunityID, req.Period) // 归档锁定当期打卡（不可再覆盖修改）
 	if initialStatus == model.StatusApproved {
 		go s.archivePDF(r.ID)
 	}
@@ -648,6 +665,7 @@ func (s *ReportService) GenerateMonthlyAll(period string) (int, error) {
 		if err := s.db.Create(&r).Error; err != nil {
 			return created, err
 		}
+		s.lockPeriodCheckins(comm.ID, period) // 归档锁定当期打卡（不可再覆盖修改）
 		if initialStatus == model.StatusApproved {
 			go s.archivePDF(r.ID)
 		}

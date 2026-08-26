@@ -79,10 +79,10 @@ func (s *TaskService) List(c *gin.Context, q *dto.TaskListQuery) (*response.Page
 		db = db.Where("done_points < total_points AND status <> ?", model.TaskPending)
 	case "abnormal":
 		db = db.Where("id IN (?)", s.db.Model(&model.CheckinRecord{}).
-			Select("task_id").Where("result = ?", model.ResultAbnormal))
+			Select("task_id").Where("result = ? AND superseded_by IS NULL", model.ResultAbnormal))
 	case "suspect":
 		db = db.Where("id IN (?)", s.db.Model(&model.CheckinRecord{}).
-			Select("task_id").Where("is_suspect"))
+			Select("task_id").Where("is_suspect AND superseded_by IS NULL"))
 	}
 	db = middleware.ApplyCommunityFilter(db, c, "inspection_task.community_id")
 	var total int64
@@ -120,7 +120,7 @@ func (s *TaskService) loadCounters(tasks []model.InspectionTask) map[string]task
 	var rows []row
 	s.db.Model(&model.CheckinRecord{}).
 		Select("task_id, COUNT(*) FILTER (WHERE result = 'abnormal') AS abnormal, COUNT(*) FILTER (WHERE is_suspect) AS suspect").
-		Where("task_id IN ?", ids).Group("task_id").Scan(&rows)
+		Where("task_id IN ? AND superseded_by IS NULL", ids).Group("task_id").Scan(&rows)
 	for _, r := range rows {
 		out[r.TaskID] = taskCounters{abnormal: r.Abnormal, suspect: r.Suspect}
 	}
@@ -185,9 +185,9 @@ func (s *TaskService) Detail(c *gin.Context, id string) (gin.H, *errs.Error) {
 	if plan.DeletedAt.Valid {
 		planName += "（已删除）"
 	}
-	// 任务下全部打卡记录，按点位归集
+	// 任务下全部打卡记录，按点位归集（过滤已被覆盖的旧记录）
 	var checkins []model.CheckinRecord
-	s.db.Where("task_id = ?", t.ID).Find(&checkins)
+	s.db.Where("task_id = ? AND superseded_by IS NULL", t.ID).Find(&checkins)
 	byPoint := map[string]*model.CheckinRecord{}
 	for i := range checkins {
 		byPoint[checkins[i].PointID] = &checkins[i]
@@ -281,8 +281,9 @@ func briefItemViews(db *gorm.DB, recordID string) []gin.H {
 // ========== 打卡记录检索（管理后台） ==========
 
 // applyCheckinFilters 打卡记录检索的公共过滤条件（含小区数据权限，不含审核状态）。
+// 固定过滤 superseded_by 非空的旧记录（覆盖修改后仅最新记录参与列表/计数）。
 func (s *TaskService) applyCheckinFilters(c *gin.Context, q *dto.CheckinListQuery) (*gorm.DB, *errs.Error) {
-	db := s.db.Model(&model.CheckinRecord{})
+	db := s.db.Model(&model.CheckinRecord{}).Where("superseded_by IS NULL")
 	if q.CommunityID != "" {
 		db = db.Where("community_id = ?", q.CommunityID)
 	}

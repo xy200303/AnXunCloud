@@ -296,7 +296,11 @@ type CheckinRecord struct {
 	// AIQualityPass/AIQualityIssue AI 照片质量判定（第一层）；AIQualityPass 为 NULL=未做质量判定
 	AIQualityPass  *bool  `json:"ai_quality_pass"`
 	AIQualityIssue string `gorm:"size:255" json:"ai_quality_issue"`
-	CreatedAt       time.Time           `gorm:"primaryKey" json:"created_at"`
+	// LockedAt 报告归档锁定时间（非空=已随周期报告归档，该点位不可覆盖修改）
+	LockedAt *time.Time `json:"locked_at"`
+	// SupersededBy 覆盖修改：被哪条新记录覆盖（非空=已被覆盖的旧记录，列表/统计过滤）
+	SupersededBy    *string   `gorm:"type:varchar(36)" json:"superseded_by"`
+	CreatedAt       time.Time `gorm:"primaryKey" json:"created_at"`
 }
 
 func (CheckinRecord) TableName() string { return "checkin_record" }

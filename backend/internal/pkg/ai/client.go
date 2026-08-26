@@ -48,13 +48,15 @@ const (
 	JudgeIndicator = "indicator" // 指示灯状态（judge_config.expected 可描述期望灯态）
 	JudgeTidiness  = "tidiness"  // 环境整洁：杂物堆放
 	JudgeBaseline  = "baseline"  // 基线对比（二期预留，一期按 general 处理）
+	// JudgeManual 手动确认项：不拍照不调 AI，由巡检员现场手选正常/异常（如噪音、气味等照片无法判定的项）
+	JudgeManual = "manual"
 )
 
 // NormalizeJudgeType 判定类型归一化：非法/空值回 general（兜底，不报错）。
 func NormalizeJudgeType(jt string) string {
 	switch strings.TrimSpace(jt) {
 	case JudgePresence, JudgeDamage, JudgeMetric, JudgeState, JudgeLabel,
-		JudgePassage, JudgeLeak, JudgeIndicator, JudgeTidiness, JudgeBaseline:
+		JudgePassage, JudgeLeak, JudgeIndicator, JudgeTidiness, JudgeBaseline, JudgeManual:
 		return strings.TrimSpace(jt)
 	}
 	return JudgeGeneral
@@ -297,8 +299,8 @@ func contextText(input ReviewInput) string {
 	return sb.String()
 }
 
-// judgeInstruction 按判定类型生成逐项判定指令文本；general/baseline（二期预留按通用处理）与
-// 参数不全的项返回空串（不追加标注，按通用判定）。
+// judgeInstruction 按判定类型生成逐项判定指令文本；general/baseline（二期预留按通用处理）、
+// manual（手动确认项，不调 AI 不入 prompt）与参数不全的项返回空串（不追加标注，按通用判定）。
 func judgeInstruction(jt string, cfg map[string]any) string {
 	cfgStr := func(key string) string {
 		v, _ := cfg[key].(string)
@@ -341,6 +343,8 @@ func judgeInstruction(jt string, cfg map[string]any) string {
 		return inst + "，异常则该项 verdict=abnormal"
 	case JudgeTidiness:
 		return "判断环境是否整洁、有无杂物堆放，不达标则该项 verdict=abnormal"
+	case JudgeManual:
+		return "" // 手动确认项不调 AI，不生成判定指令
 	}
 	return ""
 }

@@ -83,9 +83,9 @@ func (s *StatsService) Coverage(c *gin.Context, q *dto.ReportQuery) (gin.H, *err
 	}
 	scope.Session(&gorm.Session{}).Select("COALESCE(SUM(total_points),0) AS should, COALESCE(SUM(done_points),0) AS done").Scan(&sum)
 
-	// 异常/疑似打卡数
+	// 异常/疑似打卡数（过滤已被覆盖的旧记录）
 	ck := s.db.Model(&insmodel.CheckinRecord{}).
-		Where("checkin_time >= ? AND checkin_time < ?", q.StartDate, endExclusive)
+		Where("checkin_time >= ? AND checkin_time < ? AND superseded_by IS NULL", q.StartDate, endExclusive)
 	if q.CommunityID != "" {
 		ck = ck.Where("community_id = ?", q.CommunityID)
 	}
@@ -233,7 +233,7 @@ func (s *StatsService) Performance(c *gin.Context, q *dto.PerformanceQuery) (*re
 			Suspect  int64
 		}
 		ck := s.db.Model(&insmodel.CheckinRecord{}).
-			Where("inspector_id = ? AND checkin_time >= ? AND checkin_time < ?", r.InspectorID, q.StartDate, endExclusive)
+			Where("inspector_id = ? AND checkin_time >= ? AND checkin_time < ? AND superseded_by IS NULL", r.InspectorID, q.StartDate, endExclusive)
 		ck = middleware.ApplyCommunityFilter(ck, c, "checkin_record.community_id")
 		ck.Select("COUNT(*) FILTER (WHERE result = 'abnormal') AS abnormal, COUNT(*) FILTER (WHERE is_suspect) AS suspect").Scan(&ab)
 		// 所辖小区名
@@ -444,7 +444,7 @@ func (s *StatsService) Dashboard(c *gin.Context, communityID string) (gin.H, *er
 	}
 	// 今日执行动态（最近 10 条打卡）
 	var cks []insmodel.CheckinRecord
-	ckQ := s.db.Model(&insmodel.CheckinRecord{}).Where("checkin_time >= ?", today)
+	ckQ := s.db.Model(&insmodel.CheckinRecord{}).Where("checkin_time >= ? AND superseded_by IS NULL", today)
 	ckQ = middleware.ApplyCommunityFilter(ckQ, c, "checkin_record.community_id")
 	ckQ.Session(&gorm.Session{}).Order("checkin_time DESC").Limit(10).Find(&cks)
 	timeline := make([]gin.H, 0, len(cks))

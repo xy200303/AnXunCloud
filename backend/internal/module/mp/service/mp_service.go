@@ -372,7 +372,7 @@ func (s *MPService) PointByCode(inspectorID, code string) (gin.H, *errs.Error) {
 		if !insmodel.TaskPointIDs(t, &plan).Contains(pt.ID) {
 			continue
 		}
-		checked := s.db.Where("task_id = ? AND point_id = ?", t.ID, pt.ID).
+		checked := s.db.Where("task_id = ? AND point_id = ? AND superseded_by IS NULL", t.ID, pt.ID).
 			First(&insmodel.CheckinRecord{}).Error == nil
 		matched = append(matched, gin.H{"task_id": t.ID, "plan_name": plan.Name, "status": t.Status, "checked": checked})
 	}
@@ -458,12 +458,12 @@ func (s *MPService) PublicPoint(code string) (gin.H, *errs.Error) {
 	// 近 30 天巡检概况
 	since := time.Now().AddDate(0, 0, -30)
 	var total30, abnormal30 int64
-	s.db.Model(&insmodel.CheckinRecord{}).Where("point_id = ? AND checkin_time >= ?", pt.ID, since).Count(&total30)
+	s.db.Model(&insmodel.CheckinRecord{}).Where("point_id = ? AND checkin_time >= ? AND superseded_by IS NULL", pt.ID, since).Count(&total30)
 	s.db.Model(&insmodel.CheckinRecord{}).
-		Where("point_id = ? AND checkin_time >= ? AND result = ?", pt.ID, since, insmodel.ResultAbnormal).Count(&abnormal30)
-	// 最近 5 条巡检记录
+		Where("point_id = ? AND checkin_time >= ? AND result = ? AND superseded_by IS NULL", pt.ID, since, insmodel.ResultAbnormal).Count(&abnormal30)
+	// 最近 5 条巡检记录（过滤已被覆盖的旧记录）
 	var recs []insmodel.CheckinRecord
-	s.db.Where("point_id = ?", pt.ID).Order("checkin_time DESC").Limit(5).Find(&recs)
+	s.db.Where("point_id = ? AND superseded_by IS NULL", pt.ID).Order("checkin_time DESC").Limit(5).Find(&recs)
 	recent := make([]gin.H, 0, len(recs))
 	for i := range recs {
 		r := &recs[i]
@@ -579,7 +579,7 @@ func (s *MPService) TaskDetail(inspectorID, taskID string) (gin.H, *errs.Error) 
 		return nil, errs.ErrNotFound
 	}
 	var checkins []insmodel.CheckinRecord
-	s.db.Where("task_id = ?", task.ID).Find(&checkins)
+	s.db.Where("task_id = ? AND superseded_by IS NULL", task.ID).Find(&checkins)
 	byPoint := map[string]*insmodel.CheckinRecord{}
 	for i := range checkins {
 		byPoint[checkins[i].PointID] = &checkins[i]
@@ -610,6 +610,7 @@ func (s *MPService) TaskDetail(inspectorID, taskID string) (gin.H, *errs.Error) 
 				"id": ck.ID, "checkin_time": timefmt.T(ck.CheckinTime),
 				"checkin_type": ck.CheckinType, "distance_to_point": dist,
 				"result": ck.Result, "is_suspect": ck.IsSuspect,
+				"locked": ck.LockedAt != nil, // 已随周期报告归档锁定：不可覆盖修改
 			}
 		}
 		points = append(points, gin.H{
@@ -640,6 +641,7 @@ func (s *MPService) TaskDetail(inspectorID, taskID string) (gin.H, *errs.Error) 
 			}
 			tplItems[it.TemplateID] = append(tplItems[it.TemplateID], gin.H{
 				"name": it.Name, "requirement": requirement, "photo_required": it.PhotoRequired,
+				"judge_type": it.JudgeType, // 判定类型透出（向导区分拍照项/感官项 manual）
 			})
 		}
 	}

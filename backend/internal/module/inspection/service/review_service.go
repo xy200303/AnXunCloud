@@ -82,9 +82,9 @@ func (s *ReviewService) List(c *gin.Context, q *dto.ReviewListQuery) (*response.
 	return &response.Page{List: list, Total: total, Page: q.Page, PageSize: q.PageSize}, nil
 }
 
-// scopeQuery 审核范围基础查询（含数据权限）。
+// scopeQuery 审核范围基础查询（含数据权限；固定过滤 superseded_by 非空的已覆盖旧记录）。
 func (s *ReviewService) scopeQuery(c *gin.Context, auditStatus, communityID, inspectorID, startTime, endTime string) (*gorm.DB, *errs.Error) {
-	db := s.db.Model(&model.CheckinRecord{})
+	db := s.db.Model(&model.CheckinRecord{}).Where("superseded_by IS NULL")
 	if auditStatus != "" {
 		db = db.Where("audit_status = ?", auditStatus)
 	}

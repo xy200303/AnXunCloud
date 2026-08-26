@@ -3,6 +3,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -75,6 +76,7 @@ func (s *CheckinService) cfgFloat(key string, def float64) float64 {
 	return def
 }
 
+// cfgBool 读取布尔型系统参数。
 func (s *CheckinService) cfgBool(key string, def bool) bool {
 	if s.getCfg != nil {
 		if v, ok := s.getCfg(key); ok {
@@ -82,6 +84,16 @@ func (s *CheckinService) cfgBool(key string, def bool) bool {
 		}
 	}
 	return def
+}
+
+// AIEnabled 逐项 AI 识别能力是否可用（ai.enabled+api_key 且 sync_enabled 开启）；TaskDetail 透出用。
+func (s *CheckinService) AIEnabled() bool {
+	return s.aiCli.Enabled() && s.cfgBool("ai.sync_enabled", false)
+}
+
+// AIResultEditable 打卡结果是否允许覆盖修改（ai.result_editable，默认 true）；TaskDetail 透出用。
+func (s *CheckinService) AIResultEditable() bool {
+	return s.cfgBool("ai.result_editable", true)
 }
 
 // Submit 在线打卡提交，返回打卡结果视图。
@@ -211,9 +223,10 @@ func (s *CheckinService) doCheckinLocked(ctx context.Context, inspectorID string
 		rec.ID = req.ID // 客户端 UUIDv7（BeforeCreate 不覆盖已有值）
 	}
 
-	// 同步 AI 判定（质量+内容两层一次调用）：开关开启且非强制提交、非离线补传时，在事务落库前执行。
+	// 同步 AI 判定（质量+内容两层一次调用）：开关开启且非强制提交、非离线补传、非逐项识别确认提交时，在事务落库前执行。
 	// Force=true（重拍次数用尽）跳过同步判定直接落库，转人工复核。
-	useSyncAI := s.aiCli.Enabled() && s.cfgBool("ai.sync_enabled", false) && !req.Force && !offline
+	// AIConfirmed=true（逐项 AI 识别确认）：采纳逐项带回的 AI 结论，不再调大模型（不触发 43107）。
+	useSyncAI := s.aiCli.Enabled() && s.cfgBool("ai.sync_enabled", false) && !req.Force && !offline && !req.AIConfirmed
 	if req.Result == insmodel.ResultAuto && !useSyncAI {
 		return nil, nil, errs.ErrParam.WithMsg("result=auto（AI 代判）需开启打卡同步 AI 判定且非强制提交/离线补传")
 	}
@@ -248,7 +261,13 @@ func (s *CheckinService) doCheckinLocked(ctx context.Context, inspectorID string
 			s.applySyncResult(&rec, checkItems, res, req.Result == insmodel.ResultAuto)
 		}
 	}
+	// 逐项 AI 识别确认提交：逐项采用识别队列带回的 AI 结论（服务端不再调大模型）
+	if req.AIConfirmed {
+		s.applyConfirmedAI(&rec, checkItems, req)
+	}
 
+	overwrite := false // 覆盖修改模式：同任务同点位已有未锁定记录时置真（事务外写操作日志用）
+	var supersededID string
 	err = s.db.Transaction(func(tx *gorm.DB) error {
 		var currentTask insmodel.InspectionTask
 		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(&currentTask, "id = ?", task.ID).Error; err != nil {
@@ -260,13 +279,17 @@ func (s *CheckinService) doCheckinLocked(ctx context.Context, inspectorID string
 		if currentTask.Status == insmodel.TaskDone {
 			return errs.ErrDuplicateCheckin.WithMsg("任务已完成")
 		}
-		var dupCount int64
-		if err := tx.Model(&insmodel.CheckinRecord{}).Where("task_id = ? AND point_id = ?", currentTask.ID, req.PointID).Count(&dupCount).Error; err != nil {
-			return err
+		// 同任务同点位已有打卡：取当前有效记录（被覆盖的旧记录不参与判定）。
+		// 已归档锁定（locked_at 非空）→ 43109 拒绝；未锁定 → 允许覆盖修改（旧记录置 superseded_by）。
+		var prev insmodel.CheckinRecord
+		prevErr := tx.Where("task_id = ? AND point_id = ? AND superseded_by IS NULL", currentTask.ID, req.PointID).First(&prev).Error
+		switch {
+		case prevErr == nil && prev.LockedAt != nil:
+			return errs.ErrCheckinLocked
+		case prevErr != nil && !errors.Is(prevErr, gorm.ErrRecordNotFound):
+			return prevErr
 		}
-		if dupCount > 0 {
-			return errs.ErrDuplicateCheckin
-		}
+		overwrite = prevErr == nil
 		if err := tx.Create(&rec).Error; err != nil {
 			if strings.Contains(err.Error(), "23505") || strings.Contains(err.Error(), "duplicate") {
 				return errs.ErrDuplicateCheckin
@@ -281,6 +304,15 @@ func (s *CheckinService) doCheckinLocked(ctx context.Context, inspectorID string
 			if err := tx.Create(&checkItems).Error; err != nil {
 				return err
 			}
+		}
+		if overwrite {
+			// 覆盖修改：同事务内旧记录指向新记录；任务进度不重复 +1，任务状态不重推
+			if err := tx.Model(&insmodel.CheckinRecord{}).Where("id = ?", prev.ID).
+				Update("superseded_by", rec.ID).Error; err != nil {
+				return err
+			}
+			supersededID = prev.ID
+			return nil
 		}
 		// 任务进度原子推进
 		updates := map[string]any{"done_points": gorm.Expr("done_points + 1")}
@@ -308,14 +340,21 @@ func (s *CheckinService) doCheckinLocked(ctx context.Context, inspectorID string
 		}
 		return nil, nil, errs.ErrInternal
 	}
+	// 覆盖修改留痕（service 层无 OperLog 中间件上下文，记运行日志：旧记录 → 新记录）
+	if overwrite {
+		logger.L.Info("打卡覆盖修改",
+			zap.String("task_id", rec.TaskID), zap.String("point_id", rec.PointID),
+			zap.String("inspector_id", inspectorID),
+			zap.String("superseded_id", supersededID), zap.String("new_checkin_id", rec.ID))
+	}
 	// local 模式：打卡成功后异步打水印（点位/时间/坐标/姓名）
 	if s.store.IsLocal() && s.cfgBool("inspection.watermark_enabled", true) {
 		go s.applyWatermarks(&rec, &point, inspectorID)
 	}
-	// AI 审核分支：同步路径（含失败放行/强制提交）已定型，不再起异步 goroutine；
+	// AI 审核分支：同步路径（含失败放行/强制提交/逐项识别确认）已定型，不再起异步 goroutine；
 	// 离线补传与 ai.sync_enabled=false 保持原有异步审核路径。
 	switch {
-	case useSyncAI || req.Force:
+	case useSyncAI || req.Force || req.AIConfirmed:
 		if rec.AuditStatus == insmodel.AuditPending {
 			s.notifyAuditors(rec.ID, point.Name, rec.AIReason)
 		}
@@ -330,9 +369,13 @@ func (s *CheckinService) doCheckinLocked(ctx context.Context, inspectorID string
 }
 
 // buildReviewInput 组装大模型审核上下文（同步判定与异步审核共用）。
+// manual（手动确认项）不入 CheckItems/ItemPhotos：不拍照不调 AI，由巡检员手选结果。
 func (s *CheckinService) buildReviewInput(point *insmodel.InspectionPoint, items []insmodel.CheckinRecordItem, remark string, photos types.PhotoArray) ai.ReviewInput {
 	names := make([]string, 0, len(items))
 	for _, it := range items {
+		if it.JudgeType == ai.JudgeManual {
+			continue
+		}
 		names = append(names, it.Name)
 	}
 	refs := make([]ai.PhotoRef, 0, len(photos))
@@ -393,6 +436,53 @@ func (s *CheckinService) applySyncResult(rec *insmodel.CheckinRecord, items []in
 		}
 	}
 	if hasIssue {
+		rec.AuditStatus = insmodel.AuditPending
+	}
+}
+
+// applyConfirmedAI 逐项 AI 识别确认提交（ai_confirmed=true）：逐项快照写入带回的
+// ai_verdict/ai_reason/ai_reading（截断规则同 applySyncResult），不再调大模型；
+// 记录级 ai_verdict 逐项汇总（任一 abnormal/review → review，全 pass → pass，皆无 → 空）；
+// result=abnormal 或任一项 review → audit_status=pending（事务后 notifyAuditors）。
+func (s *CheckinService) applyConfirmedAI(rec *insmodel.CheckinRecord, items []insmodel.CheckinRecordItem, req *dto.CheckinReq) {
+	byName := make(map[string]dto.CheckinItemReq, len(req.CheckItems))
+	for _, ci := range req.CheckItems {
+		byName[ci.Name] = ci
+	}
+	passCnt, issueCnt, reviewCnt := 0, 0, 0
+	for i := range items {
+		ci, ok := byName[items[i].Name]
+		if !ok {
+			continue
+		}
+		v := strings.TrimSpace(ci.AIVerdict)
+		if v != ai.VerdictPass && v != ai.VerdictReview && v != ai.VerdictAbnormal {
+			continue // 非法/空结论忽略（该项按未识别处理）
+		}
+		r := truncateStr(ci.AIReason, 500)
+		items[i].AIVerdict = &v
+		items[i].AIReason = &r
+		if rd := truncateStr(strings.TrimSpace(ci.AIReading), 64); rd != "" {
+			items[i].AIReading = &rd
+		}
+		switch v {
+		case ai.VerdictPass:
+			passCnt++
+		case ai.VerdictReview:
+			issueCnt++
+			reviewCnt++
+		case ai.VerdictAbnormal:
+			issueCnt++
+		}
+	}
+	// 记录级逐项汇总
+	switch {
+	case issueCnt > 0:
+		rec.AIVerdict = insmodel.AIVerdictReview
+	case passCnt > 0:
+		rec.AIVerdict = insmodel.AIVerdictPass
+	}
+	if rec.Result == insmodel.ResultAbnormal || reviewCnt > 0 {
 		rec.AuditStatus = insmodel.AuditPending
 	}
 }
@@ -490,13 +580,20 @@ func (s *CheckinService) resolveCheckItems(req *dto.CheckinReq, point *insmodel.
 		}
 	}
 	items := make([]insmodel.CheckinRecordItem, 0, len(req.CheckItems))
+	// 整单记录级照片（item=""）数：≥1 张时放宽逐项必拍硬约束（含 manual 项天然无照片的场景）
+	recordPhotos := 0
+	for _, p := range req.Photos {
+		if p.Item == "" {
+			recordPhotos++
+		}
+	}
 	for i, it := range req.CheckItems {
 		ti := tplByName[it.Name]
 		photoReq := ""
 		if ti != nil {
 			photoReq = ti.PhotoRequired
 		}
-		if be := s.checkItemPhotos(it, photoReq, ownerID); be != nil {
+		if be := s.checkItemPhotos(it, photoReq, ownerID, recordPhotos); be != nil {
 			return nil, be
 		}
 		row := insmodel.CheckinRecordItem{
@@ -517,7 +614,12 @@ func (s *CheckinService) resolveCheckItems(req *dto.CheckinReq, point *insmodel.
 }
 
 // checkItemPhotos 逐项照片硬约束与 file_key 上传确认（43104 / 43106）。
-func (s *CheckinService) checkItemPhotos(it dto.CheckinItemReq, photoRequired, ownerID string) *errs.Error {
+// 放宽规则：该项无照片但整单有记录级照片（item=""，recordPhotos≥1）时放行逐项必拍校验
+// （逐项 AI 识别场景照片统一按整单提交；manual 手动确认项天然无照片亦按此放行）。
+func (s *CheckinService) checkItemPhotos(it dto.CheckinItemReq, photoRequired, ownerID string, recordPhotos int) *errs.Error {
+	if len(it.Photos) == 0 && recordPhotos > 0 {
+		return nil
+	}
 	if !it.Pass && len(it.Photos) == 0 {
 		return errs.ErrPhotoMissing.WithMsg("检查项「" + it.Name + "」不合格，须至少上传 1 张该项照片")
 	}
@@ -707,6 +809,10 @@ func writeItemVerdicts(db *gorm.DB, recID string, items []ai.ItemVerdict) {
 func (s *CheckinService) itemPhotoRefs(items []insmodel.CheckinRecordItem) []ai.ItemPhoto {
 	var out []ai.ItemPhoto
 	for _, it := range items {
+		// manual（手动确认项）不调 AI、不占照片预算（噪音/气味等照片无法判定的项，巡检员手选结果）
+		if it.JudgeType == ai.JudgeManual {
+			continue
+		}
 		// 无逐项照片的项：仅当带判定元数据（判定类型/标准要求/识别要点）时才透出，
 		// 由 AI 结合记录级照片判定（result=auto 模式下模板项均无单独照片）
 		if len(it.Photos) == 0 && !hasJudgeMeta(it) {

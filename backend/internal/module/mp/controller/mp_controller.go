@@ -115,6 +115,11 @@ func (ctl *MPController) TaskDetail(c *gin.Context) {
 		return
 	}
 	data, be := ctl.mp.TaskDetail(uid(c), id)
+	if be == nil {
+		// AI 能力透出（配置归 checkin 服务管）：逐项识别是否可用、已提交点位是否允许覆盖修改
+		data["ai_enabled"] = ctl.checkin.AIEnabled()
+		data["ai_result_editable"] = ctl.checkin.AIResultEditable()
+	}
 	write(c, data, be)
 }
 
@@ -154,6 +159,23 @@ func (ctl *MPController) CheckinItems(c *gin.Context) {
 		return
 	}
 	data, be := ctl.mp.CheckinItems(uid(c), id)
+	write(c, data, be)
+}
+
+// SubmitAIItemJob POST /checkin/ai-item-jobs（逐项 AI 识别：提交单个检查项照片，异步识别）
+func (ctl *MPController) SubmitAIItemJob(c *gin.Context) {
+	var req dto.AIItemJobReq
+	if be := bind.JSON(c, &req); be != nil {
+		response.Fail(c, be)
+		return
+	}
+	data, be := ctl.checkin.SubmitAIItemJob(c.Request.Context(), uid(c), &req)
+	write(c, data, be)
+}
+
+// AIItemJobs GET /checkin/ai-item-jobs?ids=a,b,c（批量轮询逐项识别结果，≤20 个）
+func (ctl *MPController) AIItemJobs(c *gin.Context) {
+	data, be := ctl.checkin.AIItemJobs(c.Request.Context(), uid(c), c.Query("ids"))
 	write(c, data, be)
 }
 

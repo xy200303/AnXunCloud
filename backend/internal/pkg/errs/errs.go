@@ -99,6 +99,8 @@ var (
 	ErrTaskNotOwned     = New(43105, http.StatusForbidden, "任务不存在或不属于当前巡检员")
 	ErrPhotoNotUploaded = New(43106, http.StatusBadRequest, "照片尚未上传完成，请稍后重试")
 	ErrPhotoQuality     = New(43107, http.StatusBadRequest, "照片质量不达标，请重新拍摄")
+	ErrAIDisabled       = New(43108, http.StatusBadRequest, "AI 识别未启用，请切换手动打卡模式")
+	ErrCheckinLocked    = New(43109, http.StatusConflict, "该点位已归档报告，不可修改")
 )
 
 // 44xxx 工单

@@ -179,7 +179,7 @@
             <el-radio value="any">任一</el-radio>
             <el-radio value="none">不需要</el-radio>
           </el-radio-group>
-          <div class="text-secondary">凭证用于确认「到的是这个点位」；任一 = 扫码或 NFC 均可；凭证与围栏至少启用一项</div>
+          <div class="text-secondary">凭证用于确认「到的是这个点位」；任一 = 扫码或 NFC 均可；不需要且不启用围栏时为免核验点位</div>
         </el-form-item>
 
         <el-form-item label="检查项模板">
@@ -521,7 +521,7 @@ onMounted(() => {
 // 打卡方式展示：凭证 + 围栏两个维度组合成一句话
 function checkinModeLabel(p: { credential: string; require_fence: boolean }) {
   const cred = { qrcode: '扫码', nfc: 'NFC', any: '任一', none: '' }[p.credential] ?? p.credential
-  if (p.credential === 'none') return p.require_fence ? '围栏' : '--'
+  if (p.credential === 'none') return p.require_fence ? '围栏' : '免核验'
   return p.require_fence ? `${cred}+围栏` : cred
 }
 
@@ -552,13 +552,6 @@ const formRules: FormRules = {
   communityBuilding: [{ required: true, type: 'array', min: 2, message: '请选择所属楼栋', trigger: 'change' }],
   name: [{ required: true, message: '请输入点位名称', trigger: 'blur' }],
   type: [{ required: true, message: '请选择点位类型', trigger: 'change' }],
-  credential: [
-    {
-      validator: (_r, v: string, cb) =>
-        v === 'none' && !form.require_fence ? cb(new Error('点位凭证与围栏校验至少启用一项')) : cb(),
-      trigger: 'change'
-    }
-  ],
   nfc_id: [
     {
       validator: (_r, v: string, cb) =>

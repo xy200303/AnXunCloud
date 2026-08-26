@@ -434,10 +434,7 @@ func (s *PointService) validate(req *dto.PointSaveReq) *errs.Error {
 	default:
 		return errs.ErrParam.WithMsg("credential 取值非法（qrcode/nfc/none/any）")
 	}
-	// 凭证与围栏至少启用一项
-	if credentialOrDefault(req.Credential) == model.CredentialNone && !req.RequireFence {
-		return errs.ErrParam.WithMsg("点位凭证与围栏校验至少启用一项")
-	}
+	// 免核验点位（credential=none 且无围栏）合法：开放式巡更场景（如演示/低管控点位）
 	if credentialOrDefault(req.Credential) == model.CredentialNFC && strings.TrimSpace(req.NfcID) == "" {
 		return errs.ErrParam.WithMsg("凭证方式为 NFC 时须填写 NFC 卡号")
 	}

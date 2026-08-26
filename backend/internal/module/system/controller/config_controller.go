@@ -66,7 +66,7 @@ func (ctl *ConfigController) Update(c *gin.Context) {
 		response.Fail(c, be)
 		return
 	}
-	var req dto.ConfigSaveReq
+	var req dto.ConfigUpdateReq
 	if be := bind.JSON(c, &req); be != nil {
 		response.Fail(c, be)
 		return

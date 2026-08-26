@@ -244,6 +244,14 @@ type ConfigSaveReq struct {
 	Remark      string `json:"remark"`
 }
 
+// ConfigUpdateReq 修改参数：name/config_group 为空时保留原值，支持仅提交 value 的部分更新。
+type ConfigUpdateReq struct {
+	Name        string `json:"name"`
+	Value       string `json:"value"`
+	ConfigGroup string `json:"config_group"`
+	Remark      string `json:"remark"`
+}
+
 // ========== 签章资产 ==========
 
 // SignAssetQuery 签章资产列表查询。

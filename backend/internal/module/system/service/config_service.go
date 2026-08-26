@@ -106,16 +106,22 @@ func (s *ConfigService) Create(req *dto.ConfigSaveReq) (string, *errs.Error) {
 	return row.ID, nil
 }
 
-// Update 修改参数（key 不可改）。
-func (s *ConfigService) Update(id string, req *dto.ConfigSaveReq) *errs.Error {
+// Update 修改参数（key 不可改；name/config_group 为空时保留原值，支持仅提交 value 的部分更新）。
+func (s *ConfigService) Update(id string, req *dto.ConfigUpdateReq) *errs.Error {
 	var row model.SysConfig
 	if err := s.db.First(&row, "id = ?", id).Error; err != nil {
 		return errs.ErrNotFound
 	}
-	if be := validateGroup(req.ConfigGroup); be != nil {
-		return be
+	updates := map[string]any{"value": req.Value, "remark": req.Remark}
+	if req.Name != "" {
+		updates["name"] = req.Name
 	}
-	updates := map[string]any{"name": req.Name, "value": req.Value, "config_group": req.ConfigGroup, "remark": req.Remark}
+	if req.ConfigGroup != "" {
+		if be := validateGroup(req.ConfigGroup); be != nil {
+			return be
+		}
+		updates["config_group"] = req.ConfigGroup
+	}
 	if err := s.db.Model(&row).Updates(updates).Error; err != nil {
 		return errs.ErrInternal
 	}

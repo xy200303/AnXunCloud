@@ -87,7 +87,6 @@ func (s *CommunityService) ListCommunities(c *gin.Context, q *dto.CommunityListQ
 		list = append(list, gin.H{
 			"id": r.ID, "name": r.Name, "address": r.Address,
 			"manager_id": r.ManagerID, "manager_name": mName,
-			"wo_triage_enabled": r.WoTriageEnabled, "wo_grab_enabled": r.WoGrabEnabled,
 			"building_count": buildingCount[r.ID], "point_count": pointCount[r.ID],
 			"status": sysmodel.StatusInt(r.Status), "created_at": timefmt.T(r.CreatedAt),
 		})
@@ -180,13 +179,6 @@ func (s *CommunityService) CreateCommunity(c *gin.Context, req *dto.CommunitySav
 		TenantID: tenantID,
 		Name: req.Name, Address: req.Address, ManagerID: req.ManagerID,
 		Status: status, Remark: req.Remark,
-		WoTriageEnabled: true, // 受理默认开启（项目级开关，可后续编辑关闭）
-	}
-	if req.WoTriageEnabled != nil {
-		row.WoTriageEnabled = *req.WoTriageEnabled
-	}
-	if req.WoGrabEnabled != nil {
-		row.WoGrabEnabled = *req.WoGrabEnabled
 	}
 	if err := s.db.Create(&row).Error; err != nil {
 		return "", errs.ErrInternal
@@ -244,7 +236,6 @@ func (s *CommunityService) CommunityDetail(c *gin.Context, id string) (gin.H, *e
 	return gin.H{
 		"id": row.ID, "name": row.Name, "address": row.Address,
 		"manager_id": row.ManagerID, "manager_name": managerName,
-		"wo_triage_enabled": row.WoTriageEnabled, "wo_grab_enabled": row.WoGrabEnabled,
 		"status": sysmodel.StatusInt(row.Status), "remark": row.Remark,
 		"buildings":  items,
 		"created_at": timefmt.T(row.CreatedAt), "updated_at": timefmt.T(row.UpdatedAt),
@@ -272,12 +263,6 @@ func (s *CommunityService) UpdateCommunity(c *gin.Context, id string, req *dto.C
 	}
 	updates := map[string]any{
 		"name": req.Name, "address": req.Address, "manager_id": req.ManagerID, "remark": req.Remark,
-	}
-	if req.WoTriageEnabled != nil {
-		updates["wo_triage_enabled"] = *req.WoTriageEnabled
-	}
-	if req.WoGrabEnabled != nil {
-		updates["wo_grab_enabled"] = *req.WoGrabEnabled
 	}
 	if req.Status != nil {
 		updates["status"] = sysmodel.StatusStr(*req.Status)

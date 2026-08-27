@@ -106,7 +106,7 @@ func TestAuthAndPush(t *testing.T) {
 		t.Fatal("三要素齐全应 Enabled")
 	}
 	ok, failed, err := cli.PushToCIDs(context.Background(), []string{"cid-1", "cid-2"}, "标题", "内容", map[string]string{
-		"type":   "workorder",
+		"type":   "inspection",
 		"biz_id": "2f6f0d6e-0000-7000-8000-000000000001",
 	}, 0)
 	if err != nil {
@@ -190,7 +190,7 @@ func TestPushBadgeIOS(t *testing.T) {
 
 	cli := NewClient(testAppID, testAppKey, testMasterSecret)
 	cli.SetBaseURL(srv.URL)
-	ok, failed, err := cli.PushToCIDs(context.Background(), []string{"cid-1"}, "标题", "内容", map[string]string{"type": "workorder"}, 5)
+	ok, failed, err := cli.PushToCIDs(context.Background(), []string{"cid-1"}, "标题", "内容", map[string]string{"type": "inspection"}, 5)
 	if err != nil || ok != 1 || failed != 0 {
 		t.Fatalf("PushToCIDs: ok/failed/err = %d/%d/%v, 期望 1/0/nil", ok, failed, err)
 	}

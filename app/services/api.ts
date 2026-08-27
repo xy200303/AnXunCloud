@@ -553,7 +553,6 @@ type RawCheckinResult = {
   distance_to_point?: number
   is_suspect?: boolean
   suspect_reason?: string
-  work_order?: any
   ai_enabled?: boolean
   ai_max_attempts?: number
   ai_verdict?: string
@@ -868,7 +867,6 @@ export function apiCheckin(req: CheckinReqPayload): Promise<CheckinResult> {
           distance_to_point: d.distance_to_point ?? 0,
           is_suspect: d.is_suspect ?? false,
           suspect_reason: d.suspect_reason ?? '',
-          work_order: d.work_order ?? null,
           ai_enabled: d.ai_enabled ?? false,
           ai_max_attempts: d.ai_max_attempts ?? 0,
           ai_verdict: d.ai_verdict ?? '',
@@ -1008,10 +1006,10 @@ export function apiCheckinItems(checkinId: string): Promise<CheckinItemAI[]> {
   })
 }
 
-/** scene：checkin / workorder / avatar / signature，默认 checkin。 */
+/** scene：checkin / avatar / signature，默认 checkin。 */
 export function apiUploadLocal(
   filePath: string,
-  scene: 'checkin' | 'workorder' | 'avatar' | 'signature' = 'checkin',
+  scene: 'checkin' | 'avatar' | 'signature' = 'checkin',
   retried = false
 ): Promise<{ file_key: string; url: string }> {
   return new Promise((resolve, reject) => {

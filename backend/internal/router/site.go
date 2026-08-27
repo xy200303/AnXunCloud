@@ -217,7 +217,7 @@ func siteJSONLD(baseURL string, c map[string]string) template.JS {
 				"@type":       "WebSite",
 				"name":        "安巡云 AnXunCloud · 物业巡检管理平台",
 				"url":         baseURL + "/",
-				"description": "面向物业公司的巡检管理平台：二维码 / NFC / GPS 围栏三重到点校验，拍照留证、异常工单闭环、月度报告电子签名。",
+				"description": "面向物业公司的巡检管理平台：二维码 / NFC / GPS 围栏三重到点校验，拍照留证、AI 识别异常、月度报告电子签名。",
 				"inLanguage":  "zh-CN",
 			},
 		},

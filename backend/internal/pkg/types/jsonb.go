@@ -150,7 +150,7 @@ func (m JSONMap) Float(key string) float64 {
 	return 0
 }
 
-// PhotoItem 通用照片元素（打卡/工单 photos JSONB）。
+// PhotoItem 通用照片元素（演示种子/导出等照片 JSONB）。
 type PhotoItem struct {
 	Item           string `json:"item"`
 	URL            string `json:"url"`
@@ -189,37 +189,6 @@ const (
 	PhotoReqRequired = "required" // 必拍（合格也须 ≥1 张该项照片）
 )
 
-// OrderItem 工单不合格项快照（work_order.items JSONB，v17 起）。
-// photos 存 file_key；before=打卡时该项照片，after=整改回传该项照片（按 name 合并）。
-type OrderItem struct {
-	Name         string      `json:"name"`
-	Remark       string      `json:"remark,omitempty"`
-	BeforePhotos StringArray `json:"before_photos,omitempty"`
-	AfterPhotos  StringArray `json:"after_photos,omitempty"`
-}
-
-// OrderItemArray 映射 jsonb 工单不合格项快照数组。
-type OrderItemArray []OrderItem
-
-func (a OrderItemArray) Value() (driver.Value, error) {
-	if a == nil {
-		return "[]", nil
-	}
-	b, err := json.Marshal(a)
-	return string(b), err
-}
-
-func (a *OrderItemArray) Scan(src any) error {
-	data, err := toBytes(src)
-	if err != nil {
-		return err
-	}
-	if data == nil {
-		*a = OrderItemArray{}
-		return nil
-	}
-	return json.Unmarshal(data, a)
-}
 
 // SignEntry 报告签字留痕（inspection_report.inspector_signed JSONB）。
 type SignEntry struct {

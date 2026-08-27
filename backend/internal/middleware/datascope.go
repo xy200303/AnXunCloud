@@ -13,7 +13,7 @@ import (
 // 数据权限（设计方案 §5.2）：可见项目集合由 project_staff 岗位编制推导，角色 data_scope 作上限。
 // 任一为项目经理或主管级（is_supervisor）岗位 → 这些项目可见（project 档）；
 // 只有一线岗位 → self 档（项目级查询不可见，仅本人相关数据）；角色 data_scope=self 强制收窄为 self。
-// 业务模块（小区/点位/任务/工单）在查询层调用 ApplyCommunityFilter 即可完成按项目隔离。
+// 业务模块（小区/点位/任务/打卡）在查询层调用 ApplyCommunityFilter 即可完成按项目隔离。
 
 // StaffProjectIDs 用户在职编制覆盖的全部项目集合（任意岗位；登录/档案响应 projects 字段用）。
 func StaffProjectIDs(db *gorm.DB, userID string) ([]string, error) {

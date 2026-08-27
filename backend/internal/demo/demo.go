@@ -299,7 +299,7 @@ func (d *demoSeeder) seedTenantA() error {
 	// 小区 + 楼栋
 	community := sysmodel.Community{
 		TenantID: tid, Name: "锦绣华庭", Address: "武汉市洪山区光谷大道 88 号",
-		ManagerID: &managerID, WoTriageEnabled: true,
+		ManagerID: &managerID,
 		Status: sysmodel.StatusEnabled, Remark: "演示小区（seed-demo 生成）",
 	}
 	if err := d.db.Create(&community).Error; err != nil {
@@ -504,7 +504,7 @@ func (d *demoSeeder) seedTenantA() error {
 	// 公告
 	notice := sysmodel.SysNotice{
 		TenantID: &tid, Title: "关于开展夏季消防安全专项检查的通知",
-		Content: "各岗位请注意：即日起至本月底开展夏季消防安全专项检查，重点检查消防通道、灭火器有效期与电动车违规充电情况，请各巡检员按每日安全巡查计划逐项落实，发现异常立即拍照上报并转工单处理。",
+		Content: "各岗位请注意：即日起至本月底开展夏季消防安全专项检查，重点检查消防通道、灭火器有效期与电动车违规充电情况，请各巡检员按每日安全巡查计划逐项落实，发现异常立即拍照上报。",
 		Status:  1, PublishAt: at(daysAgo(2)), CreatedBy: &adminID, CreatedByName: "王建国",
 	}
 	return d.db.Create(&notice).Error
@@ -592,7 +592,7 @@ func (d *demoSeeder) seedTenantB() error {
 	// 抢单模式开启（与租户 A 的受理+派单模式形成对照）
 	community := sysmodel.Community{
 		TenantID: tid, Name: "金源世纪城", Address: "武汉市江夏区藏龙大道 12 号",
-		ManagerID: &managerID, WoTriageEnabled: true, WoGrabEnabled: true,
+		ManagerID: &managerID,
 		Status: sysmodel.StatusEnabled, Remark: "演示小区（seed-demo 生成）",
 	}
 	if err := d.db.Create(&community).Error; err != nil {
@@ -973,7 +973,7 @@ func demoReportTitle(commName, period string) string {
 }
 
 // demoReportStats 与 ReportService.buildStats 同结构的统计快照（数字来自实际落库的上月工作量）。
-// 工单模块已下线：wo_* 指标固定为 0。
+// 演示看板指标占位。
 func demoReportStats(st monthStat, suspect int64, records []any) types.JSONMap {
 	return types.JSONMap{
 		"task_total": st.taskTotal, "task_done": st.taskDone, "task_overdue": st.taskOverdue,

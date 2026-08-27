@@ -20,7 +20,7 @@ BEGIN;
 TRUNCATE checkin_record_item, checkin_record, inspection_task, inspection_plan,
   inspection_point, check_template_item, check_template, building, community,
   project_staff, duty_binding, approval_flow, inspection_report, sys_notice,
-  sys_message, user_push_device, upload_file, work_order, work_order_log,
+  sys_message, user_push_device, upload_file,
   sign_asset, sys_login_log, sys_operation_log, tenant_config, post_dict CASCADE;
 
 DELETE FROM sys_user WHERE username <> 'admin';

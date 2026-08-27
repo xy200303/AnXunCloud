@@ -4,13 +4,13 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>安巡云 AnXunCloud · 物业巡检管理平台</title>
-  <meta name="description" content="安巡云是面向物业公司的巡检管理平台：二维码 / NFC / GPS 围栏三重到点校验，拍照留证、异常工单闭环、月度报告电子签名，让每一次巡检都有据可查。" />
-  <meta name="keywords" content="物业巡检,巡检系统,巡检打卡,NFC打卡,二维码巡检,GPS围栏,物业管理系统,工单管理,巡检报告" />
+  <meta name="description" content="安巡云是面向物业公司的巡检管理平台：二维码 / NFC / GPS 围栏三重到点校验，拍照留证、AI 识别异常、月度报告电子签名，让每一次巡检都有据可查。" />
+  <meta name="keywords" content="物业巡检,巡检系统,巡检打卡,NFC打卡,二维码巡检,GPS围栏,物业管理系统,AI巡检,巡检报告" />
   <link rel="canonical" href="{{.BaseURL}}/" />
   <meta property="og:type" content="website" />
   <meta property="og:site_name" content="安巡云 AnXunCloud" />
   <meta property="og:title" content="安巡云 AnXunCloud · 物业巡检管理平台" />
-  <meta property="og:description" content="二维码 / NFC / GPS 围栏三重到点校验，拍照留证、工单闭环、月度报告电子签名，让每一次巡检都有据可查。" />
+  <meta property="og:description" content="二维码 / NFC / GPS 围栏三重到点校验，拍照留证、AI 识别异常、月度报告电子签名，让每一次巡检都有据可查。" />
   <meta property="og:url" content="{{.BaseURL}}/" />
   <meta property="og:locale" content="zh_CN" />
   <link rel="icon" type="image/svg+xml" href="/site/assets/anxuncloud-mark.svg" />
@@ -43,7 +43,7 @@
       <div>
         <span class="eyebrow">物业巡检数字化平台</span>
         <h1>让每一次巡检<br />都有据可查</h1>
-        <p class="hero-sub">{{or .Cfg.slogan "二维码 / NFC / GPS 围栏三重到点校验，拍照留证、工单闭环、月度报告电子签，巡检情况后台一目了然。"}}</p>
+        <p class="hero-sub">{{or .Cfg.slogan "二维码 / NFC / GPS 围栏三重到点校验，拍照留证、AI 识别异常、月度报告电子签，巡检情况后台一目了然。"}}</p>
         <div class="hero-cta">
           <a class="btn btn-primary btn-lg" href="#features">了解产品能力</a>
           <a class="btn btn-ghost btn-lg" href="#contact">联系我们</a>
@@ -64,7 +64,7 @@
               <div class="mock-cards">
                 <div class="mock-card"><em>今日任务</em><strong>36</strong></div>
                 <div class="mock-card"><em>到点率</em><strong class="blue">98.6%</strong></div>
-                <div class="mock-card"><em>异常工单</em><strong>3</strong></div>
+                <div class="mock-card"><em>异常记录</em><strong>3</strong></div>
               </div>
               <div class="mock-list">
                 <div class="mock-row">
@@ -131,8 +131,8 @@
         </div>
         <div class="card">
           <div class="card-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14.7 6.3a4.5 4.5 0 0 0-6 6L3 18l3 3 5.7-5.7a4.5 4.5 0 0 0 6-6L14 13l-3-3 3.7-3.7z"/></svg></div>
-          <h3>异常工单闭环</h3>
-          <p>巡检发现异常一键生成工单，派单、处理、验收全程在线流转，整改前后照片对照，责任到人。</p>
+          <h3>AI 识别异常</h3>
+          <p>打卡照片实时 AI 识别，质量不合格当场提示重拍，设施异常自动标记归档，识别即审核，管理零负担。</p>
         </div>
         <div class="card">
           <div class="card-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6"/><path d="m9 15 2 2 4-4"/></svg></div>
@@ -155,8 +155,8 @@
         <div class="flow-item"><h3>制定计划</h3><p>按点位与模板配置周期计划，支持每日、每周、每月频次。</p></div>
         <div class="flow-item"><h3>生成任务</h3><p>系统每日自动生成任务并指派到巡检员，逾期自动预警。</p></div>
         <div class="flow-item"><h3>到点打卡</h3><p>扫码 / NFC / GPS 校验到场，拍照留证提交巡检结果。</p></div>
-        <div class="flow-item"><h3>主管审核</h3><p>异常打卡与疑似作弊自动标记，主管在线复核确认。</p></div>
-        <div class="flow-item"><h3>工单整改</h3><p>异常转工单派单处理，整改前后照片对照验收。</p></div>
+        <div class="flow-item"><h3>AI 审核</h3><p>AI 识别通过自动归档，仅存疑记录转人工复核，不审数据。</p></div>
+        <div class="flow-item"><h3>异常跟踪</h3><p>异常记录自动汇总，整改情况全程可溯，报告按月归档。</p></div>
         <div class="flow-item"><h3>月度归档</h3><p>月末自动汇总生成报告，三级电子签名后归档留存。</p></div>
       </div>
     </div>

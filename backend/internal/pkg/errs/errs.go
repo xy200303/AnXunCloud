@@ -103,17 +103,6 @@ var (
 	ErrCheckinLocked    = New(43109, http.StatusConflict, "该点位已归档报告，不可修改")
 )
 
-// 44xxx 工单
-var (
-	ErrOrderStatusNotAllowed = New(44001, http.StatusConflict, "工单当前状态不允许该操作")
-	ErrReviewRemarkRequired  = New(44002, http.StatusBadRequest, "复核驳回必须填写驳回原因")
-	ErrAssigneeInvalid       = New(44003, http.StatusBadRequest, "被指派人不存在或已停用")
-	ErrOrderNotInSlot        = New(44004, http.StatusForbidden, "当前用户不在该环节授权名单内")
-	ErrOrderGrabDisabled     = New(44005, http.StatusConflict, "该项目未开启抢单模式")
-	ErrTriageNoteRequired    = New(44006, http.StatusBadRequest, "受理驳回必须填写驳回原因")
-	ErrConfirmNoteRequired   = New(44007, http.StatusBadRequest, "验收不通过必须填写退回原因")
-)
-
 // 45xxx 统计与导出
 var (
 	ErrExportNotFound = New(45001, http.StatusNotFound, "导出任务不存在")

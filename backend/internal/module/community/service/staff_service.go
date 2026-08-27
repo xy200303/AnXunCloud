@@ -1,5 +1,5 @@
 // 项目岗位编制与职责槽位绑定业务逻辑（设计方案 §3.2/§4.1/§5.2）。
-// 业务身份（月报签字、工单派单等）一律走「槽位绑定 → 岗位 → 项目编制名单」解析，不再从角色/权限点推导。
+// 业务身份（月报签字、巡查汇报线等）一律走「槽位绑定 → 岗位 → 项目编制名单」解析，不再从角色/权限点推导。
 package service
 
 import (
@@ -118,7 +118,7 @@ func SlotUserIDs(db *gorm.DB, projectID, slot string) types.IDArray {
 	return out
 }
 
-// SlotAuthorized 名单制授权统一判定（工单各槽位、巡查汇报线共用）：
+// SlotAuthorized 名单制授权统一判定（月报签字、巡查汇报线共用）：
 // 超管与租户管理员默认放行——名单约束的是项目内职责分工，不约束平台/租户管理者；
 // 其余用户须为该项目该槽位名单成员（SlotUserIDs 三级回落解析）。
 func SlotAuthorized(db *gorm.DB, projectID, slot string, id *middleware.Identity) bool {

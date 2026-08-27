@@ -27,7 +27,7 @@ func New(db *gorm.DB, pushCli *push.Client) *Notifier {
 	return &Notifier{db: db, push: pushCli}
 }
 
-// WithDB 返回使用指定 DB 句柄（事务）的副本：工单创建等事务内通知随事务提交/回滚。
+// WithDB 返回使用指定 DB 句柄（事务）的副本：事务内通知随事务提交/回滚。
 func (n *Notifier) WithDB(db *gorm.DB) *Notifier {
 	return &Notifier{db: db, push: n.push}
 }

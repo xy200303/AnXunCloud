@@ -483,7 +483,7 @@ func (d *demoSeeder) seedFireMonth(tid, cid, planID string, firePointIDs []strin
 		"task_total": int64(1), "task_done": int64(1), "task_overdue": int64(0),
 		"should_points": total, "done_points": total, "coverage_rate": float64(100),
 		"abnormal_count": int64(2), "suspect_count": int64(0),
-		// 工单模块已下线：wo_* 指标固定为 0
+		// 演示看板指标占位
 		"wo_created": int64(0), "wo_closed": int64(0), "wo_unclosed": int64(0),
 		"wo_close_rate": int64(0),
 		"daily": []any{map[string]any{

@@ -11,11 +11,11 @@ export function getCommunity(id: string) {
   return request<CommunityItem & { buildings: BuildingItem[] }>({ url: `/communities/${id}`, method: 'get' })
 }
 
-export function createCommunity(data: { name: string; address?: string; manager_id?: string | null; status?: number; wo_triage_enabled?: boolean; wo_grab_enabled?: boolean }) {
+export function createCommunity(data: { name: string; address?: string; manager_id?: string | null; status?: number }) {
   return request<{ id: string }>({ url: '/communities', method: 'post', data })
 }
 
-export function updateCommunity(id: string, data: { name?: string; address?: string; manager_id?: string | null; status?: number; wo_triage_enabled?: boolean; wo_grab_enabled?: boolean }) {
+export function updateCommunity(id: string, data: { name?: string; address?: string; manager_id?: string | null; status?: number }) {
   return request<null>({ url: `/communities/${id}`, method: 'put', data })
 }
 

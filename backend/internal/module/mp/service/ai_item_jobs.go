@@ -21,8 +21,10 @@ import (
 	"anxuncloud/internal/pkg/ai"
 	"anxuncloud/internal/pkg/errs"
 	"anxuncloud/internal/pkg/logger"
+	"anxuncloud/internal/pkg/timefmt"
 
 	"go.uber.org/zap"
+	"gorm.io/gorm/clause"
 )
 
 const (
@@ -33,9 +35,14 @@ const (
 )
 
 // aiItemJobPayload 队列任务载荷（point/item 上下文入队时快照，worker 不再查库）。
+// TaskID/PointID/CommunityID 用于 worker 识别完成后回写 checkin_item_draft 过程草稿。
 type aiItemJobPayload struct {
 	JobID       string         `json:"job_id"`
 	UserID      string         `json:"user_id"`
+	TaskID      string         `json:"task_id"`
+	PointID     string         `json:"point_id"`
+	CommunityID string         `json:"community_id"`
+	TenantID    *string        `json:"tenant_id,omitempty"`
 	PointName   string         `json:"point_name"`
 	PointType   string         `json:"point_type"`
 	Name        string         `json:"name"`
@@ -91,10 +98,27 @@ func (s *CheckinService) SubmitAIItemJob(ctx context.Context, inspectorID string
 	}
 	payload := aiItemJobPayload{
 		JobID: uuid.NewString(), UserID: inspectorID,
+		TaskID: task.ID, PointID: req.PointID, CommunityID: task.CommunityID, TenantID: task.TenantID,
 		PointName: point.Name, PointType: point.Type,
 		Name: tplItem.Name, Requirement: strVal(tplItem.Requirement), AIHint: strVal(tplItem.AIHint),
 		JudgeType: tplItem.JudgeType, JudgeConfig: tplItem.JudgeConfig,
 		FileKeys: req.FileKeys,
+	}
+	// 过程草稿实时落库：提交即记 pending（重新识别时重置旧结论），worker 识别完回写 done/failed。
+	// 草稿仅作过程记录，不影响任务进度；点位正式提交成功后才删除。
+	draft := insmodel.CheckinItemDraft{
+		TenantID: task.TenantID, TaskID: task.ID, PointID: req.PointID,
+		InspectorID: inspectorID, CommunityID: task.CommunityID,
+		ItemName: tplItem.Name, JobID: payload.JobID, FileKeys: req.FileKeys, AIStatus: insmodel.ItemDraftPending,
+	}
+	if err := s.db.Clauses(clause.OnConflict{
+		Columns: []clause.Column{{Name: "task_id"}, {Name: "point_id"}, {Name: "item_name"}},
+		DoUpdates: clause.AssignmentColumns([]string{
+			"inspector_id", "community_id", "tenant_id", "job_id", "file_keys",
+			"ai_status", "ai_verdict", "ai_reason", "ai_reading", "quality_pass", "quality_issue", "updated_at",
+		}),
+	}).Create(&draft).Error; err != nil {
+		return nil, errs.ErrInternal
 	}
 	raw, err := json.Marshal(payload)
 	if err != nil {
@@ -187,9 +211,19 @@ func (s *CheckinService) processAIItemJob(ctx context.Context, raw string) {
 		return
 	}
 	key := aiItemJobPfx + p.JobID
+	// 草稿回写：按 (task, point, item) 定位过程草稿行（与 Redis 结果并行，DB 做持久记录）
+	writeDraft := func(fields map[string]any) {
+		fields["updated_at"] = time.Now()
+		if err := s.db.Model(&insmodel.CheckinItemDraft{}).
+			Where("task_id = ? AND point_id = ? AND item_name = ?", p.TaskID, p.PointID, p.Name).
+			Updates(fields).Error; err != nil {
+			logger.L.Warn("逐项识别草稿回写失败", zap.String("job_id", p.JobID), zap.Error(err))
+		}
+	}
 	fail := func(msg string) {
 		s.rdb.HSet(ctx, key, "status", "failed", "reason", truncateStr(msg, 200))
 		s.rdb.Expire(ctx, key, aiItemJobTTL)
+		writeDraft(map[string]any{"ai_status": insmodel.ItemDraftFailed, "ai_reason": truncateStr(msg, 200)})
 	}
 	refs := make([]ai.PhotoRef, 0, len(p.FileKeys))
 	for _, k := range p.FileKeys {
@@ -225,4 +259,40 @@ func (s *CheckinService) processAIItemJob(ctx context.Context, raw string) {
 		"quality_issue", truncateStr(res.Quality.Issue, 255),
 	)
 	s.rdb.Expire(ctx, key, aiItemJobTTL)
+	var readingPtr *string
+	if rd := truncateStr(strings.TrimSpace(reading), 64); rd != "" {
+		readingPtr = &rd
+	}
+	writeDraft(map[string]any{
+		"ai_status": insmodel.ItemDraftDone, "ai_verdict": verdict,
+		"ai_reason": truncateStr(reason, 500), "ai_reading": readingPtr,
+		"quality_pass": res.Quality.Pass, "quality_issue": truncateStr(res.Quality.Issue, 255),
+	})
+}
+
+// ItemDrafts 查询点位逐项识别过程草稿（GET /checkin/item-drafts?task_id&point_id）。
+// 供 App 断点恢复（换设备/清缓存也能拉回逐项进度）与查看正式提交前的识别过程；仅本人任务可见。
+// 草稿在点位正式提交成功后删除——查不到草稿且点位未打卡即表示尚未开始识别。
+func (s *CheckinService) ItemDrafts(ctx context.Context, inspectorID, taskID, pointID string) (gin.H, *errs.Error) {
+	var task insmodel.InspectionTask
+	if err := s.db.First(&task, "id = ?", taskID).Error; err != nil || task.InspectorID != inspectorID {
+		return nil, errs.ErrTaskNotOwned
+	}
+	var drafts []insmodel.CheckinItemDraft
+	s.db.Where("task_id = ? AND point_id = ? AND inspector_id = ?", taskID, pointID, inspectorID).
+		Order("created_at").Find(&drafts)
+	items := make([]gin.H, 0, len(drafts))
+	for _, d := range drafts {
+		photos := make([]string, 0, len(d.FileKeys))
+		for _, k := range d.FileKeys {
+			photos = append(photos, s.store.URL(k))
+		}
+		items = append(items, gin.H{
+			"item_name": d.ItemName, "job_id": d.JobID, "file_keys": d.FileKeys, "photos": photos,
+			"ai_status": d.AIStatus, "ai_verdict": d.AIVerdict, "ai_reason": d.AIReason,
+			"ai_reading": d.AIReading, "quality_pass": d.QualityPass, "quality_issue": d.QualityIssue,
+			"updated_at": timefmt.T(d.UpdatedAt),
+		})
+	}
+	return gin.H{"items": items}, nil
 }

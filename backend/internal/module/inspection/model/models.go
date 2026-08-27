@@ -337,3 +337,35 @@ type CheckinRecordItem struct {
 }
 
 func (CheckinRecordItem) TableName() string { return "checkin_record_item" }
+
+// 逐项识别草稿状态
+const (
+	ItemDraftPending = "pending"
+	ItemDraftDone    = "done"
+	ItemDraftFailed  = "failed"
+)
+
+// CheckinItemDraft 逐项 AI 识别过程草稿：拍完一项、识别完即落库（仅过程记录）。
+// 点位正式提交（checkin_record 落库）成功后才同事务删除；不计入任务进度/点位状态。
+// 用途：断点恢复（换设备/清缓存也能拉回逐项进度）、后台查看正式提交前的识别过程。
+type CheckinItemDraft struct {
+	types.UUIDModel
+	TenantID     *string           `gorm:"type:uuid" json:"tenant_id"`
+	TaskID       string            `gorm:"type:uuid" json:"task_id"`
+	PointID      string            `gorm:"type:uuid" json:"point_id"`
+	InspectorID  string            `gorm:"type:uuid" json:"inspector_id"`
+	CommunityID  string            `gorm:"type:uuid" json:"community_id"`
+	ItemName     string            `gorm:"size:128" json:"item_name"`
+	JobID        string            `gorm:"size:64" json:"job_id"` // 识别队列 job（pending 恢复轮询用）
+	FileKeys     types.StringArray `gorm:"type:jsonb" json:"file_keys"`
+	AIStatus     string            `gorm:"size:16" json:"ai_status"`
+	AIVerdict    *string           `gorm:"size:16" json:"ai_verdict"`
+	AIReason     *string           `gorm:"size:512" json:"ai_reason"`
+	AIReading    *string           `gorm:"size:64" json:"ai_reading"`
+	QualityPass  *bool             `json:"quality_pass"`
+	QualityIssue string            `gorm:"size:255" json:"quality_issue"`
+	CreatedAt    time.Time         `json:"created_at"`
+	UpdatedAt    time.Time         `json:"updated_at"`
+}
+
+func (CheckinItemDraft) TableName() string { return "checkin_item_draft" }

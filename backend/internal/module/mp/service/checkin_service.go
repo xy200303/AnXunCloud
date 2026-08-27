@@ -305,6 +305,11 @@ func (s *CheckinService) doCheckinLocked(ctx context.Context, inspectorID string
 				return err
 			}
 		}
+		// 最终落库：点位正式提交成功，逐项识别过程草稿同事务清除（草稿仅"进行中"有效）
+		if err := tx.Where("task_id = ? AND point_id = ?", currentTask.ID, req.PointID).
+			Delete(&insmodel.CheckinItemDraft{}).Error; err != nil {
+			return err
+		}
 		if overwrite {
 			// 覆盖修改：同事务内旧记录指向新记录；任务进度不重复 +1，任务状态不重推
 			if err := tx.Model(&insmodel.CheckinRecord{}).Where("id = ?", prev.ID).
@@ -440,8 +445,9 @@ func (s *CheckinService) applySyncResult(rec *insmodel.CheckinRecord, items []in
 	}
 }
 
-// applyConfirmedAI 逐项 AI 识别确认提交（ai_confirmed=true）：逐项快照写入带回的
-// ai_verdict/ai_reason/ai_reading（截断规则同 applySyncResult），不再调大模型；
+// applyConfirmedAI 逐项 AI 识别确认提交（ai_confirmed=true）：逐项快照写入识别结论
+// （截断规则同 applySyncResult），不再调大模型；
+// 结论取值优先级：服务端 DB 过程草稿（识别时实时落库，防客户端篡改/丢失）> 客户端带回（兜底）；
 // 记录级 ai_verdict 逐项汇总（任一 abnormal/review → review，全 pass → pass，皆无 → 空）；
 // result=abnormal 或任一项 review → audit_status=pending（事务后 notifyAuditors）。
 func (s *CheckinService) applyConfirmedAI(rec *insmodel.CheckinRecord, items []insmodel.CheckinRecordItem, req *dto.CheckinReq) {
@@ -449,20 +455,35 @@ func (s *CheckinService) applyConfirmedAI(rec *insmodel.CheckinRecord, items []i
 	for _, ci := range req.CheckItems {
 		byName[ci.Name] = ci
 	}
+	draftByName := make(map[string]insmodel.CheckinItemDraft)
+	var drafts []insmodel.CheckinItemDraft
+	s.db.Where("task_id = ? AND point_id = ? AND ai_status = ?", rec.TaskID, rec.PointID, insmodel.ItemDraftDone).Find(&drafts)
+	for _, d := range drafts {
+		draftByName[d.ItemName] = d
+	}
 	passCnt, issueCnt, reviewCnt := 0, 0, 0
 	for i := range items {
-		ci, ok := byName[items[i].Name]
-		if !ok {
-			continue
+		var v, r, rd string
+		if d, ok := draftByName[items[i].Name]; ok && d.AIVerdict != nil {
+			v = *d.AIVerdict
+			if d.AIReason != nil {
+				r = *d.AIReason
+			}
+			if d.AIReading != nil {
+				rd = *d.AIReading
+			}
+		} else if ci, ok := byName[items[i].Name]; ok {
+			v = strings.TrimSpace(ci.AIVerdict)
+			r = ci.AIReason
+			rd = ci.AIReading
 		}
-		v := strings.TrimSpace(ci.AIVerdict)
 		if v != ai.VerdictPass && v != ai.VerdictReview && v != ai.VerdictAbnormal {
 			continue // 非法/空结论忽略（该项按未识别处理）
 		}
-		r := truncateStr(ci.AIReason, 500)
+		r = truncateStr(r, 500)
 		items[i].AIVerdict = &v
 		items[i].AIReason = &r
-		if rd := truncateStr(strings.TrimSpace(ci.AIReading), 64); rd != "" {
+		if rd = truncateStr(strings.TrimSpace(rd), 64); rd != "" {
 			items[i].AIReading = &rd
 		}
 		switch v {

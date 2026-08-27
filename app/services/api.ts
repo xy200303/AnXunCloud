@@ -936,6 +936,46 @@ export function apiAiItemJobs(ids: string[]): Promise<AiItemJob[]> {
   })
 }
 
+/** 逐项识别过程草稿（GET /checkin/item-drafts 元素）：服务端实时落库的逐项进度 */
+export interface ItemDraft {
+  item_name: string
+  job_id: string
+  file_keys: string[]
+  photos: string[]
+  ai_status: string
+  ai_verdict: string
+  ai_reason: string
+  ai_reading: string
+  quality_pass: boolean
+  quality_issue: string
+}
+
+/** 查询点位逐项识别过程草稿 GET /checkin/item-drafts?task_id&point_id（断点恢复用） */
+export function apiItemDrafts(taskId: string, pointId: string): Promise<ItemDraft[]> {
+  return new Promise<ItemDraft[]>((resolve, reject) => {
+    httpGet<{ items?: any[] }>(
+      '/checkin/item-drafts?task_id=' + encodeURIComponent(taskId) + '&point_id=' + encodeURIComponent(pointId)
+    )
+      .then((d) => {
+        resolve(
+          (d?.items ?? []).map((it) => ({
+            item_name: it.item_name ?? '',
+            job_id: it.job_id ?? '',
+            file_keys: it.file_keys ?? [],
+            photos: it.photos ?? [],
+            ai_status: it.ai_status ?? '',
+            ai_verdict: it.ai_verdict ?? '',
+            ai_reason: it.ai_reason ?? '',
+            ai_reading: it.ai_reading ?? '',
+            quality_pass: it.quality_pass ?? true,
+            quality_issue: it.quality_issue ?? ''
+          }))
+        )
+      })
+      .catch(reject)
+  })
+}
+
 /** 打卡逐项 AI 结论 GET /checkins/:id/items（本人记录；AI 审核异步，提交后延迟轮询用） */
 export function apiCheckinItems(checkinId: string): Promise<CheckinItemAI[]> {
   return new Promise<CheckinItemAI[]>((resolve, reject) => {

@@ -257,6 +257,7 @@ import {
   apiUploadLocal,
   apiAiItemJobCreate,
   apiAiItemJobs,
+  apiItemDrafts,
   CODE_AI_DISABLED,
   CODE_CHECKIN_LOCKED,
   TaskPoint
@@ -720,8 +721,8 @@ export default {
       this.loading = false
       this.loaded = true
       this.clampIndices()
-      // 识别中的项凭 job_id 批量查一次：仍 pending 留待收尾轮询；failed/过期回退待拍
-      this.reconcileJobs()
+      // 服务端草稿恢复（识别中项的 job 对账在草稿合并完成后统一做）
+      this.restoreDrafts()
       this.enterPoint(true)
     },
     clampIndices() {
@@ -731,6 +732,50 @@ export default {
       if (wp == null) return
       if (this.itemIdx > wp.items.length) this.itemIdx = wp.items.length
       if (this.itemIdx < 0) this.itemIdx = 0
+    },
+    /** 服务端逐项草稿恢复：本地仍为待拍的项用服务端实时落库的草稿回填（照片+识别结论），
+     *  换设备/清缓存/快照丢失也能接着巡检；本地已有状态优先（更接近最新操作）。
+     *  全部点位合并完成后统一做识别中 job 对账（reconcileJobs） */
+    restoreDrafts() {
+      const jobs = this.wizPoints.map((wp) =>
+        apiItemDrafts(this.taskId, wp.point_id)
+          .then((drafts) => {
+            if (this.destroyed) return
+            let touched = false
+            drafts.forEach((d) => {
+              const it = wp.items.find((x) => x.name == d.item_name)
+              if (it == null) return
+              if (it.status != 'todo' || it.file_keys.length > 0) return // 本地优先，不覆盖
+              it.file_keys = d.file_keys.slice()
+              it.photos = d.photos.slice()
+              it.job_id = d.job_id
+              if (d.ai_status == 'done') {
+                this.applyJob(it, {
+                  verdict: d.ai_verdict,
+                  reason: d.ai_reason,
+                  reading: d.ai_reading,
+                  quality_pass: d.quality_pass,
+                  quality_issue: d.quality_issue
+                })
+              } else if (d.ai_status == 'pending') {
+                it.status = 'recognizing'
+              } else if (d.ai_status == 'failed') {
+                it.status = 'failed'
+                it.reason = d.ai_reason
+              }
+              touched = true
+            })
+            if (touched) this.persist()
+          })
+          .catch(() => {
+            // 草稿查询失败不阻断：本地快照/全新流程照常
+          })
+      )
+      Promise.all(jobs).then(() => {
+        if (this.destroyed) return
+        // 识别中的项凭 job_id 批量查一次：仍 pending 留待收尾轮询；failed/过期回退待拍
+        this.reconcileJobs()
+      })
     },
     /** 恢复快照时对识别中的 job 批量查一次状态 */
     reconcileJobs() {

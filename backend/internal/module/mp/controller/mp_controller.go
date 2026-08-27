@@ -179,6 +179,12 @@ func (ctl *MPController) AIItemJobs(c *gin.Context) {
 	write(c, data, be)
 }
 
+// ItemDrafts GET /checkin/item-drafts?task_id&point_id（逐项识别过程草稿，断点恢复/过程查看用）
+func (ctl *MPController) ItemDrafts(c *gin.Context) {
+	data, be := ctl.checkin.ItemDrafts(c.Request.Context(), uid(c), c.Query("task_id"), c.Query("point_id"))
+	write(c, data, be)
+}
+
 // ========== 上传 ==========
 
 // STS POST /upload/sts

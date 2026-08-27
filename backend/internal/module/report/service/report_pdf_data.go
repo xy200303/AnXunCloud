@@ -247,11 +247,6 @@ func (s *ReportService) pdfData(r *model.InspectionReport) pdf.MonthlyReportData
 						group.Cells = append(group.Cells, pdf.PhotoCell{Label: base + "·" + ci.Name, Key: key})
 					}
 				}
-				for _, ph := range rec.Photos {
-					if k := photoFileKey(reportPhotoURL(ph)); k != "" {
-						group.Cells = append(group.Cells, pdf.PhotoCell{Label: base, Key: k})
-					}
-				}
 			}
 		}
 		if len(group.Cells) > photoGroupMaxCells {
@@ -274,10 +269,9 @@ func (s *ReportService) pdfData(r *model.InspectionReport) pdf.MonthlyReportData
 		if pt, ok := pointByID[rec.PointID]; ok {
 			row.Problem = pointLocation(pt) + "：" + row.Problem
 		}
-		for _, ph := range rec.Photos {
-			if k := photoFileKey(reportPhotoURL(ph)); k != "" {
-				row.ProblemPhotos = append(row.ProblemPhotos, k)
-			}
+		// 问题照片：逐项照片（v21 起照片唯一归属逐项）
+		for _, ci := range itemsByRec[rec.ID] {
+			row.ProblemPhotos = append(row.ProblemPhotos, ci.Photos...)
 		}
 		// 处理情况列：异常打卡的复核结论（无整改闭环流程后以此替代）
 		row.FixText = auditStatusCN(rec.AuditStatus)

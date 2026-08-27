@@ -61,7 +61,6 @@ type PointSaveReq struct {
 	RequireFence       bool     `json:"require_fence"`
 	TemplateID         *string  `json:"template_id"`
 	NfcID              string   `json:"nfc_id"`
-	RequiredPhotoItems []string `json:"required_photo_items"`
 	Sort               int      `json:"sort"`
 	Status             *int     `json:"status"`
 	Remark             string   `json:"remark"`

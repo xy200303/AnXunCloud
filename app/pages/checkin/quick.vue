@@ -1282,12 +1282,6 @@ export default {
           ai_reading: it.reading
         }
       })
-      const photoRefs: Array<{ item: string; file_key: string }> = []
-      wp.items.forEach((it) => {
-        it.file_keys.forEach((k) => {
-          photoRefs.push({ item: it.name, file_key: k })
-        })
-      })
       const remark = wp.items
         .filter((it, i) => abnSet[i] == true && it.note != '')
         .map((it) => it.name + '：' + it.note)
@@ -1304,8 +1298,7 @@ export default {
         result: result,
         ai_confirmed: true,
         remark: remark,
-        check_items: checkItems,
-        photos: photoRefs
+        check_items: checkItems
       })
         .then(() => {
           if (this.destroyed) return

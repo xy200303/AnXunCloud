@@ -132,14 +132,13 @@ type InspectionPoint struct {
 	Type               string            `gorm:"size:32" json:"type"`
 	QRCodeNo           string            `gorm:"column:qrcode_no;size:64" json:"qrcode_no"`
 	NfcID              string            `gorm:"size:64" json:"nfc_id"`
-	TemplateID         *string           `gorm:"type:uuid" json:"template_id"`
-	Longitude          float64           `gorm:"type:numeric(10,7)" json:"longitude"`
-	Latitude           float64           `gorm:"type:numeric(10,7)" json:"latitude"`
-	FenceRadius        int               `json:"fence_radius"`
-	Credential         string            `gorm:"size:16" json:"credential"` // qrcode/nfc/none/any（任一：扫码或 NFC）
-	RequireFence       bool              `json:"require_fence"`
-	RequiredPhotoItems types.StringArray `gorm:"type:jsonb" json:"required_photo_items"`
-	Sort               int               `json:"sort"`
+	TemplateID   *string `gorm:"type:uuid" json:"template_id"`
+	Longitude    float64 `gorm:"type:numeric(10,7)" json:"longitude"`
+	Latitude     float64 `gorm:"type:numeric(10,7)" json:"latitude"`
+	FenceRadius  int     `json:"fence_radius"`
+	Credential   string  `gorm:"size:16" json:"credential"` // qrcode/nfc/none/any（任一：扫码或 NFC）
+	RequireFence bool    `json:"require_fence"`
+	Sort         int     `json:"sort"`
 	Status             string            `gorm:"size:16" json:"status"`
 	Remark             string            `gorm:"size:255" json:"remark"`
 	CreatedAt          time.Time         `json:"created_at"`
@@ -279,12 +278,10 @@ type CheckinRecord struct {
 	Longitude       *float64         `gorm:"type:numeric(10,7)" json:"longitude"`
 	Latitude        *float64         `gorm:"type:numeric(10,7)" json:"latitude"`
 	DistanceToPoint *float64         `gorm:"type:numeric(10,2)" json:"distance_to_point"`
-	CheckinType     string           `gorm:"size:16" json:"checkin_type"`
-	Photos          types.PhotoArray `gorm:"type:jsonb" json:"photos"`
-	Result          string           `gorm:"size:16" json:"result"`
-	Remark          string           `gorm:"size:512" json:"remark"`
-	IsOfflineSync   bool             `json:"is_offline_sync"`
-	IsSuspect       bool             `json:"is_suspect"`
+	CheckinType     string `gorm:"size:16" json:"checkin_type"` // qrcode/fence/nfc/offline（offline=离线补传，唯一事实来源）
+	Result          string `gorm:"size:16" json:"result"`
+	Remark          string `gorm:"size:512" json:"remark"`
+	IsSuspect       bool   `json:"is_suspect"`
 	SuspectReason   string           `gorm:"size:255" json:"suspect_reason"`
 	AuditStatus     string           `gorm:"size:16" json:"audit_status"`
 	AuditStep       int16            `json:"audit_step"` // 审批链当前进度：已通过环节数（0=待第 1 环节，扩展方案 §3）

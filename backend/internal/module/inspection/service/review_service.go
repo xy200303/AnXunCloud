@@ -111,7 +111,7 @@ func (s *ReviewService) reviewItem(r *model.CheckinRecord) gin.H {
 		"checkin_time": timefmt.T(r.CheckinTime), "checkin_type": r.CheckinType,
 		"distance_to_point": distanceOrNil(r), "result": r.Result, "remark": r.Remark,
 		"is_suspect": r.IsSuspect, "suspect_reason": r.SuspectReason,
-		"photos": r.Photos, "check_items": s.checkItemViews(r.ID),
+		"photos": RecordFlatPhotos(s.db, r.ID), "check_items": s.checkItemViews(r.ID),
 		"audit_status": r.AuditStatus, "audit_step": r.AuditStep, "flow_steps": s.flowStepViews(r),
 		"audit_by": r.AuditBy,
 		"audit_at": timefmt.TP(r.AuditAt), "audit_remark": r.AuditRemark,
@@ -476,21 +476,15 @@ func (s *ReviewService) spotcheckAI(c *gin.Context, req *dto.SpotcheckReq) (gin.
 	return gin.H{"picked": picked, "to_review": toReview, "passed": passed, "failed": failed}, nil
 }
 
-// checkItemViews 逐项结果视图（v18 起读 checkin_record_item 快照表）：附带该项照片可访问 URL（photos 存 file_key）。
+// checkItemViews 逐项结果视图（v18 起读 checkin_record_item 快照表）：附带该项照片可访问 URL（photos 存 file_key，优先水印图）。
 func (s *ReviewService) checkItemViews(recordID string) []gin.H {
 	var items []model.CheckinRecordItem
 	s.db.Where("record_id = ?", recordID).Order("sort ASC").Find(&items)
 	out := make([]gin.H, 0, len(items))
 	for _, ci := range items {
-		urls := make([]string, 0, len(ci.Photos))
-		if s.store != nil {
-			for _, key := range ci.Photos {
-				urls = append(urls, s.store.URL(key))
-			}
-		}
 		out = append(out, gin.H{
 			"name": ci.Name, "pass": ci.Pass, "note": ci.Note,
-			"photos": ci.Photos, "photo_urls": urls,
+			"photos": ci.Photos, "photo_urls": ItemPhotoURLs(s.db, ci.Photos),
 			"requirement": ci.Requirement, "ai_hint": ci.AIHint,
 			"judge_type": ci.JudgeType, "judge_config": ci.JudgeConfig,
 			"ai_verdict": ci.AIVerdict, "ai_reason": ci.AIReason, "ai_reading": ci.AIReading,
@@ -499,7 +493,7 @@ func (s *ReviewService) checkItemViews(recordID string) []gin.H {
 	return out
 }
 
-// reviewInputOf 由打卡记录组装大模型审核上下文。
+// reviewInputOf 由打卡记录组装大模型审核上下文（照片全部来自逐项快照）。
 func (s *ReviewService) reviewInputOf(r *model.CheckinRecord) ai.ReviewInput {
 	var point model.InspectionPoint
 	s.db.Select("name", "type").First(&point, "id = ?", r.PointID)
@@ -508,10 +502,6 @@ func (s *ReviewService) reviewInputOf(r *model.CheckinRecord) ai.ReviewInput {
 	names := make([]string, 0, len(recItems))
 	for _, it := range recItems {
 		names = append(names, it.Name)
-	}
-	refs := make([]ai.PhotoRef, 0, len(r.Photos))
-	for _, p := range r.Photos {
-		refs = append(refs, ai.PhotoRef{URL: p.URL})
 	}
 	var itemPhotos []ai.ItemPhoto
 	if s.store != nil {
@@ -531,7 +521,7 @@ func (s *ReviewService) reviewInputOf(r *model.CheckinRecord) ai.ReviewInput {
 	}
 	return ai.ReviewInput{
 		PointName: point.Name, PointType: point.Type, CheckItems: names, Remark: r.Remark,
-		Photos: refs, ItemPhotos: itemPhotos,
+		ItemPhotos: itemPhotos,
 	}
 }
 

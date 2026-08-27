@@ -109,30 +109,6 @@
         </view>
       </view>
 
-      <!-- 现场照片（整单，必传 ≥1 张） -->
-      <view class="card" :style="{ backgroundColor: colors.bgCard }">
-        <text class="sec-title" :style="{ color: colors.textPrimary }">现场照片（必传）</text>
-        <view class="photos">
-          <image
-            v-for="(ph, pi) in scenePhotos"
-            :key="pi"
-            class="photo"
-            :src="ph"
-            mode="aspectFill"
-            @longpress="removePhoto(scenePhotos, pi)"
-          />
-          <view
-            v-if="scenePhotos.length < 6"
-            class="photo-add"
-            :style="{ borderColor: colors.border }"
-            @click="takePhotos(scenePhotos, 6)"
-          >
-            <text class="photo-add-text" :style="{ color: colors.textSecondary }">+拍照</text>
-          </view>
-        </view>
-        <text class="photo-tip" :style="{ color: colors.textSecondary }">最多 6 张，长按照片可删除</text>
-      </view>
-
       <!-- 整单备注 -->
       <view class="card" :style="{ backgroundColor: colors.bgCard }">
         <text class="sec-title" :style="{ color: colors.textPrimary }">备注</text>
@@ -192,7 +168,6 @@ type FormData = {
   /** NFC 核验后读到的卡片 UID（十六进制，提交时作 nfc_id；空 = 未核验） */
   nfcCardId: string
   items: ItemView[]
-  scenePhotos: string[]
   remark: string
   submitting: boolean
   /** AI 照片质量拦截计数与放行上限（43107 分支用；达到上限允许强制提交转人工复核） */
@@ -255,7 +230,6 @@ export default {
       scannedNo: '',
       nfcCardId: '',
       items: [] as ItemView[],
-      scenePhotos: [] as string[],
       remark: '',
       submitting: false,
       qualityAttempts: 0,
@@ -462,7 +436,6 @@ export default {
           return '「' + it.name + '」须至少拍 1 张照片'
         }
       }
-      if (this.scenePhotos.length == 0) return '请至少拍 1 张现场照片'
       // 后端硬约束：异常打卡整单备注必填
       const abnormal = this.items.some((it) => !it.pass)
       if (abnormal && this.remark.trim() == '') return '存在异常项，请填写整单备注说明'
@@ -510,18 +483,14 @@ export default {
           pass: it.pass,
           note: it.note.trim(),
           photos: []
-        })),
-        photos: []
+        }))
       }
-      // 照片保留本地路径（不删本地文件）：item=检查项名，整单现场照片 item=''
+      // 照片保留本地路径（不删本地文件）：item=检查项名（照片唯一归属逐项）
       const photosLocal: OfflinePhoto[] = []
       this.items.forEach((it) => {
         it.photos.forEach((p) => {
           photosLocal.push({ item: it.name, local_path: p })
         })
-      })
-      this.scenePhotos.forEach((p) => {
-        photosLocal.push({ item: '', local_path: p })
       })
       enqueueOfflineCheckin(req, photosLocal)
       uni.hideLoading()
@@ -598,9 +567,8 @@ export default {
       const pt = this.point as TaskPoint
       this.submitting = true
       uni.showLoading({ title: '上传中…', mask: true })
-      // 逐项照片 file_key（与 items 同序）+ 整单 photos 引用（项照片 item=项名，整单 item=''）
+      // 逐项照片 file_key（与 items 同序；照片唯一归属逐项，无记录级照片）
       const itemKeys: string[][] = this.items.map(() => [])
-      const photoRefs: Array<{ item: string; file_key: string }> = []
       let chain: Promise<void> = Promise.resolve()
       this.items.forEach((it, idx) => {
         it.photos.forEach((p) => {
@@ -608,16 +576,8 @@ export default {
             .then(() => apiUploadLocal(p))
             .then((r) => {
               itemKeys[idx].push(r.file_key)
-              photoRefs.push({ item: it.name, file_key: r.file_key })
             })
         })
-      })
-      this.scenePhotos.forEach((p) => {
-        chain = chain
-          .then(() => apiUploadLocal(p))
-          .then((r) => {
-            photoRefs.push({ item: '', file_key: r.file_key })
-          })
       })
       chain
         .then(() => {
@@ -640,7 +600,6 @@ export default {
               note: it.note.trim(),
               photos: itemKeys[idx]
             })),
-            photos: photoRefs,
             force: this.forceSubmit || undefined
           })
         })

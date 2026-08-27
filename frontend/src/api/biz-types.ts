@@ -122,7 +122,6 @@ export interface PointItem {
   fence_radius: number
   credential: 'qrcode' | 'nfc' | 'none'
   require_fence: boolean
-  required_photo_items: string[]
   template_id: string | null
   template_name?: string
   nfc_id?: string
@@ -143,7 +142,6 @@ export interface PointForm {
   fence_radius: number
   credential: string
   require_fence: boolean
-  required_photo_items: string[]
   template_id: string | null
   nfc_id: string
   sort: number
@@ -248,9 +246,10 @@ export interface TaskItem {
 
 export interface CheckinPhoto {
   item: string
+  file_key?: string
   url: string
-  watermarked_url: string | null
-  required?: boolean
+  watermarked_url?: string | null
+  exif_time?: string
   exif_check?: { shot_at: string | null; deviation_seconds: number | null; passed: boolean | null } | null
 }
 

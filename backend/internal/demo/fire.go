@@ -288,15 +288,8 @@ func (d *demoSeeder) seedPatrolRounds(tid, cid, planID string, routePointIDs []s
 			if pm.credential == insmodel.CredentialNone {
 				rec.CheckinType = "fence"
 			}
-			tpl, ok := demoTemplateItemsOf(pm.typ, tplSafetyID, tplEquipID)
-			if !ok {
+			if _, ok := demoTemplateItemsOf(pm.typ, tplSafetyID, tplEquipID); !ok {
 				return fmt.Errorf("演示点位模板缺失: %s", pm.name)
-			}
-			for _, label := range tpl.requiredPhotos {
-				ph, _ := d.photo(tid, uid, label)
-				if ph.URL != "" {
-					rec.Photos = append(rec.Photos, ph)
-				}
 			}
 			recs = append(recs, rec)
 		}
@@ -433,12 +426,6 @@ func (d *demoSeeder) seedFireMonth(tid, cid, planID string, firePointIDs []strin
 		if isAb {
 			rec.Result = insmodel.ResultAbnormal
 			rec.Remark = ab.remark
-		}
-		for _, label := range reqLabels {
-			ph, _ := d.photo(tid, p.xj01, label)
-			if ph.URL != "" {
-				rec.Photos = append(rec.Photos, ph)
-			}
 		}
 		if err := d.db.Create(&rec).Error; err != nil {
 			return err

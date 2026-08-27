@@ -195,26 +195,15 @@
           <div class="text-secondary">凭证用于确认「到的是这个点位」；任一 = 扫码或 NFC 均可；不需要且不启用围栏时为免核验点位</div>
         </el-form-item>
 
-        <el-form-item label="检查项模板">
-          <el-select v-model="form.template_id" placeholder="不关联模板" clearable style="width: 100%">
+        <el-form-item label="检查项模板" prop="template_id" required>
+          <el-select v-model="form.template_id" placeholder="必选；必拍项/逐项判定均由模板驱动" style="width: 100%">
             <el-option v-for="t in filteredTemplates" :key="t.id" :label="t.name" :value="t.id" />
           </el-select>
-          <div class="text-secondary">仅显示通用模板和与所选点位类型匹配的启用模板</div>
+          <div class="text-secondary">仅显示通用模板和与所选点位类型匹配的启用模板；「现场全貌」类需求请在模板中加对应检查项</div>
         </el-form-item>
 
         <el-form-item label="NFC 卡号" prop="nfc_id">
           <el-input v-model="form.nfc_id" placeholder="选填；凭证为 NFC 时必填，为任一时建议填写" style="width: 260px" />
-        </el-form-item>
-
-        <el-form-item label="必拍项">
-          <div class="photo-items">
-            <div v-for="(item, i) in form.required_photo_items" :key="i" class="photo-item">
-              <el-input v-model="form.required_photo_items[i]" placeholder="如：配电箱" style="width: 200px" />
-              <el-button link type="danger" :icon="Delete" @click="form.required_photo_items.splice(i, 1)" />
-            </div>
-            <el-button :icon="Plus" size="small" @click="form.required_photo_items.push('')">添加必拍项</el-button>
-            <div class="text-secondary">为空表示仅要求现场照片</div>
-          </div>
         </el-form-item>
 
         <el-form-item label="状态">
@@ -299,8 +288,8 @@
             <el-radio value="none">不需要</el-radio>
           </el-radio-group>
         </el-form-item>
-        <el-form-item label="检查项模板">
-          <el-select v-model="batchForm.template_id" placeholder="不关联模板" clearable style="width: 100%">
+        <el-form-item label="检查项模板" prop="template_id" required>
+          <el-select v-model="batchForm.template_id" placeholder="必选；点位强制绑定模板" style="width: 100%">
             <el-option v-for="t in batchTemplates" :key="t.id" :label="t.name" :value="t.id" />
           </el-select>
         </el-form-item>
@@ -565,7 +554,6 @@ const form = reactive({
   fence_radius: 100,
   credential: 'qrcode',
   require_fence: true,
-  required_photo_items: [] as string[],
   template_id: null as string | null,
   nfc_id: '',
   sort: 0,
@@ -576,6 +564,7 @@ const formRules: FormRules = {
   communityBuilding: [{ required: true, type: 'array', min: 2, message: '请选择所属楼栋', trigger: 'change' }],
   name: [{ required: true, message: '请输入点位名称', trigger: 'blur' }],
   type: [{ required: true, message: '请选择点位类型', trigger: 'change' }],
+  template_id: [{ required: true, message: '点位必须绑定检查项模板', trigger: 'change' }],
   nfc_id: [
     {
       validator: (_r, v: string, cb) =>
@@ -614,7 +603,6 @@ function openForm(row?: PointItem) {
       fence_radius: row.fence_radius,
       credential: row.credential,
       require_fence: row.require_fence,
-      required_photo_items: [...(row.required_photo_items || [])],
       template_id: row.template_id || null,
       nfc_id: row.nfc_id || '',
       sort: row.sort,
@@ -624,7 +612,7 @@ function openForm(row?: PointItem) {
     Object.assign(form, {
       id: '', qrcode_no: '', communityBuilding: [], unit_no: null, floor: null, name: '', type: '',
       longitude: null, latitude: null, fence_radius: 100, credential: 'qrcode', require_fence: true,
-      required_photo_items: [], template_id: null, nfc_id: '', sort: 0, status: 1
+      template_id: null, nfc_id: '', sort: 0, status: 1
     })
   }
   formVisible.value = true
@@ -636,8 +624,6 @@ async function handleSubmit() {
     ElMessage.warning('请填写点位坐标（经度/纬度）')
     return
   }
-  // 必拍项去除空项
-  const items = form.required_photo_items.map((s) => s.trim()).filter(Boolean)
   const payload = {
     community_id: form.communityBuilding[0],
     building_id: form.communityBuilding[1],
@@ -650,7 +636,6 @@ async function handleSubmit() {
     fence_radius: form.fence_radius,
     credential: form.credential,
     require_fence: form.require_fence,
-    required_photo_items: items,
     template_id: form.template_id || null,
     nfc_id: form.nfc_id.trim(),
     sort: form.sort,
@@ -737,7 +722,8 @@ const batchForm = reactive({
 const batchRules: FormRules = {
   community_id: [{ required: true, message: '请选择小区', trigger: 'change' }],
   name_pattern: [{ required: true, message: '请填写命名规则', trigger: 'blur' }],
-  type: [{ required: true, message: '请选择点位类型', trigger: 'change' }]
+  type: [{ required: true, message: '请选择点位类型', trigger: 'change' }],
+  template_id: [{ required: true, message: '点位必须绑定检查项模板', trigger: 'change' }]
 }
 
 // 所选小区下的楼栋选项（复用左树数据）

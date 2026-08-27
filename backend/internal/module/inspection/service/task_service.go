@@ -289,7 +289,7 @@ func checkinBrief(db *gorm.DB, ck *model.CheckinRecord) gin.H {
 		"checkin_type": ck.CheckinType, "distance_to_point": distance,
 		"longitude": ck.Longitude, "latitude": ck.Latitude,
 		"result": ck.Result, "is_suspect": ck.IsSuspect, "suspect_reason": ck.SuspectReason,
-		"remark": ck.Remark, "photos": ck.Photos,
+		"remark": ck.Remark, "photos": RecordFlatPhotos(db, ck.ID),
 		"check_items": briefItemViews(db, ck.ID),
 		"audit_status": ck.AuditStatus, "audit_by": ck.AuditBy,
 		"audit_at": timefmt.TP(ck.AuditAt), "audit_remark": ck.AuditRemark,
@@ -411,7 +411,7 @@ func (s *TaskService) CheckinList(c *gin.Context, q *dto.CheckinListQuery) (*res
 			"inspector_id": r.InspectorID, "inspector_name": userName(s.db, r.InspectorID),
 			"checkin_time": timefmt.T(r.CheckinTime), "checkin_type": r.CheckinType,
 			"distance_to_point": distanceOrNil(r), "result": r.Result,
-			"is_suspect": r.IsSuspect, "photo_count": len(r.Photos),
+			"is_suspect": r.IsSuspect, "photo_count": RecordPhotoCount(s.db, r.ID),
 			"audit_status": r.AuditStatus, "audit_step": r.AuditStep,
 			"current_step_name": s.currentStepName(flows, r),
 			"ai_verdict":        r.AIVerdict, "ai_reason": r.AIReason,
@@ -455,26 +455,24 @@ func (s *TaskService) CheckinDetail(c *gin.Context, id string) (gin.H, *errs.Err
 			planName = plan.Name
 		}
 	}
-	// 照片带 EXIF 校验结论
-	photos := make([]gin.H, 0, len(r.Photos))
-	for _, p := range r.Photos {
+	// 照片带 EXIF 校验结论（v21 起从逐项照片聚合）
+	flatPhotos := RecordFlatPhotos(s.db, r.ID)
+	photos := make([]gin.H, 0, len(flatPhotos))
+	for _, p := range flatPhotos {
+		exif, _ := p["exif_time"].(string)
 		photos = append(photos, gin.H{
-			"item": p.Item, "url": p.URL, "watermarked_url": p.WatermarkedURL,
-			"exif_check": exifCheck(&r, p),
+			"item": p["item"], "url": p["url"], "watermarked_url": p["watermarked_url"],
+			"exif_check": exifCheck(&r, exif),
 		})
 	}
-	// 逐项结果带照片 URL（photos 存 file_key）；v18 起读 checkin_record_item 快照表
+	// 逐项结果带照片 URL（photos 存 file_key；优先水印图）；v18 起读 checkin_record_item 快照表
 	var recItems []model.CheckinRecordItem
 	s.db.Where("record_id = ?", r.ID).Order("sort ASC").Find(&recItems)
 	checkItems := make([]gin.H, 0, len(recItems))
 	for _, ci := range recItems {
-		urls := make([]string, 0, len(ci.Photos))
-		for _, key := range ci.Photos {
-			urls = append(urls, s.store.URL(key))
-		}
 		checkItems = append(checkItems, gin.H{
 			"name": ci.Name, "pass": ci.Pass, "note": ci.Note,
-			"photos": ci.Photos, "photo_urls": urls,
+			"photos": ci.Photos, "photo_urls": ItemPhotoURLs(s.db, ci.Photos),
 			"requirement": ci.Requirement, "ai_hint": ci.AIHint,
 			"judge_type": ci.JudgeType, "judge_config": ci.JudgeConfig,
 			"ai_verdict": ci.AIVerdict, "ai_reason": ci.AIReason, "ai_reading": ci.AIReading,
@@ -488,7 +486,6 @@ func (s *TaskService) CheckinDetail(c *gin.Context, id string) (gin.H, *errs.Err
 		"checkin_time": timefmt.T(r.CheckinTime), "client_time": timefmt.TP(r.ClientTime),
 		"checkin_type": r.CheckinType, "longitude": r.Longitude, "latitude": r.Latitude,
 		"distance_to_point": distanceOrNil(&r), "result": r.Result, "remark": r.Remark,
-		"is_offline_sync": r.IsOfflineSync,
 		"is_suspect": r.IsSuspect, "suspect_reason": r.SuspectReason,
 		"photos": photos, "check_items": checkItems,
 		"audit_status": r.AuditStatus, "audit_by": r.AuditBy, "audit_by_name": userNamePtr(s.db, r.AuditBy),
@@ -501,19 +498,20 @@ func (s *TaskService) CheckinDetail(c *gin.Context, id string) (gin.H, *errs.Err
 }
 
 // exifCheck 构造照片 EXIF 校验结论（无 EXIF 时间时 passed 为 nil）。
-func exifCheck(r *model.CheckinRecord, p types.PhotoItem) gin.H {
-	if p.ExifTime == "" {
+// exifCheck 照片 EXIF 拍摄时间与打卡时间偏差校验（exifTime 为 timefmt 格式字符串，空=无 EXIF）。
+func exifCheck(r *model.CheckinRecord, exifTime string) gin.H {
+	if exifTime == "" {
 		return gin.H{"shot_at": nil, "deviation_seconds": nil, "passed": nil}
 	}
-	shot, err := timefmt.Parse(p.ExifTime)
+	shot, err := timefmt.Parse(exifTime)
 	if err != nil {
-		return gin.H{"shot_at": p.ExifTime, "deviation_seconds": nil, "passed": nil}
+		return gin.H{"shot_at": exifTime, "deviation_seconds": nil, "passed": nil}
 	}
 	dev := int(shot.Sub(r.CheckinTime).Seconds())
 	if dev < 0 {
 		dev = -dev
 	}
-	return gin.H{"shot_at": p.ExifTime, "deviation_seconds": dev, "passed": dev <= 300}
+	return gin.H{"shot_at": exifTime, "deviation_seconds": dev, "passed": dev <= 300}
 }
 
 func pointName(db *gorm.DB, id string) string {

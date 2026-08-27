@@ -213,8 +213,7 @@ func (d *demoSeeder) createPoint(tenantID, communityID string, buildingIDs []str
 		TenantID: &tenantID, CommunityID: communityID, Name: p.name, Type: p.typ,
 		QRCodeNo: fmt.Sprintf("P%06d", seq), Longitude: p.lng, Latitude: p.lat, FenceRadius: p.fence,
 		Credential: p.credential, RequireFence: true,
-		RequiredPhotoItems: types.StringArray(requiredPhotos),
-		Sort:               sort, Status: sysmodel.StatusEnabled, Remark: "演示点位（seed-demo 生成）",
+		Sort:       sort, Status: sysmodel.StatusEnabled, Remark: "演示点位（seed-demo 生成）",
 	}
 	if templateID != "" {
 		pt.TemplateID = &templateID
@@ -461,12 +460,6 @@ func (d *demoSeeder) seedTenantA() error {
 		if !ok {
 			return fmt.Errorf("演示点位模板缺失: %s", p.name)
 		}
-		for _, label := range items.requiredPhotos {
-			ph, _ := d.photo(tid, xj01ID, label)
-			if ph.URL != "" {
-				rec.Photos = append(rec.Photos, ph)
-			}
-		}
 		if err := d.db.Create(&rec).Error; err != nil {
 			return err
 		}
@@ -690,12 +683,6 @@ func (d *demoSeeder) seedTenantB() error {
 		if p.credential == insmodel.CredentialNone {
 			rec.CheckinType = "fence"
 		}
-		for _, label := range required {
-			ph, _ := d.photo(tid, xjID, label)
-			if ph.URL != "" {
-				rec.Photos = append(rec.Photos, ph)
-			}
-		}
 		if err := d.db.Create(&rec).Error; err != nil {
 			return err
 		}
@@ -819,15 +806,8 @@ func (d *demoSeeder) seedMonthWorkload(tid, cid string, o monthWorkload) (monthS
 					st.abnormal++
 					dayAb = 1
 				}
-				tpl, ok := demoTemplateItemsOf(p.typ, o.tplSafetyID, o.tplEquipID)
-				if !ok {
+				if _, ok := demoTemplateItemsOf(p.typ, o.tplSafetyID, o.tplEquipID); !ok {
 					return st, fmt.Errorf("演示点位模板缺失: %s", p.name)
-				}
-				for _, label := range tpl.requiredPhotos {
-					ph, _ := d.photo(tid, inspectorID, label)
-					if ph.URL != "" {
-						rec.Photos = append(rec.Photos, ph)
-					}
 				}
 				recs = append(recs, rec)
 			}

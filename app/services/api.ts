@@ -131,8 +131,6 @@ export type TaskPoint = {
   longitude: number
   latitude: number
   fence_radius: number
-  /** 点位级必拍项（整单照片 item 维度） */
-  required_photo_items: string[]
   check_items: CheckItemTpl[]
   my_checkin: {
     id: string
@@ -195,16 +193,15 @@ export type CheckinReqPayload = {
   latitude: number
   /** YYYY-MM-DD HH:mm:ss（timefmt.Layout） */
   client_time: string
-  /** normal/abnormal=巡检员逐项填报；auto=AI 代判（极简模式，check_items 不传，由后端快照模板） */
-  result: 'normal' | 'abnormal' | 'auto'
+  /** normal/abnormal=巡检员逐项填报（auto 代判已下线，逐项识别走 ai_confirmed 流程） */
+  result: 'normal' | 'abnormal'
   /** 可选：质量不达标超放行次数后强制提交（结果转待复核） */
   force?: boolean
   /** true = 巡检员已在识别概要页确认 AI 结论，服务端跳过二次 AI */
   ai_confirmed?: boolean
   remark: string
-  /** 逐项填报（result=auto 时不传，由后端快照模板） */
+  /** 逐项填报（照片唯一归属逐项 photos；无记录级照片） */
   check_items?: CheckinItemReqPayload[]
-  photos: Array<{ item: string; file_key: string }>
 }
 
 /** AI 逐项识别 job 创建请求（POST /checkin/ai-item-jobs） */
@@ -527,7 +524,6 @@ type RawTaskDetail = {
     longitude?: number
     latitude?: number
     fence_radius?: number
-    required_photo_items?: string[]
     check_items?: Array<{ name?: string; requirement?: string; photo_required?: string; judge_type?: string }>
     my_checkin?: {
       id?: string | number
@@ -832,7 +828,6 @@ export function apiTaskDetail(id: string): Promise<TaskDetail> {
             longitude: p.longitude ?? 0,
             latitude: p.latitude ?? 0,
             fence_radius: p.fence_radius ?? 0,
-            required_photo_items: p.required_photo_items ?? [],
             check_items: (p.check_items ?? []).map((c) => ({
               name: c.name ?? '',
               requirement: c.requirement ?? '',
@@ -1472,7 +1467,6 @@ export type PointItem = {
   /** qrcode/nfc/none/any */
   credential: string
   require_fence: boolean
-  required_photo_items: string[]
   sort: number
   status: number
   created_at: string
@@ -1499,7 +1493,6 @@ export type PointSavePayload = {
   require_fence?: boolean
   template_id?: string | null
   nfc_id?: string
-  required_photo_items?: string[]
   sort?: number
   status?: number
   remark?: string

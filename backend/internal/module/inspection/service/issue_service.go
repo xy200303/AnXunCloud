@@ -88,11 +88,12 @@ func issuePoint(db *gorm.DB, id string) issuePointInfo {
 	return info
 }
 
-// issuePhotos 照片透出格式（同打卡记录详情：item/url/watermarked_url）。
-func issuePhotos(r *model.CheckinRecord) []gin.H {
-	photos := make([]gin.H, 0, len(r.Photos))
-	for _, p := range r.Photos {
-		photos = append(photos, gin.H{"item": p.Item, "url": p.URL, "watermarked_url": p.WatermarkedURL})
+// issuePhotos 照片透出格式（同打卡记录详情：item/url/watermarked_url；v21 起从逐项照片聚合）。
+func issuePhotos(db *gorm.DB, r *model.CheckinRecord) []gin.H {
+	flat := RecordFlatPhotos(db, r.ID)
+	photos := make([]gin.H, 0, len(flat))
+	for _, p := range flat {
+		photos = append(photos, gin.H{"item": p["item"], "url": p["url"], "watermarked_url": p["watermarked_url"]})
 	}
 	return photos
 }
@@ -125,7 +126,7 @@ func (s *TaskService) IssueList(c *gin.Context, q *dto.IssueListQuery) (*respons
 			"result":         r.Result, "remark": r.Remark,
 			"ai_verdict": r.AIVerdict, "ai_reason": r.AIReason,
 			"audit_status": r.AuditStatus, "force_submit": r.ForceSubmit,
-			"is_suspect": r.IsSuspect, "photos": issuePhotos(r),
+			"is_suspect": r.IsSuspect, "photos": issuePhotos(s.db, r),
 		})
 	}
 	return &response.Page{List: list, Total: total, Page: q.Page, PageSize: q.PageSize}, nil

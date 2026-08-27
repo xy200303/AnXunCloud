@@ -29,7 +29,6 @@ import (
 	"anxuncloud/internal/pkg/response"
 	"anxuncloud/internal/pkg/storage"
 	"anxuncloud/internal/pkg/timefmt"
-	"anxuncloud/internal/pkg/types"
 	"anxuncloud/internal/pkg/watermark"
 )
 
@@ -114,7 +113,6 @@ func (s *PointService) toItem(p *model.InspectionPoint) gin.H {
 		"template_id": p.TemplateID, "template_name": templateName,
 		"longitude": p.Longitude, "latitude": p.Latitude,
 		"fence_radius": p.FenceRadius, "credential": p.Credential, "require_fence": p.RequireFence,
-		"required_photo_items": p.RequiredPhotoItems,
 		"sort":                 p.Sort, "status": sysmodel.StatusInt(p.Status), "created_at": timefmt.T(p.CreatedAt),
 	}
 }
@@ -128,22 +126,21 @@ func (s *PointService) Create(c *gin.Context, req *dto.PointSaveReq) (string, st
 		return "", "", be
 	}
 	p := model.InspectionPoint{
-		TenantID:           middleware.CommunityTenantID(s.db, req.CommunityID), // 冗余列（=所属小区租户）
-		CommunityID:        req.CommunityID,
-		BuildingID:         req.BuildingID,
-		Name:               req.Name,
-		Type:               req.Type,
-		TemplateID:         templatePtr(req.TemplateID),
-		NfcID:              normalizeNfcID(req.NfcID),
-		Longitude:          req.Longitude,
-		Latitude:           req.Latitude,
-		FenceRadius:        s.fenceRadius(req.FenceRadius),
-		Credential:         credentialOrDefault(req.Credential),
-		RequireFence:       req.RequireFence,
-		RequiredPhotoItems: req.RequiredPhotoItems,
-		Sort:               req.Sort,
-		Status:             sysmodel.StatusEnabled,
-		Remark:             req.Remark,
+		TenantID:    middleware.CommunityTenantID(s.db, req.CommunityID), // 冗余列（=所属小区租户）
+		CommunityID: req.CommunityID,
+		BuildingID:  req.BuildingID,
+		Name:        req.Name,
+		Type:        req.Type,
+		TemplateID:  templatePtr(req.TemplateID),
+		NfcID:       normalizeNfcID(req.NfcID),
+		Longitude:   req.Longitude,
+		Latitude:    req.Latitude,
+		FenceRadius: s.fenceRadius(req.FenceRadius),
+		Credential:  credentialOrDefault(req.Credential),
+		RequireFence: req.RequireFence,
+		Sort:         req.Sort,
+		Status:       sysmodel.StatusEnabled,
+		Remark:       req.Remark,
 	}
 	// 结构化位置：仅挂楼栋时有意义；非楼栋点位强制清空（车库/公园等区域无单元楼层）
 	if req.BuildingID != nil {
@@ -152,9 +149,6 @@ func (s *PointService) Create(c *gin.Context, req *dto.PointSaveReq) (string, st
 	}
 	if req.Status != nil {
 		p.Status = sysmodel.StatusStr(*req.Status)
-	}
-	if p.RequiredPhotoItems == nil {
-		p.RequiredPhotoItems = types.StringArray{}
 	}
 	// 二维码编号：P-+6 位序列（序号源为 PG 序列 qrcode_no_seq，业务编号与 UUID 主键解耦）
 	no, be := s.nextQRCodeNo()
@@ -227,8 +221,7 @@ func (s *PointService) Update(c *gin.Context, id string, req *dto.PointSaveReq) 
 		"type": req.Type, "template_id": templatePtr(req.TemplateID), "nfc_id": normalizeNfcID(req.NfcID),
 		"longitude": req.Longitude, "latitude": req.Latitude,
 		"fence_radius": s.fenceRadius(req.FenceRadius), "credential": credentialOrDefault(req.Credential), "require_fence": req.RequireFence,
-		"required_photo_items": types.StringArray(req.RequiredPhotoItems),
-		"sort":                 req.Sort, "remark": req.Remark,
+		"sort": req.Sort, "remark": req.Remark,
 	}
 	// 结构化位置：挂楼栋时写入，非楼栋点位强制清空
 	if req.BuildingID != nil {
@@ -446,11 +439,14 @@ func (s *PointService) validate(req *dto.PointSaveReq) *errs.Error {
 	if req.Longitude < -180 || req.Longitude > 180 || req.Latitude < -90 || req.Latitude > 90 {
 		return errs.ErrParam.WithMsg("经纬度取值非法")
 	}
-	if tid := templatePtr(req.TemplateID); tid != nil {
-		s.db.Model(&model.CheckTemplate{}).Where("id = ? AND (tenant_id IS NULL OR tenant_id = ?)", *tid, *tenantID).Count(&count)
-		if count == 0 {
-			return errs.ErrParam.WithMsg("template_id 对应的检查项模板不存在")
-		}
+	// 点位强制绑定检查项模板（v21 起）：必拍项/逐项判定均由模板驱动，无模板点位不可打卡
+	tid := templatePtr(req.TemplateID)
+	if tid == nil {
+		return errs.ErrParam.WithMsg("点位必须绑定检查项模板")
+	}
+	s.db.Model(&model.CheckTemplate{}).Where("id = ? AND (tenant_id IS NULL OR tenant_id = ?)", *tid, *tenantID).Count(&count)
+	if count == 0 {
+		return errs.ErrParam.WithMsg("template_id 对应的检查项模板不存在")
 	}
 	switch credentialOrDefault(req.Credential) {
 	case model.CredentialQRCode, model.CredentialNFC, model.CredentialNone, model.CredentialAny:
@@ -530,11 +526,14 @@ func (s *PointService) BatchCreate(c *gin.Context, req *dto.PointBatchReq) (*dto
 	default:
 		return nil, errs.ErrParam.WithMsg("credential 取值非法（qrcode/nfc/none/any）")
 	}
-	if tid := templatePtr(req.TemplateID); tid != nil {
-		s.db.Model(&model.CheckTemplate{}).Where("id = ?", *tid).Count(&count)
-		if count == 0 {
-			return nil, errs.ErrParam.WithMsg("template_id 对应的检查项模板不存在")
-		}
+	// 点位强制绑定检查项模板（v21 起）
+	tid := templatePtr(req.TemplateID)
+	if tid == nil {
+		return nil, errs.ErrParam.WithMsg("点位必须绑定检查项模板")
+	}
+	s.db.Model(&model.CheckTemplate{}).Where("id = ?", *tid).Count(&count)
+	if count == 0 {
+		return nil, errs.ErrParam.WithMsg("template_id 对应的检查项模板不存在")
 	}
 	if req.FloorTo < req.FloorFrom {
 		return nil, errs.ErrParam.WithMsg("floor_to 不能小于 floor_from")
@@ -607,10 +606,9 @@ func (s *PointService) BatchCreate(c *gin.Context, req *dto.PointBatchReq) (*dto
 						Name: name, Type: req.Type, QRCodeNo: no,
 						TemplateID: templatePtr(req.TemplateID),
 						Longitude:  req.Longitude, Latitude: req.Latitude,
-						FenceRadius:        s.fenceRadius(0),
-						Credential:         credentialOrDefault(req.Credential),
-						RequiredPhotoItems: types.StringArray{},
-						Status:             sysmodel.StatusEnabled,
+						FenceRadius: s.fenceRadius(0),
+						Credential:  credentialOrDefault(req.Credential),
+						Status:      sysmodel.StatusEnabled,
 					}
 					if b.id != nil {
 						u, f := unit, floor
@@ -757,7 +755,7 @@ func (s *PointService) Import(c *gin.Context, r io.Reader) (*dto.PointImportResu
 		commText, buildingText, name := cell(0), cell(1), cell(2)
 		typeText, tplText, nfcID := cell(3), cell(4), cell(5)
 		lonText, latText, radiusText, modeText := cell(6), cell(7), cell(8), cell(9)
-		photoText, statusText, remark := cell(10), cell(11), cell(12)
+		statusText, remark := cell(11), cell(12) // cell(10) 原为必拍项列（v21 起废除，必拍由模板项推导，忽略该列）
 
 		fail := func(reason string) {
 			result.FailDetails = append(result.FailDetails, dto.PointImportFail{Row: rowNums[i], Name: name, Reason: reason})
@@ -798,9 +796,13 @@ func (s *PointService) Import(c *gin.Context, r io.Reader) (*dto.PointImportResu
 			fail("点位类型「" + typeText + "」不在字典 point_type 中")
 			continue
 		}
-		// 5. 检查项模板（可空，须为启用模板）
+		// 5. 检查项模板（v21 起必填，须为启用模板）
+		if tplText == "" {
+			fail("检查项模板必填（v21 起点位强制绑定模板）")
+			continue
+		}
 		var templateID *string
-		if tplText != "" {
+		{
 			tid, ok := templateByName[tplText]
 			if !ok {
 				fail("检查项模板「" + tplText + "」不存在或已停用")
@@ -839,16 +841,7 @@ func (s *PointService) Import(c *gin.Context, r io.Reader) (*dto.PointImportResu
 			fail("打卡方式含 NFC 时 NFC卡号 必填")
 			continue
 		}
-		// 8. 必拍项（英文逗号分隔，可空）
-		photoItems := types.StringArray{}
-		if photoText != "" {
-			for _, item := range strings.Split(photoText, ",") {
-				if item = strings.TrimSpace(item); item != "" {
-					photoItems = append(photoItems, item)
-				}
-			}
-		}
-		// 9. 同楼栋下名称防重（库中或本批次）
+		// 8. 同楼栋下名称防重（库中或本批次）
 		bid := ""
 		if buildingID != nil {
 			bid = *buildingID
@@ -871,7 +864,7 @@ func (s *PointService) Import(c *gin.Context, r io.Reader) (*dto.PointImportResu
 			CommunityID: commID, BuildingID: buildingID, Name: name, Type: pointType,
 			TemplateID: templateID, NfcID: normalizeNfcID(nfcID), QRCodeNo: no,
 			Longitude: lon, Latitude: lat, FenceRadius: s.fenceRadius(radius),
-			Credential: credential, RequireFence: requireFence, RequiredPhotoItems: photoItems,
+			Credential: credential, RequireFence: requireFence,
 			Status: status, Remark: remark,
 		}
 		if err := s.db.Create(&p).Error; err != nil {

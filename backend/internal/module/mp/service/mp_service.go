@@ -618,7 +618,7 @@ func (s *MPService) TaskDetail(inspectorID, taskID string) (gin.H, *errs.Error) 
 			"sort": i + 1, "credential": pt.Credential, "require_fence": pt.RequireFence, "qrcode_no": pt.QRCodeNo,
 			"nfc_id": pt.NfcID,
 			"longitude": pt.Longitude, "latitude": pt.Latitude, "fence_radius": pt.FenceRadius,
-			"required_photo_items": pt.RequiredPhotoItems, "my_checkin": myCheckin,
+			"my_checkin": myCheckin,
 		})
 		if pt.TemplateID != nil && *pt.TemplateID != "" {
 			ptTpl[len(points)-1] = *pt.TemplateID

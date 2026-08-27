@@ -188,22 +188,19 @@ func (s *CheckinService) doCheckinLocked(ctx context.Context, inspectorID string
 	if be := s.checkMode(req, &point, distance); be != nil {
 		return nil, nil, be
 	}
-	// ④ 必拍项完整性与照片上传确认（43104 / 43106）
-	photos, be := s.resolvePhotos(req, &point, inspectorID)
+	// ④ 检查项模板与逐项照片：模板每项都必须有提交结果（按 name 匹配）并生成逐项快照行；
+	// 必拍约束（模板 required 项/不合格项 ≥1 张）与 file_key 上传确认（43104 / 43106）在逐项内完成；
+	// 返回 upload_file 索引（EXIF 判定/水印/AI 输入共用）。照片唯一归属逐项，无记录级照片。
+	checkItems, uploadFiles, be := s.resolveCheckItems(req, &point, inspectorID)
 	if be != nil {
 		return nil, nil, be
 	}
-	// 检查项模板：点位绑定模板时，模板每项都必须有提交结果（按 name 匹配），并生成逐项快照行
-	checkItems, be := s.resolveCheckItems(req, &point, inspectorID)
-	if be != nil {
-		return nil, nil, be
-	}
-	// 异常时描述必填（auto 由 AI 代判，落库前折算，不在此校验）
+	// 异常时描述必填
 	if req.Result == insmodel.ResultAbnormal && strings.TrimSpace(req.Remark) == "" {
 		return nil, nil, errs.ErrParam.WithMsg("异常打卡必须填写异常描述")
 	}
-	// ⑤ 疑似作弊判定（距离倍数 / EXIF 偏差 / 客户端时间偏差，不阻断提交）
-	isSuspect, suspectReason := s.suspectCheck(&point, distance, clientTime, photos)
+	// ⑤ 疑似作弊判定（距离倍数 / EXIF 拍摄时间偏差，不阻断提交）
+	isSuspect, suspectReason := s.suspectCheck(&point, distance, uploadFiles)
 	// 落库类型：离线补传统一记 offline
 	checkinType := req.CheckinType
 	if offline {
@@ -215,8 +212,8 @@ func (s *CheckinService) doCheckinLocked(ctx context.Context, inspectorID string
 		TaskID:   req.TaskID, PointID: req.PointID, InspectorID: inspectorID,
 		CommunityID: task.CommunityID, CheckinTime: now, ClientTime: &clientTime,
 		Longitude: &req.Longitude, Latitude: &req.Latitude, DistanceToPoint: &distance,
-		CheckinType: checkinType, Photos: photos, Result: req.Result, Remark: req.Remark,
-		IsOfflineSync: offline, IsSuspect: isSuspect, SuspectReason: suspectReason,
+		CheckinType: checkinType, Result: req.Result, Remark: req.Remark,
+		IsSuspect: isSuspect, SuspectReason: suspectReason,
 		AuditStatus: insmodel.AuditAutoPass,
 	}
 	if req.ID != "" {
@@ -227,9 +224,6 @@ func (s *CheckinService) doCheckinLocked(ctx context.Context, inspectorID string
 	// Force=true（重拍次数用尽）跳过同步判定直接落库，转人工复核。
 	// AIConfirmed=true（逐项 AI 识别确认）：采纳逐项带回的 AI 结论，不再调大模型（不触发 43107）。
 	useSyncAI := s.aiCli.Enabled() && s.cfgBool("ai.sync_enabled", false) && !req.Force && !offline && !req.AIConfirmed
-	if req.Result == insmodel.ResultAuto && !useSyncAI {
-		return nil, nil, errs.ErrParam.WithMsg("result=auto（AI 代判）需开启打卡同步 AI 判定且非强制提交/离线补传")
-	}
 	if req.Force {
 		rec.ForceSubmit = true
 		rec.AuditStatus = insmodel.AuditPending
@@ -239,7 +233,7 @@ func (s *CheckinService) doCheckinLocked(ctx context.Context, inspectorID string
 	if useSyncAI {
 		timeout := s.cfgInt("ai.sync_timeout_seconds", 15)
 		actx, cancel := context.WithTimeout(ctx, time.Duration(timeout)*time.Second)
-		res, aiErr := s.aiCli.ReviewCheckin(actx, s.buildReviewInput(&point, checkItems, req.Remark, photos))
+		res, aiErr := s.aiCli.ReviewCheckin(actx, s.buildReviewInput(&point, checkItems, req.Remark))
 		cancel()
 		switch {
 		case aiErr != nil:
@@ -258,7 +252,7 @@ func (s *CheckinService) doCheckinLocked(ctx context.Context, inspectorID string
 				WithData(gin.H{"max_attempts": s.cfgInt("ai.max_photo_attempts", 3)})
 		default:
 			syncRes = res
-			s.applySyncResult(&rec, checkItems, res, req.Result == insmodel.ResultAuto)
+			s.applySyncResult(&rec, checkItems, res)
 		}
 	}
 	// 逐项 AI 识别确认提交：逐项采用识别队列带回的 AI 结论（服务端不再调大模型）
@@ -359,9 +353,9 @@ func (s *CheckinService) doCheckinLocked(ctx context.Context, inspectorID string
 			zap.String("inspector_id", inspectorID),
 			zap.String("superseded_id", supersededID), zap.String("new_checkin_id", rec.ID))
 	}
-	// local 模式：打卡成功后异步打水印（点位/时间/坐标/姓名）
+	// local 模式：打卡成功后异步打水印（点位/时间/坐标/姓名；按逐项照片烧录）
 	if s.store.IsLocal() && s.cfgBool("inspection.watermark_enabled", true) {
-		go s.applyWatermarks(&rec, &point, inspectorID)
+		go s.applyWatermarks(&rec, &point, checkItems, inspectorID)
 	}
 	// 审核分支（识别即审核）：已完成识别的路径（同步判定/强制提交/逐项识别确认）状态已定型，pending 直接通知；
 	// 未经识别路径：AI 可用 → 异步补识别（pass/abnormal 自动放行，存疑/失败保持 pending 并通知）；AI 未启用 → 直接通知人工审核。
@@ -372,7 +366,7 @@ func (s *CheckinService) doCheckinLocked(ctx context.Context, inspectorID string
 		}
 	default:
 		if s.aiCli.Enabled() {
-			go s.aiReview(rec.ID, &point, checkItems, req.Remark, photos)
+			go s.aiReview(rec.ID, &point, checkItems, req.Remark)
 		} else {
 			s.notifyAuditors(rec.ID, point.Name, "未启用 AI 识别，转人工审核")
 		}
@@ -382,9 +376,9 @@ func (s *CheckinService) doCheckinLocked(ctx context.Context, inspectorID string
 	return &rec, syncRes, nil
 }
 
-// buildReviewInput 组装大模型审核上下文（同步判定与异步审核共用）。
-// manual（手动确认项）不入 CheckItems/ItemPhotos：不拍照不调 AI，由巡检员手选结果。
-func (s *CheckinService) buildReviewInput(point *insmodel.InspectionPoint, items []insmodel.CheckinRecordItem, remark string, photos types.PhotoArray) ai.ReviewInput {
+// buildReviewInput 组装大模型审核上下文（同步判定与异步补识别共用）。
+// 照片全部来自逐项快照（ItemPhotos）；manual（手动确认项）不入 CheckItems/ItemPhotos。
+func (s *CheckinService) buildReviewInput(point *insmodel.InspectionPoint, items []insmodel.CheckinRecordItem, remark string) ai.ReviewInput {
 	names := make([]string, 0, len(items))
 	for _, it := range items {
 		if it.JudgeType == ai.JudgeManual {
@@ -392,22 +386,17 @@ func (s *CheckinService) buildReviewInput(point *insmodel.InspectionPoint, items
 		}
 		names = append(names, it.Name)
 	}
-	refs := make([]ai.PhotoRef, 0, len(photos))
-	for _, p := range photos {
-		refs = append(refs, ai.PhotoRef{URL: p.URL})
-	}
 	return ai.ReviewInput{
-		PointName: point.Name, PointType: point.Type, CheckItems: names, Remark: remark, Photos: refs,
+		PointName: point.Name, PointType: point.Type, CheckItems: names, Remark: remark,
 		ItemPhotos: s.itemPhotoRefs(items),
 	}
 }
 
 // applySyncResult 同步 AI 结果写入待落库记录与逐项快照（随事务一并写入，替代异步回写）：
 // 记录级 ai_verdict/ai_reason/ai_quality_*；逐项 verdict/reason/reading；
-// auto 代判：任一项 abnormal → 整单 abnormal（remark 为空时用 AI 汇总填充），逐项 Pass = verdict!=abnormal；
 // 有明确异常项时记录级 ai_verdict=abnormal（AI 判异常，记录自动通过，后台按正常/异常筛选）；
 // 仅 review 项/整体 review（AI 存疑 = 记录有效性未确认）翻 audit_status=pending。
-func (s *CheckinService) applySyncResult(rec *insmodel.CheckinRecord, items []insmodel.CheckinRecordItem, res *ai.ReviewResult, auto bool) {
+func (s *CheckinService) applySyncResult(rec *insmodel.CheckinRecord, items []insmodel.CheckinRecordItem, res *ai.ReviewResult) {
 	rec.AIVerdict = res.Verdict
 	rec.AIReason = truncateStr(res.Reason, 500)
 	qualityPass := res.Quality.Pass
@@ -418,7 +407,7 @@ func (s *CheckinService) applySyncResult(rec *insmodel.CheckinRecord, items []in
 		verdicts[iv.Name] = iv
 	}
 	hasIssue := res.Verdict == insmodel.AIVerdictReview
-	var abnormalNotes []string
+	abnormalCnt := 0
 	for i := range items {
 		iv, ok := verdicts[items[i].Name]
 		if !ok {
@@ -430,28 +419,15 @@ func (s *CheckinService) applySyncResult(rec *insmodel.CheckinRecord, items []in
 		if rd := truncateStr(strings.TrimSpace(iv.Reading), 64); rd != "" {
 			items[i].AIReading = &rd
 		}
-		if auto {
-			items[i].Pass = iv.Verdict != insmodel.AIVerdictAbnormal
-		}
 		if iv.Verdict == insmodel.AIVerdictAbnormal {
-			abnormalNotes = append(abnormalNotes, iv.Name+"："+iv.Reason)
+			abnormalCnt++
 		} else if iv.Verdict == insmodel.AIVerdictReview {
 			hasIssue = true // AI 存疑 = 记录有效性未确认，转人工复核
 		}
 	}
 	// 有明确异常项：记录级 ai_verdict=abnormal（AI 判异常；不影响放行，记录自动通过）
-	if len(abnormalNotes) > 0 {
+	if abnormalCnt > 0 {
 		rec.AIVerdict = insmodel.AIVerdictAbnormal
-	}
-	if auto {
-		if len(abnormalNotes) > 0 {
-			rec.Result = insmodel.ResultAbnormal
-			if strings.TrimSpace(rec.Remark) == "" {
-				rec.Remark = truncateStr("AI 判定异常："+strings.Join(abnormalNotes, "；"), 512)
-			}
-		} else {
-			rec.Result = insmodel.ResultNormal
-		}
 	}
 	if hasIssue {
 		rec.AuditStatus = insmodel.AuditPending
@@ -572,182 +548,98 @@ func normalizeQRCode(v string) string {
 	return s
 }
 
-// resolveCheckItems 检查项模板校验：点位绑定模板时，模板每项都必须有提交结果（按 name 匹配）；
-// 逐项照片硬约束：不合格项（pass=false）与模板 photo_required=required 的项均须 ≥1 张该项照片。
-// 返回逐项快照行（v18 起写 checkin_record_item）：name/requirement/ai_hint/photo_required 打卡当时从模板项复制，
-// template_item_id 仅作可空血缘字段（快照语义：历史内容不依赖模板表）。
-func (s *CheckinService) resolveCheckItems(req *dto.CheckinReq, point *insmodel.InspectionPoint, ownerID string) ([]insmodel.CheckinRecordItem, *errs.Error) {
-	tplByName := map[string]*insmodel.CheckTemplateItem{}
+// resolveCheckItems 检查项模板校验并生成逐项快照行（v18 起写 checkin_record_item）：
+// 点位必须已绑定模板（v21 起强制，无模板概念已消除）；模板每项都必须有提交结果（按 name 匹配）；
+// 逐项照片硬约束：不合格项（pass=false）与模板 photo_required=required 的项均须 >=1 张该项照片，
+// file_key 逐一上传确认（43104/43106）；照片唯一归属逐项，无记录级照片。
+// 返回逐项快照行 + upload_file 索引（EXIF 判定/AI 输入/水印共用）；
+// name/requirement/ai_hint/photo_required 打卡当时从模板项复制，template_item_id 仅作可空血缘字段。
+func (s *CheckinService) resolveCheckItems(req *dto.CheckinReq, point *insmodel.InspectionPoint, ownerID string) ([]insmodel.CheckinRecordItem, map[string]sysmodel.UploadFile, *errs.Error) {
+	if point.TemplateID == nil || *point.TemplateID == "" {
+		return nil, nil, errs.ErrParam.WithMsg("该点位未绑定检查项模板，无法打卡")
+	}
+	var tplCount int64
+	s.db.Model(&insmodel.CheckTemplate{}).Where("id = ?", *point.TemplateID).Count(&tplCount)
+	if tplCount == 0 {
+		return nil, nil, errs.ErrParam.WithMsg("点位绑定的检查项模板不存在")
+	}
 	var tplItems []insmodel.CheckTemplateItem
-	if point.TemplateID != nil && *point.TemplateID != "" {
-		var tplCount int64
-		s.db.Model(&insmodel.CheckTemplate{}).Where("id = ?", *point.TemplateID).Count(&tplCount)
-		if tplCount == 0 {
-			return nil, errs.ErrParam.WithMsg("点位绑定的检查项模板不存在")
+	s.db.Where("template_id = ?", *point.TemplateID).Order("sort ASC").Find(&tplItems)
+	tplByName := map[string]*insmodel.CheckTemplateItem{}
+	got := map[string]bool{}
+	for _, it := range req.CheckItems {
+		got[it.Name] = true
+	}
+	var missing []string
+	for i := range tplItems {
+		ti := &tplItems[i]
+		if !got[ti.Name] {
+			missing = append(missing, ti.Name)
 		}
-		s.db.Where("template_id = ?", *point.TemplateID).Order("sort ASC").Find(&tplItems)
-		got := map[string]bool{}
-		for _, it := range req.CheckItems {
-			got[it.Name] = true
-		}
-		var missing []string
-		for i := range tplItems {
-			ti := &tplItems[i]
-			if !got[ti.Name] {
-				missing = append(missing, ti.Name)
-			}
-			tplByName[ti.Name] = ti
-		}
-		// result=auto（AI 代判）：巡检员只拍照不逐项填报，模板项自动快照占位（Pass 由 AI 结论折算），
-		// 跳过逐项结果缺失与逐项必拍硬约束；逐项照片由记录级照片供 AI 统一判定
-		if req.Result == insmodel.ResultAuto {
-			items := make([]insmodel.CheckinRecordItem, 0, len(tplItems))
-			for i := range tplItems {
-				ti := &tplItems[i]
-				items = append(items, insmodel.CheckinRecordItem{
-					Name: ti.Name, Pass: true, Photos: types.StringArray{},
-					TemplateItemID: &ti.ID, Requirement: ti.Requirement, AIHint: ti.AIHint,
-					PhotoRequired: ti.PhotoRequired, JudgeType: ti.JudgeType, JudgeConfig: ti.JudgeConfig,
-					Sort: i,
-				})
-			}
-			return items, nil
-		}
-		if len(missing) > 0 {
-			return nil, errs.ErrParam.WithMsg("检查项结果缺失：" + strings.Join(missing, "、"))
-		}
+		tplByName[ti.Name] = ti
+	}
+	if len(missing) > 0 {
+		return nil, nil, errs.ErrParam.WithMsg("检查项结果缺失：" + strings.Join(missing, "、"))
 	}
 	items := make([]insmodel.CheckinRecordItem, 0, len(req.CheckItems))
-	// 整单记录级照片（item=""）数：≥1 张时放宽逐项必拍硬约束（含 manual 项天然无照片的场景）
-	recordPhotos := 0
-	for _, p := range req.Photos {
-		if p.Item == "" {
-			recordPhotos++
-		}
-	}
+	files := map[string]sysmodel.UploadFile{}
 	for i, it := range req.CheckItems {
 		ti := tplByName[it.Name]
-		photoReq := ""
-		if ti != nil {
-			photoReq = ti.PhotoRequired
+		if ti == nil {
+			return nil, nil, errs.ErrParam.WithMsg("检查项「" + it.Name + "」不属于该点位模板")
 		}
-		if be := s.checkItemPhotos(it, photoReq, ownerID, recordPhotos); be != nil {
-			return nil, be
+		if !it.Pass && len(it.Photos) == 0 {
+			return nil, nil, errs.ErrPhotoMissing.WithMsg("检查项「" + it.Name + "」不合格，须至少上传 1 张该项照片")
 		}
-		row := insmodel.CheckinRecordItem{
-			Name: it.Name, Pass: it.Pass, Note: it.Note,
-			Photos: types.StringArray(it.Photos), PhotoRequired: types.PhotoReqNone, Sort: i,
+		if ti.PhotoRequired == types.PhotoReqRequired && len(it.Photos) == 0 {
+			return nil, nil, errs.ErrPhotoMissing.WithMsg("检查项「" + it.Name + "」要求必拍，须至少上传 1 张该项照片")
 		}
-		if ti != nil {
-			row.TemplateItemID = &ti.ID
-			row.Requirement = ti.Requirement
-			row.AIHint = ti.AIHint
-			row.PhotoRequired = ti.PhotoRequired
-			row.JudgeType = ti.JudgeType
-			row.JudgeConfig = ti.JudgeConfig
-		}
-		items = append(items, row)
-	}
-	return items, nil
-}
-
-// checkItemPhotos 逐项照片硬约束与 file_key 上传确认（43104 / 43106）。
-// 放宽规则：该项无照片但整单有记录级照片（item=""，recordPhotos≥1）时放行逐项必拍校验
-// （逐项 AI 识别场景照片统一按整单提交；manual 手动确认项天然无照片亦按此放行）。
-func (s *CheckinService) checkItemPhotos(it dto.CheckinItemReq, photoRequired, ownerID string, recordPhotos int) *errs.Error {
-	if len(it.Photos) == 0 && recordPhotos > 0 {
-		return nil
-	}
-	if !it.Pass && len(it.Photos) == 0 {
-		return errs.ErrPhotoMissing.WithMsg("检查项「" + it.Name + "」不合格，须至少上传 1 张该项照片")
-	}
-	if photoRequired == types.PhotoReqRequired && len(it.Photos) == 0 {
-		return errs.ErrPhotoMissing.WithMsg("检查项「" + it.Name + "」要求必拍，须至少上传 1 张该项照片")
-	}
-	for _, key := range it.Photos {
-		var count int64
-		s.db.Model(&sysmodel.UploadFile{}).Where("file_key = ? AND user_id = ?", key, ownerID).Count(&count)
-		if count == 0 {
-			return errs.ErrPhotoNotUploaded
-		}
-	}
-	return nil
-}
-
-// resolvePhotos 必拍项校验 + 照片上传确认，返回落库照片数组。
-func (s *CheckinService) resolvePhotos(req *dto.CheckinReq, point *insmodel.InspectionPoint, ownerID string) (types.PhotoArray, *errs.Error) {
-	// 必拍项齐全校验
-	if len(point.RequiredPhotoItems) > 0 {
-		got := map[string]bool{}
-		for _, p := range req.Photos {
-			got[p.Item] = true
-		}
-		var missing []string
-		for _, item := range point.RequiredPhotoItems {
-			if !got[item] {
-				missing = append(missing, item)
+		for _, key := range it.Photos {
+			if _, ok := files[key]; ok {
+				continue
 			}
+			var f sysmodel.UploadFile
+			if err := s.db.Where("file_key = ? AND user_id = ?", key, ownerID).First(&f).Error; err != nil {
+				return nil, nil, errs.ErrPhotoNotUploaded
+			}
+			files[key] = f
 		}
-		if len(missing) > 0 {
-			return nil, errs.ErrPhotoMissing.WithMsg("必拍项照片缺失：" + strings.Join(missing, "、"))
-		}
+		items = append(items, insmodel.CheckinRecordItem{
+			Name: it.Name, Pass: it.Pass, Note: it.Note,
+			Photos: types.StringArray(it.Photos), PhotoRequired: ti.PhotoRequired,
+			TemplateItemID: &ti.ID, Requirement: ti.Requirement, AIHint: ti.AIHint,
+			JudgeType: ti.JudgeType, JudgeConfig: ti.JudgeConfig, Sort: i,
+		})
 	}
-	photos := make(types.PhotoArray, 0, len(req.Photos))
-	requiredSet := map[string]bool{}
-	for _, item := range point.RequiredPhotoItems {
-		requiredSet[item] = true
-	}
-	for _, ref := range req.Photos {
-		var f sysmodel.UploadFile
-		if err := s.db.Where("file_key = ? AND user_id = ?", ref.FileKey, ownerID).First(&f).Error; err != nil {
-			return nil, errs.ErrPhotoNotUploaded
-		}
-		item := types.PhotoItem{
-			Item: ref.Item, URL: f.URL, WatermarkedURL: f.WatermarkedURL,
-			Required: requiredSet[ref.Item],
-		}
-		if f.ExifTime != nil {
-			item.ExifTime = timefmt.T(*f.ExifTime)
-		}
-		photos = append(photos, item)
-	}
-	return photos, nil
+	return items, files, nil
 }
 
-// suspectCheck 三类疑似作弊判定（距离超倍数 / EXIF 偏差 / 客户端时间偏差）。
-func (s *CheckinService) suspectCheck(point *insmodel.InspectionPoint, distance float64, clientTime time.Time, photos types.PhotoArray) (bool, string) {
+// suspectCheck 两类疑似作弊判定（距离超倍数 / EXIF 拍摄时间偏差）。
+// 不含客户端时间偏差：手机时钟不准的误报多，且打卡时间以服务端为准、改客户端时间无伪造收益；
+// client_time 字段仅保留作离线补传的实际打卡时刻记录。
+func (s *CheckinService) suspectCheck(point *insmodel.InspectionPoint, distance float64, files map[string]sysmodel.UploadFile) (bool, string) {
 	ratio := s.cfgFloat("inspection.suspect_distance_ratio", 1.0)
 	if distance > float64(point.FenceRadius)*ratio {
 		return true, fmt.Sprintf("距点位 %dm，超阈值 %dm", int(distance), int(float64(point.FenceRadius)*ratio))
 	}
 	exifLimit := s.cfgInt("inspection.exif_deviation_seconds", 300)
-	for _, p := range photos {
-		if p.ExifTime == "" {
+	for _, f := range files {
+		if f.ExifTime == nil {
 			continue
 		}
-		if shot, err := timefmt.Parse(p.ExifTime); err == nil {
-			dev := shot.Sub(time.Now()).Seconds()
-			if dev < 0 {
-				dev = -dev
-			}
-			if dev > float64(exifLimit) {
-				return true, fmt.Sprintf("照片拍摄时间与打卡时间偏差 %ds，超阈值 %ds", int(dev), exifLimit)
-			}
+		dev := f.ExifTime.Sub(time.Now()).Seconds()
+		if dev < 0 {
+			dev = -dev
 		}
-	}
-	timeLimit := s.cfgInt("inspection.time_deviation_seconds", 300)
-	dev := time.Since(clientTime).Seconds()
-	if dev < 0 {
-		dev = -dev
-	}
-	if dev > float64(timeLimit) {
-		return true, fmt.Sprintf("客户端时间与服务端偏差 %ds，超阈值 %ds", int(dev), timeLimit)
+		if dev > float64(exifLimit) {
+			return true, fmt.Sprintf("照片拍摄时间与打卡时间偏差 %ds，超阈值 %ds", int(dev), exifLimit)
+		}
 	}
 	return false, ""
 }
 
-// applyWatermarks local 模式本地打水印并回写照片 watermarked_url。
-func (s *CheckinService) applyWatermarks(rec *insmodel.CheckinRecord, point *insmodel.InspectionPoint, inspectorID string) {
+// applyWatermarks local 模式按逐项照片异步打水印（点位/时间/坐标/姓名），回写 upload_file.watermarked_url。
+func (s *CheckinService) applyWatermarks(rec *insmodel.CheckinRecord, point *insmodel.InspectionPoint, items []insmodel.CheckinRecordItem, inspectorID string) {
 	var inspector sysmodel.SysUser
 	if s.db.Select("name").First(&inspector, "id = ?", inspectorID).Error != nil {
 		return
@@ -758,28 +650,25 @@ func (s *CheckinService) applyWatermarks(rec *insmodel.CheckinRecord, point *ins
 		fmt.Sprintf("坐标：%.6f,%.6f", *rec.Longitude, *rec.Latitude),
 		"巡检员：" + inspector.Name,
 	}
-	changed := false
-	for i, p := range rec.Photos {
-		// 从 url 反推 file_key（local 本地路径）
-		idx := strings.Index(p.URL, "/uploads/")
-		if idx < 0 {
-			continue
+	seen := map[string]bool{}
+	for _, it := range items {
+		for _, key := range it.Photos {
+			if seen[key] {
+				continue // 同一文件被多个项引用时只烧一次
+			}
+			seen[key] = true
+			srcPath := s.store.LocalPath(key)
+			wmKey := strings.TrimSuffix(key, ".jpg") + "_wm.jpg"
+			if key == wmKey {
+				wmKey = key + "_wm.jpg"
+			}
+			if err := watermark.DrawToFile(srcPath, s.store.LocalPath(wmKey), "", lines); err != nil {
+				logger.L.Warn("水印生成失败", zap.String("key", key), zap.Error(err))
+				continue
+			}
+			s.db.Model(&sysmodel.UploadFile{}).Where("file_key = ?", key).
+				Update("watermarked_url", s.store.URL(wmKey))
 		}
-		key := p.URL[idx+len("/uploads/"):]
-		srcPath := s.store.LocalPath(key)
-		wmKey := strings.TrimSuffix(key, ".jpg") + "_wm.jpg"
-		if key == wmKey {
-			wmKey = key + "_wm.jpg"
-		}
-		if err := watermark.DrawToFile(srcPath, s.store.LocalPath(wmKey), "", lines); err != nil {
-			logger.L.Warn("水印生成失败", zap.String("key", key), zap.Error(err))
-			continue
-		}
-		rec.Photos[i].WatermarkedURL = s.store.URL(wmKey)
-		changed = true
-	}
-	if changed {
-		s.db.Model(&insmodel.CheckinRecord{}).Where("id = ?", rec.ID).Update("photos", rec.Photos)
 	}
 }
 
@@ -789,13 +678,13 @@ func (s *CheckinService) applyWatermarks(rec *insmodel.CheckinRecord, point *ins
 // review（存疑）→ 保持 pending 并通知审核人；调用失败 → ai_verdict=error 保持 pending 并通知。
 // 逐项结论（模型返回时）落到 checkin_record_item.ai_verdict/ai_reason/ai_reading；
 // 质量判定结果只记 ai_quality_* 字段（异步路径不参与打卡放行）。
-func (s *CheckinService) aiReview(recID string, point *insmodel.InspectionPoint, items []insmodel.CheckinRecordItem, remark string, photos types.PhotoArray) {
+func (s *CheckinService) aiReview(recID string, point *insmodel.InspectionPoint, items []insmodel.CheckinRecordItem, remark string) {
 	defer func() {
 		if r := recover(); r != nil {
 			logger.L.Error("AI 补识别 panic", zap.String("rec_id", recID), zap.Any("panic", r))
 		}
 	}()
-	res, err := s.aiCli.ReviewCheckin(context.Background(), s.buildReviewInput(point, items, remark, photos))
+	res, err := s.aiCli.ReviewCheckin(context.Background(), s.buildReviewInput(point, items, remark))
 	if err != nil {
 		logger.L.Warn("AI 补识别调用失败", zap.String("rec_id", recID), zap.Error(err))
 		s.db.Model(&insmodel.CheckinRecord{}).Where("id = ? AND audit_status = ?", recID, insmodel.AuditPending).

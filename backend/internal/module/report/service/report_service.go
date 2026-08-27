@@ -268,18 +268,26 @@ func (s *ReportService) collectRecords(communityID string, start, end time.Time,
 			pointNames[pt.ID] = pt.Name
 		}
 	}
+	// 批量取逐项照片（v21 起照片唯一归属逐项）
+	recIDs := make([]string, 0, len(recs))
+	for _, rec := range recs {
+		recIDs = append(recIDs, rec.ID)
+	}
+	photoKeysByRec := map[string][]string{}
+	if len(recIDs) > 0 {
+		var recItems []insmodel.CheckinRecordItem
+		s.db.Select("record_id", "photos").Where("record_id IN ?", recIDs).Find(&recItems)
+		for _, ci := range recItems {
+			photoKeysByRec[ci.RecordID] = append(photoKeysByRec[ci.RecordID], ci.Photos...)
+		}
+	}
 	rows := make([]gin.H, 0, len(recs))
 	for _, rec := range recs {
 		var distance any
 		if rec.DistanceToPoint != nil {
 			distance = *rec.DistanceToPoint
 		}
-		photoKeys := make([]string, 0, len(rec.Photos))
-		for _, p := range rec.Photos {
-			if k := photoFileKey(p.URL); k != "" {
-				photoKeys = append(photoKeys, k)
-			}
-		}
+		photoKeys := photoKeysByRec[rec.ID]
 		rows = append(rows, gin.H{
 			"checkin_time":   timefmt.T(rec.CheckinTime),
 			"inspector_name": userNames[rec.InspectorID],

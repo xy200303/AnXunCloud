@@ -17,7 +17,7 @@ const KEY_QUEUE = 'offline_checkins'
 /** 网络异常错误文案前缀（request.ts 网络失败 / api.ts 上传失败） */
 export const NETWORK_ERR_PREFIX = '网络异常'
 
-/** 队列条目本地照片引用：item='' 为整单现场照片，否则为检查项名 */
+/** 队列条目本地照片引用：item=检查项名（照片唯一归属逐项） */
 export type OfflinePhoto = {
   item: string
   local_path: string
@@ -157,17 +157,10 @@ async function syncOne(entry: OfflineEntry): Promise<void> {
     if (keysByItem[ph.item] == null) keysByItem[ph.item] = []
     keysByItem[ph.item].push(r.file_key)
   }
-  // 回填逐项 photos 与整单 photos 引用
+  // 回填逐项 photos（照片唯一归属逐项，无记录级照片）
   req.check_items.forEach((ci) => {
     ci.photos = keysByItem[ci.name] ?? []
   })
-  const refs: Array<{ item: string; file_key: string }> = []
-  Object.keys(keysByItem).forEach((item) => {
-    keysByItem[item].forEach((k) => {
-      refs.push({ item: item, file_key: k })
-    })
-  })
-  req.photos = refs
   const res = await apiOfflineSync([req])
   // 服务端逐条处理：出现在 failed 列表视为本条失败（保留在队列，下轮重试；幂等键保证不产生重复）
   if (res.failed.length > 0) {

@@ -248,7 +248,7 @@ func (s *ReportService) pdfData(r *model.InspectionReport) pdf.MonthlyReportData
 					}
 				}
 				for _, ph := range rec.Photos {
-					if k := photoFileKey(ph.URL); k != "" {
+					if k := photoFileKey(reportPhotoURL(ph)); k != "" {
 						group.Cells = append(group.Cells, pdf.PhotoCell{Label: base, Key: k})
 					}
 				}
@@ -275,7 +275,7 @@ func (s *ReportService) pdfData(r *model.InspectionReport) pdf.MonthlyReportData
 			row.Problem = pointLocation(pt) + "：" + row.Problem
 		}
 		for _, ph := range rec.Photos {
-			if k := photoFileKey(ph.URL); k != "" {
+			if k := photoFileKey(reportPhotoURL(ph)); k != "" {
 				row.ProblemPhotos = append(row.ProblemPhotos, k)
 			}
 		}

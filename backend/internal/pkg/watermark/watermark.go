@@ -106,7 +106,7 @@ func DrawToFile(srcPath, dstPath, fontPath string, lines []string) error {
 	if err != nil {
 		return err
 	}
-	src, err := imaging.Open(srcPath)
+	src, err := imaging.Open(srcPath, imaging.AutoOrientation(true))
 	if err != nil {
 		return err
 	}

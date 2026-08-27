@@ -295,6 +295,14 @@ func (s *ReportService) collectRecords(communityID string, start, end time.Time,
 	return rows
 }
 
+// reportPhotoURL 报告插图优先用水印图（留痕可读），无水印版回退原图。
+func reportPhotoURL(ph types.PhotoItem) string {
+	if ph.WatermarkedURL != "" {
+		return ph.WatermarkedURL
+	}
+	return ph.URL
+}
+
 // photoFileKey 从照片 URL 反推 file_key（local：.../uploads/{key} 或 .../api/files/{key}（可带 ?token=）；云存储：https://{bucket}.{endpoint}/{key}）。
 func photoFileKey(u string) string {
 	if i := strings.Index(u, "?"); i >= 0 {

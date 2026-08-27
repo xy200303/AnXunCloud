@@ -79,7 +79,7 @@ func New(cfg *config.Config, db *gorm.DB, rdb *redis.Client) (*gin.Engine, *insp
 	communitySvc := communitysvc.NewCommunityService(db)
 	staffSvc := communitysvc.NewStaffService(db)
 	pointSvc := inspectionsvc.NewPointService(db, store, configSvc.Get)
-	planSvc := inspectionsvc.NewPlanService(db, rdb, notifier)
+	planSvc := inspectionsvc.NewPlanService(db, rdb, notifier, configSvc.Get)
 	taskSvc := inspectionsvc.NewTaskService(db, store, notifier)
 	templateSvc := inspectionsvc.NewTemplateService(db)
 	reviewSvc := inspectionsvc.NewReviewService(db, notifier)

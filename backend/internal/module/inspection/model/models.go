@@ -126,6 +126,8 @@ type InspectionPoint struct {
 	TenantID           *string           `gorm:"type:uuid" json:"tenant_id"` // 冗余列（=所属小区租户）
 	CommunityID        string            `gorm:"type:uuid" json:"community_id"`
 	BuildingID         *string           `gorm:"type:uuid" json:"building_id"`
+	UnitNo             *int              `json:"unit_no"`                    // 单元号（NULL=不分单元/非楼栋点位）
+	Floor              *int              `json:"floor"`                      // 楼层（负数=地下层，-1 即 B1；NULL=非楼栋点位）
 	Name               string            `gorm:"size:128" json:"name"`
 	Type               string            `gorm:"size:32" json:"type"`
 	QRCodeNo           string            `gorm:"column:qrcode_no;size:64" json:"qrcode_no"`

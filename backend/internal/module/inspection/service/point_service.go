@@ -108,6 +108,7 @@ func (s *PointService) toItem(p *model.InspectionPoint) gin.H {
 	return gin.H{
 		"id": p.ID, "community_id": p.CommunityID, "community_name": commName,
 		"building_id": p.BuildingID, "building_name": buildingName,
+		"unit_no": p.UnitNo, "floor": p.Floor,
 		"name": p.Name, "type": p.Type, "type_label": typeLabel,
 		"qrcode_no": p.QRCodeNo, "nfc_id": p.NfcID,
 		"template_id": p.TemplateID, "template_name": templateName,
@@ -143,6 +144,11 @@ func (s *PointService) Create(c *gin.Context, req *dto.PointSaveReq) (string, st
 		Sort:               req.Sort,
 		Status:             sysmodel.StatusEnabled,
 		Remark:             req.Remark,
+	}
+	// 结构化位置：仅挂楼栋时有意义；非楼栋点位强制清空（车库/公园等区域无单元楼层）
+	if req.BuildingID != nil {
+		p.UnitNo = req.UnitNo
+		p.Floor = req.Floor
 	}
 	if req.Status != nil {
 		p.Status = sysmodel.StatusStr(*req.Status)
@@ -223,6 +229,14 @@ func (s *PointService) Update(c *gin.Context, id string, req *dto.PointSaveReq) 
 		"fence_radius": s.fenceRadius(req.FenceRadius), "credential": credentialOrDefault(req.Credential), "require_fence": req.RequireFence,
 		"required_photo_items": types.StringArray(req.RequiredPhotoItems),
 		"sort":                 req.Sort, "remark": req.Remark,
+	}
+	// 结构化位置：挂楼栋时写入，非楼栋点位强制清空
+	if req.BuildingID != nil {
+		updates["unit_no"] = req.UnitNo
+		updates["floor"] = req.Floor
+	} else {
+		updates["unit_no"] = nil
+		updates["floor"] = nil
 	}
 	if req.Status != nil {
 		updates["status"] = sysmodel.StatusStr(*req.Status)
@@ -416,6 +430,15 @@ func (s *PointService) validate(req *dto.PointSaveReq) *errs.Error {
 		if count == 0 {
 			return errs.ErrParam.WithMsg("building_id 不存在或不属于该小区")
 		}
+	} else if req.UnitNo != nil || req.Floor != nil {
+		// 单元/楼层是楼栋下的结构化位置，非楼栋点位（车库/公园/区域）不允许填
+		return errs.ErrParam.WithMsg("单元/楼层仅在点位挂靠楼栋时可填写")
+	}
+	if req.UnitNo != nil && *req.UnitNo <= 0 {
+		return errs.ErrParam.WithMsg("单元号须为正整数")
+	}
+	if req.Floor != nil && (*req.Floor < -50 || *req.Floor > 200 || *req.Floor == 0) {
+		return errs.ErrParam.WithMsg("楼层取值须为 -50~200 且不为 0（地下层用负数，-1 即 B1）")
 	}
 	if req.FenceRadius != 0 && (req.FenceRadius < 10 || req.FenceRadius > 2000) {
 		return errs.ErrParam.WithMsg("fence_radius 须在 10–2000 米之间")
@@ -516,6 +539,17 @@ func (s *PointService) BatchCreate(c *gin.Context, req *dto.PointBatchReq) (*dto
 	if req.FloorTo < req.FloorFrom {
 		return nil, errs.ErrParam.WithMsg("floor_to 不能小于 floor_from")
 	}
+	// 单元维度：缺省 1（单单元）；不配楼栋时忽略（非楼栋点位无单元/楼层结构）
+	unitFrom, unitTo := req.UnitFrom, req.UnitTo
+	if unitFrom <= 0 {
+		unitFrom = 1
+	}
+	if unitTo < unitFrom {
+		unitTo = unitFrom
+	}
+	if len(req.BuildingIDs) == 0 {
+		unitFrom, unitTo = 1, 1
+	}
 	perFloor := req.PerFloor
 	if perFloor <= 0 {
 		perFloor = 1
@@ -539,49 +573,56 @@ func (s *PointService) BatchCreate(c *gin.Context, req *dto.PointBatchReq) (*dto
 			buildings = append(buildings, buildingRef{id: &b.ID, name: b.Name})
 		}
 	}
-	if total := len(buildings) * (req.FloorTo - req.FloorFrom + 1) * perFloor; total > pointBatchMaxCount {
+	if total := len(buildings) * (unitTo - unitFrom + 1) * (req.FloorTo - req.FloorFrom + 1) * perFloor; total > pointBatchMaxCount {
 		return nil, errs.ErrParam.WithMsg(fmt.Sprintf("单次最多批量生成 %d 个点位（当前展开 %d 个）", pointBatchMaxCount, total))
 	}
 	tenantID := middleware.CommunityTenantID(s.db, req.CommunityID)
 	result := &dto.PointBatchResult{Skipped: []dto.PointBatchSkip{}}
 	for _, b := range buildings {
-		for floor := req.FloorFrom; floor <= req.FloorTo; floor++ {
-			for seq := 1; seq <= perFloor; seq++ {
-				name := renderBatchPointName(req.NamePattern, b.name, floor, seq)
-				if n := utf8.RuneCountInString(name); n == 0 || n > 128 {
-					result.Skipped = append(result.Skipped, dto.PointBatchSkip{Building: b.name, Name: name, Reason: "渲染后名称为空或超过 128 字"})
-					continue
+		for unit := unitFrom; unit <= unitTo; unit++ {
+			for floor := req.FloorFrom; floor <= req.FloorTo; floor++ {
+				for seq := 1; seq <= perFloor; seq++ {
+					name := renderBatchPointName(req.NamePattern, b.name, unit, floor, seq)
+					if n := utf8.RuneCountInString(name); n == 0 || n > 128 {
+						result.Skipped = append(result.Skipped, dto.PointBatchSkip{Building: b.name, Name: name, Reason: "渲染后名称为空或超过 128 字"})
+						continue
+					}
+					// 同楼栋下同名已存在则跳过（幂等重入）
+					dup := s.db.Model(&model.InspectionPoint{}).Where("community_id = ? AND name = ?", req.CommunityID, name)
+					if b.id == nil {
+						dup = dup.Where("building_id IS NULL")
+					} else {
+						dup = dup.Where("building_id = ?", *b.id)
+					}
+					if dup.Count(&count); count > 0 {
+						result.Skipped = append(result.Skipped, dto.PointBatchSkip{Building: b.name, Name: name, Reason: "同楼栋下已存在同名点位"})
+						continue
+					}
+					no, be := s.nextQRCodeNo()
+					if be != nil {
+						return nil, be
+					}
+					p := model.InspectionPoint{
+						TenantID: tenantID, CommunityID: req.CommunityID, BuildingID: b.id,
+						Name: name, Type: req.Type, QRCodeNo: no,
+						TemplateID: templatePtr(req.TemplateID),
+						Longitude:  req.Longitude, Latitude: req.Latitude,
+						FenceRadius:        s.fenceRadius(0),
+						Credential:         credentialOrDefault(req.Credential),
+						RequiredPhotoItems: types.StringArray{},
+						Status:             sysmodel.StatusEnabled,
+					}
+					if b.id != nil {
+						u, f := unit, floor
+						p.UnitNo = &u
+						p.Floor = &f
+					}
+					if err := s.db.Create(&p).Error; err != nil {
+						result.Skipped = append(result.Skipped, dto.PointBatchSkip{Building: b.name, Name: name, Reason: "写入失败"})
+						continue
+					}
+					result.Created++
 				}
-				// 同楼栋下同名已存在则跳过（幂等重入）
-				dup := s.db.Model(&model.InspectionPoint{}).Where("community_id = ? AND name = ?", req.CommunityID, name)
-				if b.id == nil {
-					dup = dup.Where("building_id IS NULL")
-				} else {
-					dup = dup.Where("building_id = ?", *b.id)
-				}
-				if dup.Count(&count); count > 0 {
-					result.Skipped = append(result.Skipped, dto.PointBatchSkip{Building: b.name, Name: name, Reason: "同楼栋下已存在同名点位"})
-					continue
-				}
-				no, be := s.nextQRCodeNo()
-				if be != nil {
-					return nil, be
-				}
-				p := model.InspectionPoint{
-					TenantID: tenantID, CommunityID: req.CommunityID, BuildingID: b.id,
-					Name: name, Type: req.Type, QRCodeNo: no,
-					TemplateID: templatePtr(req.TemplateID),
-					Longitude:  req.Longitude, Latitude: req.Latitude,
-					FenceRadius:        s.fenceRadius(0),
-					Credential:         credentialOrDefault(req.Credential),
-					RequiredPhotoItems: types.StringArray{},
-					Status:             sysmodel.StatusEnabled,
-				}
-				if err := s.db.Create(&p).Error; err != nil {
-					result.Skipped = append(result.Skipped, dto.PointBatchSkip{Building: b.name, Name: name, Reason: "写入失败"})
-					continue
-				}
-				result.Created++
 			}
 		}
 	}
@@ -589,8 +630,9 @@ func (s *PointService) BatchCreate(c *gin.Context, req *dto.PointBatchReq) (*dto
 }
 
 // renderBatchPointName 批量建点名称渲染：{building} 楼栋名、{floor} 楼层、{seq} 每层序号。
-func renderBatchPointName(pattern, building string, floor, seq int) string {
+func renderBatchPointName(pattern, building string, unit, floor, seq int) string {
 	name := strings.ReplaceAll(pattern, "{building}", building)
+	name = strings.ReplaceAll(name, "{unit}", strconv.Itoa(unit))
 	name = strings.ReplaceAll(name, "{floor}", floorLabel(floor))
 	name = strings.ReplaceAll(name, "{seq}", strconv.Itoa(seq))
 	return name

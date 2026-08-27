@@ -50,6 +50,8 @@ type PointListQuery struct {
 type PointSaveReq struct {
 	CommunityID        string   `json:"community_id" binding:"required"`
 	BuildingID         *string  `json:"building_id"`
+	UnitNo             *int     `json:"unit_no"`     // 单元号（nil=不分单元/非楼栋点位）
+	Floor              *int     `json:"floor"`       // 楼层（负数=地下层；nil=非楼栋点位）
 	Name               string   `json:"name" binding:"required"`
 	Type               string   `json:"type" binding:"required"`
 	Longitude          float64  `json:"longitude" binding:"required"`
@@ -74,10 +76,12 @@ type QRCodeBatchReq struct {
 type PointBatchReq struct {
 	CommunityID string   `json:"community_id" binding:"required"`
 	BuildingIDs []string `json:"building_ids"`
+	UnitFrom    int      `json:"unit_from"`  // 单元起（缺省 1；UnitTo 缺省同 UnitFrom，即单单元）
+	UnitTo      int      `json:"unit_to"`
 	FloorFrom   int      `json:"floor_from"` // 支持负数（地下层，-1 渲染为 B1）
 	FloorTo     int      `json:"floor_to"`
 	PerFloor    int      `json:"per_floor"`    // 每层数量，缺省 1
-	NamePattern string   `json:"name_pattern" binding:"required"` // 占位符：{building} {floor} {seq}
+	NamePattern string   `json:"name_pattern" binding:"required"` // 占位符：{building} {unit} {floor} {seq}
 	Type        string   `json:"type" binding:"required"`         // 字典 point_type 启用项
 	Credential  string   `json:"credential"`
 	TemplateID  *string  `json:"template_id"`

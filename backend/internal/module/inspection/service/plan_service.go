@@ -33,10 +33,23 @@ type PlanService struct {
 	db       *gorm.DB
 	rdb      *redis.Client
 	notifier *notify.Notifier
+	getCfg   func(string) (string, bool) // 可空；路线优化开关读取用
 }
 
-func NewPlanService(db *gorm.DB, rdb *redis.Client, notifier *notify.Notifier) *PlanService {
-	return &PlanService{db: db, rdb: rdb, notifier: notifier}
+func NewPlanService(db *gorm.DB, rdb *redis.Client, notifier *notify.Notifier, getCfg func(string) (string, bool)) *PlanService {
+	return &PlanService{db: db, rdb: rdb, notifier: notifier, getCfg: getCfg}
+}
+
+// routeOptimize 路线优化开关（inspection.route_optimize，缺省 true）
+func (s *PlanService) routeOptimize() bool {
+	if s.getCfg == nil {
+		return true
+	}
+	v, ok := s.getCfg("inspection.route_optimize")
+	if !ok {
+		return true
+	}
+	return v == "true" || v == "1" || v == "on" || v == "yes"
 }
 
 // List 计划分页列表。
@@ -270,6 +283,10 @@ func (s *PlanService) syncActiveTasks(tx *gorm.DB, p *model.InspectionPlan) erro
 	}
 
 	pointIDs := s.expandPlanPointIDsWithDB(tx, p)
+	// 与任务生成口径一致：路线优化后同步未完成任务
+	if s.routeOptimize() {
+		pointIDs = OrderPointsByRoute(tx, pointIDs)
+	}
 	roundWindows := make(map[string]string)
 	for _, round := range model.PlanRounds(p.CycleConfig) {
 		roundWindows[round.Name] = round.Window
@@ -588,6 +605,10 @@ func (s *PlanService) GenerateForDate(ctx context.Context, date time.Time) (int,
 		pointIDs := s.expandPlanPointIDs(p)
 		if len(pointIDs) == 0 {
 			continue
+		}
+		// 路线优化：楼栋聚类 + 最近邻重排，快照进任务（巡检员按最短路线顺序走）
+		if s.routeOptimize() {
+			pointIDs = OrderPointsByRoute(s.db, pointIDs)
 		}
 		// 轮次展开：配了 rounds 每轮 × 每人一个任务（round_name/time_window 快照进任务列）；未配维持单任务现状
 		rounds := model.PlanRounds(p.CycleConfig)

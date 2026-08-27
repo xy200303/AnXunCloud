@@ -451,6 +451,7 @@ func seedConfigs(tx *gorm.DB) error {
 		{Key: "inspection.exif_deviation_seconds", Name: "EXIF 时间偏差阈值(秒)", Value: "300", ConfigGroup: "inspection", Remark: "照片拍摄时间与打卡时间允许偏差"},
 		{Key: "inspection.task_generate_days", Name: "任务提前生成天数", Value: "1", ConfigGroup: "inspection", Remark: "每日 00:05 生成未来 N 天任务"},
 		{Key: "inspection.overdue_check_time", Name: "逾期翻转时间", Value: "00:10", ConfigGroup: "inspection", Remark: "每日该时刻将昨日未完成任务置 overdue"},
+		{Key: "inspection.route_optimize", Name: "路线自动优化开关", Value: "true", ConfigGroup: "inspection", Remark: "任务生成时按楼栋聚类+最近邻重排点位，减少折返"},
 		{Key: "mp.offline_sync_limit", Name: "离线补传单批上限", Value: "50", ConfigGroup: "mp", Remark: "单次补传最大条数"},
 		{Key: "msg.subscribe_enabled", Name: "微信订阅消息开关", Value: "true", ConfigGroup: "msg", Remark: "任务提醒/审核通知"},
 		{Key: "msg.wecom_webhook_enabled", Name: "企业微信消息推送开关", Value: "false", ConfigGroup: "msg", Remark: "开启需配置 webhook 地址（应用配置，不入库）"},

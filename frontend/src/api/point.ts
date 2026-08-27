@@ -66,14 +66,16 @@ export function importPoints(file: File) {
   })
 }
 
-// 批量建点助手（接口文档 §2.17）：楼栋 × 楼层 × 每层数量展开，同楼栋同名跳过（幂等）
+// 批量建点助手（接口文档 §2.17）：楼栋 × 单元 × 楼层 × 每层数量展开，同楼栋同名跳过（幂等）
 export interface PointBatchForm {
   community_id: string
   building_ids?: string[]
+  unit_from?: number // 单元起（缺省 1，单单元楼栋保持 1 至 1）
+  unit_to?: number
   floor_from?: number // 负数 = 地下层（-1 渲染 B1）
   floor_to?: number
   per_floor?: number
-  name_pattern: string // 占位符 {building}/{floor}/{seq}
+  name_pattern: string // 占位符 {building}/{unit}/{floor}/{seq}
   type: string
   credential?: string
   template_id?: string | null

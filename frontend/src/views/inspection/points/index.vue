@@ -131,6 +131,19 @@
             </el-form-item>
           </el-col>
         </el-row>
+        <!-- 结构化位置：仅挂楼栋时显示（车库/公园/区域类点位无需单元楼层） -->
+        <el-row v-if="form.communityBuilding.length === 2 && form.communityBuilding[1]" :gutter="16">
+          <el-col :span="12">
+            <el-form-item label="单元号" prop="unit_no">
+              <el-input-number v-model="form.unit_no" :min="1" :max="99" controls-position="right" placeholder="选填" style="width: 100%" />
+            </el-form-item>
+          </el-col>
+          <el-col :span="12">
+            <el-form-item label="楼层" prop="floor">
+              <el-input-number v-model="form.floor" :min="-50" :max="200" controls-position="right" placeholder="选填，负数=地下层" style="width: 100%" />
+            </el-form-item>
+          </el-col>
+        </el-row>
         <el-row :gutter="16">
           <el-col :span="12">
             <el-form-item label="点位类型" prop="type">
@@ -249,6 +262,15 @@
             <el-option v-for="b in batchBuildings" :key="b.building_id" :label="b.label" :value="b.building_id" />
           </el-select>
         </el-form-item>
+        <el-form-item v-if="batchForm.building_ids.length > 0" label="单元范围">
+          <div class="floor-row">
+            <el-input-number v-model="batchForm.unit_from" :min="1" :max="99" controls-position="right" placeholder="起" />
+            <span class="text-secondary">至</span>
+            <el-input-number v-model="batchForm.unit_to" :min="1" :max="99" controls-position="right" placeholder="止" />
+            <span class="text-secondary">单元</span>
+          </div>
+          <div class="text-secondary">单单元楼栋保持 1 至 1 即可</div>
+        </el-form-item>
         <el-form-item label="楼层范围" prop="floor_from">
           <div class="floor-row">
             <el-input-number v-model="batchForm.floor_from" :min="-50" :max="200" controls-position="right" placeholder="起" />
@@ -262,7 +284,7 @@
         </el-form-item>
         <el-form-item label="命名规则" prop="name_pattern">
           <el-input v-model="batchForm.name_pattern" placeholder="如：{building}{floor}层消防箱{seq}" />
-          <div class="text-secondary">占位符：{'{building}'} 楼栋名、{'{floor}'} 楼层（地下层自动渲染 B1/B2）、{'{seq}'} 每层序号</div>
+          <div class="text-secondary">占位符：{'{building}'} 楼栋名、{'{unit}'} 单元、{'{floor}'} 楼层（地下层自动渲染 B1/B2）、{'{seq}'} 每层序号</div>
         </el-form-item>
         <el-form-item label="点位类型" prop="type">
           <el-select v-model="batchForm.type" placeholder="选择类型" style="width: 100%">
@@ -534,6 +556,8 @@ const form = reactive({
   id: '',
   qrcode_no: '',
   communityBuilding: [] as string[],
+  unit_no: null as number | null,
+  floor: null as number | null,
   name: '',
   type: '',
   longitude: null as number | null,
@@ -581,6 +605,8 @@ function openForm(row?: PointItem) {
       id: row.id,
       qrcode_no: row.qrcode_no,
       communityBuilding: [row.community_id, row.building_id],
+      unit_no: row.unit_no ?? null,
+      floor: row.floor ?? null,
       name: row.name,
       type: row.type,
       longitude: row.longitude,
@@ -596,7 +622,7 @@ function openForm(row?: PointItem) {
     })
   } else {
     Object.assign(form, {
-      id: '', qrcode_no: '', communityBuilding: [], name: '', type: '',
+      id: '', qrcode_no: '', communityBuilding: [], unit_no: null, floor: null, name: '', type: '',
       longitude: null, latitude: null, fence_radius: 100, credential: 'qrcode', require_fence: true,
       required_photo_items: [], template_id: null, nfc_id: '', sort: 0, status: 1
     })
@@ -615,6 +641,8 @@ async function handleSubmit() {
   const payload = {
     community_id: form.communityBuilding[0],
     building_id: form.communityBuilding[1],
+    unit_no: form.communityBuilding[1] ? form.unit_no : null,
+    floor: form.communityBuilding[1] ? form.floor : null,
     name: form.name,
     type: form.type,
     longitude: form.longitude,
@@ -693,6 +721,8 @@ const batchResult = ref<PointBatchResult | null>(null)
 const batchForm = reactive({
   community_id: undefined as string | undefined,
   building_ids: [] as string[],
+  unit_from: 1,
+  unit_to: 1,
   floor_from: 1,
   floor_to: 3,
   per_floor: 1,
@@ -737,6 +767,8 @@ async function handleBatchSubmit() {
     batchResult.value = await batchCreatePoints({
       community_id: batchForm.community_id!,
       building_ids: batchForm.building_ids.length ? batchForm.building_ids : undefined,
+      unit_from: batchForm.unit_from,
+      unit_to: batchForm.unit_to,
       floor_from: batchForm.floor_from,
       floor_to: batchForm.floor_to,
       per_floor: batchForm.per_floor,

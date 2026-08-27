@@ -28,7 +28,7 @@ func TestFlipOverdueManual(t *testing.T) {
 	if err != nil {
 		t.Fatalf("连接数据库失败: %v", err)
 	}
-	svc := NewPlanService(db, nil, notify.New(db, nil))
+	svc := NewPlanService(db, nil, notify.New(db, nil), nil)
 	n, err := svc.FlipOverdue()
 	if err != nil {
 		t.Fatalf("逾期翻转失败: %v", err)

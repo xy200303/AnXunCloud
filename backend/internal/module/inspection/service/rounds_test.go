@@ -105,18 +105,19 @@ func TestTaskTimeWindow(t *testing.T) {
 func TestRenderBatchPointName(t *testing.T) {
 	cases := []struct {
 		pattern, building string
-		floor, seq        int
+		unit, floor, seq  int
 		want              string
 	}{
-		{"{building}{floor}层消防箱", "1栋", 1, 1, "1栋1层消防箱"},
-		{"{building}{floor}层消防箱-{seq}", "2栋", 3, 2, "2栋3层消防箱-2"},
-		{"{building}{floor}层灭火器", "1栋", -1, 1, "1栋B1层灭火器"},
-		{"{building}{floor}层灭火器", "1栋", -2, 1, "1栋B2层灭火器"},
-		{"{floor}层消防栓", "", 5, 1, "5层消防栓"}, // 不挂楼栋时 {building} 渲染为空
+		{"{building}{floor}层消防箱", "1栋", 1, 1, 1, "1栋1层消防箱"},
+		{"{building}{floor}层消防箱-{seq}", "2栋", 1, 3, 2, "2栋3层消防箱-2"},
+		{"{building}{floor}层灭火器", "1栋", 1, -1, 1, "1栋B1层灭火器"},
+		{"{building}{floor}层灭火器", "1栋", 1, -2, 1, "1栋B2层灭火器"},
+		{"{floor}层消防栓", "", 1, 5, 1, "5层消防栓"}, // 不挂楼栋时 {building} 渲染为空
+		{"{building}{unit}单元{floor}层消防箱", "1栋", 2, 3, 1, "1栋2单元3层消防箱"},
 	}
 	for _, c := range cases {
-		if got := renderBatchPointName(c.pattern, c.building, c.floor, c.seq); got != c.want {
-			t.Errorf("renderBatchPointName(%q,%q,%d,%d) = %q, 期望 %q", c.pattern, c.building, c.floor, c.seq, got, c.want)
+		if got := renderBatchPointName(c.pattern, c.building, c.unit, c.floor, c.seq); got != c.want {
+			t.Errorf("renderBatchPointName(%q,%q,%d,%d,%d) = %q, 期望 %q", c.pattern, c.building, c.unit, c.floor, c.seq, got, c.want)
 		}
 	}
 }

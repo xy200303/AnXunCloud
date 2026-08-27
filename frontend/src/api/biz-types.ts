@@ -111,6 +111,8 @@ export interface PointItem {
   community_name: string
   building_id: string
   building_name: string
+  unit_no?: number | null
+  floor?: number | null
   name: string
   type: string
   type_label?: string
@@ -132,6 +134,8 @@ export interface PointItem {
 export interface PointForm {
   community_id: string | null
   building_id: string | null
+  unit_no?: number | null
+  floor?: number | null
   name: string
   type: string
   longitude: number | null

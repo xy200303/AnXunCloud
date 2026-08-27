@@ -330,8 +330,21 @@ export default {
     },
     onPointTap(p: PointView) {
       if (!p.checked) {
-        // 点位清单只读：未打卡引导走大按钮（AI 启用进向导，未启用进手动表单）
-        uni.showToast({ title: '请点上方按钮开始巡检', icon: 'none' })
+        if (this.aiEnabled) {
+          // 未打卡点位：直接进向导并从该点位开始（之后按顺序继续余下点位）
+          uni.navigateTo({
+            url:
+              '/pages/checkin/quick?task_id=' + encodeURIComponent(this.taskId) +
+              '&point_id=' + encodeURIComponent(p.point_id)
+          })
+          return
+        }
+        // AI 未启用：进该点位的手动打卡表单
+        uni.navigateTo({
+          url:
+            '/pages/checkin/form?task_id=' + encodeURIComponent(this.taskId) +
+            '&point_id=' + encodeURIComponent(p.point_id)
+        })
         return
       }
       if (p.locked) {

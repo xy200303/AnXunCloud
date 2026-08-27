@@ -151,23 +151,15 @@
       </view>
       <view class="bottom-space"></view>
     </view>
-
-    <!-- 水印烧录用隐藏 canvas（屏外，尺寸由数据驱动） -->
-    <canvas
-      canvas-id="wmCanvas"
-      :style="{ width: canvasW + 'px', height: canvasH + 'px', position: 'fixed', left: '-9999px', top: '-9999px' }"
-    ></canvas>
   </view>
 </template>
 
 <script lang="ts">
 import { Colors, ColorTokens } from '@/utils/theme'
 import { apiTaskDetail, apiCheckin, apiCheckinItems, apiUploadLocal, TaskPoint, CheckinResult, CheckinItemAI, CheckinReqPayload } from '@/services/api'
-import { burnWatermark } from '@/utils/watermark'
 import { isNfcSupported, readCardOnce, toastNfcUnavailable } from '@/utils/nfc'
 import { getLocationGcj02 } from '@/utils/geo'
 import { enqueueOfflineCheckin, uuidv7, NETWORK_ERR_PREFIX, OfflinePhoto } from '@/utils/offline'
-import { useAuthStore } from '@/stores/auth'
 
 /** 检查项视图模型：模板项 + 录入状态 */
 type ItemView = {
@@ -208,9 +200,6 @@ type FormData = {
   maxAttempts: number
   /** 强制提交标记（用户确认后重发带 force=true） */
   forceSubmit: boolean
-  canvasW: number
-  canvasH: number
-  inspectorName: string
 }
 
 /** haversine 距离（米） */
@@ -271,10 +260,7 @@ export default {
       submitting: false,
       qualityAttempts: 0,
       maxAttempts: 3,
-      forceSubmit: false,
-      canvasW: 0,
-      canvasH: 0,
-      inspectorName: ''
+      forceSubmit: false
     }
   },
   computed: {
@@ -308,8 +294,6 @@ export default {
     if (options && options.no) {
       this.scannedNo = normalizeCode(String(options.no))
     }
-    const auth = useAuthStore()
-    this.inspectorName = auth.userInfo != null ? auth.userInfo.name : ''
     this.load()
   },
   methods: {
@@ -437,7 +421,7 @@ export default {
       // 异常项与模板必拍项均展示照片区
       return !it.pass || it.photo_required == 'required'
     },
-    /** 拍照（仅相机防相册作弊）→ 水印烧录 → 入列表；list 为响应式数组引用 */
+    /** 拍照（仅相机防相册作弊）→ 原图入列表；水印由服务端在打卡后统一烧录 */
     takePhotos(list: string[], max: number) {
       const remain = max - list.length
       if (remain <= 0) return
@@ -446,20 +430,7 @@ export default {
         sourceType: ['camera'],
         success: (res) => {
           const paths = (res.tempFilePaths || []) as string[]
-          if (paths.length == 0) return
-          uni.showLoading({ title: '处理中…', mask: true })
-          const lines = this.wmLines()
-          let chain: Promise<void> = Promise.resolve()
-          paths.forEach((p) => {
-            chain = chain
-              .then(() => burnWatermark(p, lines, 'wmCanvas', this))
-              .then((burned) => {
-                list.push(burned)
-              })
-          })
-          chain
-            .then(() => uni.hideLoading())
-            .catch(() => uni.hideLoading())
+          paths.forEach((p) => list.push(p))
         }
       })
     },
@@ -471,21 +442,6 @@ export default {
           if (r.confirm) list.splice(idx, 1)
         }
       })
-    },
-    /** 水印行：时间+点位 / 经纬度+距离 / 巡检员（无则跳过） */
-    wmLines(): string[] {
-      const lines: string[] = []
-      const name = this.point != null ? this.point.point_name : ''
-      lines.push(fmtDateTime(new Date()) + ' ' + name)
-      if (this.hasLoc) {
-        let l = this.myLng.toFixed(6) + ',' + this.myLat.toFixed(6)
-        if (this.distance >= 0) l += ' 距点位 ' + this.distance + 'm'
-        lines.push(l)
-      }
-      if (this.inspectorName != '') {
-        lines.push('巡检员：' + this.inspectorName)
-      }
-      return lines
     },
     /** 提交前校验，返回错误文案（空串 = 通过） */
     validate(): string {

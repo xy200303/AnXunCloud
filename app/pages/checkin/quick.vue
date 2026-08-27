@@ -1,5 +1,19 @@
 <template>
   <view class="page" :style="{ backgroundColor: colors.bgPage }">
+    <!-- 自定义导航栏：左返回（上一项语义）、中标题、右退出 -->
+    <view class="navbar" :style="{ backgroundColor: colors.primary, paddingTop: statusBarHeight + 'px' }">
+      <view class="navbar-row">
+        <view class="navbar-side" @click="onPrevTap">
+          <text class="navbar-back" :style="{ color: colors.white }">‹</text>
+        </view>
+        <text class="navbar-title" :style="{ color: colors.white }">连续巡检</text>
+        <view class="navbar-side navbar-right" @click="onNavExit">
+          <text v-if="showPrev" class="navbar-exit" :style="{ color: colors.white }">退出</text>
+        </view>
+      </view>
+    </view>
+    <view class="navbar-space" :style="{ height: 'calc(88rpx + ' + statusBarHeight + 'px)' }"></view>
+
     <!-- 骨架屏 -->
     <view v-if="loading" class="skeleton">
       <view class="sk-block" :style="{ backgroundColor: colors.border }"></view>
@@ -15,94 +29,119 @@
     <!-- 连续巡检向导 -->
     <view v-else class="wizard">
       <!-- 顶部进度区（任务完成页不显示） -->
-      <view v-if="phase != 'taskDone'" class="head" :style="{ backgroundColor: colors.bgCard }">
-        <text class="head-progress" :style="{ color: colors.textPrimary }">
-          点位 {{ pointOrdinal }}/{{ totalPoints }}<text v-if="phase == 'items'"> · 本项 {{ itemIdx + 1 }}/{{ curItemCount }}</text>
-        </text>
-        <view class="progress" :style="{ backgroundColor: colors.border }">
-          <view class="progress-inner" :style="{ width: progressWidth, backgroundColor: colors.success }"></view>
+      <view v-if="phase != 'taskDone'" class="head" :style="{ backgroundColor: colors.bgCard, boxShadow: shadow }">
+        <view class="head-row">
+          <text class="head-progress" :style="{ color: colors.primary }">点位 {{ pointOrdinal }}/{{ totalPoints }}</text>
+          <view v-if="phase == 'items'" class="head-item-pill" :style="{ backgroundColor: colors.primaryLight }">
+            <text class="head-item-pill-text" :style="{ color: colors.primary }">{{ curItem != null && curItem.status == 'recognizing' ? 'AI 检查中' : '第 ' + (itemIdx + 1) + '/' + curItemCount + ' 项' }}</text>
+          </view>
         </view>
         <text class="head-point" :style="{ color: colors.textPrimary }">{{ curPoint != null ? curPoint.point_name : '' }}</text>
         <text class="head-building" :style="{ color: colors.textSecondary }">{{ curPoint != null && curPoint.building_name != '' ? curPoint.building_name : '未分区' }}</text>
+        <view class="head-bar-row">
+          <view class="progress head-bar" :style="{ backgroundColor: colors.border }">
+            <view class="progress-inner" :style="{ width: progressWidth, backgroundColor: colors.primary }"></view>
+          </view>
+          <text class="head-bar-text" :style="{ color: colors.textSecondary }">{{ progressWidth }}</text>
+        </view>
       </view>
 
       <!-- 凭证核验步 -->
       <block v-if="phase == 'cred'">
-        <view v-if="curPoint != null && curPoint.credential == 'qrcode'" class="card" :style="{ backgroundColor: colors.bgCard }">
-          <text v-if="curWizPoint != null && curWizPoint.scannedNo != ''" class="cred-ok" :style="{ color: colors.success }">✓ 已扫码</text>
-          <view v-else class="btn-outline" :style="{ borderColor: colors.primary }" @click="scanCredential">
-            <text class="btn-outline-text" :style="{ color: colors.primary }">扫码核验</text>
+        <view class="card" :style="{ backgroundColor: colors.bgCard, boxShadow: shadow }">
+          <text class="cred-title" :style="{ color: colors.textPrimary }">到场核验</text>
+          <text v-if="!needsCred" class="cred-none" :style="{ color: colors.success }">✓ 本点位无需核验</text>
+          <!-- 扫码行 -->
+          <view
+            v-if="curPoint != null && (curPoint.credential == 'qrcode' || curPoint.credential == 'any')"
+            class="cred-row"
+            @click="onScanRowTap"
+          >
+            <text class="cred-row-name" :style="{ color: colors.textPrimary }">扫码核验</text>
+            <text v-if="curWizPoint != null && curWizPoint.scannedNo != ''" class="cred-status" :style="{ color: colors.success }">✓ 已通过</text>
+            <text v-else class="cred-status" :style="{ color: colors.textSecondary }">待核验 ›</text>
           </view>
-        </view>
-        <view v-else-if="curPoint != null && curPoint.credential == 'nfc'" class="card" :style="{ backgroundColor: colors.bgCard }">
-          <text v-if="curWizPoint != null && curWizPoint.nfcCardId != ''" class="cred-ok" :style="{ color: colors.success }">✓ 已读卡</text>
-          <view v-else class="btn-outline" :style="{ borderColor: colors.primary }" @click="nfcTap">
-            <text class="btn-outline-text" :style="{ color: colors.primary }">读卡核验</text>
+          <!-- 读卡行 -->
+          <view
+            v-if="curPoint != null && (curPoint.credential == 'nfc' || curPoint.credential == 'any')"
+            class="cred-row"
+            @click="onNfcRowTap"
+          >
+            <text class="cred-row-name" :style="{ color: colors.textPrimary }">读卡核验</text>
+            <text v-if="curWizPoint != null && curWizPoint.nfcCardId != ''" class="cred-status" :style="{ color: colors.success }">✓ 已通过</text>
+            <text v-else class="cred-status" :style="{ color: colors.textSecondary }">待核验 ›</text>
           </view>
-        </view>
-        <view v-else-if="curPoint != null && curPoint.credential == 'any'" class="card" :style="{ backgroundColor: colors.bgCard }">
-          <text v-if="curWizPoint != null && (curWizPoint.scannedNo != '' || curWizPoint.nfcCardId != '')" class="cred-ok" :style="{ color: colors.success }">✓ 已核验</text>
-          <block v-else>
-            <view class="btn-outline" :style="{ borderColor: colors.primary }" @click="scanCredential">
-              <text class="btn-outline-text" :style="{ color: colors.primary }">扫码核验</text>
-            </view>
-            <view class="btn-outline cred-gap" :style="{ borderColor: colors.primary }" @click="nfcTap">
-              <text class="btn-outline-text" :style="{ color: colors.primary }">读卡核验</text>
-            </view>
-          </block>
-        </view>
-        <!-- 电子围栏：自动定位一次，大字显示在/超范围 -->
-        <view v-if="curPoint != null && curPoint.require_fence" class="card" :style="{ backgroundColor: colors.bgCard }" @click="onLocTap">
-          <text v-if="locating" class="fence-text" :style="{ color: colors.textSecondary }">定位中…</text>
-          <text v-else-if="locFailed" class="fence-text" :style="{ color: colors.danger }">定位失败，点我重试</text>
-          <text v-else-if="distance >= 0 && curPoint != null && distance <= curPoint.fence_radius" class="fence-text" :style="{ color: colors.success }">在范围内（{{ distance }}米）</text>
-          <text v-else-if="distance >= 0" class="fence-text" :style="{ color: colors.danger }">超出范围（{{ distance }}米）</text>
+          <!-- 定位行 -->
+          <view v-if="curPoint != null && curPoint.require_fence" class="cred-row" @click="onLocTap">
+            <text class="cred-row-name" :style="{ color: colors.textPrimary }">位置核验</text>
+            <text v-if="locating" class="cred-status" :style="{ color: colors.textSecondary }">定位中…</text>
+            <text v-else-if="locFailed" class="cred-status" :style="{ color: colors.danger }">失败，点我重试</text>
+            <text v-else-if="distance >= 0 && curPoint != null && distance <= curPoint.fence_radius" class="cred-status" :style="{ color: colors.success }">✓ 在范围内（{{ distance }}米）</text>
+            <text v-else-if="distance >= 0" class="cred-status" :style="{ color: colors.danger }">超出范围（{{ distance }}米）</text>
+            <text v-else class="cred-status" :style="{ color: colors.textSecondary }">待核验 ›</text>
+          </view>
         </view>
         <view
           class="btn-big"
-          :style="{ backgroundColor: credOk && fenceOk ? colors.success : colors.info }"
+          :style="{ backgroundColor: credOk && fenceOk ? colors.success : colors.border }"
           @click="startItems"
         >
-          <text class="btn-big-text" :style="{ color: colors.white }">开始检查</text>
+          <text class="btn-big-text" :style="{ color: credOk && fenceOk ? colors.white : colors.textSecondary }">开始检查</text>
         </view>
+        <text v-if="!(credOk && fenceOk)" class="start-hint" :style="{ color: colors.textSecondary }">请先完成上方核验</text>
       </block>
 
       <!-- 逐项卡片步 -->
       <block v-if="phase == 'items' && curItem != null">
         <!-- 拍照项 -->
-        <view v-if="curItemIsPhoto" class="item-card" :style="{ backgroundColor: colors.bgCard }">
+        <view v-if="curItemIsPhoto" class="item-card" :style="{ backgroundColor: colors.bgCard, boxShadow: shadow }">
           <text class="item-name" :style="{ color: colors.textPrimary }">{{ curItem.name }}</text>
           <text class="item-hint" :style="{ color: colors.textSecondary }">{{ curItem.requirement != '' ? curItem.requirement : '拍一张该项的照片' }}</text>
-          <view v-if="curItem.status == 'todo' || curItem.status == 'failed'" class="big-shot" :style="{ backgroundColor: colors.primary }" @click="takePhoto">
-            <text class="big-shot-text" :style="{ color: colors.white }">拍一张照片</text>
+          <!-- 未拍：虚线大框 -->
+          <view
+            v-if="curItem.status == 'todo' || curItem.status == 'failed'"
+            class="shot-empty"
+            :style="{ borderColor: curItem.status == 'failed' ? colors.danger : colors.primary }"
+            @click="takePhoto"
+          >
+            <view class="cam-icon" :style="{ borderColor: curItem.status == 'failed' ? colors.danger : colors.primary }">
+              <view class="cam-lens" :style="{ borderColor: curItem.status == 'failed' ? colors.danger : colors.primary }"></view>
+            </view>
+            <text class="shot-empty-text" :style="{ color: curItem.status == 'failed' ? colors.danger : colors.primary }">{{ curItem.status == 'failed' ? '不合格，点这里重拍' : '点这里拍照' }}</text>
           </view>
+          <!-- 已拍：缩略图 + 状态角标 -->
           <block v-else>
-            <text class="shot-ok" :style="{ color: colors.success }">✓ 已拍照{{ curItem.status == 'recognizing' ? '，AI 检查中' : '' }}</text>
+            <view class="shot-preview" :style="{ backgroundColor: colors.bgPage }" @click="previewCurPhoto">
+              <image v-if="curItem.photos.length > 0" :src="curItem.photos[0]" class="shot-img" mode="aspectFill" />
+            </view>
+            <view class="btn-big shot-next" :style="{ backgroundColor: colors.success }" @click="nextStep">
+              <text class="btn-big-text" :style="{ color: colors.white }">下一项</text>
+            </view>
             <view class="btn-outline reshot" :style="{ borderColor: colors.primary }" @click="takePhoto">
               <text class="btn-outline-text" :style="{ color: colors.primary }">重新拍</text>
             </view>
           </block>
         </view>
         <!-- 感官项 -->
-        <view v-else class="item-card" :style="{ backgroundColor: colors.bgCard }">
+        <view v-else class="item-card" :style="{ backgroundColor: colors.bgCard, boxShadow: shadow }">
           <text class="item-name" :style="{ color: colors.textPrimary }">{{ curItem.name }}</text>
           <text class="item-hint" :style="{ color: colors.textSecondary }">{{ curItem.requirement != '' ? curItem.requirement : '这项正常吗？' }}</text>
           <view class="btn-big btn-normal" :style="{ backgroundColor: colors.success }" @click="tapManualOk">
-            <text class="btn-big-text" :style="{ color: colors.white }">正常</text>
+            <text class="btn-big-text" :style="{ color: colors.white }">✓ 正常</text>
           </view>
           <view class="btn-big" :style="{ backgroundColor: colors.danger }" @click="tapManualAbnormal">
-            <text class="btn-big-text" :style="{ color: colors.white }">有异常</text>
+            <text class="btn-big-text" :style="{ color: colors.white }">⚠ 有异常</text>
           </view>
           <block v-if="manualAbnormalOpen">
             <textarea
               v-model="manualNote"
               class="manual-note"
-              :style="{ borderColor: colors.border, color: colors.textPrimary, backgroundColor: colors.bgPage }"
+              :style="{ borderColor: colors.danger, color: colors.textPrimary, backgroundColor: colors.bgPage }"
               placeholder="说说哪里不对劲（可不填）"
               :maxlength="200"
             />
             <view class="btn-big" :style="{ backgroundColor: colors.danger }" @click="confirmManualAbnormal">
-              <text class="btn-big-text" :style="{ color: colors.white }">确认</text>
+              <text class="btn-big-text" :style="{ color: colors.white }">确认异常，下一项</text>
             </view>
           </block>
         </view>
@@ -110,9 +149,23 @@
 
       <!-- 点位收尾步 -->
       <block v-if="phase == 'gate'">
-        <view class="card gate-card" :style="{ backgroundColor: colors.bgCard }">
+        <view class="card gate-card" :style="{ backgroundColor: colors.bgCard, boxShadow: shadow }">
           <text class="gate-title" :style="{ color: colors.textPrimary }">本点位 {{ curItemCount }} 项已过完</text>
-          <text class="gate-sub" :style="{ color: colors.textSecondary }">提交后 AI 统一检查</text>
+          <view class="gate-stats">
+            <view class="gate-stat">
+              <text class="gate-stat-num" :style="{ color: colors.success }">{{ gateStats.done }}</text>
+              <text class="gate-stat-label" :style="{ color: colors.textSecondary }">已完成</text>
+            </view>
+            <view class="gate-stat">
+              <text class="gate-stat-num" :style="{ color: colors.primary }">{{ gateStats.recognizing }}</text>
+              <text class="gate-stat-label" :style="{ color: colors.textSecondary }">AI 检查中</text>
+            </view>
+            <view class="gate-stat">
+              <text class="gate-stat-num" :style="{ color: colors.danger }">{{ gateStats.abnormal }}</text>
+              <text class="gate-stat-label" :style="{ color: colors.textSecondary }">异常</text>
+            </view>
+          </view>
+          <text class="gate-sub" :style="{ color: colors.textSecondary }">{{ gateStats.recognizing > 0 ? '提交后将等待 AI 检查完成' : '提交后 AI 统一检查' }}</text>
         </view>
         <view class="btn-big" :style="{ backgroundColor: colors.success }" @click="submitPoint">
           <text class="btn-big-text" :style="{ color: colors.white }">提交本点位</text>
@@ -121,8 +174,11 @@
 
       <!-- 补拍步（质量不合格 / 识别失败） -->
       <block v-if="phase == 'retake'">
-        <text class="phase-title" :style="{ color: colors.danger }">这几项要重新拍</text>
-        <view v-for="(it, i) in retakeItems" :key="i" class="card retake-card" :style="{ backgroundColor: colors.bgCard }">
+        <view class="banner" :style="{ backgroundColor: colors.danger }">
+          <text class="banner-text" :style="{ color: colors.white }">⚠ 这几项要重新拍</text>
+        </view>
+        <view v-for="(it, i) in retakeItems" :key="i" class="card retake-card" :style="{ backgroundColor: colors.bgCard, boxShadow: shadow }">
+          <image v-if="it.photos.length > 0" :src="it.photos[0]" class="retake-thumb" mode="aspectFill" @click="previewPhoto(it)" />
           <view class="retake-texts">
             <text class="retake-name" :style="{ color: colors.textPrimary }">{{ it.name }}</text>
             <text class="retake-issue" :style="{ color: colors.danger }">{{ retakeIssue(it) }}</text>
@@ -142,8 +198,10 @@
 
       <!-- 异常确认步（红屏） -->
       <block v-if="phase == 'abnormal'">
-        <text class="phase-title" :style="{ color: colors.danger }">发现异常</text>
-        <view v-for="(it, i) in abnormalItems" :key="i" class="card" :style="{ backgroundColor: colors.bgCard }">
+        <view class="banner" :style="{ backgroundColor: colors.danger }">
+          <text class="banner-text" :style="{ color: colors.white }">⚠ 发现 {{ abnormalItems.length }} 项异常</text>
+        </view>
+        <view v-for="(it, i) in abnormalItems" :key="i" class="card" :style="{ backgroundColor: colors.bgCard, boxShadow: shadow }">
           <text class="abn-name" :style="{ color: colors.textPrimary }">{{ it.name }}</text>
           <textarea
             v-if="aiEditable"
@@ -176,26 +234,22 @@
         </view>
       </view>
 
-      <!-- 底部「上一项」（向导起点时变为「退出巡检」，与返回键语义一致） -->
-      <text v-if="showPrev" class="prev-link" :style="{ color: colors.textSecondary }" @click="onPrevTap">{{ atWizardStart ? '退出巡检' : '上一项' }}</text>
       <view class="bottom-space"></view>
     </view>
 
-    <!-- 上传 / AI 检查 / 提交中全屏遮盖 -->
+    <!-- 上传 / AI 检查 / 提交中弹窗 -->
     <view v-if="overlayMsg != ''" class="overlay" :style="{ backgroundColor: colors.mask }">
-      <text class="overlay-text" :style="{ color: colors.white }">{{ overlayMsg }}</text>
+      <view class="overlay-dialog" :style="{ backgroundColor: colors.bgCard }">
+        <view class="spinner" :style="{ borderTopColor: colors.primary }"></view>
+        <text class="overlay-text" :style="{ color: colors.textPrimary }">{{ overlayMsg }}</text>
+        <text class="overlay-sub" :style="{ color: colors.textSecondary }">{{ overlaySub }}</text>
+      </view>
     </view>
-
-    <!-- 水印烧录用隐藏 canvas（屏外，尺寸由数据驱动） -->
-    <canvas
-      canvas-id="wmCanvasQuick"
-      :style="{ width: canvasW + 'px', height: canvasH + 'px', position: 'fixed', left: '-9999px', top: '-9999px' }"
-    ></canvas>
   </view>
 </template>
 
 <script lang="ts">
-import { Colors, ColorTokens } from '@/utils/theme'
+import { Colors, ColorTokens, ShadowCard } from '@/utils/theme'
 import {
   apiTaskDetail,
   apiCheckin,
@@ -207,11 +261,9 @@ import {
   CODE_CHECKIN_LOCKED,
   TaskPoint
 } from '@/services/api'
-import { burnWatermark } from '@/utils/watermark'
 import { isNfcSupported, readCardOnce, toastNfcUnavailable } from '@/utils/nfc'
 import { getLocationGcj02 } from '@/utils/geo'
 import { playVoice } from '@/utils/voice'
-import { useAuthStore } from '@/stores/auth'
 import {
   WizardSnap,
   WizardPointSnap,
@@ -232,6 +284,9 @@ const POLL_TIMEOUT = 30000
 
 type QuickData = {
   colors: ColorTokens
+  shadow: string
+  /** 状态栏高度（px），自定义导航栏占位用 */
+  statusBarHeight: number
   taskId: string
   pointIdParam: string
   /** true = 单点位修改模式（覆盖提交） */
@@ -276,11 +331,10 @@ type QuickData = {
   /** 页面已卸载（停止轮询回调写状态） */
   destroyed: boolean
   snapKey: string
-  canvasW: number
-  canvasH: number
-  inspectorName: string
   /** 遮罩看门狗定时器 */
   overlayWatchdog: any
+  /** 手动退出放行标记（exitWizard 时 onBackPress 不拦截） */
+  forceExit: boolean
 }
 
 /** haversine 距离（米） */
@@ -352,6 +406,8 @@ export default {
   data(): QuickData {
     return {
       colors: Colors,
+      shadow: ShadowCard,
+      statusBarHeight: 0,
       taskId: '',
       pointIdParam: '',
       modify: false,
@@ -383,11 +439,9 @@ export default {
       pollTimer: null,
       destroyed: false,
       snapKey: '',
-      canvasW: 0,
-      canvasH: 0,
-      inspectorName: '',
       /** 遮罩看门狗定时器 */
-      overlayWatchdog: null
+      overlayWatchdog: null,
+      forceExit: false
     }
   },
   computed: {
@@ -452,6 +506,24 @@ export default {
       if (wp == null) return []
       return this.retakeIdxs.map((i) => wp.items[i]).filter((it) => it != null)
     },
+    /** 收尾步统计：已完成（含已拍待识别）/ AI 检查中 / 异常（感官项已标记异常） */
+    gateStats(): { done: number; recognizing: number; abnormal: number } {
+      const wp = this.curWizPoint
+      const r = { done: 0, recognizing: 0, abnormal: 0 }
+      if (wp == null) return r
+      for (let i = 0; i < wp.items.length; i++) {
+        const it = wp.items[i]
+        if (it.status == 'recognizing') r.recognizing += 1
+        else if (it.verdict == 'abnormal') r.abnormal += 1
+        else r.done += 1
+      }
+      return r
+    },
+    /** 弹窗副提示 */
+    overlaySub(): string {
+      if (this.overlayMsg.indexOf('AI') >= 0) return '正在识别照片，一般几秒内完成'
+      return '请稍候，不要退出页面'
+    },
     abnormalItems(): WizardItemSnap[] {
       const wp = this.curWizPoint
       if (wp == null) return []
@@ -476,8 +548,8 @@ export default {
     if (options && options.no) {
       this.preVerifiedNo = normalizeCode(String(options.no))
     }
-    const auth = useAuthStore()
-    this.inspectorName = auth.userInfo != null ? auth.userInfo.name : ''
+    const sys = uni.getSystemInfoSync()
+    this.statusBarHeight = sys.statusBarHeight != null ? sys.statusBarHeight : 0
     this.load()
   },
   onUnload() {
@@ -489,6 +561,8 @@ export default {
     }
   },
   onBackPress(): boolean {
+    // 手动退出（exitWizard 的 navigateBack 在 App 端同样触发 onBackPress）：放行，否则退出会被劫持成「上一项」
+    if (this.forceExit) return false
     // 遮盖层（上传/AI 检查/提交中）：拦截返回并提示，避免用户误以为卡死
     if (this.overlayMsg != '' || this.submitting) {
       uni.showToast({ title: '处理中，请稍候…', icon: 'none' })
@@ -621,6 +695,25 @@ export default {
           }
         })
       }
+      // 点位清单指定进入：从该点位开始，余下点位按顺序继续
+      if (this.pointIdParam != '') {
+        let startIdx = this.wizPoints.findIndex((wp) => wp.point_id == this.pointIdParam)
+        if (startIdx < 0) {
+          // 快照中不含该点位（快照过时）：以用户选择为准，按未打卡点位重建
+          const rest = this.taskPoints.filter((p) => p.my_checkin == null)
+          if (rest.length == 0) {
+            this.loading = false
+            this.errorMsg = '本任务已全部打卡'
+            return
+          }
+          this.wizPoints = rest.map((p) => freshPoint(p))
+          startIdx = this.wizPoints.findIndex((wp) => wp.point_id == this.pointIdParam)
+        }
+        if (startIdx >= 0) {
+          this.pointIdx = startIdx
+          this.itemIdx = 0
+        }
+      }
       this.finishInit()
     },
     finishInit() {
@@ -718,6 +811,27 @@ export default {
     onLocTap() {
       if (this.locFailed) this.locate()
     },
+    /** 核验清单-扫码行：已通过再点不重复扫 */
+    onScanRowTap() {
+      if (this.curWizPoint != null && this.curWizPoint.scannedNo != '') return
+      this.scanCredential()
+    },
+    /** 核验清单-读卡行：已通过再点不重复读 */
+    onNfcRowTap() {
+      if (this.curWizPoint != null && this.curWizPoint.nfcCardId != '') return
+      this.nfcTap()
+    },
+    /** 当前项照片大图预览 */
+    previewCurPhoto() {
+      const it = this.curItem
+      if (it == null || it.photos.length == 0) return
+      uni.previewImage({ urls: it.photos })
+    },
+    /** 指定项照片大图预览（补拍列表缩略图） */
+    previewPhoto(it: WizardItemSnap) {
+      if (it.photos.length == 0) return
+      uni.previewImage({ urls: it.photos })
+    },
     scanCredential() {
       uni.scanCode({
         onlyFromCamera: true, // 禁相册选图防代扫
@@ -779,22 +893,7 @@ export default {
       this.phase = wp.items.length > 0 ? 'items' : 'gate'
       this.persist()
     },
-    /** 水印行：时间+点位 / 经纬度+距离 / 巡检员（同 form.vue） */
-    wmLines(): string[] {
-      const lines: string[] = []
-      const name = this.curPoint != null ? this.curPoint.point_name : ''
-      lines.push(fmtDateTime(new Date()) + ' ' + name)
-      if (this.hasLoc) {
-        let l = this.myLng.toFixed(6) + ',' + this.myLat.toFixed(6)
-        if (this.distance >= 0) l += ' 距点位 ' + this.distance + 'm'
-        lines.push(l)
-      }
-      if (this.inspectorName != '') {
-        lines.push('巡检员：' + this.inspectorName)
-      }
-      return lines
-    },
-    /** 当前项拍照（仅相机）→ 水印 → 上传 → 建识别 job → 立即推进下一项，不等结果 */
+    /** 当前项拍照（仅相机）→ 上传原图 → 建识别 job → 立即推进下一项，不等结果（水印由服务端统一烧录） */
     takePhoto() {
       const it = this.curItem
       if (it == null || !this.curItemIsPhoto) return
@@ -815,15 +914,11 @@ export default {
         success: (res) => {
           const paths = (res.tempFilePaths || []) as string[]
           if (paths.length == 0) return
-          this.overlayMsg = '照片处理中…'
-          let burned = ''
+          const raw = paths[0]
+          // 只传原图：AI 识别无水印干扰；水印由服务端在打卡后统一烧录（点位/时间/坐标/巡检员）
+          this.overlayMsg = '照片上传中…'
           let fileKey = ''
-          burnWatermark(paths[0], this.wmLines(), 'wmCanvasQuick', this)
-            .then((b) => {
-              burned = b
-              this.overlayMsg = '照片上传中…'
-              return apiUploadLocal(b)
-            })
+          apiUploadLocal(raw)
             .then((r) => {
               fileKey = r.file_key
               return apiAiItemJobCreate({
@@ -835,7 +930,7 @@ export default {
             })
             .then((j) => {
               this.overlayMsg = ''
-              it.photos = [burned]
+              it.photos = [raw]
               it.file_keys = [fileKey]
               it.job_id = j.job_id
               it.status = 'recognizing'
@@ -906,6 +1001,19 @@ export default {
     /** 底部「上一项」点击：到起点时退出向导（非 onBackPress 上下文，navigateBack 有效） */
     onPrevTap() {
       if (!this.prevStep()) this.exitWizard()
+    },
+    /** 导航栏右侧「退出」：确认后退出向导（进度已持久化，可断点续检） */
+    onNavExit() {
+      if (!this.showPrev) return
+      uni.showModal({
+        title: '退出巡检',
+        content: '已拍内容会保留，下次可继续',
+        confirmText: '退出',
+        cancelText: '继续巡检',
+        success: (r) => {
+          if (r.confirm) this.exitWizard()
+        }
+      })
     },
     /**
      * 回退：上一项 → 凭证步 → 上一点位。
@@ -1247,8 +1355,11 @@ export default {
       saveWizardSnap(this.snapKey, snap)
     },
     exitWizard() {
+      // App 端 navigateBack 会触发 onBackPress，先置放行标记避免被 prevStep 拦截
+      this.forceExit = true
       uni.navigateBack({
         fail: () => {
+          this.forceExit = false
           // 页面栈异常兜底：回任务 tab，避免 navigateBack 静默失败造成假死
           uni.switchTab({ url: '/pages/tasks/today' })
         }
@@ -1294,39 +1405,124 @@ export default {
   padding: 24rpx;
 }
 
-/* 顶部进度区 */
+/* 自定义导航栏 */
+.navbar {
+  position: fixed;
+  left: 0;
+  top: 0;
+  right: 0;
+  z-index: 990;
+}
+
+.navbar-row {
+  height: 88rpx;
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.navbar-side {
+  width: 160rpx;
+  height: 88rpx;
+  flex-direction: row;
+  align-items: center;
+  padding-left: 24rpx;
+}
+
+.navbar-right {
+  justify-content: flex-end;
+  padding-left: 0;
+  padding-right: 32rpx;
+}
+
+.navbar-back {
+  font-size: 64rpx;
+  font-weight: 300;
+  line-height: 64rpx;
+}
+
+.navbar-title {
+  font-size: 36rpx;
+  font-weight: 600;
+}
+
+.navbar-exit {
+  font-size: 32rpx;
+  font-weight: 500;
+}
+
+.navbar-space {
+  height: 88rpx;
+}
+
+/* 顶部进度区：白卡 + 阴影，与页面底色分层 */
 .head {
   border-radius: 24rpx;
   padding: 32rpx;
   margin-bottom: 24rpx;
 }
 
+.head-row {
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+}
+
 .head-progress {
-  font-size: 48rpx;
+  font-size: 44rpx;
   font-weight: 700;
 }
 
-.progress {
-  height: 24rpx;
-  border-radius: 12rpx;
-  overflow: hidden;
-  margin-top: 16rpx;
+.head-item-pill {
+  height: 56rpx;
+  border-radius: 28rpx;
+  align-items: center;
+  justify-content: center;
+  padding: 0 24rpx;
 }
 
-.progress-inner {
-  height: 24rpx;
-  border-radius: 12rpx;
+.head-item-pill-text {
+  font-size: 28rpx;
+  font-weight: 600;
 }
 
 .head-point {
-  font-size: 56rpx;
+  font-size: 48rpx;
   font-weight: 700;
-  margin-top: 24rpx;
+  margin-top: 20rpx;
 }
 
 .head-building {
-  font-size: 32rpx;
+  font-size: 28rpx;
   margin-top: 8rpx;
+}
+
+.head-bar-row {
+  flex-direction: row;
+  align-items: center;
+  margin-top: 24rpx;
+}
+
+.progress {
+  height: 12rpx;
+  border-radius: 6rpx;
+  overflow: hidden;
+}
+
+.head-bar {
+  flex: 1;
+}
+
+.progress-inner {
+  height: 12rpx;
+  border-radius: 6rpx;
+}
+
+.head-bar-text {
+  font-size: 26rpx;
+  margin-left: 16rpx;
+  width: 88rpx;
+  text-align: right;
 }
 
 .card {
@@ -1335,17 +1531,45 @@ export default {
   margin-bottom: 24rpx;
 }
 
-/* 凭证步 */
-.cred-ok {
+/* 凭证步：核验清单 */
+.cred-title {
+  font-size: 36rpx;
+  font-weight: 700;
+  margin-bottom: 8rpx;
+}
+
+.cred-none {
   font-size: 40rpx;
   font-weight: 600;
   text-align: center;
+  padding: 24rpx 0;
 }
 
-.fence-text {
-  font-size: 44rpx;
-  font-weight: 700;
+.cred-row {
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 104rpx;
+  border-bottom-width: 1rpx;
+  border-bottom-style: solid;
+  border-bottom-color: rgba(0, 0, 0, 0.05);
+}
+
+.cred-row-name {
+  font-size: 40rpx;
+  font-weight: 600;
+}
+
+.cred-status {
+  font-size: 32rpx;
+  font-weight: 600;
+}
+
+.start-hint {
+  font-size: 28rpx;
   text-align: center;
+  margin-top: -8rpx;
+  margin-bottom: 24rpx;
 }
 
 .btn-outline {
@@ -1362,13 +1586,10 @@ export default {
   font-weight: 600;
 }
 
-.cred-gap {
-  margin-top: 20rpx;
-}
-
 /* 大按钮 */
 .btn-big {
-  height: 120rpx;
+  width: 100%;
+  height: 140rpx;
   border-radius: 20rpx;
   align-items: center;
   justify-content: center;
@@ -1405,29 +1626,65 @@ export default {
   line-height: 48rpx;
 }
 
-.big-shot {
-  width: 320rpx;
-  height: 320rpx;
-  border-radius: 160rpx;
+/* 拍照项：未拍虚线大框 */
+.shot-empty {
+  width: 100%;
+  height: 360rpx;
+  border-radius: 24rpx;
+  border-width: 3rpx;
+  border-style: dashed;
   align-items: center;
   justify-content: center;
-  margin-top: 48rpx;
+  margin-top: 40rpx;
 }
 
-.big-shot-text {
+.cam-icon {
+  width: 120rpx;
+  height: 96rpx;
+  border-width: 6rpx;
+  border-style: solid;
+  border-radius: 20rpx;
+  align-items: center;
+  justify-content: center;
+}
+
+.cam-lens {
+  width: 40rpx;
+  height: 40rpx;
+  border-width: 6rpx;
+  border-style: solid;
+  border-radius: 20rpx;
+}
+
+.shot-empty-text {
   font-size: 40rpx;
   font-weight: 700;
+  margin-top: 24rpx;
 }
 
-.shot-ok {
-  font-size: 44rpx;
-  font-weight: 700;
-  margin-top: 48rpx;
+/* 拍照项：已拍预览 */
+.shot-preview {
+  width: 100%;
+  height: 480rpx;
+  border-radius: 20rpx;
+  margin-top: 40rpx;
+  overflow: hidden;
+  align-items: center;
+  justify-content: center;
+}
+
+.shot-img {
+  width: 100%;
+  height: 480rpx;
+}
+
+.shot-next {
+  margin-top: 32rpx;
 }
 
 .reshot {
   width: 100%;
-  margin-top: 32rpx;
+  margin-top: 8rpx;
 }
 
 .manual-note {
@@ -1452,16 +1709,44 @@ export default {
   font-weight: 700;
 }
 
-.gate-sub {
-  font-size: 30rpx;
-  margin-top: 12rpx;
+.gate-stats {
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-around;
+  width: 100%;
+  margin-top: 32rpx;
 }
 
-.phase-title {
-  font-size: 56rpx;
+.gate-stat {
+  align-items: center;
+}
+
+.gate-stat-num {
+  font-size: 64rpx;
   font-weight: 700;
-  text-align: center;
-  margin: 24rpx 0;
+}
+
+.gate-stat-label {
+  font-size: 28rpx;
+  margin-top: 8rpx;
+}
+
+.gate-sub {
+  font-size: 30rpx;
+  margin-top: 24rpx;
+}
+
+/* 阶段横幅（补拍 / 异常确认） */
+.banner {
+  border-radius: 24rpx;
+  padding: 32rpx;
+  margin-bottom: 24rpx;
+  align-items: center;
+}
+
+.banner-text {
+  font-size: 48rpx;
+  font-weight: 700;
 }
 
 /* 补拍列表 */
@@ -1469,6 +1754,13 @@ export default {
   flex-direction: row;
   align-items: center;
   justify-content: space-between;
+}
+
+.retake-thumb {
+  width: 120rpx;
+  height: 120rpx;
+  border-radius: 16rpx;
+  margin-right: 24rpx;
 }
 
 .retake-texts {
@@ -1560,18 +1852,11 @@ export default {
   font-weight: 700;
 }
 
-/* 上一项 */
-.prev-link {
-  font-size: 30rpx;
-  padding: 24rpx;
-  align-self: flex-start;
-}
-
 .bottom-space {
   height: 64rpx;
 }
 
-/* 遮盖层 */
+/* 处理中弹窗（居中卡片 + 转圈） */
 .overlay {
   position: fixed;
   left: 0;
@@ -1584,8 +1869,40 @@ export default {
   padding: 48rpx;
 }
 
+.overlay-dialog {
+  width: 520rpx;
+  border-radius: 24rpx;
+  padding: 56rpx 48rpx;
+  align-items: center;
+}
+
+.spinner {
+  width: 72rpx;
+  height: 72rpx;
+  border-radius: 36rpx;
+  border-width: 6rpx;
+  border-style: solid;
+  border-color: rgba(0, 0, 0, 0.08);
+  animation: quick-spin 0.9s linear infinite;
+}
+
+@keyframes quick-spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 .overlay-text {
-  font-size: 56rpx;
+  font-size: 44rpx;
   font-weight: 700;
+  margin-top: 32rpx;
+}
+
+.overlay-sub {
+  font-size: 28rpx;
+  margin-top: 12rpx;
 }
 </style>

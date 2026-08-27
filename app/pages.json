@@ -75,7 +75,8 @@
     {
       "path": "pages/checkin/quick",
       "style": {
-        "navigationBarTitleText": "连续巡检"
+        "navigationBarTitleText": "连续巡检",
+        "navigationStyle": "custom"
       }
     },
     {

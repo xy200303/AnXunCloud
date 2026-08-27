@@ -76,8 +76,7 @@
 
 <script lang="ts">
 import { Colors, ColorTokens } from '@/utils/theme'
-import { apiTaskDetail, TaskPoint } from '@/services/api'
-import { WizardSnap, loadWizardSnap, wizardSnapKey, wizardSnapProgress } from '@/utils/checkinWizard'
+import { apiTaskDetail, apiItemDrafts, ItemDraft, TaskPoint } from '@/services/api'
 
 /** 点位行视图模型：文案/颜色在数据层预计算 */
 type PointView = {
@@ -116,8 +115,8 @@ type DetailData = {
   donePoints: number
   /** AI 识别是否启用（false = 大按钮与点位打卡均回退手动表单） */
   aiEnabled: boolean
-  /** 本地向导快照（有 = 显示「继续巡检」并标注 AI 检查中点位） */
-  snap: WizardSnap | null
+  /** 云端逐项草稿（有 = 显示「继续巡检」并标注 AI 检查中/巡检中点位） */
+  drafts: ItemDraft[]
   points: PointView[]
 }
 
@@ -151,10 +150,13 @@ function patrolTextOf(t: string): string {
   return ''
 }
 
-/** 快照内点位进度档：recognizing=有项 AI 识别中；doing=已拍/已答未提交；''=未开始（不标注） */
+/** 云端草稿点位进度档：recognizing=有项 AI 识别中；doing=已拍/已答未提交；''=未开始（不标注） */
 type SnapStage = 'recognizing' | 'doing' | ''
 
-function toPointView(p: TaskPoint, snapStage: Record<string, SnapStage>): PointView {
+/** 点位项级进度（从云端草稿派生）：stage 进度档 + done 已有结论项数 */
+type DraftStat = { stage: SnapStage; done: number }
+
+function toPointView(p: TaskPoint, draftStats: Record<string, DraftStat>): PointView {
   const ck = p.my_checkin
   let statusText = '待打卡'
   let statusColor = Colors.info
@@ -167,14 +169,15 @@ function toPointView(p: TaskPoint, snapStage: Record<string, SnapStage>): PointV
       statusColor = Colors.success
     }
   } else {
-    const stage = snapStage[p.point_id]
-    if (stage == 'recognizing') {
+    const stat = draftStats[p.point_id]
+    const total = (p.check_items || []).length
+    if (stat != null && stat.stage == 'recognizing') {
       // 有照片在 AI 识别队列中
-      statusText = 'AI 检查中'
+      statusText = total > 0 ? 'AI 检查中 ' + stat.done + '/' + total + ' 项' : 'AI 检查中'
       statusColor = Colors.primary
-    } else if (stage == 'doing') {
+    } else if (stat != null && stat.stage == 'doing') {
       // 已拍/已答但无识别中项（待收尾提交）
-      statusText = '巡检中'
+      statusText = total > 0 ? '巡检中 ' + stat.done + '/' + total + ' 项' : '巡检中'
       statusColor = Colors.warning
     }
   }
@@ -212,7 +215,7 @@ export default {
       totalPoints: 0,
       donePoints: 0,
       aiEnabled: false,
-      snap: null,
+      drafts: [],
       points: [] as PointView[]
     }
   },
@@ -243,23 +246,21 @@ export default {
     hasUnchecked(): boolean {
       return this.points.some((p) => !p.checked)
     },
-    /** 有本地向导快照（含未提交点位）→ 大按钮显示「继续巡检」 */
-    hasSnapshot(): boolean {
-      if (this.snap == null) return false
-      return this.snap.points.some((p) => p.status != 'submitted')
+    /** 有进行中的逐项进度（云端草稿或已打卡点位）→ 大按钮显示「继续巡检」 */
+    hasProgress(): boolean {
+      return this.drafts.length > 0 || this.donePoints > 0
     },
     /** 大按钮文案：继续巡检（带进度）/ 开始连续巡检 / 开始巡检（手动） */
     quickBtnText(): string {
       if (!this.aiEnabled) return '开始巡检'
-      if (this.hasSnapshot && this.snap != null) {
-        const pr = wizardSnapProgress(this.snap)
-        return '继续巡检（已完成 ' + pr.done + '/' + pr.total + ' 点位）'
+      if (this.hasProgress) {
+        return '继续巡检（已完成 ' + this.donePoints + '/' + this.totalPoints + ' 点位）'
       }
       return '开始连续巡检'
     }
   },
   methods: {
-    /** 大按钮入口：AI 启用 → 连续巡检向导（自动恢复本地快照）；未启用 → 手动表单 */
+    /** 大按钮入口：AI 启用 → 连续巡检向导（从云端草稿恢复进度）；未启用 → 手动表单 */
     startQuick() {
       if (!this.aiEnabled) {
         this.goManual()
@@ -286,8 +287,9 @@ export default {
         return
       }
       this.loading = !this.loaded
-      apiTaskDetail(this.taskId)
-        .then((res) => {
+      // 云端逐项草稿：按点位进度分档标注（识别中/巡检中）+ 大按钮续巡进度；草稿失败不阻断任务详情
+      Promise.all([apiTaskDetail(this.taskId), apiItemDrafts(this.taskId).catch(() => [] as ItemDraft[])])
+        .then(([res, drafts]) => {
           this.loading = false
           this.loaded = true
           this.planName = res.plan_name
@@ -302,23 +304,22 @@ export default {
           this.totalPoints = res.total_points
           this.donePoints = res.done_points
           this.aiEnabled = res.ai_enabled ?? false
-          // 本地向导快照：按点位进度分档标注（识别中/巡检中）+ 大按钮续巡进度
-          this.snap = loadWizardSnap(wizardSnapKey(this.taskId))
-          const snapStage: Record<string, SnapStage> = {}
-          if (this.snap != null) {
-            this.snap.points.forEach((sp) => {
-              if (sp.status == 'submitted') return
-              let stage: SnapStage = ''
-              sp.items.forEach((it) => {
-                if (it.status == 'recognizing') stage = 'recognizing'
-                else if (stage == '' && (it.status == 'done' || it.status == 'failed')) stage = 'doing'
-              })
-              // 已核验凭证/围栏也算已开始
-              if (stage == '' && (sp.scannedNo != '' || sp.nfcCardId != '')) stage = 'doing'
-              if (stage != '') snapStage[sp.point_id] = stage
-            })
-          }
-          this.points = res.points.map((p: TaskPoint) => toPointView(p, snapStage))
+          this.drafts = drafts
+          const draftStats: Record<string, DraftStat> = {}
+          drafts.forEach((d) => {
+            let stat = draftStats[d.point_id]
+            if (stat == null) {
+              stat = { stage: '', done: 0 }
+              draftStats[d.point_id] = stat
+            }
+            if (d.ai_status == 'pending') {
+              stat.stage = 'recognizing'
+            } else {
+              if (stat.stage == '') stat.stage = 'doing'
+              if (d.ai_status == 'done') stat.done += 1 // done 含手动项（手动行 ai_status=done）
+            }
+          })
+          this.points = res.points.map((p: TaskPoint) => toPointView(p, draftStats))
           uni.stopPullDownRefresh()
         })
         .catch((e: Error) => {

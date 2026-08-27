@@ -179,9 +179,20 @@ func (ctl *MPController) AIItemJobs(c *gin.Context) {
 	write(c, data, be)
 }
 
-// ItemDrafts GET /checkin/item-drafts?task_id&point_id（逐项识别过程草稿，断点恢复/过程查看用）
+// ItemDrafts GET /checkin/item-drafts?task_id[&point_id]（逐项识别/手动项过程草稿，断点恢复用）
 func (ctl *MPController) ItemDrafts(c *gin.Context) {
 	data, be := ctl.checkin.ItemDrafts(c.Request.Context(), uid(c), c.Query("task_id"), c.Query("point_id"))
+	write(c, data, be)
+}
+
+// SaveManualDraft POST /checkin/item-drafts/manual（手动确认项选择落云端草稿）
+func (ctl *MPController) SaveManualDraft(c *gin.Context) {
+	var req dto.ManualItemDraftReq
+	if be := bind.JSON(c, &req); be != nil {
+		response.Fail(c, be)
+		return
+	}
+	data, be := ctl.checkin.SaveManualDraft(c.Request.Context(), uid(c), &req)
 	write(c, data, be)
 }
 

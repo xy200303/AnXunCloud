@@ -265,6 +265,13 @@ func (s *CheckinService) doCheckinLocked(ctx context.Context, inspectorID string
 	if req.AIConfirmed {
 		s.applyConfirmedAI(&rec, checkItems, req)
 	}
+	// 审核与识别统一：audit_status 完全由识别状态推导。未经 AI 识别（同步判定关闭/离线补传）
+	// 的记录有效性未被机器确认，落库即 pending；事务后 AI 可用则异步补识别（pass/abnormal 自动放行），
+	// AI 未启用则直接待人工审核。识别出确定性结论（含 abnormal）的记录一律 auto_pass。
+	if !useSyncAI && !req.Force && !req.AIConfirmed {
+		rec.AuditStatus = insmodel.AuditPending
+		rec.AIReason = "未经 AI 识别，待复核"
+	}
 
 	overwrite := false // 覆盖修改模式：同任务同点位已有未锁定记录时置真（事务外写操作日志用）
 	var supersededID string
@@ -356,8 +363,8 @@ func (s *CheckinService) doCheckinLocked(ctx context.Context, inspectorID string
 	if s.store.IsLocal() && s.cfgBool("inspection.watermark_enabled", true) {
 		go s.applyWatermarks(&rec, &point, inspectorID)
 	}
-	// AI 审核分支：同步路径（含失败放行/强制提交/逐项识别确认）已定型，不再起异步 goroutine；
-	// 离线补传与 ai.sync_enabled=false 保持原有异步审核路径。
+	// 审核分支（识别即审核）：已完成识别的路径（同步判定/强制提交/逐项识别确认）状态已定型，pending 直接通知；
+	// 未经识别路径：AI 可用 → 异步补识别（pass/abnormal 自动放行，存疑/失败保持 pending 并通知）；AI 未启用 → 直接通知人工审核。
 	switch {
 	case useSyncAI || req.Force || req.AIConfirmed:
 		if rec.AuditStatus == insmodel.AuditPending {
@@ -366,6 +373,8 @@ func (s *CheckinService) doCheckinLocked(ctx context.Context, inspectorID string
 	default:
 		if s.aiCli.Enabled() {
 			go s.aiReview(rec.ID, &point, checkItems, req.Remark, photos)
+		} else {
+			s.notifyAuditors(rec.ID, point.Name, "未启用 AI 识别，转人工审核")
 		}
 	}
 	// 任务进度缓存失效
@@ -396,7 +405,8 @@ func (s *CheckinService) buildReviewInput(point *insmodel.InspectionPoint, items
 // applySyncResult 同步 AI 结果写入待落库记录与逐项快照（随事务一并写入，替代异步回写）：
 // 记录级 ai_verdict/ai_reason/ai_quality_*；逐项 verdict/reason/reading；
 // auto 代判：任一项 abnormal → 整单 abnormal（remark 为空时用 AI 汇总填充），逐项 Pass = verdict!=abnormal；
-// 有 abnormal/review 项或整体 review 时翻 audit_status=pending（事务后通知审核人）。
+// 有明确异常项时记录级 ai_verdict=abnormal（AI 判异常，记录自动通过，后台按正常/异常筛选）；
+// 仅 review 项/整体 review（AI 存疑 = 记录有效性未确认）翻 audit_status=pending。
 func (s *CheckinService) applySyncResult(rec *insmodel.CheckinRecord, items []insmodel.CheckinRecordItem, res *ai.ReviewResult, auto bool) {
 	rec.AIVerdict = res.Verdict
 	rec.AIReason = truncateStr(res.Reason, 500)
@@ -424,11 +434,14 @@ func (s *CheckinService) applySyncResult(rec *insmodel.CheckinRecord, items []in
 			items[i].Pass = iv.Verdict != insmodel.AIVerdictAbnormal
 		}
 		if iv.Verdict == insmodel.AIVerdictAbnormal {
-			hasIssue = true
 			abnormalNotes = append(abnormalNotes, iv.Name+"："+iv.Reason)
 		} else if iv.Verdict == insmodel.AIVerdictReview {
-			hasIssue = true
+			hasIssue = true // AI 存疑 = 记录有效性未确认，转人工复核
 		}
+	}
+	// 有明确异常项：记录级 ai_verdict=abnormal（AI 判异常；不影响放行，记录自动通过）
+	if len(abnormalNotes) > 0 {
+		rec.AIVerdict = insmodel.AIVerdictAbnormal
 	}
 	if auto {
 		if len(abnormalNotes) > 0 {
@@ -449,7 +462,7 @@ func (s *CheckinService) applySyncResult(rec *insmodel.CheckinRecord, items []in
 // （截断规则同 applySyncResult），不再调大模型；
 // 结论取值优先级：服务端 DB 过程草稿（识别时实时落库，防客户端篡改/丢失）> 客户端带回（兜底）；
 // 记录级 ai_verdict 逐项汇总（任一 abnormal/review → review，全 pass → pass，皆无 → 空）；
-// result=abnormal 或任一项 review → audit_status=pending（事务后 notifyAuditors）。
+// abnormal 是巡检成果（记录自动通过）；仅 review 项（AI 存疑，记录有效性未确认）翻 audit_status=pending。
 func (s *CheckinService) applyConfirmedAI(rec *insmodel.CheckinRecord, items []insmodel.CheckinRecordItem, req *dto.CheckinReq) {
 	byName := make(map[string]dto.CheckinItemReq, len(req.CheckItems))
 	for _, ci := range req.CheckItems {
@@ -461,7 +474,7 @@ func (s *CheckinService) applyConfirmedAI(rec *insmodel.CheckinRecord, items []i
 	for _, d := range drafts {
 		draftByName[d.ItemName] = d
 	}
-	passCnt, issueCnt, reviewCnt := 0, 0, 0
+	passCnt, issueCnt, reviewCnt, abnormalCnt := 0, 0, 0, 0
 	for i := range items {
 		var v, r, rd string
 		if d, ok := draftByName[items[i].Name]; ok && d.AIVerdict != nil {
@@ -494,16 +507,20 @@ func (s *CheckinService) applyConfirmedAI(rec *insmodel.CheckinRecord, items []i
 			reviewCnt++
 		case ai.VerdictAbnormal:
 			issueCnt++
+			abnormalCnt++
 		}
 	}
-	// 记录级逐项汇总
+	// 记录级逐项汇总：有明确异常项 → abnormal（AI 判异常）；否则有存疑项 → review；全 pass → pass；皆无 → 空
 	switch {
+	case abnormalCnt > 0:
+		rec.AIVerdict = insmodel.AIVerdictAbnormal
 	case issueCnt > 0:
 		rec.AIVerdict = insmodel.AIVerdictReview
 	case passCnt > 0:
 		rec.AIVerdict = insmodel.AIVerdictPass
 	}
-	if rec.Result == insmodel.ResultAbnormal || reviewCnt > 0 {
+	if reviewCnt > 0 {
+		// AI 存疑 = 记录有效性未确认，转人工复核（abnormal 不翻状态：异常是巡检成果，记录自动通过）
 		rec.AuditStatus = insmodel.AuditPending
 	}
 }
@@ -766,21 +783,24 @@ func (s *CheckinService) applyWatermarks(rec *insmodel.CheckinRecord, point *ins
 	}
 }
 
-// aiReview 异步大模型审核（goroutine 内运行，请求 ctx 已结束故用 Background）：
-// pass 仅回写结论保持 auto_pass；review 转 pending 并通知审核角色用户；失败兜底 ai_verdict=error。
+// aiReview 异步补识别（goroutine 内运行，请求 ctx 已结束故用 Background）。
+// 识别即审核的统一语义：走这条路径的记录落库时未经 AI 识别（audit_status=pending）；
+// 识别出确定性结论（pass，或存在明确异常项 → abnormal）→ 自动放行（仅当仍 pending 且人工未介入，不覆盖人工结论）；
+// review（存疑）→ 保持 pending 并通知审核人；调用失败 → ai_verdict=error 保持 pending 并通知。
 // 逐项结论（模型返回时）落到 checkin_record_item.ai_verdict/ai_reason/ai_reading；
-// 质量判定结果只记 ai_quality_* 字段，不翻状态（异步路径不参与打卡放行）。
+// 质量判定结果只记 ai_quality_* 字段（异步路径不参与打卡放行）。
 func (s *CheckinService) aiReview(recID string, point *insmodel.InspectionPoint, items []insmodel.CheckinRecordItem, remark string, photos types.PhotoArray) {
 	defer func() {
 		if r := recover(); r != nil {
-			logger.L.Error("AI 审核 panic", zap.String("rec_id", recID), zap.Any("panic", r))
+			logger.L.Error("AI 补识别 panic", zap.String("rec_id", recID), zap.Any("panic", r))
 		}
 	}()
 	res, err := s.aiCli.ReviewCheckin(context.Background(), s.buildReviewInput(point, items, remark, photos))
 	if err != nil {
-		logger.L.Warn("AI 审核调用失败", zap.String("rec_id", recID), zap.Error(err))
-		s.db.Model(&insmodel.CheckinRecord{}).Where("id = ?", recID).
+		logger.L.Warn("AI 补识别调用失败", zap.String("rec_id", recID), zap.Error(err))
+		s.db.Model(&insmodel.CheckinRecord{}).Where("id = ? AND audit_status = ?", recID, insmodel.AuditPending).
 			Updates(map[string]any{"ai_verdict": insmodel.AIVerdictError, "ai_reason": truncateStr(err.Error(), 200)})
+		s.notifyAuditors(recID, point.Name, "AI 识别失败，转人工审核")
 		return
 	}
 	writeItemVerdicts(s.db, recID, res.Items)
@@ -788,20 +808,33 @@ func (s *CheckinService) aiReview(recID string, point *insmodel.InspectionPoint,
 		"ai_quality_pass":  res.Quality.Pass,
 		"ai_quality_issue": truncateStr(res.Quality.Issue, 255),
 	}
+	// 有明确异常项：记录级 ai_verdict=abnormal（AI 判异常；异常是巡检成果，同样自动放行）
+	hasAbnormalItem := false
+	for _, iv := range res.Items {
+		if iv.Verdict == insmodel.AIVerdictAbnormal {
+			hasAbnormalItem = true
+			break
+		}
+	}
 	if res.Verdict == insmodel.AIVerdictPass {
 		quality["ai_verdict"] = insmodel.AIVerdictPass
+		if hasAbnormalItem {
+			quality["ai_verdict"] = insmodel.AIVerdictAbnormal
+		}
 		quality["ai_reason"] = truncateStr(res.Reason, 500)
-		s.db.Model(&insmodel.CheckinRecord{}).Where("id = ?", recID).Updates(quality)
+		// 识别成功 = 记录有效：自动放行（audit_step=0 确保人工未介入，不覆盖人工结论）
+		quality["audit_status"] = insmodel.AuditAutoPass
+		s.db.Model(&insmodel.CheckinRecord{}).Where("id = ? AND audit_status = ? AND audit_step = 0", recID, insmodel.AuditPending).
+			Updates(quality)
 		return
 	}
-	// review → 转人工审核并通知审核角色（并发下仅 auto_pass 可翻转，避免覆盖人工结论）
+	// review（存疑）→ 记录有效性未确认，保持 pending 并通知审核角色
 	quality["ai_verdict"] = insmodel.AIVerdictReview
 	quality["ai_reason"] = truncateStr(res.Reason, 500)
-	quality["audit_status"] = insmodel.AuditPending
-	res2 := s.db.Model(&insmodel.CheckinRecord{}).Where("id = ? AND audit_status = ?", recID, insmodel.AuditAutoPass).
+	res2 := s.db.Model(&insmodel.CheckinRecord{}).Where("id = ? AND audit_status = ?", recID, insmodel.AuditPending).
 		Updates(quality)
 	if res2.Error != nil {
-		logger.L.Warn("AI 审核回写失败", zap.String("rec_id", recID), zap.Error(res2.Error))
+		logger.L.Warn("AI 补识别回写失败", zap.String("rec_id", recID), zap.Error(res2.Error))
 		return
 	}
 	if res2.RowsAffected > 0 {

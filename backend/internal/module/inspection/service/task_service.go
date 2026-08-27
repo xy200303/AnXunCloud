@@ -194,6 +194,27 @@ func (s *TaskService) Detail(c *gin.Context, id string) (gin.H, *errs.Error) {
 	}
 	// 任务点位名单：任务快照优先（by_point_types 圈选/轮次任务均落快照），空回落计划名单（存量任务）
 	pointIDs := model.TaskPointIDs(&t, &plan)
+	// 项级进度派生：过程草稿按点位聚合（done=已有结论[含手动项]，recognizing=AI 识别中，failed=识别失败待重拍）；
+	// 总项数取点位模板当前项数（观测层数据，模板中途变更只影响展示，不影响正式记录）
+	var drafts []model.CheckinItemDraft
+	s.db.Select("point_id", "ai_status").Where("task_id = ?", t.ID).Find(&drafts)
+	type draftAgg struct{ done, recognizing, failed int }
+	aggByPoint := map[string]*draftAgg{}
+	for _, d := range drafts {
+		a := aggByPoint[d.PointID]
+		if a == nil {
+			a = &draftAgg{}
+			aggByPoint[d.PointID] = a
+		}
+		switch d.AIStatus {
+		case model.ItemDraftPending:
+			a.recognizing++
+		case model.ItemDraftFailed:
+			a.failed++
+		default:
+			a.done++
+		}
+	}
 	points := make([]gin.H, 0, len(pointIDs))
 	for i, pid := range pointIDs {
 		var pt model.InspectionPoint
@@ -207,14 +228,26 @@ func (s *TaskService) Detail(c *gin.Context, id string) (gin.H, *errs.Error) {
 				buildingName = b.Name
 			}
 		}
+		itemTotal := 0
+		if pt.TemplateID != nil && *pt.TemplateID != "" {
+			var cnt int64
+			s.db.Model(&model.CheckTemplateItem{}).Where("template_id = ?", *pt.TemplateID).Count(&cnt)
+			itemTotal = int(cnt)
+		}
 		entry := gin.H{
 			"point_id": pt.ID, "point_name": pt.Name, "building_name": buildingName,
 			"sort": i + 1, "credential": pt.Credential, "require_fence": pt.RequireFence,
-			"status": "pending", "checkin": nil,
+			"status": "pending", "checkin": nil, "item_total": itemTotal,
 		}
 		if ck, ok := byPoint[pid]; ok {
 			entry["status"] = "done"
 			entry["checkin"] = checkinBrief(s.db, ck)
+		} else if a := aggByPoint[pid]; a != nil {
+			// 巡检中：有过程草稿但尚未提交
+			entry["status"] = "doing"
+			entry["item_done"] = a.done
+			entry["item_recognizing"] = a.recognizing
+			entry["item_failed"] = a.failed
 		}
 		points = append(points, entry)
 	}

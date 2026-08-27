@@ -284,6 +284,7 @@ function aiVerdictTag(v: string): { label: string; type: 'info' | 'warning' | 's
     {
       pass: { label: '大模型通过', type: 'success' },
       review: { label: '转人工', type: 'warning' },
+      abnormal: { label: 'AI 判异常', type: 'danger' },
       error: { label: '审核失败', type: 'info' }
     }[v] || { label: v, type: 'info' }
   ) as { label: string; type: 'info' | 'warning' | 'success' | 'danger' }

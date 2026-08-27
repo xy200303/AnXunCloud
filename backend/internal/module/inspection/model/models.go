@@ -63,22 +63,22 @@ const (
 const (
 	AIVerdictPass     = "pass"
 	AIVerdictReview   = "review"
-	AIVerdictAbnormal = "abnormal" // 逐项结论专用：确认存在明确异常
+	AIVerdictAbnormal = "abnormal" // AI 确认存在明确异常（逐项结论；记录级=存在明确异常项）
 	AIVerdictError    = "error"
 )
 
 // CheckTemplate 检查项模板（point_type 空为通用；检查项见 check_template_item 独立表）。
 type CheckTemplate struct {
 	types.UUIDModel
-	TenantID  *string `gorm:"type:uuid" json:"tenant_id"` // 冗余列（查询按点位/项目链路隔离）
-	Name      string `gorm:"size:128" json:"name"`
-	PointType string `gorm:"size:32" json:"point_type"`
-	Sort      int    `json:"sort"`
-	Status    string `gorm:"size:16" json:"status"`
-	Remark    string `gorm:"size:255" json:"remark"`
-	CreatedAt time.Time `json:"created_at"`
-	UpdatedAt time.Time `json:"updated_at"`
-	DeletedAt gorm.DeletedAt          `json:"-"`
+	TenantID  *string        `gorm:"type:uuid" json:"tenant_id"` // 冗余列（查询按点位/项目链路隔离）
+	Name      string         `gorm:"size:128" json:"name"`
+	PointType string         `gorm:"size:32" json:"point_type"`
+	Sort      int            `json:"sort"`
+	Status    string         `gorm:"size:16" json:"status"`
+	Remark    string         `gorm:"size:255" json:"remark"`
+	CreatedAt time.Time      `json:"created_at"`
+	UpdatedAt time.Time      `json:"updated_at"`
+	DeletedAt gorm.DeletedAt `json:"-"`
 }
 
 func (CheckTemplate) TableName() string { return "check_template" }
@@ -89,17 +89,17 @@ type CheckTemplateItem struct {
 	TemplateID string `gorm:"type:uuid" json:"template_id"`
 	Name       string `gorm:"size:128" json:"name"`
 	// Requirement 检查标准要求文本（可空）
-	Requirement   *string   `gorm:"type:text" json:"requirement"`
+	Requirement *string `gorm:"type:text" json:"requirement"`
 	// AIHint AI 识别要点文本（可空；空=该项不带识别要点，§3.3）
-	AIHint        *string   `gorm:"type:text" json:"ai_hint"`
+	AIHint *string `gorm:"type:text" json:"ai_hint"`
 	// JudgeType 判定类型（general/presence/damage/metric/state/label/passage/leak/indicator/tidiness/baseline）
-	JudgeType   string        `gorm:"size:24;default:general" json:"judge_type"`
+	JudgeType string `gorm:"size:24;default:general" json:"judge_type"`
 	// JudgeConfig 判定参数（metric: {metric,unit,min,max}；state/indicator: {expected}），NULL 按通用判定
-	JudgeConfig types.JSONMap `gorm:"type:jsonb" json:"judge_config"`
-	Required      bool      `json:"required"`
-	PhotoRequired string    `gorm:"size:16" json:"photo_required"` // none/optional/required
-	Sort          int       `json:"sort"`
-	CreatedAt     time.Time `json:"created_at"`
+	JudgeConfig   types.JSONMap `gorm:"type:jsonb" json:"judge_config"`
+	Required      bool          `json:"required"`
+	PhotoRequired string        `gorm:"size:16" json:"photo_required"` // none/optional/required
+	Sort          int           `json:"sort"`
+	CreatedAt     time.Time     `json:"created_at"`
 }
 
 func (CheckTemplateItem) TableName() string { return "check_template_item" }
@@ -126,8 +126,8 @@ type InspectionPoint struct {
 	TenantID           *string           `gorm:"type:uuid" json:"tenant_id"` // 冗余列（=所属小区租户）
 	CommunityID        string            `gorm:"type:uuid" json:"community_id"`
 	BuildingID         *string           `gorm:"type:uuid" json:"building_id"`
-	UnitNo             *int              `json:"unit_no"`                    // 单元号（NULL=不分单元/非楼栋点位）
-	Floor              *int              `json:"floor"`                      // 楼层（负数=地下层，-1 即 B1；NULL=非楼栋点位）
+	UnitNo             *int              `json:"unit_no"` // 单元号（NULL=不分单元/非楼栋点位）
+	Floor              *int              `json:"floor"`   // 楼层（负数=地下层，-1 即 B1；NULL=非楼栋点位）
 	Name               string            `gorm:"size:128" json:"name"`
 	Type               string            `gorm:"size:32" json:"type"`
 	QRCodeNo           string            `gorm:"column:qrcode_no;size:64" json:"qrcode_no"`
@@ -174,9 +174,9 @@ type InspectionPlan struct {
 	PointTypes    types.StringArray `gorm:"type:jsonb" json:"point_types"` // 圈选点位类型（by_point_types 时必填）
 	Status        string            `gorm:"size:16" json:"status"`
 	Remark        string            `gorm:"size:255" json:"remark"`
-	CreatedAt    time.Time     `json:"created_at"`
-	UpdatedAt    time.Time     `json:"updated_at"`
-	DeletedAt    gorm.DeletedAt `json:"-"`
+	CreatedAt     time.Time         `json:"created_at"`
+	UpdatedAt     time.Time         `json:"updated_at"`
+	DeletedAt     gorm.DeletedAt    `json:"-"`
 }
 
 func (InspectionPlan) TableName() string { return "inspection_plan" }
@@ -227,17 +227,17 @@ func PlanDailyMinRounds(cfg types.JSONMap) *int {
 // InspectionTask 巡检任务
 type InspectionTask struct {
 	types.UUIDModel
-	TenantID    *string        `gorm:"type:uuid" json:"tenant_id"` // 冗余列（=所属小区租户，生成时从计划带上）
-	PlanID      string         `gorm:"type:uuid" json:"plan_id"`
-	CommunityID string         `gorm:"type:uuid" json:"community_id"`
-	InspectorID string         `gorm:"type:uuid" json:"inspector_id"`
-	PatrolType  string         `gorm:"size:16" json:"patrol_type"` // 巡查类型（生成时从计划快照）
-	TaskDate    time.Time      `gorm:"type:date" json:"task_date"`
+	TenantID    *string   `gorm:"type:uuid" json:"tenant_id"` // 冗余列（=所属小区租户，生成时从计划带上）
+	PlanID      string    `gorm:"type:uuid" json:"plan_id"`
+	CommunityID string    `gorm:"type:uuid" json:"community_id"`
+	InspectorID string    `gorm:"type:uuid" json:"inspector_id"`
+	PatrolType  string    `gorm:"size:16" json:"patrol_type"` // 巡查类型（生成时从计划快照）
+	TaskDate    time.Time `gorm:"type:date" json:"task_date"`
 	// RoundName/TimeWindow 巡更轮次快照（非轮次任务为空；TimeWindow 空时展示/统计回落计划 time_window）
 	RoundName  string `gorm:"size:32" json:"round_name"`
 	TimeWindow string `gorm:"size:32" json:"time_window"`
 	// PointIDs 任务点位名单快照（生成时展开；计划更新会同步未完成任务，空则回落计划名单）
-	PointIDs    types.IDArray `gorm:"type:jsonb" json:"point_ids"`
+	PointIDs    types.IDArray  `gorm:"type:jsonb" json:"point_ids"`
 	Status      string         `gorm:"size:16" json:"status"`
 	TotalPoints int            `json:"total_points"`
 	DonePoints  int            `json:"done_points"`
@@ -269,40 +269,40 @@ func TaskTimeWindow(t *InspectionTask, p *InspectionPlan) string {
 // CheckinRecord 打卡记录（按月分区；主键 id+created_at；id 支持客户端 UUIDv7 幂等写入）
 type CheckinRecord struct {
 	types.UUIDModel
-	TenantID        *string             `gorm:"type:uuid" json:"tenant_id"` // 冗余列（=所属小区租户，打卡时从任务带上）
-	TaskID          string              `gorm:"type:uuid" json:"task_id"`
-	PointID         string              `gorm:"type:uuid" json:"point_id"`
-	InspectorID     string              `gorm:"type:uuid" json:"inspector_id"`
-	CommunityID     string              `gorm:"type:uuid" json:"community_id"`
-	CheckinTime     time.Time           `json:"checkin_time"`
-	ClientTime      *time.Time          `json:"client_time"`
-	Longitude       *float64            `gorm:"type:numeric(10,7)" json:"longitude"`
-	Latitude        *float64            `gorm:"type:numeric(10,7)" json:"latitude"`
-	DistanceToPoint *float64            `gorm:"type:numeric(10,2)" json:"distance_to_point"`
-	CheckinType     string              `gorm:"size:16" json:"checkin_type"`
-	Photos          types.PhotoArray    `gorm:"type:jsonb" json:"photos"`
-	Result          string              `gorm:"size:16" json:"result"`
-	Remark          string              `gorm:"size:512" json:"remark"`
-	IsOfflineSync   bool                `json:"is_offline_sync"`
-	IsSuspect       bool                `json:"is_suspect"`
-	SuspectReason   string              `gorm:"size:255" json:"suspect_reason"`
-	AuditStatus     string              `gorm:"size:16" json:"audit_status"`
-	AuditStep       int16               `json:"audit_step"` // 审批链当前进度：已通过环节数（0=待第 1 环节，扩展方案 §3）
-	AuditBy         *string             `gorm:"type:uuid" json:"audit_by"`
-	AuditAt         *time.Time          `json:"audit_at"`
-	AuditRemark     string              `gorm:"size:512" json:"audit_remark"`
-	AIVerdict       string              `gorm:"size:16" json:"ai_verdict"`
-	AIReason        string              `gorm:"size:512" json:"ai_reason"`
+	TenantID        *string          `gorm:"type:uuid" json:"tenant_id"` // 冗余列（=所属小区租户，打卡时从任务带上）
+	TaskID          string           `gorm:"type:uuid" json:"task_id"`
+	PointID         string           `gorm:"type:uuid" json:"point_id"`
+	InspectorID     string           `gorm:"type:uuid" json:"inspector_id"`
+	CommunityID     string           `gorm:"type:uuid" json:"community_id"`
+	CheckinTime     time.Time        `json:"checkin_time"`
+	ClientTime      *time.Time       `json:"client_time"`
+	Longitude       *float64         `gorm:"type:numeric(10,7)" json:"longitude"`
+	Latitude        *float64         `gorm:"type:numeric(10,7)" json:"latitude"`
+	DistanceToPoint *float64         `gorm:"type:numeric(10,2)" json:"distance_to_point"`
+	CheckinType     string           `gorm:"size:16" json:"checkin_type"`
+	Photos          types.PhotoArray `gorm:"type:jsonb" json:"photos"`
+	Result          string           `gorm:"size:16" json:"result"`
+	Remark          string           `gorm:"size:512" json:"remark"`
+	IsOfflineSync   bool             `json:"is_offline_sync"`
+	IsSuspect       bool             `json:"is_suspect"`
+	SuspectReason   string           `gorm:"size:255" json:"suspect_reason"`
+	AuditStatus     string           `gorm:"size:16" json:"audit_status"`
+	AuditStep       int16            `json:"audit_step"` // 审批链当前进度：已通过环节数（0=待第 1 环节，扩展方案 §3）
+	AuditBy         *string          `gorm:"type:uuid" json:"audit_by"`
+	AuditAt         *time.Time       `json:"audit_at"`
+	AuditRemark     string           `gorm:"size:512" json:"audit_remark"`
+	AIVerdict       string           `gorm:"size:16" json:"ai_verdict"`
+	AIReason        string           `gorm:"size:512" json:"ai_reason"`
 	// ForceSubmit 重拍次数用尽后强制提交（跳过同步 AI 判定，转人工复核）
-	ForceSubmit    bool  `json:"force_submit"`
+	ForceSubmit bool `json:"force_submit"`
 	// AIQualityPass/AIQualityIssue AI 照片质量判定（第一层）；AIQualityPass 为 NULL=未做质量判定
 	AIQualityPass  *bool  `json:"ai_quality_pass"`
 	AIQualityIssue string `gorm:"size:255" json:"ai_quality_issue"`
 	// LockedAt 报告归档锁定时间（非空=已随周期报告归档，该点位不可覆盖修改）
 	LockedAt *time.Time `json:"locked_at"`
 	// SupersededBy 覆盖修改：被哪条新记录覆盖（非空=已被覆盖的旧记录，列表/统计过滤）
-	SupersededBy    *string   `gorm:"type:varchar(36)" json:"superseded_by"`
-	CreatedAt       time.Time `gorm:"primaryKey" json:"created_at"`
+	SupersededBy *string   `gorm:"type:varchar(36)" json:"superseded_by"`
+	CreatedAt    time.Time `gorm:"primaryKey" json:"created_at"`
 }
 
 func (CheckinRecord) TableName() string { return "checkin_record" }
@@ -318,18 +318,18 @@ type CheckinRecordItem struct {
 	Name           string  `gorm:"size:128" json:"name"`
 	Requirement    *string `gorm:"type:text" json:"requirement"`
 	// AIHint AI 识别要点快照（打卡当时从模板项复制，与 name/requirement 同机制）
-	AIHint         *string `gorm:"type:text" json:"ai_hint"`
+	AIHint *string `gorm:"type:text" json:"ai_hint"`
 	// JudgeType/JudgeConfig 判定类型与参数快照（打卡当时从模板项复制）
-	JudgeType      string        `gorm:"size:24;default:general" json:"judge_type"`
-	JudgeConfig    types.JSONMap `gorm:"type:jsonb" json:"judge_config"`
-	PhotoRequired  string  `gorm:"size:16" json:"photo_required"` // none/optional/required
-	Pass           bool    `json:"pass"`
-	Note           string  `gorm:"size:512" json:"note"`
+	JudgeType     string        `gorm:"size:24;default:general" json:"judge_type"`
+	JudgeConfig   types.JSONMap `gorm:"type:jsonb" json:"judge_config"`
+	PhotoRequired string        `gorm:"size:16" json:"photo_required"` // none/optional/required
+	Pass          bool          `json:"pass"`
+	Note          string        `gorm:"size:512" json:"note"`
 	// Photos 该项照片 file_key 数组（JSONB，不再拆表）
 	Photos types.StringArray `gorm:"type:jsonb" json:"photos"`
 	// AIVerdict/AIReason 逐项大模型结论（预留；模型未返回逐项结论时为空）
-	AIVerdict *string   `gorm:"size:16" json:"ai_verdict"`
-	AIReason  *string   `gorm:"size:512" json:"ai_reason"`
+	AIVerdict *string `gorm:"size:16" json:"ai_verdict"`
+	AIReason  *string `gorm:"size:512" json:"ai_reason"`
 	// AIReading AI 读取的表计读数文本（metric 类检查项；NULL=无读数）
 	AIReading *string   `gorm:"size:64" json:"ai_reading"`
 	Sort      int       `json:"sort"`
@@ -364,8 +364,11 @@ type CheckinItemDraft struct {
 	AIReading    *string           `gorm:"size:64" json:"ai_reading"`
 	QualityPass  *bool             `json:"quality_pass"`
 	QualityIssue string            `gorm:"size:255" json:"quality_issue"`
-	CreatedAt    time.Time         `json:"created_at"`
-	UpdatedAt    time.Time         `json:"updated_at"`
+	// ManualPass/ManualNote 手动确认项（感官项）的选择结果；NULL=非手动项/未选择
+	ManualPass *bool     `json:"manual_pass"`
+	ManualNote string    `gorm:"size:512" json:"manual_note"`
+	CreatedAt  time.Time `json:"created_at"`
+	UpdatedAt  time.Time `json:"updated_at"`
 }
 
 func (CheckinItemDraft) TableName() string { return "checkin_item_draft" }

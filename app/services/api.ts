@@ -936,8 +936,9 @@ export function apiAiItemJobs(ids: string[]): Promise<AiItemJob[]> {
   })
 }
 
-/** 逐项识别过程草稿（GET /checkin/item-drafts 元素）：服务端实时落库的逐项进度 */
+/** 逐项过程草稿（GET /checkin/item-drafts 元素）：云端保存的逐项进度（巡检进度的唯一事实来源） */
 export interface ItemDraft {
+  point_id: string
   item_name: string
   job_id: string
   file_keys: string[]
@@ -948,17 +949,20 @@ export interface ItemDraft {
   ai_reading: string
   quality_pass: boolean
   quality_issue: string
+  manual_pass: boolean | null
+  manual_note: string
 }
 
-/** 查询点位逐项识别过程草稿 GET /checkin/item-drafts?task_id&point_id（断点恢复用） */
-export function apiItemDrafts(taskId: string, pointId: string): Promise<ItemDraft[]> {
+/** 查询逐项过程草稿 GET /checkin/item-drafts?task_id[&point_id]（pointId 空=整个任务；断点恢复用） */
+export function apiItemDrafts(taskId: string, pointId?: string): Promise<ItemDraft[]> {
   return new Promise<ItemDraft[]>((resolve, reject) => {
-    httpGet<{ items?: any[] }>(
-      '/checkin/item-drafts?task_id=' + encodeURIComponent(taskId) + '&point_id=' + encodeURIComponent(pointId)
-    )
+    let url = '/checkin/item-drafts?task_id=' + encodeURIComponent(taskId)
+    if (pointId != null && pointId != '') url += '&point_id=' + encodeURIComponent(pointId)
+    httpGet<{ items?: any[] }>(url)
       .then((d) => {
         resolve(
           (d?.items ?? []).map((it) => ({
+            point_id: it.point_id ?? '',
             item_name: it.item_name ?? '',
             job_id: it.job_id ?? '',
             file_keys: it.file_keys ?? [],
@@ -968,10 +972,21 @@ export function apiItemDrafts(taskId: string, pointId: string): Promise<ItemDraf
             ai_reason: it.ai_reason ?? '',
             ai_reading: it.ai_reading ?? '',
             quality_pass: it.quality_pass ?? true,
-            quality_issue: it.quality_issue ?? ''
+            quality_issue: it.quality_issue ?? '',
+            manual_pass: it.manual_pass ?? null,
+            manual_note: it.manual_note ?? ''
           }))
         )
       })
+      .catch(reject)
+  })
+}
+
+/** 手动确认项选择落云端草稿 POST /checkin/item-drafts/manual */
+export function apiItemDraftManual(req: { task_id: string; point_id: string; name: string; pass: boolean; note: string }): Promise<void> {
+  return new Promise<void>((resolve, reject) => {
+    httpPost('/checkin/item-drafts/manual', req as unknown as Record<string, any>)
+      .then(() => resolve())
       .catch(reject)
   })
 }

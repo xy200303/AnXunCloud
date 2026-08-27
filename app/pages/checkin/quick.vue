@@ -112,7 +112,10 @@
           <!-- 已拍：缩略图 + 状态角标 -->
           <block v-else>
             <view class="shot-preview" :style="{ backgroundColor: colors.bgPage }" @click="previewCurPhoto">
-              <image v-if="curItem.photos.length > 0" :src="curItem.photos[0]" class="shot-img" mode="aspectFill" />
+              <image v-if="curItem.photos.length > 0 && !curItem.img_error" :src="curItem.photos[0]" class="shot-img" mode="aspectFill" @error="curItem.img_error = true" />
+              <view v-else class="shot-img shot-img-fallback">
+                <text class="shot-img-fallback-text">照片加载失败，可重新拍</text>
+              </view>
             </view>
             <view class="btn-big shot-next" :style="{ backgroundColor: colors.success }" @click="nextStep">
               <text class="btn-big-text" :style="{ color: colors.white }">下一项</text>
@@ -178,7 +181,7 @@
           <text class="banner-text" :style="{ color: colors.white }">⚠ 这几项要重新拍</text>
         </view>
         <view v-for="(it, i) in retakeItems" :key="i" class="card retake-card" :style="{ backgroundColor: colors.bgCard, boxShadow: shadow }">
-          <image v-if="it.photos.length > 0" :src="it.photos[0]" class="retake-thumb" mode="aspectFill" @click="previewPhoto(it)" />
+          <image v-if="it.photos.length > 0 && !it.img_error" :src="it.photos[0]" class="retake-thumb" mode="aspectFill" @click="previewPhoto(it)" @error="it.img_error = true" />
           <view class="retake-texts">
             <text class="retake-name" :style="{ color: colors.textPrimary }">{{ it.name }}</text>
             <text class="retake-issue" :style="{ color: colors.danger }">{{ retakeIssue(it) }}</text>
@@ -258,23 +261,16 @@ import {
   apiAiItemJobCreate,
   apiAiItemJobs,
   apiItemDrafts,
+  apiItemDraftManual,
   CODE_AI_DISABLED,
   CODE_CHECKIN_LOCKED,
+  ItemDraft,
   TaskPoint
 } from '@/services/api'
 import { isNfcSupported, readCardOnce, toastNfcUnavailable } from '@/utils/nfc'
 import { getLocationGcj02 } from '@/utils/geo'
 import { playVoice } from '@/utils/voice'
-import {
-  WizardSnap,
-  WizardPointSnap,
-  WizardItemSnap,
-  wizardSnapKey,
-  wizardModifySnapKey,
-  loadWizardSnap,
-  saveWizardSnap,
-  clearWizardSnap
-} from '@/utils/checkinWizard'
+import { WizardPointSnap, WizardItemSnap } from '@/utils/checkinWizard'
 
 /** 向导阶段：cred 凭证 / items 逐项 / gate 提交本点位 / retake 补拍 / abnormal 异常确认 / pointDone 点位完成 / taskDone 任务完成 */
 type Phase = 'cred' | 'items' | 'gate' | 'retake' | 'abnormal' | 'pointDone' | 'taskDone'
@@ -331,7 +327,6 @@ type QuickData = {
   pollTimer: any
   /** 页面已卸载（停止轮询回调写状态） */
   destroyed: boolean
-  snapKey: string
   /** 遮罩看门狗定时器 */
   overlayWatchdog: any
   /** 手动退出放行标记（exitWizard 时 onBackPress 不拦截） */
@@ -439,7 +434,6 @@ export default {
       submitting: false,
       pollTimer: null,
       destroyed: false,
-      snapKey: '',
       /** 遮罩看门狗定时器 */
       overlayWatchdog: null,
       forceExit: false
@@ -574,7 +568,6 @@ export default {
     if (this.phase == 'retake' || this.phase == 'abnormal') {
       // 收尾页返回 = 回到提交本点位
       this.phase = 'gate'
-      this.persist()
       return true
     }
     // 到起点（第一点位第一步）时 prevStep 返回 false：放行系统默认返回退出向导。
@@ -624,7 +617,7 @@ export default {
           this.errorMsg = e.message
         })
     },
-    /** 修改模式：单点位，预填已有内容，提交走覆盖语义 */
+    /** 修改模式：单点位，凭已有打卡逐项结论预填，提交走覆盖语义 */
     initModify() {
       const pt = this.taskPoints.find((p) => p.point_id == this.pointIdParam)
       if (pt == null) {
@@ -642,51 +635,24 @@ export default {
         this.errorMsg = '已归档，不可修改'
         return
       }
-      this.snapKey = wizardModifySnapKey(this.taskId, pt.point_id)
-      const snap = loadWizardSnap(this.snapKey)
-      if (snap != null && snap.points.length > 0 && snap.points[0].point_id == pt.point_id) {
-        this.wizPoints = snap.points
-        this.pointIdx = 0
-        this.itemIdx = snap.itemIdx
-      } else {
-        this.wizPoints = [freshPoint(pt)]
-        this.pointIdx = 0
-        this.itemIdx = 0
-        // 预填：凭已有打卡逐项结论回填（best-effort，照片无法复原需重拍）
-        this.prefillModify(pt.my_checkin.id)
-      }
+      this.wizPoints = [freshPoint(pt)]
+      this.pointIdx = 0
+      this.itemIdx = 0
+      // 预填：凭已有打卡逐项结论回填（best-effort，照片无法复原需重拍）
+      this.prefillModify(pt.my_checkin.id)
       this.finishInit()
     },
-    /** 普通模式：全部未打卡点位；有本地快照直接恢复（继续巡检） */
+    /** 普通模式：全部未打卡点位；逐项进度完全从云端草稿重建（本地不存快照） */
     initNormal() {
-      this.snapKey = wizardSnapKey(this.taskId)
-      const snap = loadWizardSnap(this.snapKey)
-      let resumed = false
-      if (snap != null && !snap.modify) {
-        // 与服务端对账：仅保留仍存在且未打卡的点位
-        const alive = snap.points.filter((wp) => {
-          if (wp.status == 'submitted') return false
-          const pt = this.taskPoints.find((p) => p.point_id == wp.point_id)
-          return pt != null && pt.my_checkin == null
-        })
-        if (alive.length > 0) {
-          this.wizPoints = alive
-          this.pointIdx = Math.min(Math.max(snap.pointIdx, 0), alive.length - 1)
-          this.itemIdx = Math.max(snap.itemIdx, 0)
-          resumed = true
-        }
+      const rest = this.taskPoints.filter((p) => p.my_checkin == null)
+      if (rest.length == 0) {
+        this.loading = false
+        this.errorMsg = '本任务已全部打卡'
+        return
       }
-      if (!resumed) {
-        const rest = this.taskPoints.filter((p) => p.my_checkin == null)
-        if (rest.length == 0) {
-          this.loading = false
-          this.errorMsg = '本任务已全部打卡'
-          return
-        }
-        this.wizPoints = rest.map((p) => freshPoint(p))
-        this.pointIdx = 0
-        this.itemIdx = 0
-      }
+      this.wizPoints = rest.map((p) => freshPoint(p))
+      this.pointIdx = 0
+      this.itemIdx = 0
       // 扫码进入：预核验编号写到匹配点位上
       if (this.preVerifiedNo != '') {
         this.wizPoints.forEach((wp) => {
@@ -698,18 +664,7 @@ export default {
       }
       // 点位清单指定进入：从该点位开始，余下点位按顺序继续
       if (this.pointIdParam != '') {
-        let startIdx = this.wizPoints.findIndex((wp) => wp.point_id == this.pointIdParam)
-        if (startIdx < 0) {
-          // 快照中不含该点位（快照过时）：以用户选择为准，按未打卡点位重建
-          const rest = this.taskPoints.filter((p) => p.my_checkin == null)
-          if (rest.length == 0) {
-            this.loading = false
-            this.errorMsg = '本任务已全部打卡'
-            return
-          }
-          this.wizPoints = rest.map((p) => freshPoint(p))
-          startIdx = this.wizPoints.findIndex((wp) => wp.point_id == this.pointIdParam)
-        }
+        const startIdx = this.wizPoints.findIndex((wp) => wp.point_id == this.pointIdParam)
         if (startIdx >= 0) {
           this.pointIdx = startIdx
           this.itemIdx = 0
@@ -718,12 +673,24 @@ export default {
       this.finishInit()
     },
     finishInit() {
-      this.loading = false
-      this.loaded = true
       this.clampIndices()
-      // 服务端草稿恢复（识别中项的 job 对账在草稿合并完成后统一做）
-      this.restoreDrafts()
-      this.enterPoint(true)
+      // 云端草稿重建逐项进度（唯一事实来源）→ 定位首个未完成项 → 展示
+      this.restoreDrafts().then(() => {
+        if (this.destroyed) return
+        if (!this.modify) this.positionAtFirstIncomplete()
+        // 识别中的项凭 job_id 批量查一次：仍 pending 留待收尾轮询；failed/过期回退待拍
+        this.reconcileJobs()
+        this.loading = false
+        this.loaded = true
+        this.enterPoint(true)
+      })
+    },
+    /** 草稿重建后定位到当前点位首个未完成项（全部完成但未提交 → 停在收尾步） */
+    positionAtFirstIncomplete() {
+      const wp = this.curWizPoint
+      if (wp == null) return
+      const i = wp.items.findIndex((it) => it.status != 'done')
+      this.itemIdx = i >= 0 ? i : wp.items.length
     },
     clampIndices() {
       if (this.pointIdx >= this.wizPoints.length) this.pointIdx = this.wizPoints.length - 1
@@ -733,22 +700,37 @@ export default {
       if (this.itemIdx > wp.items.length) this.itemIdx = wp.items.length
       if (this.itemIdx < 0) this.itemIdx = 0
     },
-    /** 服务端逐项草稿恢复：本地仍为待拍的项用服务端实时落库的草稿回填（照片+识别结论），
-     *  换设备/清缓存/快照丢失也能接着巡检；本地已有状态优先（更接近最新操作）。
-     *  全部点位合并完成后统一做识别中 job 对账（reconcileJobs） */
-    restoreDrafts() {
-      const jobs = this.wizPoints.map((wp) =>
-        apiItemDrafts(this.taskId, wp.point_id)
-          .then((drafts) => {
-            if (this.destroyed) return
-            let touched = false
-            drafts.forEach((d) => {
+    /** 云端草稿重建：逐项照片/AI 结论/手动项选择全部来自服务端草稿（巡检进度的唯一事实来源，
+     *  本地不存快照）；一次拉取整个任务的草稿按点位分组套用 */
+    restoreDrafts(): Promise<void> {
+      return apiItemDrafts(this.taskId)
+        .then((drafts) => {
+          if (this.destroyed) return
+          const byPoint: Record<string, ItemDraft[]> = {}
+          drafts.forEach((d) => {
+            if (byPoint[d.point_id] == null) byPoint[d.point_id] = []
+            byPoint[d.point_id].push(d)
+          })
+          this.wizPoints.forEach((wp) => {
+            const list = byPoint[wp.point_id]
+            if (list == null) return
+            list.forEach((d) => {
               const it = wp.items.find((x) => x.name == d.item_name)
               if (it == null) return
-              if (it.status != 'todo' || it.file_keys.length > 0) return // 本地优先，不覆盖
+              if (it.judge_type == 'manual') {
+                // 感官项：恢复手动选择结果
+                if (d.manual_pass == null) return
+                it.pass = d.manual_pass
+                it.note = d.manual_pass ? '' : d.manual_note
+                it.verdict = d.manual_pass ? 'pass' : 'abnormal'
+                it.status = 'done'
+                return
+              }
+              // 拍照项：照片 + AI 识别结论
               it.file_keys = d.file_keys.slice()
               it.photos = d.photos.slice()
               it.job_id = d.job_id
+              it.img_error = false
               if (d.ai_status == 'done') {
                 this.applyJob(it, {
                   verdict: d.ai_verdict,
@@ -763,19 +745,12 @@ export default {
                 it.status = 'failed'
                 it.reason = d.ai_reason
               }
-              touched = true
             })
-            if (touched) this.persist()
           })
-          .catch(() => {
-            // 草稿查询失败不阻断：本地快照/全新流程照常
-          })
-      )
-      Promise.all(jobs).then(() => {
-        if (this.destroyed) return
-        // 识别中的项凭 job_id 批量查一次：仍 pending 留待收尾轮询；failed/过期回退待拍
-        this.reconcileJobs()
-      })
+        })
+        .catch(() => {
+          // 草稿拉取失败按全新巡检处理（不阻断主链路）
+        })
     },
     /** 恢复快照时对识别中的 job 批量查一次状态 */
     reconcileJobs() {
@@ -804,7 +779,6 @@ export default {
             }
             if (j.status == 'done') this.applyJob(t.it, j)
           })
-          this.persist()
         })
         .catch(() => {
           // 查询失败不阻断：保持 recognizing，收尾时再轮询
@@ -829,7 +803,8 @@ export default {
       } else {
         this.phase = 'items'
       }
-      this.persist()
+      // 断点恢复正好停在收尾步（全部项已落定）：同样走方案 B 自动提交
+      if (this.phase == 'gate') this.autoSubmitGate()
     },
     locate() {
       if (this.locating) return
@@ -846,6 +821,8 @@ export default {
             )
           }
           this.locating = false
+          // 定位回来时正停在收尾步：围栏刚满足条件，补一次自动提交触发
+          if (this.phase == 'gate') this.autoSubmitGate()
         },
         () => {
           this.locFailed = true
@@ -869,12 +846,12 @@ export default {
     /** 当前项照片大图预览 */
     previewCurPhoto() {
       const it = this.curItem
-      if (it == null || it.photos.length == 0) return
+      if (it == null || it.photos.length == 0 || it.img_error) return
       uni.previewImage({ urls: it.photos })
     },
     /** 指定项照片大图预览（补拍列表缩略图） */
     previewPhoto(it: WizardItemSnap) {
-      if (it.photos.length == 0) return
+      if (it.photos.length == 0 || it.img_error) return
       uni.previewImage({ urls: it.photos })
     },
     scanCredential() {
@@ -888,7 +865,6 @@ export default {
           }
           if (this.curWizPoint != null) {
             this.curWizPoint.scannedNo = code
-            this.persist()
           }
           uni.showToast({ title: '点位校验成功', icon: 'success' })
         },
@@ -918,7 +894,6 @@ export default {
         }
         if (this.curWizPoint != null) {
           this.curWizPoint.nfcCardId = cardId
-          this.persist()
         }
         uni.showToast({ title: '点位校验成功', icon: 'success' })
       })
@@ -936,7 +911,6 @@ export default {
       const wp = this.curWizPoint
       if (wp == null) return
       this.phase = wp.items.length > 0 ? 'items' : 'gate'
-      this.persist()
     },
     /** 当前项拍照（仅相机）→ 上传原图 → 建识别 job → 立即推进下一项，不等结果（水印由服务端统一烧录） */
     takePhoto() {
@@ -963,9 +937,11 @@ export default {
           // 只传原图：AI 识别无水印干扰；水印由服务端在打卡后统一烧录（点位/时间/坐标/巡检员）
           this.overlayMsg = '照片上传中…'
           let fileKey = ''
+          let fileUrl = ''
           apiUploadLocal(raw)
             .then((r) => {
               fileKey = r.file_key
+              fileUrl = r.url
               return apiAiItemJobCreate({
                 task_id: this.taskId,
                 point_id: pointId,
@@ -975,7 +951,9 @@ export default {
             })
             .then((j) => {
               this.overlayMsg = ''
-              it.photos = [raw]
+              // 展示用服务端 URL（重启后仍可加载）；本地临时路径仅兜底
+              it.photos = [fileUrl != '' ? fileUrl : raw]
+              it.img_error = false
               it.file_keys = [fileKey]
               it.job_id = j.job_id
               it.status = 'recognizing'
@@ -984,7 +962,6 @@ export default {
               it.reading = ''
               it.quality_pass = true
               it.quality_issue = ''
-              this.persist()
               // 拍照项：立即推进下一项，不等识别结果
               if (advance) this.nextStep()
             })
@@ -1009,7 +986,7 @@ export default {
       it.verdict = 'pass'
       it.status = 'done'
       this.manualAbnormalOpen = false
-      this.persist()
+      this.saveManualDraft(it)
       this.nextStep()
     },
     /** 感官项：有异常 → 展开描述输入（可跳过） */
@@ -1027,8 +1004,22 @@ export default {
       it.verdict = 'abnormal'
       it.status = 'done'
       this.manualAbnormalOpen = false
-      this.persist()
+      this.saveManualDraft(it)
       this.nextStep()
+    },
+    /** 手动项选择实时落云端草稿（失败仅提示不阻断；下次进入以服务端为准） */
+    saveManualDraft(it: WizardItemSnap) {
+      const wp = this.curWizPoint
+      if (wp == null) return
+      apiItemDraftManual({
+        task_id: this.taskId,
+        point_id: wp.point_id,
+        name: it.name,
+        pass: it.pass,
+        note: it.note
+      }).catch(() => {
+        uni.showToast({ title: '网络异常，进度可能未保存', icon: 'none' })
+      })
     },
     /** 推进：下一项 → 收尾；itemIdx 溢出表示待在收尾步 */
     nextStep() {
@@ -1040,8 +1031,22 @@ export default {
       } else {
         this.itemIdx = wp.items.length
         this.phase = 'gate'
+        // 方案 B：顺向到达收尾步，全部项落定且全 pass 则自动提交（异常/质量问题会分流停住）
+        this.autoSubmitGate()
       }
-      this.persist()
+    },
+    /**
+     * 方案 B 自动提交：到达收尾步时，凭证/围栏已过 + 有模板项 → 自动走提交链路
+     * （轮询未落定识别 → 汇总分流：全 pass 直接落库；补拍/异常确认停住交给人）。
+     * 修改模式、无模板点位（纯拍照打卡）保持手动提交。
+     */
+    autoSubmitGate() {
+      const wp = this.curWizPoint
+      if (wp == null || this.modify || this.submitting) return
+      if (this.phase != 'gate' || wp.items.length == 0) return
+      if (!this.credOk) return
+      if (this.curPoint != null && this.curPoint.require_fence && !this.fenceOk) return
+      this.submitPoint()
     },
     /** 底部「上一项」点击：到起点时退出向导（非 onBackPress 上下文，navigateBack 有效） */
     onPrevTap() {
@@ -1075,22 +1080,18 @@ export default {
         if (wp.items.length > 0) {
           this.itemIdx = wp.items.length - 1
           this.phase = 'items'
-          this.persist()
           return true
         }
         this.phase = 'cred'
-        this.persist()
         return true
       }
       if (this.phase == 'items') {
         if (this.itemIdx > 0) {
           this.itemIdx -= 1
-          this.persist()
           return true
         }
         if (this.needsCred) {
           this.phase = 'cred'
-          this.persist()
           return true
         }
       }
@@ -1101,7 +1102,6 @@ export default {
         this.itemIdx = prev != null && prev.items.length > 0 ? prev.items.length - 1 : 0
         this.phase = prev != null && prev.items.length > 0 ? 'items' : 'gate'
         this.locate()
-        this.persist()
         return true
       }
       return false
@@ -1125,7 +1125,6 @@ export default {
           if (this.destroyed) return
           this.submitting = false
           this.overlayMsg = ''
-          this.persist()
           this.routePointResult()
         })
         .catch(() => {
@@ -1212,6 +1211,7 @@ export default {
       it.reading = ''
       it.quality_pass = true
       it.quality_issue = ''
+      it.img_error = false
     },
     /** 汇总分流：补拍 > 异常确认 > 全过直接提交 */
     routePointResult() {
@@ -1236,7 +1236,6 @@ export default {
         this.phase = 'retake'
         uni.vibrateShort({})
         playVoice('blurry')
-        this.persist()
         return
       }
       if (abnormal.length > 0) {
@@ -1244,7 +1243,6 @@ export default {
         this.phase = 'abnormal'
         uni.vibrateShort({})
         playVoice('abnormal')
-        this.persist()
         return
       }
       this.doCheckin('normal', [])
@@ -1334,25 +1332,21 @@ export default {
           this.phase = 'gate'
         })
     },
-    /** 提交成功：点位从快照移除 → 绿勾 → 自动下一点位 / 任务完成 */
+    /** 提交成功：点位从待检序列移除 → 绿勾 → 自动下一点位 / 任务完成（服务端已删草稿） */
     afterPointSubmitted() {
       if (this.modify) {
-        clearWizardSnap(this.snapKey)
         uni.showToast({ title: '已提交修改', icon: 'success' })
         setTimeout(() => this.exitWizard(), 600)
         return
       }
-      // 提交成功的点位从快照移除
       this.wizPoints.splice(this.pointIdx, 1)
       if (this.wizPoints.length == 0) {
-        clearWizardSnap(this.snapKey)
         this.phase = 'taskDone'
         playVoice('normal')
         return
       }
       this.pointIdx = Math.min(this.pointIdx, this.wizPoints.length - 1)
       this.itemIdx = 0
-      this.persist()
       this.phase = 'pointDone'
       playVoice('normal')
       setTimeout(() => {
@@ -1381,23 +1375,10 @@ export default {
               it.note = found.ai_reason
             }
           })
-          this.persist()
         })
         .catch(() => {
           // 预填失败按全新巡检处理
         })
-    },
-    persist() {
-      if (this.snapKey == '') return
-      const snap: WizardSnap = {
-        task_id: this.taskId,
-        modify: this.modify,
-        pointIdx: this.pointIdx,
-        itemIdx: this.itemIdx,
-        points: this.wizPoints,
-        saved_at: 0
-      }
-      saveWizardSnap(this.snapKey, snap)
     },
     exitWizard() {
       // App 端 navigateBack 会触发 onBackPress，先置放行标记避免被 prevStep 拦截
@@ -1721,6 +1702,18 @@ export default {
 .shot-img {
   width: 100%;
   height: 480rpx;
+}
+
+.shot-img-fallback {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background-color: #f2f3f5;
+}
+
+.shot-img-fallback-text {
+  font-size: 26rpx;
+  color: #969799;
 }
 
 .shot-next {

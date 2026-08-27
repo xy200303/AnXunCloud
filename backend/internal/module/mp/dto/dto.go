@@ -35,17 +35,17 @@ type CheckinItemReq struct {
 // ID 为可选的客户端生成 UUIDv7：离线场景下小程序本地暂存时即生成，补传/重试携带同一 ID，
 // 服务端发现该 ID 已存在则直接幂等返回已有记录，不产生重复数据（UUIDv7 的核心收益）。
 type CheckinReq struct {
-	ID          string            `json:"id"`
-	TaskID      string            `json:"task_id" binding:"required"`
-	PointID     string            `json:"point_id" binding:"required"`
-	CheckinType string            `json:"checkin_type" binding:"required,oneof=qrcode fence nfc"`
-	QRCodeNo    string            `json:"qrcode_no"`
-	NFCID       string            `json:"nfc_id"`
-	Longitude   float64           `json:"longitude" binding:"required"`
-	Latitude    float64           `json:"latitude" binding:"required"`
-	ClientTime  string            `json:"client_time" binding:"required"`
-	Result      string            `json:"result" binding:"required,oneof=normal abnormal auto"` // auto=AI 代判（仅同步 AI 判定开启时可用）
-	Remark      string            `json:"remark"`
+	ID          string  `json:"id"`
+	TaskID      string  `json:"task_id" binding:"required"`
+	PointID     string  `json:"point_id" binding:"required"`
+	CheckinType string  `json:"checkin_type" binding:"required,oneof=qrcode fence nfc"`
+	QRCodeNo    string  `json:"qrcode_no"`
+	NFCID       string  `json:"nfc_id"`
+	Longitude   float64 `json:"longitude" binding:"required"`
+	Latitude    float64 `json:"latitude" binding:"required"`
+	ClientTime  string  `json:"client_time" binding:"required"`
+	Result      string  `json:"result" binding:"required,oneof=normal abnormal auto"` // auto=AI 代判（仅同步 AI 判定开启时可用）
+	Remark      string  `json:"remark"`
 	// Force 重拍次数用尽后的强制提交：跳过同步 AI 判定直接落库，转人工复核
 	Force bool `json:"force"`
 	// AIConfirmed 逐项 AI 识别确认提交：采纳 check_items 逐项带回的 AI 结论，跳过服务端同步 AI 判定
@@ -56,10 +56,19 @@ type CheckinReq struct {
 
 // AIItemJobReq 逐项 AI 识别任务提交（单个检查项 1~3 张照片，异步识别后轮询取结果）。
 type AIItemJobReq struct {
-	TaskID  string   `json:"task_id" binding:"required"`
-	PointID string   `json:"point_id" binding:"required"`
-	Name    string   `json:"name" binding:"required"`                    // 检查项名（须属于该点位模板项）
-	FileKeys []string `json:"file_keys" binding:"required,min=1,max=3"`   // 该项照片 file_key（1~3 张）
+	TaskID   string   `json:"task_id" binding:"required"`
+	PointID  string   `json:"point_id" binding:"required"`
+	Name     string   `json:"name" binding:"required"`                  // 检查项名（须属于该点位模板项）
+	FileKeys []string `json:"file_keys" binding:"required,min=1,max=3"` // 该项照片 file_key（1~3 张）
+}
+
+// ManualItemDraftReq 手动确认项（感官项）选择落云端草稿：选择即保存，断点恢复以服务端为准。
+type ManualItemDraftReq struct {
+	TaskID  string `json:"task_id" binding:"required"`
+	PointID string `json:"point_id" binding:"required"`
+	Name    string `json:"name" binding:"required"` // 检查项名（须为该点位模板的手动项）
+	Pass    bool   `json:"pass"`
+	Note    string `json:"note"`
 }
 
 type OfflineSyncReq struct {

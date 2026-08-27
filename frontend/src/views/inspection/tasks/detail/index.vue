@@ -54,6 +54,11 @@
                 >照片（{{ p.checkin.photos.length }}）</el-button>
                 <span v-if="p.checkin.remark" class="text-secondary">备注：{{ p.checkin.remark }}</span>
               </template>
+              <template v-else-if="p.status === 'doing'">
+                <el-tag type="warning" size="small">巡检中 {{ p.item_done }}/{{ p.item_total }} 项</el-tag>
+                <el-tag v-if="p.item_recognizing" type="primary" size="small" effect="plain">AI 识别中 {{ p.item_recognizing }}</el-tag>
+                <el-tag v-if="p.item_failed" type="danger" size="small" effect="plain">待重拍 {{ p.item_failed }}</el-tag>
+              </template>
               <el-tag v-else type="info" size="small">未打卡</el-tag>
             </div>
           </el-timeline-item>
@@ -62,7 +67,7 @@
         <!-- 任务汇总条 -->
         <div class="task-summary">
           任务汇总：已检 {{ summary.done }} · 正常 {{ summary.normal }} · 异常 {{ summary.abnormal }} ·
-          疑似作弊 {{ summary.suspect }} · 离线补传 {{ summary.offline }} · 未打卡 {{ summary.pending }}
+          疑似作弊 {{ summary.suspect }} · 离线补传 {{ summary.offline }} · 巡检中 {{ summary.doing }} · 未打卡 {{ summary.pending }}
         </div>
       </div>
     </template>
@@ -85,7 +90,7 @@
 import { computed, onMounted, ref } from 'vue'
 import { useRoute } from 'vue-router'
 import {
-  CircleCheck, CircleClose, Warning, Remove, Clock, Upload
+  CircleCheck, CircleClose, Warning, Remove, Clock, Upload, Loading
 } from '@element-plus/icons-vue'
 import { getTaskDetail } from '@/api/task'
 import PhotoViewer from '@/components/PhotoViewer.vue'
@@ -118,9 +123,12 @@ const headStatusType = computed(() => {
   return ({ pending: 'info', doing: 'primary', done: 'success', overdue: 'danger' } as Record<string, any>)[s || ''] || 'info'
 })
 
-// 点位六类状态视觉：正常/异常/疑似作弊/跳过(备注标记)/未打卡/离线补传
+// 点位状态视觉：正常/异常/疑似作弊/离线补传/巡检中/未打卡
 function pointVisual(p: TaskPointDetail): { type: string; icon: any } {
-  if (!p.checkin) return { type: 'info', icon: Clock }
+  if (!p.checkin) {
+    if (p.status === 'doing') return { type: 'warning', icon: Loading }
+    return { type: 'info', icon: Clock }
+  }
   if (p.checkin.result === 'abnormal') return { type: 'danger', icon: CircleClose }
   if (p.checkin.is_suspect) return { type: 'warning', icon: Warning }
   if (p.checkin.checkin_type === 'offline') return { type: 'info', icon: Upload }
@@ -140,7 +148,8 @@ const summary = computed(() => {
     abnormal: checked.filter((p) => p.checkin!.result === 'abnormal').length,
     suspect: checked.filter((p) => p.checkin!.is_suspect).length,
     offline: checked.filter((p) => p.checkin!.checkin_type === 'offline').length,
-    pending: points.length - checked.length
+    doing: points.filter((p) => !p.checkin && p.status === 'doing').length,
+    pending: points.filter((p) => !p.checkin && p.status !== 'doing').length
   }
 })
 

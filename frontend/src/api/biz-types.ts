@@ -261,7 +261,12 @@ export interface TaskPointDetail {
   sort: number
   credential: 'qrcode' | 'nfc' | 'none'
   require_fence: boolean
-  status: 'done' | 'pending'
+  status: 'done' | 'doing' | 'pending'
+  /** 项级进度（观测层，从过程草稿派生）：item_total=模板项数；doing 时带 done/recognizing/failed */
+  item_total?: number
+  item_done?: number
+  item_recognizing?: number
+  item_failed?: number
   checkin: {
     id: string
     checkin_time: string

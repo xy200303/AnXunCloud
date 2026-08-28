@@ -140,8 +140,6 @@ func seedMenus(tx *gorm.DB) (map[string]string, error) {
 				{title: "记录审核", typ: model.MenuTypeButton, perms: "inspection:checkin:review", sort: 2},
 				{title: "发起抽查", typ: model.MenuTypeButton, perms: "inspection:checkin:spotcheck", sort: 3},
 			}},
-			// 问题清单：异常打卡记录只读出口（perm 复用巡检记录列表权限点）
-			{title: "问题清单", path: "/inspection/issues", icon: "Warning", typ: model.MenuTypeMenu, perms: "inspection:record:list", sort: 5},
 			{title: "检查项模板", path: "/inspection/templates", icon: "Finished", typ: model.MenuTypeMenu, perms: "inspection:template:list", sort: 6, children: []menuSeed{
 				{title: "新增模板", typ: model.MenuTypeButton, perms: "inspection:template:create", sort: 1},
 				{title: "编辑模板", typ: model.MenuTypeButton, perms: "inspection:template:update", sort: 2},
@@ -316,8 +314,8 @@ func seedRoleMenus(tx *gorm.DB, roleIDs, menuIDs map[string]string) error {
 		"/inspection", "inspection:point:list", "inspection:point:create", "inspection:point:update", "inspection:point:delete", "inspection:point:qrcode", "inspection:point:import",
 		"inspection:plan:list", "inspection:plan:create", "inspection:plan:update", "inspection:plan:disable",
 		"inspection:task:monitor", "inspection:task:list", "inspection:record:list", "inspection:checkin:list",
-		// 巡检记录与问题清单共用 inspection:record:list 权限点（perms 键只映射后写的菜单），两个菜单按 path 各补一条
-		"/inspection/records", "/inspection/issues",
+		// 巡检记录按 path 补一条（perms 键只映射后写的菜单；问题清单已并入巡检记录）
+		"/inspection/records",
 		"inspection:template:list", "inspection:checkin:review", "inspection:checkin:spotcheck",
 		"/stats", "stats:inspection", "stats:performance", "stats:report", "stats:export",
 		"report:list", "report:generate", "report:download",

@@ -180,22 +180,11 @@ type CheckinListQuery struct {
 	AuditStatus string `form:"audit_status"`
 	ForceSubmit string `form:"force_submit"`
 	AIVerdict   string `form:"ai_verdict"` // 支持逗号多值（如 review,error 查"AI 存疑"合集）
+	Keyword     string `form:"keyword"`    // 点位名/备注模糊匹配
 	StartTime   string `form:"start_time"`
 	EndTime     string `form:"end_time"`
 }
 
-// IssueListQuery 问题清单（异常打卡记录）检索条件；date_from/date_to 按 checkin_time 过滤（YYYY-MM-DD，date_to 含当天）。
-type IssueListQuery struct {
-	response.PageQuery
-	CommunityID string `form:"community_id"`
-	PatrolType  string `form:"patrol_type"`
-	PointType   string `form:"point_type"`
-	AuditStatus string `form:"audit_status"`
-	ForceSubmit string `form:"force_submit"`
-	Keyword     string `form:"keyword"`
-	DateFrom    string `form:"date_from"`
-	DateTo      string `form:"date_to"`
-}
 
 // ========== 记录审核 ==========
 

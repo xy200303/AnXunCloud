@@ -433,6 +433,10 @@ func (s *TaskService) applyCheckinFilters(c *gin.Context, q *dto.CheckinListQuer
 			db = db.Where("ai_verdict = ?", q.AIVerdict)
 		}
 	}
+	if kw := strings.TrimSpace(q.Keyword); kw != "" {
+		like := "%" + kw + "%"
+		db = db.Where("remark ILIKE ? OR EXISTS (SELECT 1 FROM inspection_point p WHERE p.id = checkin_record.point_id AND p.deleted_at IS NULL AND p.name ILIKE ?)", like, like)
+	}
 	var be *errs.Error
 	if db, be = timeRangeOn(db, "checkin_time", q.StartTime, q.EndTime); be != nil {
 		return nil, be

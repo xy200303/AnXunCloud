@@ -68,6 +68,7 @@
         <el-form-item>
           <el-button type="primary" :icon="Search" @click="handleSearch">查询</el-button>
           <el-button :icon="Refresh" @click="handleReset">重置</el-button>
+          <el-button type="success" plain :icon="Document" :loading="exporting" @click="handleExport">导出</el-button>
         </el-form-item>
       </el-form>
     </div>
@@ -237,9 +238,10 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue'
 import { useRoute } from 'vue-router'
-import { Search, Refresh, Aim } from '@element-plus/icons-vue'
+import { Search, Refresh, Aim, Document } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox, type FormInstance, type FormRules, type TableInstance } from 'element-plus'
 import { listCheckins, getCheckin, getCheckinAuditCounts, type CheckinQuery, type AuditCounts } from '@/api/checkin'
+import { downloadFile } from '@/utils/download'
 import { passReview, rejectReview, reopenReview, batchPassReview, spotcheck, type SpotcheckBody } from '@/api/review'
 import { listCommunities } from '@/api/community'
 import { listUsers } from '@/api/user'
@@ -372,6 +374,33 @@ function handleReset() {
   onlyAiSuspect.value = false
   timeRange.value = defaultRange()
   handleSearch()
+}
+
+// ===== 导出（按当前筛选条件含审核 tab，文件流下载；上限 5000 条） =====
+const exporting = ref(false)
+
+async function handleExport() {
+  try {
+    await ElMessageBox.confirm('将按当前筛选条件导出巡检记录（最多 5000 条）', '导出确认', {
+      confirmButtonText: '导出',
+      cancelButtonText: '取消',
+      type: 'info'
+    })
+  } catch {
+    return
+  }
+  exporting.value = true
+  try {
+    await downloadFile('/inspection/checkins/export', {
+      ...filterParams(),
+      audit_status: currentAuditStatus()
+    }, `巡检记录_${Date.now()}.xlsx`)
+    ElMessage.success('导出成功')
+  } catch {
+    // 拦截器已提示
+  } finally {
+    exporting.value = false
+  }
 }
 
 function handleTabChange() {

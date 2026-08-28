@@ -258,10 +258,8 @@ func New(cfg *config.Config, db *gorm.DB, rdb *redis.Client) (*gin.Engine, *insp
 		secured.POST("/inspection/tasks/generate", middleware.RequirePerm("inspection:task:generate", "inspection:plan:create"), middleware.OperLog(db, "inspection", "generate"), inspectionCtl.GenerateTasks)
 		secured.GET("/inspection/checkins", middleware.RequirePerm("inspection:checkin:list", "inspection:record:list"), inspectionCtl.ListCheckins)
 		secured.GET("/inspection/checkins/audit-counts", middleware.RequirePerm("inspection:checkin:list", "inspection:record:list"), inspectionCtl.CheckinAuditCounts)
+		secured.GET("/inspection/checkins/export", middleware.RequirePerm("inspection:checkin:list", "inspection:record:list"), middleware.OperLog(db, "inspection", "checkin_export"), inspectionCtl.ExportCheckins)
 		secured.GET("/inspection/checkins/:id", middleware.RequirePerm("inspection:checkin:list", "inspection:record:list"), inspectionCtl.CheckinDetail)
-		// 问题清单：异常打卡记录只读出口（权限点复用打卡记录列表）
-		secured.GET("/inspection/issues", middleware.RequirePerm("inspection:checkin:list", "inspection:record:list"), inspectionCtl.ListIssues)
-		secured.GET("/inspection/issues/export", middleware.RequirePerm("inspection:checkin:list", "inspection:record:list"), middleware.OperLog(db, "inspection", "issues_export"), inspectionCtl.ExportIssues)
 
 		// 检查项模板
 		templates := secured.Group("/inspection/templates")

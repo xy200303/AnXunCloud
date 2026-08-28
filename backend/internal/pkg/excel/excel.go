@@ -110,15 +110,18 @@ func ParsePointImport(r io.Reader) ([][]string, error) {
 	return parseImportRows(r)
 }
 
-// IssueExportRow 问题清单（异常打卡记录）导出行。
-type IssueExportRow struct {
+// CheckinExportRow 巡检记录导出行。
+type CheckinExportRow struct {
 	CheckinTime   string
 	CommunityName string
 	BuildingName  string
 	PointName     string
 	PointType     string
 	InspectorName string
+	Result        string
 	Remark        string
+	CheckinType   string
+	Distance      string
 	AIVerdict     string
 	AIReason      string
 	AuditStatus   string
@@ -126,11 +129,11 @@ type IssueExportRow struct {
 	IsSuspect     string
 }
 
-// ExportIssues 生成问题清单导出文件（列序与接口文档一致；中文枚举由调用方折算）。
-func ExportIssues(list []IssueExportRow) (*excelize.File, error) {
+// ExportCheckins 生成巡检记录导出文件（列序与接口文档一致；中文枚举由调用方折算）。
+func ExportCheckins(list []CheckinExportRow) (*excelize.File, error) {
 	f := excelize.NewFile()
 	sheet := "Sheet1"
-	headers := []string{"打卡时间", "小区", "楼栋/区域", "点位名称", "点位类型", "巡检员", "异常描述", "AI 结论", "AI 说明", "复核状态", "强制提交", "疑似作弊"}
+	headers := []string{"打卡时间", "小区", "楼栋/区域", "点位名称", "点位类型", "巡检员", "结果", "备注", "打卡方式", "距点位(米)", "AI 结论", "AI 说明", "复核状态", "强制提交", "疑似作弊"}
 	for i, h := range headers {
 		cell, _ := excelize.CoordinatesToCellName(i+1, 1)
 		if err := f.SetCellValue(sheet, cell, h); err != nil {
@@ -141,11 +144,12 @@ func ExportIssues(list []IssueExportRow) (*excelize.File, error) {
 	if err != nil {
 		return nil, err
 	}
-	if err := f.SetCellStyle(sheet, "A1", "L1", style); err != nil {
+	if err := f.SetCellStyle(sheet, "A1", "O1", style); err != nil {
 		return nil, err
 	}
 	for r, row := range list {
-		vals := []string{row.CheckinTime, row.CommunityName, row.BuildingName, row.PointName, row.PointType, row.InspectorName, row.Remark, row.AIVerdict, row.AIReason, row.AuditStatus, row.ForceSubmit, row.IsSuspect}
+		vals := []string{row.CheckinTime, row.CommunityName, row.BuildingName, row.PointName, row.PointType, row.InspectorName,
+			row.Result, row.Remark, row.CheckinType, row.Distance, row.AIVerdict, row.AIReason, row.AuditStatus, row.ForceSubmit, row.IsSuspect}
 		for i, v := range vals {
 			cell, _ := excelize.CoordinatesToCellName(i+1, r+2)
 			if err := f.SetCellValue(sheet, cell, v); err != nil {
@@ -153,7 +157,7 @@ func ExportIssues(list []IssueExportRow) (*excelize.File, error) {
 			}
 		}
 	}
-	f.SetColWidth(sheet, "A", "L", 18)
+	f.SetColWidth(sheet, "A", "O", 18)
 	return f, nil
 }
 

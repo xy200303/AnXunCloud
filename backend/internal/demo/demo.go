@@ -292,26 +292,6 @@ func (d *demoSeeder) seedTenantA() error {
 	if err != nil {
 		return err
 	}
-	engID, err := d.createUser(tid, "ha_eng", "周建国", "13800001006")
-	if err != nil {
-		return err
-	}
-	repairID, err := d.createUser(tid, "ha_repair", "吴永强", "13800001007")
-	if err != nil {
-		return err
-	}
-	serviceID, err := d.createUser(tid, "ha_service", "刘芳", "13800001008")
-	if err != nil {
-		return err
-	}
-	bmID, err := d.createUser(tid, "ha_bm", "孙丽", "13800001009")
-	if err != nil {
-		return err
-	}
-	fdID, err := d.createUser(tid, "ha_fd", "钱婷", "13800001010")
-	if err != nil {
-		return err
-	}
 
 	// 小区 + 楼栋/区域（A 区 1~12 栋、B 区 1~17 栋挂楼栋行；非楼栋点位挂 A 区/B 区区域行）
 	community := sysmodel.Community{
@@ -361,7 +341,7 @@ func (d *demoSeeder) seedTenantA() error {
 		bldIDs[name] = id
 	}
 
-	// 编制（一人多岗、责任楼栋均在编制体现）
+	// 编制（巡检体系相关岗位：项目经理 / 安全主管 / 巡检员）
 	staff := []struct {
 		uid       string
 		posts     []string
@@ -371,11 +351,6 @@ func (d *demoSeeder) seedTenantA() error {
 		{safetyID, []string{"safety_supervisor"}, nil},
 		{huangID, []string{sysmodel.PostInspector}, nil},
 		{yangID, []string{sysmodel.PostInspector}, nil},
-		{engID, []string{"engineering_supervisor"}, nil},
-		{repairID, []string{sysmodel.PostRepairman}, nil},
-		{serviceID, []string{"service_supervisor"}, nil},
-		{bmID, []string{"building_manager"}, []string{bldIDs["A区1栋"], bldIDs["A区2栋"]}},
-		{fdID, []string{"receptionist"}, nil},
 	}
 	for _, s := range staff {
 		if err := d.addStaff(tid, cid, s.uid, s.posts, s.buildings...); err != nil {
@@ -720,7 +695,7 @@ func (d *demoSeeder) seedFireMonthly(tid, cid, tplID string, bldIDs, areaIDs map
 	return d.db.CreateInBatches(&items, 500).Error
 }
 
-// ---------- 租户 B：金源物业（验证隔离 + 抢单模式） ----------
+// ---------- 租户 B：金源物业（验证多租户隔离） ----------
 
 func (d *demoSeeder) seedTenantB() error {
 	tenant := sysmodel.Tenant{
@@ -748,16 +723,7 @@ func (d *demoSeeder) seedTenantB() error {
 	if err != nil {
 		return err
 	}
-	repairID, err := d.createUser(tid, "jy_repair", "冯建华", "13900002004")
-	if err != nil {
-		return err
-	}
-	serviceID, err := d.createUser(tid, "jy_service", "何敏", "13900002005")
-	if err != nil {
-		return err
-	}
 
-	// 抢单模式开启（与租户 A 的受理+派单模式形成对照）
 	community := sysmodel.Community{
 		TenantID: tid, Name: "金源世纪城", Address: "武汉市江夏区藏龙大道 12 号",
 		ManagerID: &managerID,
@@ -774,8 +740,6 @@ func (d *demoSeeder) seedTenantB() error {
 	}{
 		{managerID, []string{sysmodel.PostProjectManager}},
 		{xjID, []string{sysmodel.PostInspector}},
-		{repairID, []string{sysmodel.PostRepairman}},
-		{serviceID, []string{"service_supervisor"}},
 	} {
 		if err := d.addStaff(tid, cid, s.uid, s.posts); err != nil {
 			return err
@@ -857,7 +821,7 @@ func (d *demoSeeder) seedTenantB() error {
 	}
 
 	// 上月（报告期）真实工作量 + 月度报告（待巡检员确认）
-	if err := d.seedReportsB(tid, cid, plan.ID, pointIDs, pointMeta, tplID, managerID, serviceID, repairID, xjID); err != nil {
+	if err := d.seedReportsB(tid, cid, plan.ID, pointIDs, pointMeta, tplID, managerID, xjID); err != nil {
 		return err
 	}
 
@@ -1051,7 +1015,7 @@ func (d *demoSeeder) seedMonthWorkload(tid, cid string, o monthWorkload) (monthS
 
 // seedReportsB 租户 B 上月报告：报告期真实工作量；报告待巡检员确认。
 func (d *demoSeeder) seedReportsB(tid, cid, planID string, pointIDs []string, pointMeta map[string]demoPoint,
-	tplID, managerID, serviceID, repairID, xjID string) error {
+	tplID, managerID, xjID string) error {
 	period := lastMonthPeriod()
 
 	// 1) 上月每日巡查：单巡检员，2 天逾期，1 条异常打卡

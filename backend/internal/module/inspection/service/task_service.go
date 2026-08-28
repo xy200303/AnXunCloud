@@ -255,8 +255,11 @@ func (s *TaskService) Detail(c *gin.Context, id string) (gin.H, *errs.Error) {
 	}
 	pageIDs := pointIDs[start:end]
 	// 本页点位/楼栋/模板项数批量加载（避免逐点位 N+1 查询）
+	// 注意转 []string：types.IDArray 实现了 driver.Valuer，直接传入会被当成单个 JSON 标量导致查不到行
 	var pagePoints []model.InspectionPoint
-	s.db.Where("id IN ?", pageIDs).Find(&pagePoints)
+	if err := s.db.Where("id IN ?", []string(pageIDs)).Find(&pagePoints).Error; err != nil {
+		return nil, errs.ErrInternal
+	}
 	ptByID := make(map[string]*model.InspectionPoint, len(pagePoints))
 	buildingIDSet, tplIDSet := map[string]bool{}, map[string]bool{}
 	for i := range pagePoints {

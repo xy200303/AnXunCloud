@@ -40,11 +40,11 @@ export default {
     // 注意：经典 uni-app 不支持 APP-HARMONY 条件编译，这里必须写 APP-PLUS。
     if (getAccessToken() != '' && platformOf() != 'ios') {
       startGlobalListener((cardId) => {
-        // 已在打卡表单页时不打断当前填写，仅提示（与技术方案的「顶部提示条」简化差异）
+        // 已在打卡流程（连续巡检向导/手动表单）时不打断当前填写，仅提示用页内核验
         const pages = getCurrentPages()
         const cur = pages.length > 0 ? (pages[pages.length - 1] as any).route : ''
-        if (cur == 'pages/checkin/form') {
-          uni.showToast({ title: '已识别 NFC 标签，请用表单内「NFC 校验」完成凭证', icon: 'none' })
+        if (cur == 'pages/checkin/quick' || cur == 'pages/checkin/form') {
+          uni.showToast({ title: '已识别 NFC 标签，请用页面内「读卡核验」完成凭证', icon: 'none' })
           return
         }
         // 按卡片 UID 定位点位（后端 by-code 按 nfc_id 匹配；未备案的卡轻提示「未找到相关点位信息」）

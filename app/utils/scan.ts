@@ -15,8 +15,9 @@ export function extractPointCode(raw: string): string {
 }
 
 /**
- * 按编号解析点位并跳转打卡表单（扫码与 NFC 共用的「任务定位器」，技术方案 §5.3）。
- * code 为点位编号（如 P000015）；后端 by-code 接口同时按 qrcode_no / nfc_id 匹配。
+ * 按编号解析点位并跳转连续巡检向导（扫码与 NFC 共用的「任务定位器」，技术方案 §5.3）。
+ * code 为点位编号（如 P000015）或 NFC 卡片 UID；后端 by-code 接口同时按 qrcode_no / nfc_id 匹配。
+ * 跳转携带编号：向导内按 qrcode_no/nfc_id 匹配到点位即视为已核验凭证。
  */
 export function resolvePointCode(code: string) {
   apiPointByCode(code)
@@ -26,7 +27,7 @@ export function resolvePointCode(code: string) {
         uni.showToast({ title: '该点位今日无巡检任务', icon: 'none' })
         return
       }
-      // 任务定位器：找第一个未打卡任务直接跳打卡表单（携带二维码编号视为已核验凭证）
+      // 任务定位器：找第一个未打卡任务直接跳进连续巡检向导并定位到该点位
       const t = p.tasks.find((x) => !x.checked)
       if (t == null) {
         uni.showToast({ title: '该点位今日已完成打卡', icon: 'none' })
@@ -34,7 +35,7 @@ export function resolvePointCode(code: string) {
       }
       uni.navigateTo({
         url:
-          '/pages/checkin/form?task_id=' + encodeURIComponent(t.task_id) +
+          '/pages/checkin/quick?task_id=' + encodeURIComponent(t.task_id) +
           '&point_id=' + encodeURIComponent(p.point_id) +
           '&no=' + encodeURIComponent(code)
       })

@@ -49,6 +49,9 @@ var demoAssetByLabel = map[string]string{
 // DemoPassword 全部演示账号的统一密码（满足 8–32 位含字母数字策略）。
 const DemoPassword = "Demo@12345"
 
+// demoFreeCheckCount 每个计划块前 N 个点位免凭证免围栏（方便甲方免扫码测试打卡）。
+const demoFreeCheckCount = 15
+
 // demoTenantACode 演示租户 A 的公司代码（幂等标记：存在即跳过）。
 const demoTenantACode = "huaan"
 
@@ -209,7 +212,7 @@ func (d *demoSeeder) createPoint(tenantID, communityID string, buildingIDs []str
 	pt := insmodel.InspectionPoint{
 		TenantID: &tenantID, CommunityID: communityID, Name: p.name, Type: p.typ,
 		QRCodeNo: fmt.Sprintf("P%06d", seq), Longitude: p.lng, Latitude: p.lat, FenceRadius: p.fence,
-		Credential: p.credential, RequireFence: true,
+		Credential: p.credential, RequireFence: false, // 演示数据不强制围栏，方便测试
 		Sort:       sort, Status: sysmodel.StatusEnabled, Remark: "演示点位（seed-demo 生成）",
 	}
 	if templateID != "" {
@@ -411,7 +414,8 @@ func (d *demoSeeder) seedFireMonthly(tid, cid, tplID string, bldIDs, areaIDs map
 		pt := insmodel.InspectionPoint{
 			TenantID: &tid, CommunityID: cid, Name: name, Type: typ,
 			Longitude: lng, Latitude: lat, FenceRadius: fence,
-			Credential: insmodel.CredentialQRCode, RequireFence: true,
+			// 演示数据不强制 GPS 围栏（方便甲方远程测试打卡）；凭证默认二维码，每块前 demoFreeCheckCount 个免凭证
+			Credential: insmodel.CredentialQRCode, RequireFence: false,
 			TemplateID: &tplID, Sort: len(points) + 1,
 			Status: sysmodel.StatusEnabled, Remark: "演示点位（seed-demo 生成）",
 		}
@@ -539,6 +543,16 @@ func (d *demoSeeder) seedFireMonthly(tid, cid, tplID string, bldIDs, areaIDs map
 		mkChunk("A区门岗车棚消防月检", start, &chunksYang)
 	}
 
+	// 每个计划块前 demoFreeCheckCount 个点位免凭证（无二维码/无围栏，打开任务即可打卡），
+	// 方便甲方不测扫码也能走通流程；其余点位保留二维码凭证
+	for _, chunks := range [][]firePlanChunk{chunksHuang, chunksYang} {
+		for _, c := range chunks {
+			for i := c.start; i < c.end && i < c.start+demoFreeCheckCount; i++ {
+				points[i].Credential = insmodel.CredentialNone
+			}
+		}
+	}
+
 	if err := d.createPoints(points); err != nil {
 		return err
 	}
@@ -646,6 +660,9 @@ func (d *demoSeeder) seedFireMonthly(tid, cid, tplID string, bldIDs, areaIDs map
 				Longitude: floatptr(pt.Longitude + 0.00003), Latitude: floatptr(pt.Latitude + 0.00002),
 				DistanceToPoint: floatptr(2.0 + float64(cnt%28)*0.1), CheckinType: insmodel.CredentialQRCode,
 				Result: insmodel.ResultNormal, AuditStatus: insmodel.AuditAutoPass, CreatedAt: ct,
+			}
+			if pt.Credential == insmodel.CredentialNone {
+				rec.CheckinType = "fence"
 			}
 			if cnt%50 == 9 {
 				ab := abSpecs[abCnt%len(abSpecs)]

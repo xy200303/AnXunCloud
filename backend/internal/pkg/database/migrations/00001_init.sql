@@ -1,8 +1,9 @@
--- 基线迁移（squash）：squash 时刻（2026-08-18，菜单归位/岗位管理完成后）的全部结构合并为本文件；后续增量从 00002 起重新编号。
+-- 基线迁移（squash v2）：00001–00024 全部合并为本文件（2026-08-28，计划均分/一项一图/工单删除等演进完成后）。
 -- 内容 = pg_dump schema-only（剔除 goose_db_version 与按月分区子表；checkin_record/sys_operation_log
 -- 的当月/下月分区由运行期 EnsurePartitions 滚动创建，*_default 默认分区保留在基线内）。
 -- 数据（内置角色/菜单/字典/默认租户/岗位模板/槽位默认/超管账号）由 seed.go 负责，本文件只管结构。
--- 老库升级路径：开发期约定不兼容老数据（演示数据可清空），重置数据库后由本基线 + seed 重建。
+-- 老库兼容：旧库 goose_db_version 已记录 v1 及以上版本，goose 会跳过本基线，行为不变；
+-- 落后版本的库（< v24）请先升级到旧链最后版本再切到本基线。
 
 -- +goose Up
 
@@ -13,6 +14,30 @@
 
 -- Dumped from database version 15.18
 -- Dumped by pg_dump version 15.18
+
+SET statement_timeout = 0;
+SET lock_timeout = 0;
+SET idle_in_transaction_session_timeout = 0;
+SET client_encoding = 'UTF8';
+SET standard_conforming_strings = on;
+-- （已剔除 pg_dump 的 search_path 置空语句：goose 会话锁下同会话记录版本号依赖默认 search_path）
+SET check_function_bodies = false;
+SET xmloption = content;
+SET client_min_messages = warning;
+SET row_security = off;
+
+--
+-- Name: public; Type: SCHEMA; Schema: -; Owner: -
+--
+
+-- *not* creating schema, since initdb creates it
+
+
+--
+-- Name: SCHEMA public; Type: COMMENT; Schema: -; Owner: -
+--
+
+COMMENT ON SCHEMA public IS '';
 
 
 --
@@ -29,7 +54,9 @@ CREATE EXTENSION IF NOT EXISTS pgcrypto WITH SCHEMA public;
 COMMENT ON EXTENSION pgcrypto IS 'cryptographic functions';
 
 
+SET default_tablespace = '';
 
+SET default_table_access_method = heap;
 
 --
 -- Name: app_release; Type: TABLE; Schema: public; Owner: -
@@ -46,6 +73,28 @@ CREATE TABLE public.app_release (
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     updated_at timestamp with time zone DEFAULT now() NOT NULL
 );
+
+
+--
+-- Name: approval_flow; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.approval_flow (
+    id uuid NOT NULL,
+    tenant_id uuid,
+    project_id uuid,
+    flow_code character varying(64) NOT NULL,
+    steps jsonb DEFAULT '[]'::jsonb NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL
+);
+
+
+--
+-- Name: TABLE approval_flow; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON TABLE public.approval_flow IS '审批链配置（项目级 → 租户级 → 平台默认回落；steps 环节引用职责槽位 code）';
 
 
 --
@@ -155,6 +204,9 @@ CREATE TABLE public.check_template_item (
     photo_required character varying(16) DEFAULT 'none'::character varying NOT NULL,
     sort integer DEFAULT 0 NOT NULL,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
+    ai_hint text,
+    judge_type character varying(24) DEFAULT 'general'::character varying NOT NULL,
+    judge_config jsonb,
     CONSTRAINT chk_tpl_item_photo_req CHECK (((photo_required)::text = ANY (ARRAY[('none'::character varying)::text, ('optional'::character varying)::text, ('required'::character varying)::text])))
 );
 
@@ -164,6 +216,82 @@ CREATE TABLE public.check_template_item (
 --
 
 COMMENT ON TABLE public.check_template_item IS '模板检查项（v18 起替代 check_template.items JSONB）；requirement=检查标准要求文本（可空）';
+
+
+--
+-- Name: COLUMN check_template_item.ai_hint; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.check_template_item.ai_hint IS 'AI 识别要点（逐项送大模型的提示文本）；NULL/空 = 该项不带识别要点';
+
+
+--
+-- Name: COLUMN check_template_item.judge_type; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.check_template_item.judge_type IS '判定类型：general/presence/damage/metric/state/label/passage/leak/indicator/tidiness/baseline（二期预留，一期按 general）';
+
+
+--
+-- Name: COLUMN check_template_item.judge_config; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.check_template_item.judge_config IS '判定参数（metric: {"metric":"温度","unit":"℃","min":0,"max":40}；state/indicator: {"expected":"..."}），NULL 按通用判定';
+
+
+--
+-- Name: checkin_item_draft; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.checkin_item_draft (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    tenant_id uuid,
+    task_id uuid NOT NULL,
+    point_id uuid NOT NULL,
+    inspector_id uuid NOT NULL,
+    community_id uuid NOT NULL,
+    item_name character varying(128) NOT NULL,
+    file_keys jsonb DEFAULT '[]'::jsonb NOT NULL,
+    ai_status character varying(16) DEFAULT 'pending'::character varying NOT NULL,
+    ai_verdict character varying(16),
+    ai_reason character varying(512),
+    ai_reading character varying(64),
+    quality_pass boolean,
+    quality_issue character varying(255),
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    job_id character varying(64) DEFAULT ''::character varying NOT NULL,
+    manual_pass boolean,
+    manual_note character varying(512) DEFAULT ''::character varying NOT NULL
+);
+
+
+--
+-- Name: TABLE checkin_item_draft; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON TABLE public.checkin_item_draft IS '逐项 AI 识别过程草稿（点位正式提交后删除；仅过程记录，不计入进度）';
+
+
+--
+-- Name: COLUMN checkin_item_draft.ai_status; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.checkin_item_draft.ai_status IS 'pending=识别中 / done=识别完成 / failed=识别失败';
+
+
+--
+-- Name: COLUMN checkin_item_draft.manual_pass; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.checkin_item_draft.manual_pass IS '手动项选择结果（NULL=非手动项/未选择）';
+
+
+--
+-- Name: COLUMN checkin_item_draft.manual_note; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.checkin_item_draft.manual_note IS '手动项异常描述';
 
 
 --
@@ -182,10 +310,8 @@ CREATE TABLE public.checkin_record (
     latitude numeric(10,7),
     distance_to_point numeric(10,2),
     checkin_type character varying(16) NOT NULL,
-    photos jsonb DEFAULT '[]'::jsonb NOT NULL,
     result character varying(16) DEFAULT 'normal'::character varying NOT NULL,
     remark character varying(512) DEFAULT ''::character varying NOT NULL,
-    is_offline_sync boolean DEFAULT false NOT NULL,
     is_suspect boolean DEFAULT false NOT NULL,
     suspect_reason character varying(255) DEFAULT ''::character varying NOT NULL,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
@@ -196,6 +322,12 @@ CREATE TABLE public.checkin_record (
     ai_verdict character varying(16) DEFAULT ''::character varying NOT NULL,
     ai_reason character varying(512) DEFAULT ''::character varying NOT NULL,
     tenant_id uuid,
+    audit_step smallint DEFAULT 0 NOT NULL,
+    force_submit boolean DEFAULT false NOT NULL,
+    ai_quality_pass boolean,
+    ai_quality_issue character varying(255) DEFAULT ''::character varying NOT NULL,
+    locked_at timestamp with time zone,
+    superseded_by character varying(36),
     CONSTRAINT chk_checkin_result CHECK (((result)::text = ANY (ARRAY[('normal'::character varying)::text, ('abnormal'::character varying)::text]))),
     CONSTRAINT chk_checkin_type CHECK (((checkin_type)::text = ANY (ARRAY[('qrcode'::character varying)::text, ('fence'::character varying)::text, ('offline'::character varying)::text, ('nfc'::character varying)::text])))
 )
@@ -231,13 +363,6 @@ COMMENT ON COLUMN public.checkin_record.distance_to_point IS '距点位距离（
 
 
 --
--- Name: COLUMN checkin_record.photos; Type: COMMENT; Schema: public; Owner: -
---
-
-COMMENT ON COLUMN public.checkin_record.photos IS '带水印照片数组 [{item,url,watermarked_url,exif_time}]';
-
-
---
 -- Name: COLUMN checkin_record.audit_status; Type: COMMENT; Schema: public; Owner: -
 --
 
@@ -252,13 +377,45 @@ COMMENT ON COLUMN public.checkin_record.ai_verdict IS '大模型结论：pass / 
 
 
 --
+-- Name: COLUMN checkin_record.audit_step; Type: COMMENT; Schema: public; Owner: -
 --
 
+COMMENT ON COLUMN public.checkin_record.audit_step IS '审批链当前进度：已通过环节数（0=待第 1 环节）';
 
 
 --
+-- Name: COLUMN checkin_record.force_submit; Type: COMMENT; Schema: public; Owner: -
 --
 
+COMMENT ON COLUMN public.checkin_record.force_submit IS '重拍次数用尽后强制提交（跳过同步 AI 判定，转人工复核）';
+
+
+--
+-- Name: COLUMN checkin_record.ai_quality_pass; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.checkin_record.ai_quality_pass IS 'AI 照片质量判定（第一层）；NULL=未做质量判定';
+
+
+--
+-- Name: COLUMN checkin_record.ai_quality_issue; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.checkin_record.ai_quality_issue IS 'AI 照片质量问题描述（质量不达标时的重拍提示）';
+
+
+--
+-- Name: COLUMN checkin_record.locked_at; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.checkin_record.locked_at IS '报告归档锁定时间（非空=已随周期报告归档，该点位打卡不可覆盖修改）';
+
+
+--
+-- Name: COLUMN checkin_record.superseded_by; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.checkin_record.superseded_by IS '覆盖修改：被哪条新打卡记录覆盖（非空=已失效旧记录，列表/统计/报告均过滤）';
 
 
 --
@@ -277,10 +434,8 @@ CREATE TABLE public.checkin_record_default (
     latitude numeric(10,7),
     distance_to_point numeric(10,2),
     checkin_type character varying(16) NOT NULL,
-    photos jsonb DEFAULT '[]'::jsonb NOT NULL,
     result character varying(16) DEFAULT 'normal'::character varying NOT NULL,
     remark character varying(512) DEFAULT ''::character varying NOT NULL,
-    is_offline_sync boolean DEFAULT false NOT NULL,
     is_suspect boolean DEFAULT false NOT NULL,
     suspect_reason character varying(255) DEFAULT ''::character varying NOT NULL,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
@@ -291,6 +446,12 @@ CREATE TABLE public.checkin_record_default (
     ai_verdict character varying(16) DEFAULT ''::character varying NOT NULL,
     ai_reason character varying(512) DEFAULT ''::character varying NOT NULL,
     tenant_id uuid,
+    audit_step smallint DEFAULT 0 NOT NULL,
+    force_submit boolean DEFAULT false NOT NULL,
+    ai_quality_pass boolean,
+    ai_quality_issue character varying(255) DEFAULT ''::character varying NOT NULL,
+    locked_at timestamp with time zone,
+    superseded_by character varying(36),
     CONSTRAINT chk_checkin_result CHECK (((result)::text = ANY (ARRAY[('normal'::character varying)::text, ('abnormal'::character varying)::text]))),
     CONSTRAINT chk_checkin_type CHECK (((checkin_type)::text = ANY (ARRAY[('qrcode'::character varying)::text, ('fence'::character varying)::text, ('offline'::character varying)::text, ('nfc'::character varying)::text])))
 );
@@ -303,7 +464,6 @@ CREATE TABLE public.checkin_record_default (
 CREATE TABLE public.checkin_record_item (
     id uuid NOT NULL,
     record_id uuid NOT NULL,
-    template_item_id uuid,
     name character varying(128) NOT NULL,
     requirement text,
     photo_required character varying(16) DEFAULT 'none'::character varying NOT NULL,
@@ -314,6 +474,10 @@ CREATE TABLE public.checkin_record_item (
     ai_reason character varying(512),
     sort integer DEFAULT 0 NOT NULL,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
+    ai_hint text,
+    judge_type character varying(24) DEFAULT 'general'::character varying NOT NULL,
+    judge_config jsonb,
+    ai_reading character varying(64),
     CONSTRAINT chk_rec_item_photo_req CHECK (((photo_required)::text = ANY (ARRAY[('none'::character varying)::text, ('optional'::character varying)::text, ('required'::character varying)::text])))
 );
 
@@ -340,6 +504,34 @@ COMMENT ON COLUMN public.checkin_record_item.photos IS '该项照片 file_key �
 
 
 --
+-- Name: COLUMN checkin_record_item.ai_hint; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.checkin_record_item.ai_hint IS 'AI 识别要点快照（打卡当时从模板项复制，历史记录不依赖模板表）';
+
+
+--
+-- Name: COLUMN checkin_record_item.judge_type; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.checkin_record_item.judge_type IS '判定类型快照（打卡当时从模板项复制，历史记录不依赖模板表）';
+
+
+--
+-- Name: COLUMN checkin_record_item.judge_config; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.checkin_record_item.judge_config IS '判定参数快照（打卡当时从模板项复制）';
+
+
+--
+-- Name: COLUMN checkin_record_item.ai_reading; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.checkin_record_item.ai_reading IS 'AI 读取的表计读数文本（metric 类检查项；NULL=无读数）';
+
+
+--
 -- Name: community; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -353,8 +545,6 @@ CREATE TABLE public.community (
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     updated_at timestamp with time zone DEFAULT now() NOT NULL,
     deleted_at timestamp with time zone,
-    wo_triage_enabled boolean DEFAULT true NOT NULL,
-    wo_grab_enabled boolean DEFAULT false NOT NULL,
     tenant_id uuid NOT NULL,
     CONSTRAINT chk_community_status CHECK (((status)::text = ANY (ARRAY[('enabled'::character varying)::text, ('disabled'::character varying)::text])))
 );
@@ -365,20 +555,6 @@ CREATE TABLE public.community (
 --
 
 COMMENT ON TABLE public.community IS '小区/项目';
-
-
---
--- Name: COLUMN community.wo_triage_enabled; Type: COMMENT; Schema: public; Owner: -
---
-
-COMMENT ON COLUMN public.community.wo_triage_enabled IS '工单分诊开关：开启则上报工单先进入待分诊，关闭则直接待派单';
-
-
---
--- Name: COLUMN community.wo_grab_enabled; Type: COMMENT; Schema: public; Owner: -
---
-
-COMMENT ON COLUMN public.community.wo_grab_enabled IS '抢单模式开关：开启后 order_accept 槽位成员可从待派单池抢单';
 
 
 --
@@ -439,9 +615,12 @@ CREATE TABLE public.inspection_plan (
     deleted_at timestamp with time zone,
     patrol_type character varying(16) DEFAULT 'safety'::character varying NOT NULL,
     tenant_id uuid,
+    selection_mode character varying(16) DEFAULT 'explicit'::character varying NOT NULL,
+    point_types jsonb,
+    assign_mode character varying(16) DEFAULT 'all'::character varying NOT NULL,
+    CONSTRAINT chk_plan_assign_mode CHECK (((assign_mode)::text = ANY ((ARRAY['all'::character varying, 'split'::character varying])::text[]))),
     CONSTRAINT chk_plan_cycle CHECK (((cycle_type)::text = ANY (ARRAY[('daily'::character varying)::text, ('weekly'::character varying)::text, ('monthly'::character varying)::text]))),
     CONSTRAINT chk_plan_dates CHECK (((end_date IS NULL) OR (end_date >= start_date))),
-    CONSTRAINT chk_plan_patrol_type CHECK (((patrol_type)::text = ANY (ARRAY[('safety'::character varying)::text, ('equipment'::character varying)::text, ('environment'::character varying)::text, ('building'::character varying)::text]))),
     CONSTRAINT chk_plan_status CHECK (((status)::text = ANY (ARRAY[('enabled'::character varying)::text, ('disabled'::character varying)::text])))
 );
 
@@ -482,6 +661,27 @@ COMMENT ON COLUMN public.inspection_plan.patrol_type IS '巡查类型：safety �
 
 
 --
+-- Name: COLUMN inspection_plan.selection_mode; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.inspection_plan.selection_mode IS '点位圈选模式：explicit 显式名单（point_ids）/ by_point_types 按点位类型动态圈选（point_types）';
+
+
+--
+-- Name: COLUMN inspection_plan.point_types; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.inspection_plan.point_types IS '圈选点位类型（point_type 字典值数组，selection_mode=by_point_types 时必填）';
+
+
+--
+-- Name: COLUMN inspection_plan.assign_mode; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.inspection_plan.assign_mode IS '点位分配方式：all 每个执行日全量 / split 按执行日均分（仅 weekly/monthly 合法）';
+
+
+--
 -- Name: inspection_point; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -495,7 +695,6 @@ CREATE TABLE public.inspection_point (
     longitude numeric(10,7) NOT NULL,
     latitude numeric(10,7) NOT NULL,
     fence_radius integer DEFAULT 100 NOT NULL,
-    required_photo_items jsonb DEFAULT '[]'::jsonb NOT NULL,
     sort integer DEFAULT 0 NOT NULL,
     status character varying(16) DEFAULT 'enabled'::character varying NOT NULL,
     remark character varying(255) DEFAULT ''::character varying NOT NULL,
@@ -507,8 +706,9 @@ CREATE TABLE public.inspection_point (
     credential character varying(16) DEFAULT 'qrcode'::character varying NOT NULL,
     require_fence boolean DEFAULT false NOT NULL,
     tenant_id uuid,
-    CONSTRAINT chk_point_check_valid CHECK ((((credential)::text <> 'none'::text) OR require_fence)),
-    CONSTRAINT chk_point_credential CHECK (((credential)::text = ANY ((ARRAY['qrcode'::character varying, 'nfc'::character varying, 'none'::character varying, 'any'::character varying])::text[]))),
+    unit_no integer,
+    floor integer,
+    CONSTRAINT chk_point_credential CHECK (((credential)::text = ANY (ARRAY[('qrcode'::character varying)::text, ('nfc'::character varying)::text, ('none'::character varying)::text, ('any'::character varying)::text]))),
     CONSTRAINT chk_point_lat CHECK (((latitude >= ('-90'::integer)::numeric) AND (latitude <= (90)::numeric))),
     CONSTRAINT chk_point_lng CHECK (((longitude >= ('-180'::integer)::numeric) AND (longitude <= (180)::numeric))),
     CONSTRAINT chk_point_radius CHECK (((fence_radius >= 10) AND (fence_radius <= 2000))),
@@ -538,17 +738,24 @@ COMMENT ON COLUMN public.inspection_point.longitude IS 'GCJ-02 经度（与腾�
 
 
 --
--- Name: COLUMN inspection_point.required_photo_items; Type: COMMENT; Schema: public; Owner: -
---
-
-COMMENT ON COLUMN public.inspection_point.required_photo_items IS '必拍项 JSONB 字符串数组，少拍不能提交';
-
-
---
 -- Name: COLUMN inspection_point.nfc_id; Type: COMMENT; Schema: public; Owner: -
 --
 
 COMMENT ON COLUMN public.inspection_point.nfc_id IS 'NFC 卡号（打卡方式 nfc 时校验）';
+
+
+--
+-- Name: COLUMN inspection_point.unit_no; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.inspection_point.unit_no IS '单元号（NULL=不分单元/非楼栋点位）';
+
+
+--
+-- Name: COLUMN inspection_point.floor; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.inspection_point.floor IS '楼层（负数=地下层，-1 即 B1；NULL=非楼栋点位）';
 
 
 --
@@ -580,7 +787,9 @@ CREATE TABLE public.inspection_report (
     seal_file_key character varying(255) DEFAULT ''::character varying NOT NULL,
     supervisor_ids jsonb DEFAULT '[]'::jsonb NOT NULL,
     manager_ids jsonb DEFAULT '[]'::jsonb NOT NULL,
-    tenant_id uuid
+    tenant_id uuid,
+    patrol_type character varying(32),
+    plan_id uuid
 );
 
 
@@ -627,6 +836,20 @@ COMMENT ON COLUMN public.inspection_report.manager_ids IS 'JSONB 指定物业经
 
 
 --
+-- Name: COLUMN inspection_report.patrol_type; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.inspection_report.patrol_type IS '巡查类型（字典 patrol_type 的 value）；NULL/空 = 综合月报（全类型口径），非空 = 该类型专项检查报告';
+
+
+--
+-- Name: COLUMN inspection_report.plan_id; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.inspection_report.plan_id IS '溯源生成它的巡检计划（仅记录，综合月报为 NULL）';
+
+
+--
 -- Name: inspection_task; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -646,7 +869,9 @@ CREATE TABLE public.inspection_task (
     deleted_at timestamp with time zone,
     patrol_type character varying(16) DEFAULT 'safety'::character varying NOT NULL,
     tenant_id uuid,
-    CONSTRAINT chk_task_patrol_type CHECK (((patrol_type)::text = ANY (ARRAY[('safety'::character varying)::text, ('equipment'::character varying)::text, ('environment'::character varying)::text, ('building'::character varying)::text]))),
+    round_name character varying(32),
+    time_window character varying(32),
+    point_ids jsonb,
     CONSTRAINT chk_task_points CHECK (((done_points >= 0) AND (total_points >= 0) AND (done_points <= total_points))),
     CONSTRAINT chk_task_status CHECK (((status)::text = ANY (ARRAY[('pending'::character varying)::text, ('doing'::character varying)::text, ('done'::character varying)::text, ('overdue'::character varying)::text])))
 );
@@ -678,6 +903,27 @@ COMMENT ON COLUMN public.inspection_task.done_points IS '进度计数，打卡�
 --
 
 COMMENT ON COLUMN public.inspection_task.patrol_type IS '巡查类型（生成任务时从计划快照，同 inspection_plan.patrol_type）';
+
+
+--
+-- Name: COLUMN inspection_task.round_name; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.inspection_task.round_name IS '巡更轮次名快照（cycle_config.rounds[].name）；非轮次任务为 NULL';
+
+
+--
+-- Name: COLUMN inspection_task.time_window; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.inspection_task.time_window IS '本任务执行时段快照 HH:MM-HH:MM（轮次任务取 rounds[].window，允许跨零点）；非轮次任务为 NULL，展示/统计回落计划 time_window';
+
+
+--
+-- Name: COLUMN inspection_task.point_ids; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.inspection_task.point_ids IS '任务点位名单快照（生成时展开：explicit 照抄计划名单，by_point_types 实时圈选）；空则消费侧回落计划 point_ids（兼容存量任务）';
 
 
 --
@@ -873,6 +1119,7 @@ CREATE TABLE public.sys_dict_data (
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     updated_at timestamp with time zone DEFAULT now() NOT NULL,
     deleted_at timestamp with time zone,
+    attrs jsonb,
     CONSTRAINT chk_sys_dict_data_status CHECK (((status)::text = ANY (ARRAY[('enabled'::character varying)::text, ('disabled'::character varying)::text])))
 );
 
@@ -882,6 +1129,13 @@ CREATE TABLE public.sys_dict_data (
 --
 
 COMMENT ON TABLE public.sys_dict_data IS '字典数据（可配置枚举项）';
+
+
+--
+-- Name: COLUMN sys_dict_data.attrs; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.sys_dict_data.attrs IS '通用扩展属性（jsonb）；patrol_type 用 attrs.category 标记大类 daily_patrol/special';
 
 
 --
@@ -1014,7 +1268,7 @@ CREATE TABLE public.sys_message (
     is_read boolean DEFAULT false NOT NULL,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     tenant_id uuid,
-    CONSTRAINT chk_sys_message_type CHECK (((type)::text = ANY (ARRAY[('task'::character varying)::text, ('workorder'::character varying)::text, ('export'::character varying)::text, ('system'::character varying)::text, ('checkin_audit'::character varying)::text, ('report'::character varying)::text, ('announcement'::character varying)::text])))
+    CONSTRAINT chk_sys_message_type CHECK (((type)::text = ANY ((ARRAY['task'::character varying, 'export'::character varying, 'system'::character varying, 'checkin_audit'::character varying, 'report'::character varying, 'announcement'::character varying])::text[])))
 );
 
 
@@ -1088,16 +1342,6 @@ COMMENT ON TABLE public.sys_operation_log IS '操作日志（按月分区，只�
 --
 
 COMMENT ON COLUMN public.sys_operation_log.tenant_id IS '操作者所属租户（日志管理按租户上下文过滤）';
-
-
---
---
-
-
-
---
---
-
 
 
 --
@@ -1346,7 +1590,6 @@ CREATE TABLE public.upload_file (
     file_key character varying(255) NOT NULL,
     scene character varying(16) NOT NULL,
     user_id uuid NOT NULL,
-    size bigint DEFAULT 0 NOT NULL,
     mime_type character varying(128) DEFAULT ''::character varying NOT NULL,
     url character varying(512) DEFAULT ''::character varying NOT NULL,
     watermarked_url character varying(512) DEFAULT ''::character varying NOT NULL,
@@ -1356,7 +1599,7 @@ CREATE TABLE public.upload_file (
     md5 character varying(64) DEFAULT ''::character varying NOT NULL,
     storage character varying(16) DEFAULT ''::character varying NOT NULL,
     tenant_id uuid,
-    CONSTRAINT chk_upload_file_scene CHECK (((scene)::text = ANY (ARRAY['checkin'::text, 'workorder'::text, 'avatar'::text, 'export'::text, 'signature'::text, 'seal'::text, 'notice'::text, 'app'::text])))
+    CONSTRAINT chk_upload_file_scene CHECK (((scene)::text = ANY ((ARRAY['checkin'::character varying, 'avatar'::character varying, 'export'::character varying, 'signature'::character varying, 'seal'::character varying, 'notice'::character varying, 'app'::character varying])::text[])))
 );
 
 
@@ -1389,141 +1632,38 @@ COMMENT ON COLUMN public.upload_file.storage IS '存储驱动：local/oss/cos';
 
 
 --
--- Name: work_order; Type: TABLE; Schema: public; Owner: -
+-- Name: user_push_device; Type: TABLE; Schema: public; Owner: -
 --
 
-CREATE TABLE public.work_order (
+CREATE TABLE public.user_push_device (
     id uuid NOT NULL,
-    order_no character varying(32) NOT NULL,
-    checkin_id uuid,
-    community_id uuid NOT NULL,
-    point_id uuid,
-    title character varying(128) NOT NULL,
-    description text DEFAULT ''::text NOT NULL,
-    photos jsonb DEFAULT '[]'::jsonb NOT NULL,
-    reporter_id uuid NOT NULL,
-    assignee_id uuid,
-    priority character varying(16) DEFAULT 'normal'::character varying NOT NULL,
-    status character varying(16) DEFAULT 'pending'::character varying NOT NULL,
-    finish_photos jsonb DEFAULT '[]'::jsonb NOT NULL,
-    finish_note character varying(512) DEFAULT ''::character varying NOT NULL,
-    finish_at timestamp with time zone,
-    confirm_by uuid,
-    confirm_note character varying(512) DEFAULT ''::character varying NOT NULL,
+    user_id uuid NOT NULL,
+    cid character varying(128) NOT NULL,
+    platform character varying(16) DEFAULT ''::character varying NOT NULL,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
-    updated_at timestamp with time zone DEFAULT now() NOT NULL,
-    deleted_at timestamp with time zone,
-    items jsonb DEFAULT '[]'::jsonb NOT NULL,
-    source character varying(16) DEFAULT 'active'::character varying NOT NULL,
-    category character varying(32) DEFAULT ''::character varying NOT NULL,
-    dispatcher_id uuid,
-    triage_by uuid,
-    triage_at timestamp with time zone,
-    triage_note character varying(512) DEFAULT ''::character varying NOT NULL,
-    dispatch_at timestamp with time zone,
-    accept_at timestamp with time zone,
-    confirm_at timestamp with time zone,
-    reject_reason character varying(512) DEFAULT ''::character varying NOT NULL,
-    tenant_id uuid,
-    CONSTRAINT chk_order_priority CHECK (((priority)::text = ANY (ARRAY[('low'::character varying)::text, ('normal'::character varying)::text, ('high'::character varying)::text, ('urgent'::character varying)::text]))),
-    CONSTRAINT chk_order_source CHECK (((source)::text = ANY (ARRAY[('inspection'::character varying)::text, ('active'::character varying)::text, ('frontdesk'::character varying)::text]))),
-    CONSTRAINT chk_order_status CHECK (((status)::text = ANY (ARRAY[('reported'::character varying)::text, ('pending_dispatch'::character varying)::text, ('processing'::character varying)::text, ('pending_confirm'::character varying)::text, ('closed'::character varying)::text, ('closed_invalid'::character varying)::text])))
+    updated_at timestamp with time zone DEFAULT now() NOT NULL
 );
 
 
 --
--- Name: TABLE work_order; Type: COMMENT; Schema: public; Owner: -
+-- Name: TABLE user_push_device; Type: COMMENT; Schema: public; Owner: -
 --
 
-COMMENT ON TABLE public.work_order IS '工单（上报→分诊→派单→接单处理→完工→验收→闭环）';
-
-
---
--- Name: COLUMN work_order.order_no; Type: COMMENT; Schema: public; Owner: -
---
-
-COMMENT ON COLUMN public.work_order.order_no IS '业务单号，全局唯一，规则 WX+日期+序号，见 §5.4';
+COMMENT ON TABLE public.user_push_device IS 'App 推送设备绑定（uniPush 2.0 / 个推 V2 cid → 用户；一个 cid 只属于最后登录的人）';
 
 
 --
--- Name: COLUMN work_order.status; Type: COMMENT; Schema: public; Owner: -
+-- Name: COLUMN user_push_device.cid; Type: COMMENT; Schema: public; Owner: -
 --
 
-COMMENT ON COLUMN public.work_order.status IS 'reported 待分诊/pending_dispatch 待派单/processing 处理中/pending_confirm 待验收/closed 已闭环/closed_invalid 已作废';
-
-
---
--- Name: COLUMN work_order.items; Type: COMMENT; Schema: public; Owner: -
---
-
-COMMENT ON COLUMN public.work_order.items IS '不合格项快照：[{name,remark,before_photos[],after_photos[]}]（photos 存 file_key；before=整改前/打卡时，after=整改后/回传）';
+COMMENT ON COLUMN public.user_push_device.cid IS '个推 SDK 客户端标识（CID），全局唯一，换账号登录即改绑';
 
 
 --
--- Name: COLUMN work_order.source; Type: COMMENT; Schema: public; Owner: -
+-- Name: COLUMN user_push_device.platform; Type: COMMENT; Schema: public; Owner: -
 --
 
-COMMENT ON COLUMN public.work_order.source IS '工单来源：inspection 巡检异常转单 / active 主动上报 / frontdesk 前台代录';
-
-
---
--- Name: COLUMN work_order.category; Type: COMMENT; Schema: public; Owner: -
---
-
-COMMENT ON COLUMN public.work_order.category IS '工单分类（分诊时可填写，自由文本）';
-
-
---
--- Name: COLUMN work_order.dispatcher_id; Type: COMMENT; Schema: public; Owner: -
---
-
-COMMENT ON COLUMN public.work_order.dispatcher_id IS '派单人（order_dispatch 槽位成员）';
-
-
---
--- Name: COLUMN work_order.triage_by; Type: COMMENT; Schema: public; Owner: -
---
-
-COMMENT ON COLUMN public.work_order.triage_by IS '分诊人（order_triage 槽位成员）';
-
-
---
--- Name: COLUMN work_order.reject_reason; Type: COMMENT; Schema: public; Owner: -
---
-
-COMMENT ON COLUMN public.work_order.reject_reason IS '最近一次驳回原因（分诊驳回 / 验收退回）';
-
-
---
--- Name: work_order_log; Type: TABLE; Schema: public; Owner: -
---
-
-CREATE TABLE public.work_order_log (
-    id uuid NOT NULL,
-    order_id uuid NOT NULL,
-    action character varying(32) NOT NULL,
-    operator_id uuid NOT NULL,
-    detail character varying(512) DEFAULT ''::character varying NOT NULL,
-    created_at timestamp with time zone DEFAULT now() NOT NULL,
-    CONSTRAINT chk_order_log_action CHECK (((action)::text = ANY (ARRAY[('create'::character varying)::text, ('assign'::character varying)::text, ('accept'::character varying)::text, ('finish'::character varying)::text, ('review_pass'::character varying)::text, ('review_reject'::character varying)::text, ('close'::character varying)::text, ('triage_pass'::character varying)::text, ('triage_reject'::character varying)::text, ('dispatch'::character varying)::text, ('grab'::character varying)::text, ('confirm_pass'::character varying)::text, ('confirm_reject'::character varying)::text])))
-);
-
-
---
--- Name: TABLE work_order_log; Type: COMMENT; Schema: public; Owner: -
---
-
-COMMENT ON TABLE public.work_order_log IS '工单流转留痕（只增不改）';
-
-
---
---
-
-
-
---
---
-
+COMMENT ON COLUMN public.user_push_device.platform IS '设备平台：android / ios（离线推送厂商通道配置参考）';
 
 
 --
@@ -1531,16 +1671,6 @@ COMMENT ON TABLE public.work_order_log IS '工单流转留痕（只增不改）'
 --
 
 ALTER TABLE ONLY public.checkin_record ATTACH PARTITION public.checkin_record_default DEFAULT;
-
-
---
---
-
-
-
---
---
-
 
 
 --
@@ -1563,6 +1693,14 @@ ALTER TABLE ONLY public.casbin_rule ALTER COLUMN id SET DEFAULT nextval('public.
 
 ALTER TABLE ONLY public.app_release
     ADD CONSTRAINT app_release_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: approval_flow approval_flow_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.approval_flow
+    ADD CONSTRAINT approval_flow_pkey PRIMARY KEY (id);
 
 
 --
@@ -1598,21 +1736,11 @@ ALTER TABLE ONLY public.check_template
 
 
 --
--- Name: checkin_record checkin_record_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+-- Name: checkin_item_draft checkin_item_draft_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
-ALTER TABLE ONLY public.checkin_record
-    ADD CONSTRAINT checkin_record_pkey PRIMARY KEY (id, created_at);
-
-
---
---
-
-
-
---
---
-
+ALTER TABLE ONLY public.checkin_item_draft
+    ADD CONSTRAINT checkin_item_draft_pkey PRIMARY KEY (id);
 
 
 --
@@ -1621,6 +1749,14 @@ ALTER TABLE ONLY public.checkin_record
 
 ALTER TABLE ONLY public.checkin_record_item
     ADD CONSTRAINT checkin_record_item_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: checkin_record checkin_record_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.checkin_record
+    ADD CONSTRAINT checkin_record_pkey PRIMARY KEY (id, created_at);
 
 
 --
@@ -1637,11 +1773,6 @@ ALTER TABLE ONLY public.community
 
 ALTER TABLE ONLY public.duty_binding
     ADD CONSTRAINT duty_binding_pkey PRIMARY KEY (id);
-
-
---
---
-
 
 
 --
@@ -1765,16 +1896,6 @@ ALTER TABLE ONLY public.sys_operation_log
 
 
 --
---
-
-
-
---
---
-
-
-
---
 -- Name: sys_role_menu sys_role_menu_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -1823,6 +1944,14 @@ ALTER TABLE ONLY public.project_staff
 
 
 --
+-- Name: user_push_device uk_push_device_cid; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.user_push_device
+    ADD CONSTRAINT uk_push_device_cid UNIQUE (cid);
+
+
+--
 -- Name: tenant uk_tenant_code; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -1847,121 +1976,11 @@ ALTER TABLE ONLY public.upload_file
 
 
 --
--- Name: work_order_log work_order_log_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+-- Name: user_push_device user_push_device_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
-ALTER TABLE ONLY public.work_order_log
-    ADD CONSTRAINT work_order_log_pkey PRIMARY KEY (id);
-
-
---
--- Name: work_order work_order_pkey; Type: CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.work_order
-    ADD CONSTRAINT work_order_pkey PRIMARY KEY (id);
-
-
---
--- Name: idx_checkin_audit; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX idx_checkin_audit ON ONLY public.checkin_record USING btree (audit_status, created_at DESC);
-
-
---
---
-
-
-
---
--- Name: idx_checkin_inspector_time; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX idx_checkin_inspector_time ON ONLY public.checkin_record USING btree (inspector_id, checkin_time DESC);
-
-
---
---
-
-
-
---
--- Name: idx_checkin_suspect; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX idx_checkin_suspect ON ONLY public.checkin_record USING btree (is_suspect, checkin_time DESC) WHERE is_suspect;
-
-
---
---
-
-
-
---
--- Name: idx_checkin_point_time; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX idx_checkin_point_time ON ONLY public.checkin_record USING btree (point_id, checkin_time DESC);
-
-
---
---
-
-
-
---
--- Name: idx_checkin_task; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX idx_checkin_task ON ONLY public.checkin_record USING btree (task_id);
-
-
---
---
-
-
-
---
--- Name: uk_checkin_task_point; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE UNIQUE INDEX uk_checkin_task_point ON ONLY public.checkin_record USING btree (task_id, point_id, created_at);
-
-
---
---
-
-
-
---
---
-
-
-
---
---
-
-
-
---
---
-
-
-
---
---
-
-
-
---
---
-
-
-
---
---
-
+ALTER TABLE ONLY public.user_push_device
+    ADD CONSTRAINT user_push_device_pkey PRIMARY KEY (id);
 
 
 --
@@ -1986,6 +2005,41 @@ CREATE UNIQUE INDEX idx_casbin_rule ON public.casbin_rule USING btree (ptype, v0
 
 
 --
+-- Name: idx_checkin_audit; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_checkin_audit ON ONLY public.checkin_record USING btree (audit_status, created_at DESC);
+
+
+--
+-- Name: idx_checkin_inspector_time; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_checkin_inspector_time ON ONLY public.checkin_record USING btree (inspector_id, checkin_time DESC);
+
+
+--
+-- Name: idx_checkin_point_time; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_checkin_point_time ON ONLY public.checkin_record USING btree (point_id, checkin_time DESC);
+
+
+--
+-- Name: idx_checkin_suspect; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_checkin_suspect ON ONLY public.checkin_record USING btree (is_suspect, checkin_time DESC) WHERE is_suspect;
+
+
+--
+-- Name: idx_checkin_task; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_checkin_task ON ONLY public.checkin_record USING btree (task_id);
+
+
+--
 -- Name: idx_community_manager; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -2007,45 +2061,17 @@ CREATE INDEX idx_community_tenant ON public.community USING btree (tenant_id) WH
 
 
 --
--- Name: idx_order_assignee; Type: INDEX; Schema: public; Owner: -
+-- Name: idx_item_draft_inspector; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE INDEX idx_order_assignee ON public.work_order USING btree (assignee_id, status) WHERE (deleted_at IS NULL);
-
-
---
--- Name: idx_order_checkin; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX idx_order_checkin ON public.work_order USING btree (checkin_id) WHERE (deleted_at IS NULL);
+CREATE INDEX idx_item_draft_inspector ON public.checkin_item_draft USING btree (inspector_id, updated_at);
 
 
 --
--- Name: idx_order_community_status; Type: INDEX; Schema: public; Owner: -
+-- Name: idx_item_draft_task; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE INDEX idx_order_community_status ON public.work_order USING btree (community_id, status) WHERE (deleted_at IS NULL);
-
-
---
--- Name: idx_order_log_order; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX idx_order_log_order ON public.work_order_log USING btree (order_id, created_at);
-
-
---
--- Name: idx_order_reporter; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX idx_order_reporter ON public.work_order USING btree (reporter_id, created_at DESC) WHERE (deleted_at IS NULL);
-
-
---
--- Name: idx_order_status; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX idx_order_status ON public.work_order USING btree (status, created_at DESC) WHERE (deleted_at IS NULL);
+CREATE INDEX idx_item_draft_task ON public.checkin_item_draft USING btree (task_id, point_id);
 
 
 --
@@ -2091,17 +2117,17 @@ CREATE INDEX idx_project_staff_user ON public.project_staff USING btree (user_id
 
 
 --
+-- Name: idx_push_device_user; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_push_device_user ON public.user_push_device USING btree (user_id);
+
+
+--
 -- Name: idx_rec_item_rec; Type: INDEX; Schema: public; Owner: -
 --
 
 CREATE INDEX idx_rec_item_rec ON public.checkin_record_item USING btree (record_id, sort);
-
-
---
--- Name: idx_rec_item_tplitem; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX idx_rec_item_tplitem ON public.checkin_record_item USING btree (template_item_id);
 
 
 --
@@ -2259,36 +2285,6 @@ CREATE INDEX idx_upload_file_user ON public.upload_file USING btree (user_id, sc
 
 
 --
---
-
-
-
---
---
-
-
-
---
---
-
-
-
---
---
-
-
-
---
---
-
-
-
---
---
-
-
-
---
 -- Name: sys_operation_log_default_tenant_id_idx; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -2296,10 +2292,24 @@ CREATE INDEX sys_operation_log_default_tenant_id_idx ON public.sys_operation_log
 
 
 --
+-- Name: uk_approval_flow_scope; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX uk_approval_flow_scope ON public.approval_flow USING btree (COALESCE(tenant_id, '00000000-0000-0000-0000-000000000000'::uuid), COALESCE(project_id, '00000000-0000-0000-0000-000000000000'::uuid), flow_code);
+
+
+--
 -- Name: uk_building_comm_name; Type: INDEX; Schema: public; Owner: -
 --
 
 CREATE UNIQUE INDEX uk_building_comm_name ON public.building USING btree (community_id, name) WHERE (deleted_at IS NULL);
+
+
+--
+-- Name: uk_checkin_task_point; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX uk_checkin_task_point ON ONLY public.checkin_record USING btree (task_id, point_id, created_at);
 
 
 --
@@ -2313,14 +2323,14 @@ CREATE UNIQUE INDEX uk_duty_binding_scope_slot ON public.duty_binding USING btre
 -- Name: uk_inspection_report; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE UNIQUE INDEX uk_inspection_report ON public.inspection_report USING btree (community_id, period) WHERE (deleted_at IS NULL);
+CREATE UNIQUE INDEX uk_inspection_report ON public.inspection_report USING btree (community_id, period, COALESCE(patrol_type, ''::character varying)) WHERE (deleted_at IS NULL);
 
 
 --
--- Name: uk_order_no; Type: INDEX; Schema: public; Owner: -
+-- Name: uk_item_draft_item; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE UNIQUE INDEX uk_order_no ON public.work_order USING btree (order_no) WHERE (deleted_at IS NULL);
+CREATE UNIQUE INDEX uk_item_draft_item ON public.checkin_item_draft USING btree (task_id, point_id, item_name);
 
 
 --
@@ -2390,7 +2400,7 @@ CREATE UNIQUE INDEX uk_sys_user_username ON public.sys_user USING btree (tenant_
 -- Name: uk_task_plan_date_inspector; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE UNIQUE INDEX uk_task_plan_date_inspector ON public.inspection_task USING btree (plan_id, task_date, inspector_id) WHERE (deleted_at IS NULL);
+CREATE UNIQUE INDEX uk_task_plan_date_inspector ON public.inspection_task USING btree (plan_id, task_date, inspector_id, COALESCE(round_name, ''::character varying)) WHERE (deleted_at IS NULL);
 
 
 --
@@ -2398,116 +2408,6 @@ CREATE UNIQUE INDEX uk_task_plan_date_inspector ON public.inspection_task USING 
 --
 
 CREATE UNIQUE INDEX uk_upload_file_key ON public.upload_file USING btree (file_key);
-
-
---
---
-
-
-
---
---
-
-
-
---
---
-
-
-
---
---
-
-
-
---
---
-
-
-
---
---
-
-
-
---
---
-
-
-
---
---
-
-
-
---
---
-
-
-
---
---
-
-
-
---
---
-
-
-
---
---
-
-
-
---
---
-
-
-
---
---
-
-
-
---
---
-
-
-
---
---
-
-
-
---
---
-
-
-
---
---
-
-
-
---
---
-
-
-
---
---
-
-
-
---
---
-
-
-
---
---
-
 
 
 --
@@ -2622,34 +2522,16 @@ ALTER TABLE ONLY public.tenant_config
 
 
 --
--- Name: work_order work_order_community_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+-- Name: user_push_device user_push_device_user_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
-ALTER TABLE ONLY public.work_order
-    ADD CONSTRAINT work_order_community_id_fkey FOREIGN KEY (community_id) REFERENCES public.community(id);
-
-
---
--- Name: work_order_log work_order_log_order_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.work_order_log
-    ADD CONSTRAINT work_order_log_order_id_fkey FOREIGN KEY (order_id) REFERENCES public.work_order(id) ON DELETE CASCADE;
-
-
---
--- Name: work_order work_order_point_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.work_order
-    ADD CONSTRAINT work_order_point_id_fkey FOREIGN KEY (point_id) REFERENCES public.inspection_point(id);
+ALTER TABLE ONLY public.user_push_device
+    ADD CONSTRAINT user_push_device_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.sys_user(id) ON DELETE CASCADE;
 
 
 --
 -- PostgreSQL database dump complete
 --
-
-
 
 -- +goose Down
 -- 基线回滚 = 清空整个 public schema（仅用于开发重置，生产请勿执行 goose down）

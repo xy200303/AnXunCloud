@@ -405,7 +405,7 @@ func seedDicts(tx *gorm.DB) error {
 	}
 	for _, d := range dicts {
 		t := model.SysDictType{Code: d.code, Name: d.name, Remark: "系统预置"}
-		// OnConflict 跳过：迁移（如 00005）可能已先行插入同名字典，全新库先 Migrate 后 Seed 时会撞唯一索引
+		// OnConflict 跳过：同名字典已存在（历史库/迁移补丁）时跳过，保证可重复执行
 		if err := tx.Clauses(clause.OnConflict{DoNothing: true}).Create(&t).Error; err != nil {
 			return err
 		}
@@ -471,6 +471,8 @@ func seedConfigs(tx *gorm.DB) error {
 		{Key: "ai.sync_enabled", Name: "打卡同步 AI 判定", Value: "true", ConfigGroup: "ai", Remark: "开启后打卡提交时同步做质量+内容两层判定：质量不达标拒绝打卡，失败/超时放行转人工复核"},
 		{Key: "ai.sync_timeout_seconds", Name: "同步判定超时秒数", Value: "15", ConfigGroup: "ai", Remark: "打卡同步 AI 判定的超时时间；超时按失败放行（ai_verdict=error 转人工复核）"},
 		{Key: "ai.max_photo_attempts", Name: "照片质量重拍放行次数", Value: "3", ConfigGroup: "ai", Remark: "照片质量不达标允许重拍的次数，达到上限后 App 端可强制提交（App 端读取）"},
+		{Key: "ai.result_editable", Name: "打卡结果允许覆盖修改", Value: "true", ConfigGroup: "ai", Remark: "关闭后已提交点位不可重拍覆盖（App 端读取）"},
+		{Key: "ai.worker_concurrency", Name: "逐项识别并发数", Value: "4", ConfigGroup: "ai", Remark: "逐项 AI 识别队列的消费 worker 数（服务启动时读取）"},
 		{Key: "report.company_name", Name: "管理单位落款", Value: "", ConfigGroup: "report", Remark: "月报封面\"管理单位\"与页尾落款单位名称；空则留白"},
 		{Key: "site.slogan", Name: "官网标语", Value: "二维码 / NFC / GPS 围栏三重到点校验，拍照留证、异常复核、月度报告电子签，巡检情况后台一目了然。", ConfigGroup: "site", Remark: "官网首页主标题下的一句话介绍"},
 		{Key: "site.contact_phone", Name: "联系电话", Value: "", ConfigGroup: "site", Remark: "官网页脚展示，留空不显示"},
@@ -485,7 +487,7 @@ func seedConfigs(tx *gorm.DB) error {
 		// 公章自 v16 起由 sign_asset 签章资产表管理，不再使用 report.seal_file_key 配置项
 	}
 	for i := range configs {
-		// OnConflict 跳过：迁移（如 00011/00013/00015）可能已先行插入同名配置项，全新库先 Migrate 后 Seed 时会撞 uk_sys_config_key
+		// OnConflict 跳过：同名配置项已存在（历史库/迁移补丁）时跳过，保证可重复执行
 		if err := tx.Clauses(clause.OnConflict{DoNothing: true}).Create(&configs[i]).Error; err != nil {
 			return err
 		}
@@ -557,7 +559,7 @@ func seedDutyBindings(tx *gorm.DB) error {
 		{model.SlotProjectReview, types.StringArray{"project_manager"}},
 	}
 	for _, b := range bindings {
-		// OnConflict 跳过：迁移（如 00005 的 fire 槽位）可能已先行插入平台级绑定，全新库先 Migrate 后 Seed 时会撞 uk_duty_binding_scope_slot
+		// OnConflict 跳过：同名槽位绑定已存在（历史库/迁移补丁）时跳过，保证可重复执行
 		if err := tx.Clauses(clause.OnConflict{DoNothing: true}).Create(&model.DutyBinding{Slot: b.slot, PostCodes: b.codes}).Error; err != nil {
 			return err
 		}

@@ -19,3 +19,6 @@ backend/uploads/
 # 编辑器
 .idea/
 .vscode/
+
+# 甲方测试照片（真实巡检图像，不入库）
+docs/测试图像/

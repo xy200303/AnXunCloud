@@ -87,7 +87,7 @@
             placeholder="请填写该项异常情况（必填）"
             :maxlength="200"
           />
-          <!-- 该项照片（异常项与必拍项展示） -->
+          <!-- 该项照片（异常项与必拍项展示；一项一图硬约束，最多 1 张，重拍先长按删除） -->
           <view v-if="showItemPhotos(it)" class="photos">
             <image
               v-for="(ph, pi) in it.photos"
@@ -98,10 +98,10 @@
               @longpress="removePhoto(it.photos, pi)"
             />
             <view
-              v-if="it.photos.length < 3"
+              v-if="it.photos.length < 1"
               class="photo-add"
               :style="{ borderColor: colors.border }"
-              @click="takePhotos(it.photos, 3)"
+              @click="takePhotos(it.photos, 1)"
             >
               <text class="photo-add-text" :style="{ color: colors.textSecondary }">+拍照</text>
             </view>
@@ -396,7 +396,7 @@ export default {
       // 异常项与模板必拍项均展示照片区
       return !it.pass || it.photo_required == 'required'
     },
-    /** 拍照（仅相机防相册作弊）→ 定标压缩（1920px/q80）后入列表；水印由服务端在打卡后统一烧录 */
+    /** 拍照（仅相机防相册作弊）→ 定标压缩（1920px/q80）后入列表；一项一图硬约束（max=1）；水印由服务端在打卡后统一烧录 */
     takePhotos(list: string[], max: number) {
       const remain = max - list.length
       if (remain <= 0) return

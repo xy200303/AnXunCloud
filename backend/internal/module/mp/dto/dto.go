@@ -17,8 +17,8 @@ type CheckinItemReq struct {
 	Name string `json:"name" binding:"required"`
 	Pass bool   `json:"pass"`
 	Note string `json:"note"`
-	// Photos 该项照片 file_key 数组（照片唯一归属：不合格项与模板 required 项强制 ≥1 张）
-	Photos []string `json:"photos"`
+	// Photos 该项照片 file_key（一项一图硬约束：最多 1 张；不合格项与模板 required 项强制恰好 1 张）
+	Photos []string `json:"photos" binding:"omitempty,max=1"`
 	// AIVerdict/AIReason/AIReading 逐项 AI 识别确认提交（ai_confirmed=true）时带回的结论（均可空）
 	AIVerdict string `json:"ai_verdict"`
 	AIReason  string `json:"ai_reason"`
@@ -48,12 +48,12 @@ type CheckinReq struct {
 	CheckItems  []CheckinItemReq `json:"check_items"`
 }
 
-// AIItemJobReq 逐项 AI 识别任务提交（单个检查项 1~3 张照片，异步识别后轮询取结果）。
+// AIItemJobReq 逐项 AI 识别任务提交（单个检查项恰好 1 张照片，异步识别后轮询取结果）。
 type AIItemJobReq struct {
 	TaskID   string   `json:"task_id" binding:"required"`
 	PointID  string   `json:"point_id" binding:"required"`
-	Name     string   `json:"name" binding:"required"`                  // 检查项名（须属于该点位模板项）
-	FileKeys []string `json:"file_keys" binding:"required,min=1,max=3"` // 该项照片 file_key（1~3 张）
+	Name     string   `json:"name" binding:"required"`                 // 检查项名（须属于该点位模板项）
+	FileKeys []string `json:"file_keys" binding:"required,len=1"`      // 该项照片 file_key（一项一图硬约束）
 }
 
 // ManualItemDraftReq 手动确认项（感官项）选择落云端草稿：选择即保存，断点恢复以服务端为准。

@@ -550,7 +550,7 @@ func normalizeQRCode(v string) string {
 
 // resolveCheckItems 检查项模板校验并生成逐项快照行（v18 起写 checkin_record_item）：
 // 点位必须已绑定模板（v21 起强制，无模板概念已消除）；模板每项都必须有提交结果（按 name 匹配）；
-// 逐项照片硬约束：不合格项（pass=false）与模板 photo_required=required 的项均须 >=1 张该项照片，
+// 逐项照片硬约束（一项一图）：每项最多 1 张；不合格项（pass=false）与模板 photo_required=required 的项须恰好 1 张，
 // file_key 逐一上传确认（43104/43106）；照片唯一归属逐项，无记录级照片。
 // 返回逐项快照行 + upload_file 索引（EXIF 判定/AI 输入/水印共用）；
 // name/requirement/ai_hint/photo_required 打卡当时从模板项复制，template_item_id 仅作可空血缘字段。
@@ -587,6 +587,9 @@ func (s *CheckinService) resolveCheckItems(req *dto.CheckinReq, point *insmodel.
 		ti := tplByName[it.Name]
 		if ti == nil {
 			return nil, nil, errs.ErrParam.WithMsg("检查项「" + it.Name + "」不属于该点位模板")
+		}
+		if len(it.Photos) > 1 {
+			return nil, nil, errs.ErrParam.WithMsg("检查项「" + it.Name + "」照片超出上限：一项一图，最多 1 张")
 		}
 		if !it.Pass && len(it.Photos) == 0 {
 			return nil, nil, errs.ErrPhotoMissing.WithMsg("检查项「" + it.Name + "」不合格，须至少上传 1 张该项照片")

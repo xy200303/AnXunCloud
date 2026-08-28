@@ -210,7 +210,7 @@ export type AiItemJobCreateReq = {
   point_id: string
   /** 检查项名（与点位模板对齐） */
   name: string
-  /** 该项照片 file_key（1~3 张） */
+  /** 该项照片 file_key（一项一图硬约束，恰好 1 张） */
   file_keys: string[]
 }
 

@@ -1,4 +1,4 @@
-// 逐项 AI 识别队列：巡检员按检查项提交 1~3 张照片，异步调大模型识别（质量+内容一次调用），
+// 逐项 AI 识别队列：巡检员按检查项提交 1 张照片（一项一图硬约束），异步调大模型识别（质量+内容一次调用），
 // App 轮询 job 状态取回逐项结论，确认后随打卡提交（ai_confirmed=true）。
 // 队列：Redis list ai:item:queue（LPUSH 入队，N 个 worker BLPOP 消费，N=ai.worker_concurrency 默认 4）；
 // 结果：Redis hash ai:item:job:{id}（status/verdict/reason/reading/quality_pass/quality_issue，TTL 2 小时）。

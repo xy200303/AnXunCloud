@@ -11,14 +11,17 @@ import (
 )
 
 // Seed 写入系统预置数据（超管、内置角色、菜单树、字典、默认参数）。
-// 仅当 sys_role 为空时执行，保证幂等。超管账号来自配置（ADMIN_USERNAME/PASSWORD/NAME）。
+// 仅当 sys_role 为空时执行全量初始化；已初始化的库每次启动仍做平台默认行自愈
+// （post_dict/duty_binding/approval_flow 的 tenant_id 为空行是开通租户的复制源，
+// 可能被清库脚本或历史版本误删，缺失会导致岗位绑定角色并集失效）。
+// 超管账号来自配置（ADMIN_USERNAME/PASSWORD/NAME）。
 func Seed(db *gorm.DB, adminUsername, adminPassword, adminName string) error {
 	var count int64
 	if err := db.Model(&model.SysRole{}).Count(&count).Error; err != nil {
 		return err
 	}
 	if count > 0 {
-		return nil
+		return ensurePlatformRows(db)
 	}
 	return db.Transaction(func(tx *gorm.DB) error {
 		tenantID, err := seedTenant(tx)
@@ -521,6 +524,14 @@ func seedPosts(tx *gorm.DB, roleIDs map[string]string) error {
 		{"receptionist", "前台接待", "service", false, "field_staff", 10, model.StatusEnabled, "前台接报、录入报单"},
 	}
 	for _, p := range posts {
+		// 幂等：平台模板行（tenant_id 为空）按 code 判重，缺失才补
+		var n int64
+		if err := tx.Model(&model.PostDict{}).Where("tenant_id IS NULL AND code = ?", p.code).Count(&n).Error; err != nil {
+			return err
+		}
+		if n > 0 {
+			continue
+		}
 		row := model.PostDict{
 			Code: p.code, Name: p.name, Line: p.line, IsSupervisor: p.isSupervisor,
 			Sort: p.sort, Status: p.status, Remark: p.remark,
@@ -535,6 +546,39 @@ func seedPosts(tx *gorm.DB, roleIDs map[string]string) error {
 		}
 	}
 	return nil
+}
+
+// ensurePlatformRows 平台默认行自愈（每次启动执行，幂等）：
+// post_dict 平台模板岗位 / duty_binding 平台默认槽位绑定 / approval_flow 平台默认审批链
+// 均为 tenant_id 为空的行，是开通租户复制源（CopyPostTemplatesToTenant）与配置回落的最末一级，
+// 被误清后这里按 code/slot/flow_code 补齐缺失行。
+func ensurePlatformRows(db *gorm.DB) error {
+	return db.Transaction(func(tx *gorm.DB) error {
+		var roles []model.SysRole
+		if err := tx.Select("id", "code").Find(&roles).Error; err != nil {
+			return err
+		}
+		roleIDs := make(map[string]string, len(roles))
+		for _, r := range roles {
+			roleIDs[r.Code] = r.ID
+		}
+		if err := seedPosts(tx, roleIDs); err != nil { // 内部按 code 判重
+			return err
+		}
+		if err := seedDutyBindings(tx); err != nil { // OnConflict 幂等
+			return err
+		}
+		var n int64
+		if err := tx.Model(&model.ApprovalFlow{}).
+			Where("tenant_id IS NULL AND project_id IS NULL AND flow_code = ?", model.FlowCheckinReview).
+			Count(&n).Error; err != nil {
+			return err
+		}
+		if n == 0 {
+			return seedApprovalFlow(tx)
+		}
+		return nil
+	})
 }
 
 // seedDutyBindings 预置平台默认职责槽位绑定（duty_binding：project_id/tenant_id 均空 = 平台默认）。

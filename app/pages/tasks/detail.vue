@@ -9,7 +9,7 @@
 
     <!-- 空态 -->
     <view v-else-if="loaded && points.length == 0" class="empty">
-      <text class="empty-title" :style="{ color: colors.textRegular }">该任务暂无点位</text>
+      <text class="empty-title" :style="{ color: colors.textRegular }">这个任务还没配点位</text>
       <text class="empty-sub" :style="{ color: colors.textSecondary }">请联系主管检查计划路线</text>
     </view>
 
@@ -33,15 +33,15 @@
       </view>
 
       <!-- 连续巡检入口（AI 启用进向导；未启用进手动表单；有本地快照时显示继续巡检） -->
-      <view v-if="hasUnchecked" class="quick-btn" :style="{ backgroundColor: colors.success }" @click="startQuick">
-        <text class="quick-btn-text" :style="{ color: colors.white }">{{ quickBtnText }}</text>
+      <view v-if="hasUnchecked"  hover-class="hover-dim" class="quick-btn" :style="{ backgroundColor: colors.success }" @click="startQuick">
+        <text  hover-class="hover-dim" class="quick-btn-text" :style="{ color: colors.white }">{{ quickBtnText }}</text>
       </view>
 
       <!-- 点位列表（未打卡置顶，已打卡沉底；组内保持 sort 顺序） -->
       <view
         v-for="p in sortedPoints"
         :key="p.point_id"
-        class="card point-row"
+         hover-class="hover-dim" class="card point-row"
         :style="{ backgroundColor: colors.bgCard }"
         @click="onPointTap(p)"
       >

@@ -3,11 +3,11 @@
     <!-- 自定义导航栏：左返回（退出巡检）、中标题 -->
     <view class="navbar" :style="{ backgroundColor: colors.primary, paddingTop: statusBarHeight + 'px' }">
       <view class="navbar-row">
-        <view class="navbar-side" @click="onBackTap">
+        <view  hover-class="hover-dim" class="navbar-side" @click="onBackTap">
           <text class="navbar-back" :style="{ color: colors.white }">‹</text>
         </view>
         <text class="navbar-title" :style="{ color: colors.white }">连续巡检</text>
-        <view class="navbar-side navbar-right"></view>
+        <view  hover-class="hover-dim" class="navbar-side navbar-right"></view>
       </view>
     </view>
     <view class="navbar-space" :style="{ height: 'calc(88rpx + ' + statusBarHeight + 'px)' }"></view>
@@ -47,46 +47,46 @@
       <!-- 凭证核验步 -->
       <block v-if="phase == 'cred'">
         <view class="card" :style="{ backgroundColor: colors.bgCard, boxShadow: shadow }">
-          <text class="cred-title" :style="{ color: colors.textPrimary }">到场核验</text>
-          <text v-if="!needsCred" class="cred-none" :style="{ color: colors.success }">✓ 本点位无需核验</text>
+          <text class="cred-title" :style="{ color: colors.textPrimary }">到场打卡</text>
+          <text v-if="!needsCred" class="cred-none" :style="{ color: colors.success }">✓ 本点位直接拍照就行</text>
           <!-- 扫码行 -->
           <view
             v-if="curPoint != null && (curPoint.credential == 'qrcode' || curPoint.credential == 'any')"
-            class="cred-row"
+             hover-class="hover-dim" class="cred-row"
             @click="onScanRowTap"
           >
-            <text class="cred-row-name" :style="{ color: colors.textPrimary }">扫码核验</text>
-            <text v-if="curWizPoint != null && curWizPoint.scannedNo != ''" class="cred-status" :style="{ color: colors.success }">✓ 已通过</text>
-            <text v-else class="cred-status" :style="{ color: colors.textSecondary }">待核验 ›</text>
+            <text  hover-class="hover-dim" class="cred-row-name" :style="{ color: colors.textPrimary }">扫点位二维码</text>
+            <text v-if="curWizPoint != null && curWizPoint.scannedNo != ''" class="cred-status" :style="{ color: colors.success }">✓ 已完成</text>
+            <text v-else class="cred-status" :style="{ color: colors.textSecondary }">去完成 ›</text>
           </view>
           <!-- 读卡行 -->
           <view
             v-if="curPoint != null && (curPoint.credential == 'nfc' || curPoint.credential == 'any')"
-            class="cred-row"
+             hover-class="hover-dim" class="cred-row"
             @click="onNfcRowTap"
           >
-            <text class="cred-row-name" :style="{ color: colors.textPrimary }">读卡核验</text>
-            <text v-if="curWizPoint != null && curWizPoint.nfcCardId != ''" class="cred-status" :style="{ color: colors.success }">✓ 已通过</text>
-            <text v-else class="cred-status" :style="{ color: colors.textSecondary }">待核验 ›</text>
+            <text  hover-class="hover-dim" class="cred-row-name" :style="{ color: colors.textPrimary }">刷 NFC 卡</text>
+            <text v-if="curWizPoint != null && curWizPoint.nfcCardId != ''" class="cred-status" :style="{ color: colors.success }">✓ 已完成</text>
+            <text v-else class="cred-status" :style="{ color: colors.textSecondary }">去完成 ›</text>
           </view>
           <!-- 定位行 -->
-          <view v-if="curPoint != null && curPoint.require_fence" class="cred-row" @click="onLocTap">
-            <text class="cred-row-name" :style="{ color: colors.textPrimary }">位置核验</text>
+          <view v-if="curPoint != null && curPoint.require_fence"  hover-class="hover-dim" class="cred-row" @click="onLocTap">
+            <text  hover-class="hover-dim" class="cred-row-name" :style="{ color: colors.textPrimary }">位置确认</text>
             <text v-if="locating" class="cred-status" :style="{ color: colors.textSecondary }">定位中…</text>
             <text v-else-if="locFailed" class="cred-status" :style="{ color: colors.danger }">失败，点我重试</text>
             <text v-else-if="distance >= 0 && curPoint != null && distance <= curPoint.fence_radius" class="cred-status" :style="{ color: colors.success }">✓ 在范围内（{{ distance }}米）</text>
             <text v-else-if="distance >= 0" class="cred-status" :style="{ color: colors.danger }">超出范围（{{ distance }}米）</text>
-            <text v-else class="cred-status" :style="{ color: colors.textSecondary }">待核验 ›</text>
+            <text v-else class="cred-status" :style="{ color: colors.textSecondary }">去完成 ›</text>
           </view>
         </view>
         <view
-          class="btn-big"
+           hover-class="hover-dim" class="btn-big"
           :style="{ backgroundColor: credOk && fenceOk ? colors.success : colors.border }"
           @click="startItems"
         >
-          <text class="btn-big-text" :style="{ color: credOk && fenceOk ? colors.white : colors.textSecondary }">开始检查</text>
+          <text  hover-class="hover-dim" class="btn-big-text" :style="{ color: credOk && fenceOk ? colors.white : colors.textSecondary }">开始检查</text>
         </view>
-        <text v-if="!(credOk && fenceOk)" class="start-hint" :style="{ color: colors.textSecondary }">请先完成上方核验</text>
+        <text v-if="!(credOk && fenceOk)" class="start-hint" :style="{ color: colors.textSecondary }">先完成上面的确认，再开始检查</text>
       </block>
 
       <!-- 逐项卡片步 -->
@@ -98,14 +98,14 @@
           <!-- 未拍：虚线大框 -->
           <view
             v-if="curItem.status == 'todo' || curItem.status == 'failed'"
-            class="shot-empty"
+             hover-class="hover-dim" class="shot-empty"
             :style="{ borderColor: curItem.status == 'failed' ? colors.danger : colors.primary }"
             @click="takePhoto"
           >
             <view class="cam-icon" :style="{ borderColor: curItem.status == 'failed' ? colors.danger : colors.primary }">
               <view class="cam-lens" :style="{ borderColor: curItem.status == 'failed' ? colors.danger : colors.primary }"></view>
             </view>
-            <text class="shot-empty-text" :style="{ color: curItem.status == 'failed' ? colors.danger : colors.primary }">{{ curItem.status == 'failed' ? '不合格，点这里重拍' : '点这里拍照' }}</text>
+            <text  hover-class="hover-dim" class="shot-empty-text" :style="{ color: curItem.status == 'failed' ? colors.danger : colors.primary }">{{ curItem.status == 'failed' ? '不合格，点这里重拍' : '点这里拍照' }}</text>
           </view>
           <!-- 已拍：缩略图 + 状态角标 -->
           <block v-else>
@@ -115,11 +115,11 @@
                 <text class="shot-img-fallback-text">照片加载失败，可重新拍</text>
               </view>
             </view>
-            <view class="btn-big shot-next" :style="{ backgroundColor: colors.success }" @click="nextStep">
-              <text class="btn-big-text" :style="{ color: colors.white }">下一项</text>
+            <view  hover-class="hover-dim" class="btn-big shot-next" :style="{ backgroundColor: colors.success }" @click="nextStep">
+              <text  hover-class="hover-dim" class="btn-big-text" :style="{ color: colors.white }">下一项</text>
             </view>
-            <view class="btn-outline reshot" :style="{ borderColor: colors.primary }" @click="takePhoto">
-              <text class="btn-outline-text" :style="{ color: colors.primary }">重新拍</text>
+            <view  hover-class="hover-dim" class="btn-outline reshot" :style="{ borderColor: colors.primary }" @click="takePhoto">
+              <text  hover-class="hover-dim" class="btn-outline-text" :style="{ color: colors.primary }">重新拍</text>
             </view>
           </block>
         </view>
@@ -127,11 +127,11 @@
         <view v-else class="item-card" :style="{ backgroundColor: colors.bgCard, boxShadow: shadow }">
           <text class="item-name" :style="{ color: colors.textPrimary }">{{ curItem.name }}</text>
           <text class="item-hint" :style="{ color: colors.textSecondary }">{{ curItem.requirement != '' ? curItem.requirement : '这项正常吗？' }}</text>
-          <view class="btn-big btn-normal" :style="{ backgroundColor: colors.success }" @click="tapManualOk">
-            <text class="btn-big-text" :style="{ color: colors.white }">✓ 正常</text>
+          <view  hover-class="hover-dim" class="btn-big btn-normal" :style="{ backgroundColor: colors.success }" @click="tapManualOk">
+            <text  hover-class="hover-dim" class="btn-big-text" :style="{ color: colors.white }">✓ 正常</text>
           </view>
-          <view class="btn-big" :style="{ backgroundColor: colors.danger }" @click="tapManualAbnormal">
-            <text class="btn-big-text" :style="{ color: colors.white }">⚠ 有异常</text>
+          <view  hover-class="hover-dim" class="btn-big" :style="{ backgroundColor: colors.danger }" @click="tapManualAbnormal">
+            <text  hover-class="hover-dim" class="btn-big-text" :style="{ color: colors.white }">⚠ 有异常</text>
           </view>
           <block v-if="manualAbnormalOpen">
             <textarea
@@ -141,8 +141,8 @@
               placeholder="说说哪里不对劲（可不填）"
               :maxlength="200"
             />
-            <view class="btn-big" :style="{ backgroundColor: colors.danger }" @click="confirmManualAbnormal">
-              <text class="btn-big-text" :style="{ color: colors.white }">确认异常，下一项</text>
+            <view  hover-class="hover-dim" class="btn-big" :style="{ backgroundColor: colors.danger }" @click="confirmManualAbnormal">
+              <text  hover-class="hover-dim" class="btn-big-text" :style="{ color: colors.white }">确认异常，下一项</text>
             </view>
           </block>
         </view>
@@ -168,8 +168,8 @@
           </view>
           <text class="gate-sub" :style="{ color: colors.textSecondary }">{{ gateStats.recognizing > 0 ? '提交后将等待 AI 检查完成' : '提交后 AI 统一检查' }}</text>
         </view>
-        <view class="btn-big" :style="{ backgroundColor: colors.success }" @click="submitPoint">
-          <text class="btn-big-text" :style="{ color: colors.white }">提交本点位</text>
+        <view  hover-class="hover-dim" class="btn-big" :style="{ backgroundColor: colors.success }" @click="submitPoint">
+          <text  hover-class="hover-dim" class="btn-big-text" :style="{ color: colors.white }">提交本点位</text>
         </view>
       </block>
 
@@ -185,15 +185,15 @@
             <text class="retake-issue" :style="{ color: colors.danger }">{{ retakeIssue(it) }}</text>
           </view>
           <view
-            class="retake-btn"
+             hover-class="hover-dim" class="retake-btn"
             :style="{ backgroundColor: it.status == 'recognizing' ? colors.info : colors.primary }"
             @click="retakePhoto(it)"
           >
-            <text class="retake-btn-text" :style="{ color: colors.white }">{{ it.status == 'recognizing' ? '检查中' : '重拍' }}</text>
+            <text  hover-class="hover-dim" class="retake-btn-text" :style="{ color: colors.white }">{{ it.status == 'recognizing' ? '检查中' : '重拍' }}</text>
           </view>
         </view>
-        <view class="btn-big" :style="{ backgroundColor: colors.success }" @click="submitPoint">
-          <text class="btn-big-text" :style="{ color: colors.white }">重新提交本点位</text>
+        <view  hover-class="hover-dim" class="btn-big" :style="{ backgroundColor: colors.success }" @click="submitPoint">
+          <text  hover-class="hover-dim" class="btn-big-text" :style="{ color: colors.white }">重新提交本点位</text>
         </view>
       </block>
 
@@ -215,8 +215,8 @@
           />
           <text v-else class="abn-reason" :style="{ color: colors.danger }">{{ it.note != '' ? it.note : 'AI 判断该项异常' }}</text>
         </view>
-        <view class="btn-big" :style="{ backgroundColor: colors.danger }" @click="confirmAbnormalSubmit">
-          <text class="btn-big-text" :style="{ color: colors.white }">确认，去下一处</text>
+        <view  hover-class="hover-dim" class="btn-big" :style="{ backgroundColor: colors.danger }" @click="confirmAbnormalSubmit">
+          <text  hover-class="hover-dim" class="btn-big-text" :style="{ color: colors.white }">确认，去下一处</text>
         </view>
       </block>
 
@@ -230,14 +230,14 @@
       <view v-if="phase == 'taskDone'" class="done-pane" :style="{ backgroundColor: colors.success }">
         <text class="done-icon" :style="{ color: colors.white }">✓</text>
         <text class="done-title" :style="{ color: colors.white }">任务完成</text>
-        <view class="done-btn" :style="{ backgroundColor: colors.white }" @click="exitWizard">
-          <text class="done-btn-text" :style="{ color: colors.success }">返回</text>
+        <view  hover-class="hover-dim" class="done-btn" :style="{ backgroundColor: colors.white }" @click="exitWizard">
+          <text  hover-class="hover-dim" class="done-btn-text" :style="{ color: colors.success }">返回</text>
         </view>
       </view>
 
       <!-- 上一项：主推进阶段且不在起点时显示（返回键=退出巡检，回退只走此按钮） -->
-      <view v-if="showPrev && !atWizardStart" class="prev-link" @click="onPrevTap">
-        <text class="prev-link-text" :style="{ color: colors.textSecondary }">‹ 上一项</text>
+      <view v-if="showPrev && !atWizardStart"  hover-class="hover-dim" class="prev-link" @click="onPrevTap">
+        <text  hover-class="hover-dim" class="prev-link-text" :style="{ color: colors.textSecondary }">‹ 上一项</text>
       </view>
 
       <view class="bottom-space"></view>

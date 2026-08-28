@@ -2,10 +2,10 @@
   <view class="page" :style="{ backgroundColor: colors.bgPage }">
     <!-- 顶部操作行：公告入口 + 全部已读 -->
     <view class="topbar">
-      <view class="topbar-item" :style="{ backgroundColor: colors.bgCard }" @click="openAnnouncements">
+      <view  hover-class="hover-dim" class="topbar-item" :style="{ backgroundColor: colors.bgCard }" @click="openAnnouncements">
         <text class="topbar-text" :style="{ color: colors.primary }">公告</text>
       </view>
-      <view class="topbar-item" :style="{ backgroundColor: colors.bgCard }" @click="markAllRead">
+      <view  hover-class="hover-dim" class="topbar-item" :style="{ backgroundColor: colors.bgCard }" @click="markAllRead">
         <text class="topbar-text" :style="{ color: colors.textRegular }">全部已读</text>
       </view>
     </view>
@@ -19,7 +19,7 @@
 
     <!-- 空态 -->
     <view v-else-if="loaded && list.length == 0" class="empty">
-      <text class="empty-title" :style="{ color: colors.textRegular }">暂无消息</text>
+      <text class="empty-title" :style="{ color: colors.textRegular }">没有新消息，都去巡检啦</text>
       <text class="empty-sub" :style="{ color: colors.textSecondary }">派单、待签、驳回等提醒会出现在这里</text>
     </view>
 
@@ -28,7 +28,7 @@
       <view
         v-for="m in list"
         :key="m.id"
-        class="card"
+         hover-class="hover-dim" class="card"
         :style="{ backgroundColor: colors.bgCard }"
         @click="onTap(m)"
       >
@@ -67,14 +67,14 @@
             <text :style="{ color: colors.textSecondary }">加载中…</text>
           </view>
           <view v-else-if="notices.length == 0" class="notice-empty">
-            <text :style="{ color: colors.textSecondary }">暂无公告</text>
+            <text :style="{ color: colors.textSecondary }">暂时没有公告</text>
           </view>
-          <view v-for="n in notices" :key="n.id" class="notice-item" @click="openNoticeDetail(n.id)">
-            <view class="notice-item-head">
-              <text class="notice-item-title" :style="{ color: colors.textPrimary }">{{ n.title }}</text>
-              <text class="notice-item-time" :style="{ color: colors.textSecondary }">{{ n.publish_at }}</text>
+          <view v-for="n in notices" :key="n.id"  hover-class="hover-dim" class="notice-item" @click="openNoticeDetail(n.id)">
+            <view  hover-class="hover-dim" class="notice-item-head">
+              <text  hover-class="hover-dim" class="notice-item-title" :style="{ color: colors.textPrimary }">{{ n.title }}</text>
+              <text  hover-class="hover-dim" class="notice-item-time" :style="{ color: colors.textSecondary }">{{ n.publish_at }}</text>
             </view>
-            <text class="notice-item-brief" :style="{ color: colors.textSecondary }">{{ n.content }}</text>
+            <text  hover-class="hover-dim" class="notice-item-brief" :style="{ color: colors.textSecondary }">{{ n.content }}</text>
           </view>
         </scroll-view>
       </view>

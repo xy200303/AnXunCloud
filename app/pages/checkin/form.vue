@@ -28,27 +28,27 @@
 
       <!-- 凭证校验区：任一（any）时扫码/NFC 两个入口并列，核验其一即可 -->
       <view v-if="needScan" class="card" :style="{ backgroundColor: colors.bgCard }">
-        <text class="sec-title" :style="{ color: colors.textPrimary }">点位凭证</text>
+        <text class="sec-title" :style="{ color: colors.textPrimary }">打卡确认</text>
         <view class="btn-outline" :style="{ borderColor: colors.primary }" @click="scanCredential">
-          <text class="btn-outline-text" :style="{ color: colors.primary }">扫码校验点位</text>
+          <text class="btn-outline-text" :style="{ color: colors.primary }">扫点位二维码</text>
         </view>
         <view v-if="point != null && point.credential == 'any'" class="btn-outline cred-gap" :style="{ borderColor: colors.primary }" @click="nfcTap">
-          <text class="btn-outline-text" :style="{ color: colors.primary }">NFC 校验</text>
+          <text class="btn-outline-text" :style="{ color: colors.primary }">刷 NFC 卡</text>
         </view>
-        <text v-if="point != null && point.credential == 'any'" class="cred-tip" :style="{ color: colors.textSecondary }">扫码或 NFC 任一方式核验即可</text>
+        <text v-if="point != null && point.credential == 'any'" class="cred-tip" :style="{ color: colors.textSecondary }">扫码或刷卡，确认一种就行</text>
       </view>
       <view v-else-if="scannedNo != '' && point != null && point.credential != 'nfc'" class="card" :style="{ backgroundColor: colors.bgCard }">
-        <text class="sec-title" :style="{ color: colors.textPrimary }">点位凭证</text>
-        <text class="cred-ok" :style="{ color: colors.success }">已扫码校验：{{ scannedNo }}</text>
+        <text class="sec-title" :style="{ color: colors.textPrimary }">打卡确认</text>
+        <text class="cred-ok" :style="{ color: colors.success }">已扫码确认：{{ scannedNo }}</text>
       </view>
       <view v-else-if="point && (point.credential == 'nfc' || point.credential == 'any') && nfcCardId != ''" class="card" :style="{ backgroundColor: colors.bgCard }">
-        <text class="sec-title" :style="{ color: colors.textPrimary }">点位凭证</text>
-        <text class="cred-ok" :style="{ color: colors.success }">已 NFC 校验：{{ nfcCardId }}</text>
+        <text class="sec-title" :style="{ color: colors.textPrimary }">打卡确认</text>
+        <text class="cred-ok" :style="{ color: colors.success }">已刷卡确认：{{ nfcCardId }}</text>
       </view>
       <view v-else-if="point && point.credential == 'nfc'" class="card" :style="{ backgroundColor: colors.bgCard }">
-        <text class="sec-title" :style="{ color: colors.textPrimary }">点位凭证</text>
+        <text class="sec-title" :style="{ color: colors.textPrimary }">打卡确认</text>
         <view class="btn-outline" :style="{ borderColor: colors.primary }" @click="nfcTap">
-          <text class="btn-outline-text" :style="{ color: colors.primary }">NFC 校验</text>
+          <text class="btn-outline-text" :style="{ color: colors.primary }">刷 NFC 卡</text>
         </view>
       </view>
 
@@ -347,7 +347,7 @@ export default {
             return
           }
           this.scannedNo = code
-          uni.showToast({ title: '点位校验成功', icon: 'success' })
+          uni.showToast({ title: '点位确认成功', icon: 'success' })
         },
         fail: (err) => {
           const msg = err && err.errMsg ? err.errMsg : ''
@@ -375,7 +375,7 @@ export default {
           return
         }
         this.nfcCardId = cardId
-        uni.showToast({ title: '点位校验成功', icon: 'success' })
+        uni.showToast({ title: '点位确认成功', icon: 'success' })
       })
     },
     setPass(idx: number, pass: boolean) {
@@ -423,9 +423,9 @@ export default {
     /** 提交前校验，返回错误文案（空串 = 通过） */
     validate(): string {
       if (this.point == null) return '点位信息缺失'
-      if (this.point.credential == 'nfc' && this.nfcCardId == '') return '请先完成 NFC 校验'
-      if (this.point.credential == 'qrcode' && this.scannedNo == '') return '请先扫码校验点位'
-      if (this.point.credential == 'any' && this.scannedNo == '' && this.nfcCardId == '') return '请扫码或 NFC 校验点位'
+      if (this.point.credential == 'nfc' && this.nfcCardId == '') return '请先刷 NFC 卡'
+      if (this.point.credential == 'qrcode' && this.scannedNo == '') return '请先扫点位二维码'
+      if (this.point.credential == 'any' && this.scannedNo == '' && this.nfcCardId == '') return '请扫码或刷 NFC 卡'
       if (!this.hasLoc) return '请先完成定位'
       if (this.point.require_fence && this.distance > this.point.fence_radius) {
         return '距点位 ' + this.distance + ' m，超出围栏半径 ' + this.point.fence_radius + ' m'

@@ -19,7 +19,7 @@
 
     <!-- 空态 -->
     <view v-else-if="loaded && tasks.length == 0" class="empty">
-      <text class="empty-title" :style="{ color: colors.textRegular }">今日无巡检任务</text>
+      <text class="empty-title" :style="{ color: colors.textRegular }">今天没有任务，安心休息</text>
       <text class="empty-sub" :style="{ color: colors.textSecondary }">如需补检请联系主管安排</text>
     </view>
 
@@ -51,7 +51,7 @@
       </view>
 
       <view v-if="filteredTasks.length == 0" class="empty-filter">
-        <text class="empty-filter-text" :style="{ color: colors.textSecondary }">该类型今日暂无任务</text>
+        <text class="empty-filter-text" :style="{ color: colors.textSecondary }">这类今天没有任务</text>
       </view>
 
       <!-- 轮次任务按「窗口开始时刻」分组（带组头）；非轮次任务为平铺列表（展示不变） -->
@@ -59,18 +59,18 @@
         <text v-if="row.task == null" class="group-title" :style="{ color: colors.textSecondary }">{{ row.header }}</text>
         <view
           v-else
-          class="card"
+           hover-class="hover-dim" class="card"
           :style="{ backgroundColor: colors.bgCard }"
           @click="goDetail(row.task.id)"
         >
-          <view class="card-head">
-            <text class="card-title" :style="{ color: colors.textPrimary }">{{ row.task.community_name }} · {{ row.task.plan_name }}</text>
-            <text class="card-tag" :style="{ color: row.task.status_color }">{{ row.task.status_text }}</text>
+          <view  hover-class="hover-dim" class="card-head">
+            <text  hover-class="hover-dim" class="card-title" :style="{ color: colors.textPrimary }">{{ row.task.community_name }} · {{ row.task.plan_name }}</text>
+            <text  hover-class="hover-dim" class="card-tag" :style="{ color: row.task.status_color }">{{ row.task.status_text }}</text>
           </view>
-          <view class="card-sub-row">
+          <view  hover-class="hover-dim" class="card-sub-row">
             <text v-if="row.task.round_name != ''" class="type-tag" :style="{ color: colors.warning, borderColor: colors.warning }">{{ row.task.round_name }}</text>
             <text v-if="row.task.patrol_text != ''" class="type-tag" :style="{ color: colors.primary, borderColor: colors.primary }">{{ row.task.patrol_text }}</text>
-            <text class="card-sub" :style="{ color: colors.textSecondary }">{{ row.task.time_window != '' ? row.task.time_window : (row.task.round_name != '' ? '不限时段' : '') }}</text>
+            <text  hover-class="hover-dim" class="card-sub" :style="{ color: colors.textSecondary }">{{ row.task.time_window != '' ? row.task.time_window : (row.task.round_name != '' ? '不限时段' : '') }}</text>
           </view>
           <view class="progress" :style="{ backgroundColor: colors.border }">
             <view
@@ -78,7 +78,7 @@
               :style="{ width: row.task.progress_width, backgroundColor: row.task.bar_color }"
             ></view>
           </view>
-          <text class="card-progress-text" :style="{ color: colors.textRegular }">{{ row.task.done_points }}/{{ row.task.total_points }} 点位</text>
+          <text  hover-class="hover-dim" class="card-progress-text" :style="{ color: colors.textRegular }">{{ row.task.done_points }}/{{ row.task.total_points }} 点位</text>
         </view>
       </view>
     </view>

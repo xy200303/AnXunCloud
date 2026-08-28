@@ -5,14 +5,14 @@
       <view
         v-for="t in tabs"
         :key="t.key"
-        class="tab"
+         hover-class="hover-dim" class="tab"
         @click="switchTab(t.key)"
       >
         <text
-          class="tab-text"
+           hover-class="hover-dim" class="tab-text"
           :style="{ color: tab == t.key ? colors.primary : colors.textRegular, fontWeight: tab == t.key ? 600 : 400 }"
         >{{ t.label }}</text>
-        <view v-if="tab == t.key" class="tab-line" :style="{ backgroundColor: colors.primary }"></view>
+        <view v-if="tab == t.key"  hover-class="hover-dim" class="tab-line" :style="{ backgroundColor: colors.primary }"></view>
       </view>
     </view>
 
@@ -34,20 +34,20 @@
       <view
         v-for="r in list"
         :key="r.id"
-        class="card"
+         hover-class="hover-dim" class="card"
         :style="{ backgroundColor: colors.bgCard }"
         @click="goDetail(r.id)"
       >
-        <view class="card-head">
-          <text class="card-title" :style="{ color: colors.textPrimary }">{{ r.title }}</text>
+        <view  hover-class="hover-dim" class="card-head">
+          <text  hover-class="hover-dim" class="card-title" :style="{ color: colors.textPrimary }">{{ r.title }}</text>
         </view>
-        <view class="card-row">
-          <text class="card-node" :style="{ color: nodeColorOf(r.status), backgroundColor: colors.primaryLight }">{{ nodeTextOf(r.status) }}</text>
-          <text v-if="r.status == 'pending_inspector'" class="card-progress" :style="{ color: colors.textSecondary }">
+        <view  hover-class="hover-dim" class="card-row">
+          <text  hover-class="hover-dim" class="card-node" :style="{ color: nodeColorOf(r.status), backgroundColor: colors.primaryLight }">{{ nodeTextOf(r.status) }}</text>
+          <text v-if="r.status == 'pending_inspector'"  hover-class="hover-dim" class="card-progress" :style="{ color: colors.textSecondary }">
             巡检员已确认 {{ r.inspector_signed_count }}/{{ r.inspector_total }}
           </text>
         </view>
-        <text class="card-time" :style="{ color: colors.textSecondary }">生成时间 {{ r.created_at }}</text>
+        <text  hover-class="hover-dim" class="card-time" :style="{ color: colors.textSecondary }">生成时间 {{ r.created_at }}</text>
       </view>
     </view>
 
@@ -110,9 +110,9 @@ export default {
       return TABS
     },
     emptyTitle(): string {
-      if (this.tab == 'pending') return '暂无待签报告'
-      if (this.tab == 'doing') return '暂无进行中报告'
-      return '暂无已完成报告'
+      if (this.tab == 'pending') return '暂时没有要你签字的报告'
+      if (this.tab == 'doing') return '暂时没有进行中的报告'
+      return '还没有已完成的报告'
     },
     emptySub(): string {
       if (this.tab == 'pending') return '月度报告到达你的签字节点时会出现在这里'

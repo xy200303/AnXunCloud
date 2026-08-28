@@ -44,7 +44,7 @@ export default {
         const pages = getCurrentPages()
         const cur = pages.length > 0 ? (pages[pages.length - 1] as any).route : ''
         if (cur == 'pages/checkin/quick' || cur == 'pages/checkin/form') {
-          uni.showToast({ title: '已识别 NFC 标签，请用页面内「读卡核验」完成凭证', icon: 'none' })
+          uni.showToast({ title: '已识别 NFC 卡，请点页面里的「刷 NFC 卡」确认', icon: 'none' })
           return
         }
         // 按卡片 UID 定位点位（后端 by-code 按 nfc_id 匹配；未备案的卡轻提示「未找到相关点位信息」）
@@ -106,5 +106,10 @@ uni-app uni-swiper-item {
   --text-regular: #4E5969;
   --text-secondary: #86909C;
   --border: #E5E6EB;
+}
+
+/* 可点元素的按下反馈（微信式触摸变暗），配 hover-class="hover-dim" 使用 */
+.hover-dim {
+  opacity: 0.72;
 }
 </style>

@@ -270,6 +270,7 @@ import {
 import { isNfcSupported, readCardOnce, toastNfcUnavailable } from '@/utils/nfc'
 import { getLocationGcj02 } from '@/utils/geo'
 import { playVoice } from '@/utils/voice'
+import { compressForUpload } from '@/utils/image'
 import { WizardPointSnap, WizardItemSnap } from '@/utils/checkinWizard'
 
 /** 向导阶段：cred 凭证 / items 逐项 / gate 提交本点位 / retake 补拍 / abnormal 异常确认 / pointDone 点位完成 / taskDone 任务完成 */
@@ -933,47 +934,49 @@ export default {
         success: (res) => {
           const paths = (res.tempFilePaths || []) as string[]
           if (paths.length == 0) return
-          const raw = paths[0]
+          // 定标压缩（1920px/q80：仍在 AI 编码分辨率之上，不损识别；体积约为原图 1/4）。
           // 只传原图：AI 识别无水印干扰；水印由服务端在打卡后统一烧录（点位/时间/坐标/巡检员）
-          this.overlayMsg = '照片上传中…'
-          let fileKey = ''
-          let fileUrl = ''
-          apiUploadLocal(raw)
-            .then((r) => {
-              fileKey = r.file_key
-              fileUrl = r.url
-              return apiAiItemJobCreate({
-                task_id: this.taskId,
-                point_id: pointId,
-                name: it.name,
-                file_keys: [fileKey]
+          compressForUpload(paths[0]).then((raw) => {
+            this.overlayMsg = '照片上传中…'
+            let fileKey = ''
+            let fileUrl = ''
+            apiUploadLocal(raw)
+              .then((r) => {
+                fileKey = r.file_key
+                fileUrl = r.url
+                return apiAiItemJobCreate({
+                  task_id: this.taskId,
+                  point_id: pointId,
+                  name: it.name,
+                  file_keys: [fileKey]
+                })
               })
-            })
-            .then((j) => {
-              this.overlayMsg = ''
-              // 展示用服务端 URL（重启后仍可加载）；本地临时路径仅兜底
-              it.photos = [fileUrl != '' ? fileUrl : raw]
-              it.img_error = false
-              it.file_keys = [fileKey]
-              it.job_id = j.job_id
-              it.status = 'recognizing'
-              it.verdict = ''
-              it.reason = ''
-              it.reading = ''
-              it.quality_pass = true
-              it.quality_issue = ''
-              // 拍照项：立即推进下一项，不等识别结果
-              if (advance) this.nextStep()
-            })
-            .catch((e: any) => {
-              this.overlayMsg = ''
-              const code = e != null && typeof e.code == 'number' ? e.code : 0
-              if (code == CODE_AI_DISABLED) {
-                uni.showToast({ title: 'AI 未启用，请改用手动模式', icon: 'none' })
-                return
-              }
-              uni.showToast({ title: (e && e.message) || '拍照失败，请重试', icon: 'none' })
-            })
+              .then((j) => {
+                this.overlayMsg = ''
+                // 展示用服务端 URL（重启后仍可加载）；本地临时路径仅兜底
+                it.photos = [fileUrl != '' ? fileUrl : raw]
+                it.img_error = false
+                it.file_keys = [fileKey]
+                it.job_id = j.job_id
+                it.status = 'recognizing'
+                it.verdict = ''
+                it.reason = ''
+                it.reading = ''
+                it.quality_pass = true
+                it.quality_issue = ''
+                // 拍照项：立即推进下一项，不等识别结果
+                if (advance) this.nextStep()
+              })
+              .catch((e: any) => {
+                this.overlayMsg = ''
+                const code = e != null && typeof e.code == 'number' ? e.code : 0
+                if (code == CODE_AI_DISABLED) {
+                  uni.showToast({ title: 'AI 未启用，请改用手动模式', icon: 'none' })
+                  return
+                }
+                uni.showToast({ title: (e && e.message) || '拍照失败，请重试', icon: 'none' })
+              })
+          })
         }
       })
     },

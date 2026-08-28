@@ -50,6 +50,12 @@ func (s *Storage) DriverName() string { return s.driver.Name() }
 // ReadFile 按 file_key 读取文件字节（统一文件层用；本地读盘，云存储走 HTTP）。
 func (s *Storage) ReadFile(fileKey string) ([]byte, error) { return s.driver.Read(fileKey) }
 
+// PutBytes 按 file_key 写入字节（服务端生成内容回写：水印图等）。
+// 本地/COS 可用；OSS 暂不支持服务端写入（返回驱动错误，调用方降级跳过）。
+func (s *Storage) PutBytes(fileKey string, data []byte) error {
+	return s.driver.Put(fileKey, bytes.NewReader(data))
+}
+
 // IsLocal 是否本地磁盘驱动。
 func (s *Storage) IsLocal() bool { return s.driver.Name() == "local" }
 

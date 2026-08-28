@@ -20,8 +20,12 @@ export function listTasks(params: TaskQuery) {
   return request<PageResult<TaskItem>>({ url: '/inspection/tasks', method: 'get', params })
 }
 
-export function getTaskDetail(id: string) {
-  return request<TaskDetail>({ url: `/inspection/tasks/${id}/detail`, method: 'get' })
+export function getTaskDetail(id: string, pointsPage = 1, pointsPageSize = 50) {
+  return request<TaskDetail>({
+    url: `/inspection/tasks/${id}/detail`,
+    method: 'get',
+    params: { points_page: pointsPage, points_page_size: pointsPageSize }
+  })
 }
 
 // 手动触发任务生成（缺省为今天，幂等）

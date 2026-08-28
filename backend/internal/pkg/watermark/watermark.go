@@ -2,6 +2,7 @@
 package watermark
 
 import (
+	"bytes"
 	"image"
 	"image/color"
 	"image/draw"
@@ -102,15 +103,44 @@ func loadFont(fontPath string) (font.Face, error) {
 // DrawToFile 在图片左下角叠加多行水印文字（半透明黑底白字），输出为新文件。
 // 字体不可用或图片解码失败时返回 error，调用方降级为不加水印。
 func DrawToFile(srcPath, dstPath, fontPath string, lines []string) error {
-	face, err := loadFont(fontPath)
-	if err != nil {
-		return err
-	}
 	src, err := imaging.Open(srcPath, imaging.AutoOrientation(true))
 	if err != nil {
 		return err
 	}
-	// 过大的图先缩到长边 2000，控制内存
+	dst, err := drawLines(src, fontPath, lines)
+	if err != nil {
+		return err
+	}
+	if err := imaging.Save(dst, dstPath, imaging.JPEGQuality(88)); err != nil {
+		return err
+	}
+	logger.L.Debug("水印生成", zap.String("src", srcPath), zap.String("dst", dstPath))
+	return nil
+}
+
+// DrawBytes 同 DrawToFile，但输入/输出均为字节（云存储场景：ReadFile 读入 → 烧录 → Put 回写）。
+func DrawBytes(src []byte, fontPath string, lines []string) ([]byte, error) {
+	img, err := imaging.Decode(bytes.NewReader(src), imaging.AutoOrientation(true))
+	if err != nil {
+		return nil, err
+	}
+	dst, err := drawLines(img, fontPath, lines)
+	if err != nil {
+		return nil, err
+	}
+	var buf bytes.Buffer
+	if err := imaging.Encode(&buf, dst, imaging.JPEG, imaging.JPEGQuality(88)); err != nil {
+		return nil, err
+	}
+	return buf.Bytes(), nil
+}
+
+// drawLines 水印绘制核心：左下角半透明黑底白字多行文字；过大的图先缩到长边 2000 控制内存。
+func drawLines(src image.Image, fontPath string, lines []string) (image.Image, error) {
+	face, err := loadFont(fontPath)
+	if err != nil {
+		return nil, err
+	}
 	bounds := src.Bounds()
 	if bounds.Dx() > 2000 || bounds.Dy() > 2000 {
 		src = imaging.Fit(src, 2000, 2000, imaging.Lanczos)
@@ -136,11 +166,7 @@ func DrawToFile(srcPath, dstPath, fontPath string, lines []string) error {
 		d.Dot = fixed.P(pad+4, boxY+pad+lineH*i+20)
 		d.DrawString(line)
 	}
-	if err := imaging.Save(dst, dstPath, imaging.JPEGQuality(88)); err != nil {
-		return err
-	}
-	logger.L.Debug("水印生成", zap.String("src", srcPath), zap.String("dst", dstPath))
-	return nil
+	return dst, nil
 }
 
 // TextRGBA 在图像指定位置绘制一行深色文字（供二维码标题等场景使用）。

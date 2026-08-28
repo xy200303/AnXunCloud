@@ -2,6 +2,7 @@ package service
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -215,31 +216,107 @@ func (s *TaskService) Detail(c *gin.Context, id string) (gin.H, *errs.Error) {
 			a.done++
 		}
 	}
-	points := make([]gin.H, 0, len(pointIDs))
-	for i, pid := range pointIDs {
-		var pt model.InspectionPoint
-		if s.db.First(&pt, "id = ?", pid).Error != nil {
+	// 全量状态聚合（汇总条数据源，不随分页变化）
+	stats := gin.H{"total": len(pointIDs), "done": 0, "doing": 0, "pending": 0, "normal": 0, "abnormal": 0, "suspect": 0}
+	for _, pid := range pointIDs {
+		if ck, ok := byPoint[pid]; ok {
+			stats["done"] = stats["done"].(int) + 1
+			switch ck.Result {
+			case model.ResultNormal:
+				stats["normal"] = stats["normal"].(int) + 1
+			case model.ResultAbnormal:
+				stats["abnormal"] = stats["abnormal"].(int) + 1
+			}
+			if ck.IsSuspect {
+				stats["suspect"] = stats["suspect"].(int) + 1
+			}
+		} else if aggByPoint[pid] != nil {
+			stats["doing"] = stats["doing"].(int) + 1
+		} else {
+			stats["pending"] = stats["pending"].(int) + 1
+		}
+	}
+	// 点位时间线分页：单任务可达数百点位，全量序列化会拖垮详情页
+	page, pageSize := 1, 50
+	if v, err := strconv.Atoi(c.Query("points_page")); err == nil && v > 0 {
+		page = v
+	}
+	if v, err := strconv.Atoi(c.Query("points_page_size")); err == nil && v > 0 && v <= 200 {
+		pageSize = v
+	}
+	total := len(pointIDs)
+	start := (page - 1) * pageSize
+	if start > total {
+		start = total
+	}
+	end := start + pageSize
+	if end > total {
+		end = total
+	}
+	pageIDs := pointIDs[start:end]
+	// 本页点位/楼栋/模板项数批量加载（避免逐点位 N+1 查询）
+	var pagePoints []model.InspectionPoint
+	s.db.Where("id IN ?", pageIDs).Find(&pagePoints)
+	ptByID := make(map[string]*model.InspectionPoint, len(pagePoints))
+	buildingIDSet, tplIDSet := map[string]bool{}, map[string]bool{}
+	for i := range pagePoints {
+		ptByID[pagePoints[i].ID] = &pagePoints[i]
+		if pagePoints[i].BuildingID != nil {
+			buildingIDSet[*pagePoints[i].BuildingID] = true
+		}
+		if pagePoints[i].TemplateID != nil && *pagePoints[i].TemplateID != "" {
+			tplIDSet[*pagePoints[i].TemplateID] = true
+		}
+	}
+	buildingNames := map[string]string{}
+	if len(buildingIDSet) > 0 {
+		bIDs := make([]string, 0, len(buildingIDSet))
+		for id := range buildingIDSet {
+			bIDs = append(bIDs, id)
+		}
+		var buildings []model.Building
+		s.db.Select("id", "name").Where("id IN ?", bIDs).Find(&buildings)
+		for _, b := range buildings {
+			buildingNames[b.ID] = b.Name
+		}
+	}
+	itemTotals := map[string]int{}
+	if len(tplIDSet) > 0 {
+		tIDs := make([]string, 0, len(tplIDSet))
+		for id := range tplIDSet {
+			tIDs = append(tIDs, id)
+		}
+		type tplCnt struct {
+			TemplateID string
+			Cnt        int
+		}
+		var cnts []tplCnt
+		s.db.Model(&model.CheckTemplateItem{}).Select("template_id, COUNT(*) AS cnt").
+			Where("template_id IN ?", tIDs).Group("template_id").Scan(&cnts)
+		for _, r := range cnts {
+			itemTotals[r.TemplateID] = r.Cnt
+		}
+	}
+	points := make([]gin.H, 0, len(pageIDs))
+	for i, pid := range pageIDs {
+		pt, ok := ptByID[pid]
+		if !ok {
 			continue
 		}
 		buildingName := ""
 		if pt.BuildingID != nil {
-			var b model.Building
-			if s.db.Select("name").First(&b, "id = ?", *pt.BuildingID).Error == nil {
-				buildingName = b.Name
-			}
+			buildingName = buildingNames[*pt.BuildingID]
 		}
 		itemTotal := 0
-		if pt.TemplateID != nil && *pt.TemplateID != "" {
-			var cnt int64
-			s.db.Model(&model.CheckTemplateItem{}).Where("template_id = ?", *pt.TemplateID).Count(&cnt)
-			itemTotal = int(cnt)
+		if pt.TemplateID != nil {
+			itemTotal = itemTotals[*pt.TemplateID]
 		}
 		entry := gin.H{
 			"point_id": pt.ID, "point_name": pt.Name, "building_name": buildingName,
-			"sort": i + 1, "credential": pt.Credential, "require_fence": pt.RequireFence,
+			"sort": start + i + 1, "credential": pt.Credential, "require_fence": pt.RequireFence,
 			"status": "pending", "checkin": nil, "item_total": itemTotal,
 		}
-		if ck, ok := byPoint[pid]; ok {
+		if ck, ok2 := byPoint[pid]; ok2 {
 			entry["status"] = "done"
 			entry["checkin"] = checkinBrief(s.db, ck)
 		} else if a := aggByPoint[pid]; a != nil {
@@ -274,7 +351,11 @@ func (s *TaskService) Detail(c *gin.Context, id string) (gin.H, *errs.Error) {
 			"status": t.Status, "total_points": t.TotalPoints, "done_points": t.DonePoints,
 			"progress": progress, "started_at": timefmt.TP(t.StartedAt), "finished_at": timefmt.TP(t.FinishedAt),
 		},
-		"points": points,
+		"points":       points,
+		"points_total": total,
+		"points_page":  page,
+		"points_size":  pageSize,
+		"stats":        stats,
 	}, nil
 }
 

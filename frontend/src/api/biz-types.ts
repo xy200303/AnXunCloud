@@ -278,9 +278,25 @@ export interface TaskPointDetail {
   } | null
 }
 
+export interface TaskDetailStats {
+  total: number
+  done: number
+  doing: number
+  pending: number
+  normal: number
+  abnormal: number
+  suspect: number
+}
+
 export interface TaskDetail {
   task: TaskItem
   points: TaskPointDetail[]
+  /** 点位时间线分页（大规模任务单任务可达数百点位） */
+  points_total: number
+  points_page: number
+  points_size: number
+  /** 全量状态聚合（汇总条，不随分页变化） */
+  stats: TaskDetailStats
 }
 
 // ===== 打卡记录 =====

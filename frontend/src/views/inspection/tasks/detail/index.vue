@@ -21,8 +21,8 @@
         </div>
       </div>
 
-      <!-- 点位时间线（按路线顺序，六类状态图标+颜色双编码） -->
-      <div class="table-card">
+      <!-- 点位时间线（按路线顺序，六类状态图标+颜色双编码；大规模任务分页加载） -->
+      <div class="table-card" v-loading="timelineLoading">
         <h3 class="card-title">点位时间线</h3>
         <el-timeline class="point-timeline">
           <el-timeline-item
@@ -64,10 +64,21 @@
           </el-timeline-item>
         </el-timeline>
 
-        <!-- 任务汇总条 -->
+        <div class="timeline-pager" v-if="detail.points_total > detail.points_size">
+          <el-pagination
+            background
+            layout="prev, pager, next, total"
+            :total="detail.points_total"
+            :page-size="detail.points_size"
+            :current-page="pointsPage"
+            @current-change="onPageChange"
+          />
+        </div>
+
+        <!-- 任务汇总条（后端全量聚合，不随分页变化） -->
         <div class="task-summary">
-          任务汇总：已检 {{ summary.done }} · 正常 {{ summary.normal }} · 异常 {{ summary.abnormal }} ·
-          疑似作弊 {{ summary.suspect }} · 离线补传 {{ summary.offline }} · 巡检中 {{ summary.doing }} · 未打卡 {{ summary.pending }}
+          任务汇总：已检 {{ detail.stats.done }} · 正常 {{ detail.stats.normal }} · 异常 {{ detail.stats.abnormal }} ·
+          疑似作弊 {{ detail.stats.suspect }} · 巡检中 {{ detail.stats.doing }} · 未打卡 {{ detail.stats.pending }}
         </div>
       </div>
     </template>
@@ -101,17 +112,34 @@ const route = useRoute()
 const loading = ref(false)
 const loadError = ref(false)
 const detail = ref<TaskDetail | null>(null)
+const pointsPage = ref(1)
+const timelineLoading = ref(false)
+
+async function fetchDetail(page: number) {
+  const d = await getTaskDetail(String(route.params.id), page)
+  detail.value = d
+  pointsPage.value = d.points_page
+}
 
 onMounted(async () => {
   loading.value = true
   try {
-    detail.value = await getTaskDetail(String(route.params.id))
+    await fetchDetail(1)
   } catch {
     loadError.value = true
   } finally {
     loading.value = false
   }
 })
+
+async function onPageChange(page: number) {
+  timelineLoading.value = true
+  try {
+    await fetchDetail(page)
+  } finally {
+    timelineLoading.value = false
+  }
+}
 
 const headStatusLabel = computed(() => {
   const s = detail.value?.task.status
@@ -138,20 +166,6 @@ function pointVisual(p: TaskPointDetail): { type: string; icon: any } {
 function checkinTypeLabel(t: string) {
   return { qrcode: '扫码', fence: '围栏', offline: '离线补传' }[t] || t
 }
-
-const summary = computed(() => {
-  const points = detail.value?.points || []
-  const checked = points.filter((p) => p.checkin)
-  return {
-    done: checked.length,
-    normal: checked.filter((p) => p.checkin!.result === 'normal' && !p.checkin!.is_suspect).length,
-    abnormal: checked.filter((p) => p.checkin!.result === 'abnormal').length,
-    suspect: checked.filter((p) => p.checkin!.is_suspect).length,
-    offline: checked.filter((p) => p.checkin!.checkin_type === 'offline').length,
-    doing: points.filter((p) => !p.checkin && p.status === 'doing').length,
-    pending: points.filter((p) => !p.checkin && p.status !== 'doing').length
-  }
-})
 
 // ===== 照片查看 =====
 const photoDialogVisible = ref(false)
@@ -223,6 +237,12 @@ function openPhotos(p: TaskPointDetail) {
       font-weight: 600;
     }
   }
+}
+
+.timeline-pager {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: $spacing-md;
 }
 
 .task-summary {

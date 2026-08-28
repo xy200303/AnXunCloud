@@ -135,6 +135,7 @@ import { Colors, ColorTokens } from '@/utils/theme'
 import { apiTaskDetail, apiCheckin, apiCheckinItems, apiUploadLocal, TaskPoint, CheckinResult, CheckinItemAI, CheckinReqPayload } from '@/services/api'
 import { isNfcSupported, readCardOnce, toastNfcUnavailable } from '@/utils/nfc'
 import { getLocationGcj02 } from '@/utils/geo'
+import { compressForUpload } from '@/utils/image'
 import { enqueueOfflineCheckin, uuidv7, NETWORK_ERR_PREFIX, OfflinePhoto } from '@/utils/offline'
 
 /** 检查项视图模型：模板项 + 录入状态 */
@@ -395,7 +396,7 @@ export default {
       // 异常项与模板必拍项均展示照片区
       return !it.pass || it.photo_required == 'required'
     },
-    /** 拍照（仅相机防相册作弊）→ 原图入列表；水印由服务端在打卡后统一烧录 */
+    /** 拍照（仅相机防相册作弊）→ 定标压缩（1920px/q80）后入列表；水印由服务端在打卡后统一烧录 */
     takePhotos(list: string[], max: number) {
       const remain = max - list.length
       if (remain <= 0) return
@@ -404,7 +405,9 @@ export default {
         sourceType: ['camera'],
         success: (res) => {
           const paths = (res.tempFilePaths || []) as string[]
-          paths.forEach((p) => list.push(p))
+          paths.forEach((p) => {
+            compressForUpload(p).then((c) => list.push(c))
+          })
         }
       })
     },

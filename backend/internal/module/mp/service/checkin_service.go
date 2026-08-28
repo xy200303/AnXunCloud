@@ -353,8 +353,8 @@ func (s *CheckinService) doCheckinLocked(ctx context.Context, inspectorID string
 			zap.String("inspector_id", inspectorID),
 			zap.String("superseded_id", supersededID), zap.String("new_checkin_id", rec.ID))
 	}
-	// local 模式：打卡成功后异步打水印（点位/时间/坐标/姓名；按逐项照片烧录）
-	if s.store.IsLocal() && s.cfgBool("inspection.watermark_enabled", true) {
+	// 打卡成功后异步打水印（点位/时间/坐标/姓名；按逐项照片烧录；本地/COS 可用，OSS 不支持服务端写入自动跳过）
+	if s.cfgBool("inspection.watermark_enabled", true) {
 		go s.applyWatermarks(&rec, &point, checkItems, inspectorID)
 	}
 	// 审核分支（识别即审核）：已完成识别的路径（同步判定/强制提交/逐项识别确认）状态已定型，pending 直接通知；
@@ -638,7 +638,8 @@ func (s *CheckinService) suspectCheck(point *insmodel.InspectionPoint, distance 
 	return false, ""
 }
 
-// applyWatermarks local 模式按逐项照片异步打水印（点位/时间/坐标/姓名），回写 upload_file.watermarked_url。
+// applyWatermarks 按逐项照片异步打水印（点位/时间/坐标/姓名），回写 upload_file.watermarked_url。
+// 通过存储抽象读写字节：local 读盘写盘，COS 走 HTTP 读+签名写回；OSS 不支持服务端写入，按文件 warn 跳过。
 func (s *CheckinService) applyWatermarks(rec *insmodel.CheckinRecord, point *insmodel.InspectionPoint, items []insmodel.CheckinRecordItem, inspectorID string) {
 	var inspector sysmodel.SysUser
 	if s.db.Select("name").First(&inspector, "id = ?", inspectorID).Error != nil {
@@ -657,13 +658,22 @@ func (s *CheckinService) applyWatermarks(rec *insmodel.CheckinRecord, point *ins
 				continue // 同一文件被多个项引用时只烧一次
 			}
 			seen[key] = true
-			srcPath := s.store.LocalPath(key)
 			wmKey := strings.TrimSuffix(key, ".jpg") + "_wm.jpg"
 			if key == wmKey {
 				wmKey = key + "_wm.jpg"
 			}
-			if err := watermark.DrawToFile(srcPath, s.store.LocalPath(wmKey), "", lines); err != nil {
+			data, err := s.store.ReadFile(key)
+			if err != nil {
+				logger.L.Warn("水印读取原图失败", zap.String("key", key), zap.Error(err))
+				continue
+			}
+			out, err := watermark.DrawBytes(data, "", lines)
+			if err != nil {
 				logger.L.Warn("水印生成失败", zap.String("key", key), zap.Error(err))
+				continue
+			}
+			if err := s.store.PutBytes(wmKey, out); err != nil {
+				logger.L.Warn("水印写回失败", zap.String("key", wmKey), zap.Error(err))
 				continue
 			}
 			s.db.Model(&sysmodel.UploadFile{}).Where("file_key = ?", key).

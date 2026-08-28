@@ -17,6 +17,7 @@ import (
 	"anxuncloud/internal/middleware"
 	authsvc "anxuncloud/internal/module/auth/service"
 	insmodel "anxuncloud/internal/module/inspection/model"
+	inssvc "anxuncloud/internal/module/inspection/service"
 	"anxuncloud/internal/module/mp/dto"
 	sysmodel "anxuncloud/internal/module/system/model"
 	"anxuncloud/internal/pkg/bind"
@@ -665,9 +666,10 @@ func (s *MPService) TaskDetail(inspectorID, taskID string) (gin.H, *errs.Error) 
 
 // ========== 打卡记录 ==========
 
-// CheckinItems 本人打卡记录的逐项 AI 结论（GET /checkins/:id/items，供 App 提交后回显）。
+// CheckinItems 本人打卡记录的逐项 AI 结论（GET /checkins/:id/items，供 App 提交后回显 / 记录卡展示）。
 // 不透出 ai_hint（内部识别要点，仅供大模型核对）；非本人记录按「不存在」口径返回（防枚举）。
 // ai_verdict 为空串 = 模型未返回该项结论（AI 未启用/异步未完成/无逐项结论）。
+// photo_urls 为该项照片可访问 URL（优先水印图；记录卡逐项展示用）。
 func (s *MPService) CheckinItems(inspectorID, checkinID string) ([]gin.H, *errs.Error) {
 	var rec insmodel.CheckinRecord
 	if err := s.db.Select("id", "inspector_id").First(&rec, "id = ?", checkinID).Error; err != nil {
@@ -687,6 +689,8 @@ func (s *MPService) CheckinItems(inspectorID, checkinID string) ([]gin.H, *errs.
 			"name": it.Name, "pass": it.Pass,
 			"ai_verdict": strVal(it.AIVerdict), "ai_reason": strVal(it.AIReason),
 			"ai_reading": strVal(it.AIReading),
+			"note":       it.Note,
+			"photo_urls": inssvc.ItemPhotoURLs(s.db, it.Photos),
 		})
 	}
 	return out, nil

@@ -80,6 +80,12 @@
       }
     },
     {
+      "path": "pages/checkin/record",
+      "style": {
+        "navigationBarTitleText": "打卡记录"
+      }
+    },
+    {
       "path": "pages/admin/dashboard",
       "style": {
         "navigationBarTitleText": "今日看板",

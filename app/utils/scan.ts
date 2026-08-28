@@ -30,7 +30,12 @@ export function resolvePointCode(code: string) {
       // 任务定位器：找第一个未打卡任务直接跳进连续巡检向导并定位到该点位
       const t = p.tasks.find((x) => !x.checked)
       if (t == null) {
-        uni.showToast({ title: '该点位今日已完成打卡', icon: 'none' })
+        // 今日已打卡：进记录卡（先看后改）
+        uni.navigateTo({
+          url:
+            '/pages/checkin/record?task_id=' + encodeURIComponent(p.tasks[0].task_id) +
+            '&point_id=' + encodeURIComponent(p.point_id)
+        })
         return
       }
       uni.navigateTo({

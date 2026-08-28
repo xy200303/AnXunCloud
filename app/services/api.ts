@@ -272,6 +272,10 @@ export type CheckinItemAI = {
   /** pass / review / error / '' */
   ai_verdict: string
   ai_reason: string
+  /** 人工备注（异常项说明） */
+  note?: string
+  /** 逐项照片可访问 URL（优先水印图；记录卡展示用） */
+  photo_urls?: string[]
 }
 
 /** 照片元素（后端 types.PhotoItem，打卡/审核记录通用） */

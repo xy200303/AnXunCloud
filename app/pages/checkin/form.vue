@@ -378,6 +378,15 @@ export default {
         uni.showToast({ title: '点位确认成功', icon: 'success' })
       })
     },
+    /** 表单页内全局 NFC 贴卡（App.vue 转发，不用先点按钮）：卡号匹配本点位即完成刷卡确认 */
+    onGlobalNfc(cardId: string) {
+      if (this.point != null && this.point.nfc_id != '' && this.point.nfc_id == cardId) {
+        this.nfcCardId = cardId
+        uni.showToast({ title: '点位确认成功', icon: 'success' })
+        return
+      }
+      uni.showToast({ title: '这张卡不是本点位的 NFC 卡', icon: 'none' })
+    },
     setPass(idx: number, pass: boolean) {
       this.items[idx].pass = pass
     },

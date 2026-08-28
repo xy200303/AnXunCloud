@@ -348,38 +348,11 @@ export default {
         })
         return
       }
-      if (p.locked) {
-        uni.showToast({ title: '已归档，不可修改', icon: 'none' })
-        return
-      }
-      if (this.aiEnabled) {
-        // 已打卡未锁定 → 进向导「修改模式」（只走该点位，提交走覆盖语义）
-        uni.navigateTo({
-          url:
-            '/pages/checkin/quick?task_id=' + encodeURIComponent(this.taskId) +
-            '&point_id=' + encodeURIComponent(p.point_id) +
-            '&mode=modify'
-        })
-        return
-      }
-      // AI 未启用：展示打卡记录（只读）
-      const ck = p.my_checkin
-      if (ck == null) return
-      const lines = [
-        '时间：' + ck.checkin_time,
-        '结果：' + (ck.result == 'abnormal' ? '异常' : '正常')
-      ]
-      if (ck.distance_to_point != null) {
-        lines.push('距点位：' + ck.distance_to_point + ' m')
-      }
-      if (ck.is_suspect) {
-        lines.push('标记：疑似异常打卡')
-      }
-      uni.showModal({
-        title: p.point_name,
-        content: lines.join('\n'),
-        showCancel: false,
-        confirmText: '知道了'
+      // 已打卡点位（含已归档）：进记录卡（先看后改；可改性由记录卡按锁定/任务状态判定）
+      uni.navigateTo({
+        url:
+          '/pages/checkin/record?task_id=' + encodeURIComponent(this.taskId) +
+          '&point_id=' + encodeURIComponent(p.point_id)
       })
     }
   }

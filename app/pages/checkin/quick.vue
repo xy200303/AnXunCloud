@@ -271,6 +271,7 @@ import {
   TaskPoint
 } from '@/services/api'
 import { isNfcSupported, readCardOnce, toastNfcUnavailable } from '@/utils/nfc'
+import { resolvePointCode } from '@/utils/scan'
 import { getLocationGcj02 } from '@/utils/geo'
 import { playVoice } from '@/utils/voice'
 import { compressForUpload } from '@/utils/image'
@@ -533,9 +534,9 @@ export default {
       if (this.overlayMsg != '' || this.submitting) return false
       return this.phase == 'cred' || this.phase == 'items' || this.phase == 'gate'
     },
-    /** 是否已到向导起点（第一点位第一步）：起点无上一项可回退，底部「上一项」按钮隐藏（退出走返回键） */
+    /** 是否在本点位第一步（无上一项可回退，底部「上一项」按钮隐藏；退出走返回键）。
+     *  与 pointIdx 无关：中途进入（扫码/NFC/点位清单）的第一个点位就是进入者的第一页 */
     atWizardStart(): boolean {
-      if (this.pointIdx != 0) return false
       if (this.phase == 'cred') return true
       return this.phase == 'items' && this.itemIdx == 0 && !this.needsCred
     }
@@ -870,7 +871,7 @@ export default {
           if (this.curWizPoint != null) {
             this.curWizPoint.scannedNo = code
           }
-          uni.showToast({ title: '点位校验成功', icon: 'success' })
+          uni.showToast({ title: '点位确认成功', icon: 'success' })
         },
         fail: (err) => {
           const msg = err && err.errMsg ? err.errMsg : ''
@@ -899,7 +900,44 @@ export default {
         if (this.curWizPoint != null) {
           this.curWizPoint.nfcCardId = cardId
         }
-        uni.showToast({ title: '点位校验成功', icon: 'success' })
+        uni.showToast({ title: '点位确认成功', icon: 'success' })
+      })
+    },
+    /**
+     * 向导页内全局 NFC 贴卡（App.vue 转发，不用先点按钮）：
+     * - 当前点位核验步且卡匹配 → 就地完成读卡确认，不重载页面
+     * - 其他未打卡点位 → 跳到该点位并预核验（等价扫码进入）
+     * - 已提交完成的点位 → 直接进入（修改模式；已归档由向导初始化拦截提示）
+     * - 不属于本任务 → 回退全局任务定位（可能是今天其他任务的点位）
+     */
+    onGlobalNfc(cardId: string) {
+      const pt = this.taskPoints.find((p) => p.nfc_id != '' && p.nfc_id == cardId)
+      if (pt == null) {
+        resolvePointCode(cardId)
+        return
+      }
+      if (this.overlayMsg != '' || this.submitting) {
+        uni.showToast({ title: '处理中，请稍候…', icon: 'none' })
+        return
+      }
+      if (pt.my_checkin != null) {
+        // 已提交完成的点位：进记录卡（先看后改；可改性由记录卡按锁定/任务状态判定）
+        uni.redirectTo({
+          url:
+            '/pages/checkin/record?task_id=' + encodeURIComponent(this.taskId) +
+            '&point_id=' + encodeURIComponent(pt.point_id)
+        })
+        return
+      }
+      if (this.phase == 'cred' && this.curPoint != null && this.curPoint.point_id == pt.point_id) {
+        if (this.curWizPoint != null) this.curWizPoint.nfcCardId = cardId
+        uni.showToast({ title: '点位确认成功', icon: 'success' })
+        return
+      }
+      uni.redirectTo({
+        url:
+          '/pages/checkin/quick?task_id=' + encodeURIComponent(this.taskId) +
+          '&point_id=' + encodeURIComponent(pt.point_id) + '&no=' + encodeURIComponent(cardId)
       })
     },
     /** 凭证步「开始检查」：凭证不通过不让开始该点位 */
@@ -1054,9 +1092,9 @@ export default {
       if (this.curPoint != null && this.curPoint.require_fence && !this.fenceOk) return
       this.submitPoint()
     },
-    /** 底部「上一项」点击：回退一项；到起点时退出向导（兜底，起点时按钮已隐藏） */
+    /** 底部「上一项」点击：回退一项（不跨点位）；兜底到本点位第一步时走退出确认（正常不会到这，起点按钮已隐藏） */
     onPrevTap() {
-      if (!this.prevStep()) this.exitWizard()
+      if (!this.prevStep()) this.confirmExit()
     },
     /** 导航栏返回键：与系统返回同口径——退出巡检 */
     onBackTap() {
@@ -1080,9 +1118,10 @@ export default {
       })
     },
     /**
-     * 回退：上一项 → 凭证步 → 上一点位。
-     * 返回 true=已回退；false=已在起点（第一点位第一步，应退出向导）。
-     * 「上一项」按钮场景收到 false 时手动退出（非 onBackPress 上下文，navigateBack 有效）。
+     * 回退：上一项 → 到场确认。只在当前点位内部回退，永不跨点位——
+     * 向导里只能通过「提交本点位」到达下一点位，前面的点位必然已提交（提交即封存，
+     * 要改走任务明细/扫码/NFC 的记录卡入口）。
+     * 返回 true=已回退；false=已在本点位第一步（此时「上一项」按钮不显示）。
      */
     prevStep(): boolean {
       const wp = this.curWizPoint
@@ -1109,15 +1148,7 @@ export default {
           return true
         }
       }
-      // phase == 'cred' 或无凭证点位的第一项：上一点位 / 到起点
-      if (this.pointIdx > 0) {
-        this.pointIdx -= 1
-        const prev = this.curWizPoint
-        this.itemIdx = prev != null && prev.items.length > 0 ? prev.items.length - 1 : 0
-        this.phase = prev != null && prev.items.length > 0 ? 'items' : 'gate'
-        this.locate()
-        return true
-      }
+      // 本点位第一步（cred 或无凭证点位的第一项）：没有上一项
       return false
     },
     /** 提交本点位：轮询未完成的识别 job → 汇总分流（全过 / 补拍 / 异常确认） */

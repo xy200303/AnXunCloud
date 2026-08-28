@@ -13,6 +13,14 @@
     </div>
 
     <div class="navbar-right">
+      <!-- 简洁模式开关：隐藏角色/岗位/审批流等高级菜单 -->
+      <el-tooltip content="简洁模式：只显示日常业务菜单，关闭可找回高级功能" placement="bottom">
+        <div class="simple-mode">
+          <span class="simple-mode-label">简洁模式</span>
+          <el-switch :model-value="simple" @change="setSimple" />
+        </div>
+      </el-tooltip>
+
       <!-- 全局租户切换器：仅超管且租户数 > 1 时显示 -->
       <tenant-context-bar />
 
@@ -104,12 +112,16 @@ import { listMessages, markMessageRead, type MessageItem } from '@/api/message'
 import { fileUrl } from '@/api/upload'
 import PasswordDialog from '@/components/PasswordDialog.vue'
 import TenantContextBar from '@/components/TenantContextBar.vue'
+import { useSimpleMode } from '@/composables/useSimpleMode'
 
 const route = useRoute()
 const router = useRouter()
 const appStore = useAppStore()
 const userStore = useUserStore()
 const permissionStore = usePermissionStore()
+
+// 简洁模式开关（composables/useSimpleMode.ts，默认开）
+const { simple, setSimple } = useSimpleMode()
 
 const passwordVisible = ref(false)
 
@@ -254,6 +266,17 @@ function handlePasswordChanged() {
   display: flex;
   align-items: center;
   gap: $spacing-lg;
+}
+
+.simple-mode {
+  display: flex;
+  align-items: center;
+  gap: $spacing-sm;
+
+  .simple-mode-label {
+    font-size: $font-size-aux;
+    color: $color-text-regular;
+  }
 }
 
 .action-icon {

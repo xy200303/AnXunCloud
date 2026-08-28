@@ -29,11 +29,32 @@
         <text class="card-progress-text" :style="{ color: colors.textRegular }">{{ donePoints }}/{{ totalPoints }} 点位</text>
       </view>
 
+      <!-- 状态过滤条（数字来自全量统计，不随分页变化） -->
+      <view class="filter-bar">
+        <view
+          v-for="f in filters"
+          :key="f.key"
+          class="filter-chip"
+          hover-class="hover-dim"
+          :style="{
+            backgroundColor: filterKey == f.key ? colors.primary : colors.bgCard,
+            borderColor: filterKey == f.key ? colors.primary : colors.border
+          }"
+          @click="filterKey = f.key"
+        >
+          <text
+            class="filter-chip-text"
+            :style="{ color: filterKey == f.key ? colors.white : (f.key == 'abnormal' && f.count > 0 ? colors.danger : (f.key == 'suspect' && f.count > 0 ? colors.warning : colors.textRegular)) }"
+          >{{ f.label }}<text v-if="f.count > 0"> {{ f.count }}</text></text>
+        </view>
+      </view>
+
       <!-- 点位状态列表 -->
       <view
-        v-for="p in points"
+        v-for="p in filteredPoints"
         :key="p.point_id"
         class="card point-row"
+        hover-class="hover-dim"
         :style="{ backgroundColor: colors.bgCard }"
         @click="onPointTap(p)"
       >
@@ -49,6 +70,14 @@
           <text class="point-status" :style="{ color: p.status_color }">{{ p.status_text }}</text>
         </view>
       </view>
+
+      <!-- 过滤后为空 / 加载更多 -->
+      <view v-if="filteredPoints.length == 0" class="empty">
+        <text class="empty-title" :style="{ color: colors.textSecondary }">这类点位一个都没有</text>
+      </view>
+      <text v-else-if="loadingMore" class="more-text" :style="{ color: colors.textSecondary }">加载中…</text>
+      <text v-else-if="points.length < pointsTotal" class="more-text" :style="{ color: colors.textSecondary }">上滑加载更多（{{ points.length }}/{{ pointsTotal }}）</text>
+      <text v-else-if="pointsTotal > 0" class="more-text" :style="{ color: colors.textSecondary }">全部 {{ pointsTotal }} 个点位都在这了</text>
     </view>
 
     <!-- 加载失败 -->
@@ -72,6 +101,8 @@ type PointView = {
   credential_text: string
   status_text: string
   status_color: string
+  /** 后端点位状态原值：pending/doing/done */
+  raw_status: string
   checkin: MonitorTaskPoint['checkin']
 }
 
@@ -92,6 +123,11 @@ type DetailData = {
   totalPoints: number
   donePoints: number
   points: PointView[]
+  stats: { total: number; done: number; doing: number; pending: number; normal: number; abnormal: number; suspect: number }
+  filterKey: string
+  pointsPage: number
+  pointsTotal: number
+  loadingMore: boolean
 }
 
 function statusTextOf(s: string): string {
@@ -115,13 +151,6 @@ function credentialTextOf(c: string): string {
   return '无凭证'
 }
 
-function checkinTypeTextOf(t: string): string {
-  if (t == 'qrcode') return '扫码'
-  if (t == 'nfc') return 'NFC'
-  if (t == 'offline') return '离线'
-  return '围栏'
-}
-
 function toPointView(p: MonitorTaskPoint): PointView {
   const ck = p.checkin
   let statusText = '待打卡'
@@ -137,6 +166,9 @@ function toPointView(p: MonitorTaskPoint): PointView {
       statusText = '已打卡'
       statusColor = Colors.success
     }
+  } else if (p.status == 'doing') {
+    statusText = '巡检中'
+    statusColor = Colors.primary
   }
   return {
     point_id: p.point_id,
@@ -146,6 +178,7 @@ function toPointView(p: MonitorTaskPoint): PointView {
     credential_text: credentialTextOf(p.credential),
     status_text: statusText,
     status_color: statusColor,
+    raw_status: p.status,
     checkin: ck
   }
 }
@@ -168,7 +201,33 @@ export default {
       progressWidth: '0%',
       totalPoints: 0,
       donePoints: 0,
-      points: [] as PointView[]
+      points: [] as PointView[],
+      stats: { total: 0, done: 0, doing: 0, pending: 0, normal: 0, abnormal: 0, suspect: 0 },
+      filterKey: '',
+      pointsPage: 0,
+      pointsTotal: 0,
+      loadingMore: false
+    }
+  },
+  computed: {
+    /** 状态过滤条（计数取自全量聚合 stats，不随分页变化） */
+    filters(): Array<{ key: string; label: string; count: number }> {
+      return [
+        { key: '', label: '全部', count: this.stats.total },
+        { key: 'abnormal', label: '异常', count: this.stats.abnormal },
+        { key: 'suspect', label: '疑似', count: this.stats.suspect },
+        { key: 'doing', label: '进行中', count: this.stats.doing },
+        { key: 'pending', label: '未巡', count: this.stats.pending }
+      ]
+    },
+    /** 过滤在已加载点位上做（统计数字是全量的；过滤为空时可上滑继续加载） */
+    filteredPoints(): PointView[] {
+      if (this.filterKey == '') return this.points
+      return this.points.filter((p) => {
+        if (this.filterKey == 'abnormal') return p.checkin != null && p.checkin.result == 'abnormal'
+        if (this.filterKey == 'suspect') return p.checkin != null && p.checkin.is_suspect
+        return p.raw_status == this.filterKey // doing / pending
+      })
     }
   },
   onLoad(options: any) {
@@ -178,6 +237,9 @@ export default {
   onPullDownRefresh() {
     this.load()
   },
+  onReachBottom() {
+    this.loadMore()
+  },
   methods: {
     load() {
       if (this.taskId == '') {
@@ -186,7 +248,7 @@ export default {
         return
       }
       this.loading = !this.loaded
-      apiTaskMonitorDetail(this.taskId)
+      apiTaskMonitorDetail(this.taskId, 1)
         .then((res) => {
           const t = res.task
           this.loading = false
@@ -201,6 +263,9 @@ export default {
           this.progressWidth = t.progress + '%'
           this.totalPoints = t.total_points
           this.donePoints = t.done_points
+          this.stats = res.stats
+          this.pointsTotal = res.points_total
+          this.pointsPage = res.points_page
           this.points = res.points.map((p: MonitorTaskPoint) => toPointView(p))
           uni.stopPullDownRefresh()
         })
@@ -211,30 +276,30 @@ export default {
           if (this.loaded) uni.showToast({ title: e.message, icon: 'none' })
         })
     },
-    /** 已打卡点位：弹层展示打卡摘要 */
+    /** 点位分页加载（单任务可达数百点位，服务端按 points_page 分页） */
+    loadMore() {
+      if (this.loadingMore || this.loading) return
+      if (this.points.length >= this.pointsTotal) return
+      this.loadingMore = true
+      apiTaskMonitorDetail(this.taskId, this.pointsPage + 1)
+        .then((res) => {
+          this.pointsPage = res.points_page
+          this.points = this.points.concat(res.points.map((p: MonitorTaskPoint) => toPointView(p)))
+          this.loadingMore = false
+        })
+        .catch((e: Error) => {
+          this.loadingMore = false
+          uni.showToast({ title: e.message, icon: 'none' })
+        })
+    },
+    /** 已打卡点位：进打卡明细页（逐项照片 + AI 结论 + 备注，与审核页同数据源） */
     onPointTap(p: PointView) {
       const ck = p.checkin
-      if (ck == null) return
-      const lines = [
-        '时间：' + ck.checkin_time,
-        '方式：' + checkinTypeTextOf(ck.checkin_type),
-        '结果：' + (ck.result == 'abnormal' ? '异常' : '正常')
-      ]
-      if (ck.distance_to_point != null) {
-        lines.push('距点位：' + ck.distance_to_point + ' m')
+      if (ck == null) {
+        uni.showToast({ title: p.raw_status == 'doing' ? '正在巡检中，还没提交' : '还没巡到这里', icon: 'none' })
+        return
       }
-      if (ck.is_suspect) {
-        lines.push('疑似标记：' + (ck.suspect_reason != '' ? ck.suspect_reason : '疑似异常打卡'))
-      }
-      if (ck.remark != '') {
-        lines.push('备注：' + ck.remark)
-      }
-      uni.showModal({
-        title: p.point_name,
-        content: lines.join('\n'),
-        showCancel: false,
-        confirmText: '知道了'
-      })
+      uni.navigateTo({ url: '/pages/admin/checkin-detail?id=' + encodeURIComponent(ck.id) })
     }
   }
 }
@@ -323,6 +388,32 @@ export default {
 .card-progress-text {
   font-size: 26rpx;
   margin-top: 12rpx;
+}
+
+/* 状态过滤条 */
+.filter-bar {
+  flex-direction: row;
+  flex-wrap: wrap;
+  margin-bottom: 20rpx;
+}
+
+.filter-chip {
+  border-radius: 999rpx;
+  border-width: 1rpx;
+  border-style: solid;
+  padding: 10rpx 26rpx;
+  margin-right: 16rpx;
+  margin-bottom: 12rpx;
+}
+
+.filter-chip-text {
+  font-size: 26rpx;
+}
+
+.more-text {
+  font-size: 24rpx;
+  text-align: center;
+  padding: 24rpx 0 32rpx;
 }
 
 .point-row {

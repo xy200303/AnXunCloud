@@ -412,6 +412,10 @@ func New(cfg *config.Config, db *gorm.DB, rdb *redis.Client) (*gin.Engine, *insp
 				appReview.POST("/:id/pass", middleware.RequirePerm("inspection:checkin:review"), middleware.OperLog(db, "inspection", "review_pass"), reviewCtl.Pass)
 				appReview.POST("/:id/reject", middleware.RequirePerm("inspection:checkin:review"), middleware.OperLog(db, "inspection", "review_reject"), reviewCtl.Reject)
 			}
+			// 管理端打卡明细（看板/任务监控点位详情用；复用 PC 记录详情，数据范围按小区校验）
+			appAuth.GET("/inspection/checkins/:id",
+				middleware.RequirePerm("inspection:task:list", "inspection:task:monitor", "inspection:record:list", "inspection:checkin:list", "inspection:checkin:review"),
+				inspectionCtl.CheckinDetail)
 			// 月报签字（权限点与 PC 完全一致；待我签用 ?pending_mine=1）
 			appReports := appAuth.Group("/reports")
 			{

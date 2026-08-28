@@ -15,7 +15,7 @@
             :unique-opened="true"
             router
           >
-            <sidebar-item v-for="menu in permissionStore.menus" :key="menu.id" :item="menu" />
+            <sidebar-item v-for="menu in sidebarMenus" :key="menu.id" :item="menu" />
           </el-menu>
         </el-scrollbar>
       </aside>
@@ -35,6 +35,7 @@ import zhCn from 'element-plus/es/locale/lang/zh-cn'
 import { useRoute } from 'vue-router'
 import { useAppStore } from '@/store/app'
 import { usePermissionStore } from '@/store/permission'
+import { filterSimpleMenus } from '@/composables/useSimpleMode'
 import SidebarItem from './components/SidebarItem.vue'
 import Navbar from './components/Navbar.vue'
 import TagsView from './components/TagsView.vue'
@@ -49,6 +50,9 @@ const permissionStore = usePermissionStore()
 
 // 当前项高亮
 const activeMenu = computed(() => route.path)
+
+// 简洁模式：隐藏高级菜单（顶栏右上角开关）
+const sidebarMenus = computed(() => filterSimpleMenus(permissionStore.menus))
 </script>
 
 <style scoped lang="scss">

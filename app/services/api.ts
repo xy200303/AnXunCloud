@@ -1388,7 +1388,7 @@ export type MonitorTaskPoint = {
   } | null
 }
 
-/** 任务监控明细（对齐 TaskService.Detail：{task, points} 结构，与巡检端 /tasks/:id 不同） */
+/** 任务监控明细（对齐 TaskService.Detail：{task, points, stats, 分页} 结构，与巡检端 /tasks/:id 不同） */
 export type MonitorTaskDetail = {
   task: {
     id: string
@@ -1406,6 +1406,79 @@ export type MonitorTaskDetail = {
     finished_at: string | null
   }
   points: MonitorTaskPoint[]
+  /** 全量状态聚合（不随分页变化）：total/done/doing/pending/normal/abnormal/suspect */
+  stats: { total: number; done: number; doing: number; pending: number; normal: number; abnormal: number; suspect: number }
+  points_total: number
+  points_page: number
+  points_size: number
+}
+
+/** 任务监控明细 GET /inspection/tasks/:id/detail（点位逐个打卡状态；points 分页，默认每页 50） */
+export function apiTaskMonitorDetail(id: string, page = 1, pageSize = 50): Promise<MonitorTaskDetail> {
+  return new Promise<MonitorTaskDetail>((resolve, reject) => {
+    httpGet<any>('/inspection/tasks/' + id + '/detail?points_page=' + page + '&points_page_size=' + pageSize)
+      .then((d) => {
+        if (d == null || d.task == null) {
+          reject(new Error('任务明细响应异常'))
+          return
+        }
+        resolve({
+          task: d.task,
+          points: (d.points ?? []) as MonitorTaskPoint[],
+          stats: d.stats ?? { total: 0, done: 0, doing: 0, pending: 0, normal: 0, abnormal: 0, suspect: 0 },
+          points_total: d.points_total ?? 0,
+          points_page: d.points_page ?? page,
+          points_size: d.points_size ?? pageSize
+        })
+      })
+      .catch(reject)
+  })
+}
+
+/** 管理端打卡明细 GET /inspection/checkins/:id（看板/任务监控点位详情；数据范围按小区校验） */
+export type AdminCheckinDetail = {
+  id: string
+  task_id: string
+  plan_name: string
+  point_id: string
+  point_name: string
+  community_name: string
+  inspector_name: string
+  checkin_time: string
+  /** qrcode/fence/nfc/offline */
+  checkin_type: string
+  distance_to_point: number | null
+  /** normal/abnormal */
+  result: string
+  remark: string
+  is_suspect: boolean
+  suspect_reason: string
+  check_items: Array<{
+    name: string
+    pass: boolean
+    note: string
+    photo_urls: string[]
+    requirement: string | null
+    ai_verdict: string | null
+    ai_reason: string | null
+  }>
+  audit_status: string
+  ai_verdict: string
+  ai_reason: string
+}
+
+export function apiAdminCheckinDetail(id: string): Promise<AdminCheckinDetail> {
+  return new Promise<AdminCheckinDetail>((resolve, reject) => {
+    httpGet<AdminCheckinDetail>('/inspection/checkins/' + id)
+      .then((d) => {
+        if (d == null) {
+          reject(new Error('打卡明细响应异常'))
+          return
+        }
+        resolve(d)
+      })
+      .catch(reject)
+  })
 }
 
 // ---- 打卡审核（对齐 ReviewService.List / Pass / Reject） -------------------------------
@@ -1555,21 +1628,6 @@ export function apiTaskMonitorList(page: number, pageSize: number, filter: strin
           page: d?.page ?? page,
           page_size: d?.page_size ?? pageSize
         })
-      })
-      .catch(reject)
-  })
-}
-
-/** 任务监控明细 GET /inspection/tasks/:id/detail（点位逐个打卡状态） */
-export function apiTaskMonitorDetail(id: string): Promise<MonitorTaskDetail> {
-  return new Promise<MonitorTaskDetail>((resolve, reject) => {
-    httpGet<any>('/inspection/tasks/' + id + '/detail')
-      .then((d) => {
-        if (d == null || d.task == null) {
-          reject(new Error('任务明细响应异常'))
-          return
-        }
-        resolve({ task: d.task, points: (d.points ?? []) as MonitorTaskPoint[] })
       })
       .catch(reject)
   })

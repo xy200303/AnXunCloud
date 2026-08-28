@@ -100,6 +100,12 @@
       }
     },
     {
+      "path": "pages/admin/checkin-detail",
+      "style": {
+        "navigationBarTitleText": "打卡明细"
+      }
+    },
+    {
       "path": "pages/admin/review",
       "style": {
         "navigationBarTitleText": "打卡审核",

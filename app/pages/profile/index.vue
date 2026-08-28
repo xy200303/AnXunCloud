@@ -16,43 +16,43 @@
     <!-- 管理功能（按权限点显隐；全部无权限时整个区块不显示） -->
     <view v-if="showAdmin" class="card menu-card" :style="{ backgroundColor: colors.bgCard }">
       <text class="menu-group-title" :style="{ color: colors.textSecondary }">管理功能</text>
-      <view v-if="canDashboard" class="row" @click="goAdmin('/pages/admin/dashboard')">
-        <text class="row-text" :style="{ color: colors.textRegular }">今日看板</text>
-        <text class="row-arrow" :style="{ color: colors.textSecondary }">></text>
+      <view v-if="canDashboard"  hover-class="hover-dim" class="row" @click="goAdmin('/pages/admin/dashboard')">
+        <text  hover-class="hover-dim" class="row-text" :style="{ color: colors.textRegular }">今日看板</text>
+        <text  hover-class="hover-dim" class="row-arrow" :style="{ color: colors.textSecondary }">></text>
       </view>
-      <view v-if="canReview" class="row" @click="goAdmin('/pages/admin/review')">
-        <text class="row-text" :style="{ color: colors.textRegular }">打卡审核</text>
-        <text class="row-arrow" :style="{ color: colors.textSecondary }">></text>
+      <view v-if="canReview"  hover-class="hover-dim" class="row" @click="goAdmin('/pages/admin/review')">
+        <text  hover-class="hover-dim" class="row-text" :style="{ color: colors.textRegular }">打卡审核</text>
+        <text  hover-class="hover-dim" class="row-arrow" :style="{ color: colors.textSecondary }">></text>
       </view>
-      <view v-if="canPointManage" class="row" @click="goAdmin('/pages/admin/points')">
-        <text class="row-text" :style="{ color: colors.textRegular }">点位管理</text>
-        <text class="row-arrow" :style="{ color: colors.textSecondary }">></text>
+      <view v-if="canPointManage"  hover-class="hover-dim" class="row" @click="goAdmin('/pages/admin/points')">
+        <text  hover-class="hover-dim" class="row-text" :style="{ color: colors.textRegular }">点位管理</text>
+        <text  hover-class="hover-dim" class="row-arrow" :style="{ color: colors.textSecondary }">></text>
       </view>
     </view>
 
     <!-- 功能入口 -->
     <view class="card menu-card" :style="{ backgroundColor: colors.bgCard }">
-      <view class="row" @click="goPendingReports">
-        <text class="row-text" :style="{ color: colors.textRegular }">月度报告</text>
-        <text class="row-arrow" :style="{ color: colors.textSecondary }">></text>
+      <view  hover-class="hover-dim" class="row" @click="goPendingReports">
+        <text  hover-class="hover-dim" class="row-text" :style="{ color: colors.textRegular }">月度报告</text>
+        <text  hover-class="hover-dim" class="row-arrow" :style="{ color: colors.textSecondary }">></text>
       </view>
-      <view class="row" @click="openSignaturePad">
-        <text class="row-text" :style="{ color: colors.textRegular }">手写签名</text>
-        <text class="row-arrow" :style="{ color: colors.textSecondary }">{{ signatureText }} ></text>
+      <view  hover-class="hover-dim" class="row" @click="openSignaturePad">
+        <text  hover-class="hover-dim" class="row-text" :style="{ color: colors.textRegular }">手写签名</text>
+        <text  hover-class="hover-dim" class="row-arrow" :style="{ color: colors.textSecondary }">{{ signatureText }} ></text>
       </view>
-      <view class="row" @click="todo">
-        <text class="row-text" :style="{ color: colors.textRegular }">修改密码</text>
-        <text class="row-arrow" :style="{ color: colors.textSecondary }">></text>
+      <view  hover-class="hover-dim" class="row" @click="todo">
+        <text  hover-class="hover-dim" class="row-text" :style="{ color: colors.textRegular }">修改密码</text>
+        <text  hover-class="hover-dim" class="row-arrow" :style="{ color: colors.textSecondary }">></text>
       </view>
-      <view class="row" @click="todo">
-        <text class="row-text" :style="{ color: colors.textRegular }">关于安巡云</text>
-        <text class="row-arrow" :style="{ color: colors.textSecondary }">v1.0.0(100)</text>
+      <view  hover-class="hover-dim" class="row" @click="todo">
+        <text  hover-class="hover-dim" class="row-text" :style="{ color: colors.textRegular }">关于安巡云</text>
+        <text  hover-class="hover-dim" class="row-arrow" :style="{ color: colors.textSecondary }">v1.0.0(100)</text>
       </view>
     </view>
 
     <!-- 退出登录（danger 独立区块，二次确认） -->
-    <view class="btn-logout" :style="{ backgroundColor: colors.bgCard }" @click="onLogout">
-      <text class="btn-logout-text" :style="{ color: colors.danger }">退出登录</text>
+    <view  hover-class="hover-dim" class="btn-logout" :style="{ backgroundColor: colors.bgCard }" @click="onLogout">
+      <text  hover-class="hover-dim" class="btn-logout-text" :style="{ color: colors.danger }">退出登录</text>
     </view>
 
     <!-- 手写签名板（个人中心配置入口：保存即写入签章资产，下次签字直接用） -->
@@ -188,7 +188,8 @@ export default {
       })
     },
     goPendingReports() {
-      uni.navigateTo({ url: '/pages/reports/pending' })
+      // 报告页是 tabBar 页，须用 switchTab
+      uni.switchTab({ url: '/pages/reports/pending' })
     },
     /** 管理入口跳转（入口显隐已按权限控制） */
     goAdmin(url: string) {

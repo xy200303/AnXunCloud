@@ -168,8 +168,8 @@ export function routePushMessage(payload: PushPayload | null): void {
     if (biz != '') {
       uni.navigateTo({ url: '/pages/reports/detail?id=' + encodeURIComponent(biz) })
     } else {
-      // 无 biz_id：落报告待办列表
-      uni.navigateTo({ url: '/pages/reports/pending' })
+      // 无 biz_id：落报告待办列表（tabBar 页用 switchTab）
+      uni.switchTab({ url: '/pages/reports/pending' })
     }
     return
   }

@@ -133,6 +133,12 @@
         "selectedIconPath": "static/tabbar/tasks_active.png"
       },
       {
+        "pagePath": "pages/reports/pending",
+        "text": "报告",
+        "iconPath": "static/tabbar/report.png",
+        "selectedIconPath": "static/tabbar/report_active.png"
+      },
+      {
         "pagePath": "pages/messages/index",
         "text": "消息",
         "iconPath": "static/tabbar/message.png",

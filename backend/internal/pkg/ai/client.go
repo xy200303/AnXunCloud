@@ -126,8 +126,7 @@ type ReviewInput struct {
 	PointType  string      // 点位类型
 	CheckItems []string    // 检查项名称列表
 	Remark     string      // 异常描述（可空）
-	Photos     []PhotoRef  // 打卡照片（记录级/全景）
-	ItemPhotos []ItemPhoto // 逐项照片（可空；空则回退仅按整组照片审核）
+	ItemPhotos []ItemPhoto // 逐项照片（一项一图；无记录级照片）
 }
 
 // Client 多协议视觉审核客户端。
@@ -247,29 +246,14 @@ func (c *Client) buildParts(input ReviewInput) []promptPart {
 				label += "（判定要求：" + inst + "）"
 			}
 			if len(imgs) == 0 {
-				// 该项无单独照片（result=auto 代判模式）：仅发文字标注，请模型结合记录级照片判定
-				parts = append(parts, promptPart{text: label + "：无，请结合下方本次打卡的照片判定该项。"})
+				// 该项无照片：仅发文字标注；无图可核对时要求模型判存疑，不凭空结论
+				parts = append(parts, promptPart{text: label + "：该项未提供照片，无法进行图像核对时请将该项判为存疑。"})
 				continue
 			}
 			if budget <= 0 {
 				continue
 			}
 			parts = append(parts, promptPart{text: label + "，请核对该项现场状态："})
-			for _, img := range imgs {
-				if budget <= 0 {
-					break
-				}
-				parts = append(parts, promptPart{img: &img})
-				budget--
-			}
-		}
-	}
-	if len(input.ItemPhotos) == 0 || budget > 0 {
-		imgs := c.resolveImages(input.Photos)
-		if len(imgs) > 0 {
-			if len(input.ItemPhotos) > 0 {
-				parts = append(parts, promptPart{text: "以下是本次打卡的全景/记录级照片："})
-			}
 			for _, img := range imgs {
 				if budget <= 0 {
 					break

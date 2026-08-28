@@ -112,7 +112,7 @@ func SeedFireDemo(db *gorm.DB, store *storage.Storage) error {
 	tplSafetyID := templateIDByName(db, tid, "安全巡查通用模板")
 	tplEquipID := templateIDByName(db, tid, "设备设施专项模板")
 
-	d := &demoSeeder{db: db, store: store, photoCache: map[string]demoPhotoRef{}}
+	d := &demoSeeder{db: db, store: store, photoCache: map[string]string{}}
 	return db.Transaction(func(tx *gorm.DB) error {
 		d.db = tx
 		return d.seedFireSpecial(tid, cid, buildingIDs, routePointIDs, routeMeta, tplSafetyID, tplEquipID, p)
@@ -363,7 +363,7 @@ func (d *demoSeeder) seedPatrolRounds(tid, cid, planID string, routePointIDs []s
 				PhotoRequired: it.photoReq, Pass: true, Sort: j + 1, CreatedAt: rec.CheckinTime,
 			}
 			if it.photoReq == types.PhotoReqRequired {
-				if _, key := d.photo(tid, rec.InspectorID, it.name); key != "" {
+				if key := d.photo(tid, rec.InspectorID, it.name); key != "" {
 					row.Photos = types.StringArray{key}
 				}
 			}
@@ -439,7 +439,7 @@ func (d *demoSeeder) seedFireMonth(tid, cid, planID string, firePointIDs []strin
 				row.AIHint = strptr(it.aiHint)
 			}
 			if it.photoReq == types.PhotoReqRequired {
-				if _, key := d.photo(tid, p.xj01, it.name); key != "" {
+				if key := d.photo(tid, p.xj01, it.name); key != "" {
 					row.Photos = types.StringArray{key}
 				}
 			}
@@ -459,8 +459,8 @@ func (d *demoSeeder) seedFireMonth(tid, cid, planID string, firePointIDs []strin
 
 	// 当月专项检查报告（stats 快照与落库数据一致；PDF 明细按报告期实时查询，无需预生成 file_key）
 	period := curMonthPeriod()
-	_, keyGun := d.photo(tid, p.xj01, "消防枪头在位")
-	_, keyGauge := d.photo(tid, p.xj01, "压力表指针在绿区")
+	keyGun := d.photo(tid, p.xj01, "消防枪头在位")
+	keyGauge := d.photo(tid, p.xj01, "压力表指针在绿区")
 	var photoKeys []string
 	if keyGun != "" && keyGauge != "" {
 		photoKeys = []string{keyGun, keyGauge}

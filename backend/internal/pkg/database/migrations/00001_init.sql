@@ -1,4 +1,4 @@
--- 基线迁移（squash）：00001–00025 全部合并为本文件（2026-08-18，菜单归位/岗位管理完成后）。
+-- 基线迁移（squash）：squash 时刻（2026-08-18，菜单归位/岗位管理完成后）的全部结构合并为本文件；后续增量从 00002 起重新编号。
 -- 内容 = pg_dump schema-only（剔除 goose_db_version 与按月分区子表；checkin_record/sys_operation_log
 -- 的当月/下月分区由运行期 EnsurePartitions 滚动创建，*_default 默认分区保留在基线内）。
 -- 数据（内置角色/菜单/字典/默认租户/岗位模板/槽位默认/超管账号）由 seed.go 负责，本文件只管结构。

@@ -2,6 +2,7 @@ package database
 
 import (
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 
 	"anxuncloud/internal/module/system/model"
 	systemsvc "anxuncloud/internal/module/system/service"
@@ -59,7 +60,7 @@ func Seed(db *gorm.DB, adminUsername, adminPassword, adminName string) error {
 }
 
 // seedTenant 确保默认租户存在（P3 多租户：私有化部署 = 只有默认租户的同一套系统）。
-// 迁移 00020 已插入默认租户，此处兜底查询/创建，返回租户 ID 供超管账号归属。
+// 默认租户完全由本函数查询/创建（无迁移插入），返回租户 ID 供超管账号归属。
 func seedTenant(tx *gorm.DB) (string, error) {
 	var t model.Tenant
 	if err := tx.Where("code = ?", model.DefaultTenantCode).First(&t).Error; err == nil {
@@ -404,7 +405,8 @@ func seedDicts(tx *gorm.DB) error {
 	}
 	for _, d := range dicts {
 		t := model.SysDictType{Code: d.code, Name: d.name, Remark: "系统预置"}
-		if err := tx.Create(&t).Error; err != nil {
+		// OnConflict 跳过：迁移（如 00005）可能已先行插入同名字典，全新库先 Migrate 后 Seed 时会撞唯一索引
+		if err := tx.Clauses(clause.OnConflict{DoNothing: true}).Create(&t).Error; err != nil {
 			return err
 		}
 		for i, item := range d.items {
@@ -415,7 +417,7 @@ func seedDicts(tx *gorm.DB) error {
 				Sort:     i + 1,
 				Status:   model.StatusEnabled,
 			}
-			if err := tx.Create(&data).Error; err != nil {
+			if err := tx.Clauses(clause.OnConflict{DoNothing: true}).Create(&data).Error; err != nil {
 				return err
 			}
 		}
@@ -483,7 +485,8 @@ func seedConfigs(tx *gorm.DB) error {
 		// 公章自 v16 起由 sign_asset 签章资产表管理，不再使用 report.seal_file_key 配置项
 	}
 	for i := range configs {
-		if err := tx.Create(&configs[i]).Error; err != nil {
+		// OnConflict 跳过：迁移（如 00011/00013/00015）可能已先行插入同名配置项，全新库先 Migrate 后 Seed 时会撞 uk_sys_config_key
+		if err := tx.Clauses(clause.OnConflict{DoNothing: true}).Create(&configs[i]).Error; err != nil {
 			return err
 		}
 	}
@@ -554,7 +557,8 @@ func seedDutyBindings(tx *gorm.DB) error {
 		{model.SlotProjectReview, types.StringArray{"project_manager"}},
 	}
 	for _, b := range bindings {
-		if err := tx.Create(&model.DutyBinding{Slot: b.slot, PostCodes: b.codes}).Error; err != nil {
+		// OnConflict 跳过：迁移（如 00005 的 fire 槽位）可能已先行插入平台级绑定，全新库先 Migrate 后 Seed 时会撞 uk_duty_binding_scope_slot
+		if err := tx.Clauses(clause.OnConflict{DoNothing: true}).Create(&model.DutyBinding{Slot: b.slot, PostCodes: b.codes}).Error; err != nil {
 			return err
 		}
 	}

@@ -113,7 +113,7 @@ func (s *UploadService) SaveLocal(userID string, scene, filename string, size in
 		exifTime = exifutil.ReadShotTimeBytes(data)
 	}
 	rec := sysmodel.UploadFile{
-		TenantID: s.userTenantID(userID), FileKey: key, Scene: scene, UserID: userID, Size: size,
+		TenantID: s.userTenantID(userID), FileKey: key, Scene: scene, UserID: userID,
 		MimeType: "image/" + ext, URL: url, ExifTime: exifTime,
 		Name: filepath.Base(filename), MD5: md5, Storage: s.store.DriverName(),
 	}
@@ -152,7 +152,7 @@ func (s *UploadService) SaveAdminLocal(userID string, scene, filename string, si
 		mime = "application/octet-stream"
 	}
 	rec := sysmodel.UploadFile{
-		TenantID: s.userTenantID(userID), FileKey: key, Scene: scene, UserID: userID, Size: size,
+		TenantID: s.userTenantID(userID), FileKey: key, Scene: scene, UserID: userID,
 		MimeType: mime, URL: url,
 		Name: filepath.Base(filename), MD5: md5, Storage: s.store.DriverName(),
 	}
@@ -232,7 +232,7 @@ func (s *UploadService) Callback(c *gin.Context, body []byte) (int, any) {
 		tenantID := user.TenantID
 		rec := sysmodel.UploadFile{
 			TenantID: &tenantID, FileKey: form.Object, Scene: form.Scene, UserID: form.UID,
-			Size: form.Size, MimeType: form.MimeType, URL: s.store.URL(form.Object),
+			MimeType: form.MimeType, URL: s.store.URL(form.Object),
 			Name: filepath.Base(form.Name), MD5: strings.Trim(form.ETag, `"`), Storage: s.store.DriverName(),
 		}
 		if rec.Scene == "" {

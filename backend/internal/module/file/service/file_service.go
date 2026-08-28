@@ -87,7 +87,7 @@ func (s *FileService) Upload(c *gin.Context, scene, filename string, size int64,
 		exifTime = exifutil.ReadShotTimeBytes(data)
 	}
 	rec := sysmodel.UploadFile{
-		FileKey: key, Scene: scene, UserID: uid, Size: size,
+		FileKey: key, Scene: scene, UserID: uid,
 		MimeType: mime, URL: url, ExifTime: exifTime,
 		Name: filepath.Base(filename), MD5: md5, Storage: s.store.DriverName(),
 	}

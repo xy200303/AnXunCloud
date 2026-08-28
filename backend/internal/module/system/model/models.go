@@ -409,7 +409,6 @@ type UploadFile struct {
 	FileKey        string     `gorm:"size:255" json:"file_key"`
 	Scene          string     `gorm:"size:16" json:"scene"`
 	UserID         string     `gorm:"type:uuid" json:"user_id"` // 零 UUID = 服务端生成文件（月报/导出包）
-	Size           int64      `json:"size"`
 	MimeType       string     `gorm:"size:128" json:"mime_type"`
 	URL            string     `gorm:"size:512" json:"url"`
 	WatermarkedURL string     `gorm:"size:512" json:"watermarked_url"`

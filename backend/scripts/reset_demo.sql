@@ -17,7 +17,7 @@ BEGIN;
 
 -- ========== 一、清空业务数据（保留 admin / 默认租户 / 系统配置菜单角色字典） ==========
 
-TRUNCATE checkin_record_item, checkin_record, inspection_task, inspection_plan,
+TRUNCATE checkin_item_draft, checkin_record_item, checkin_record, inspection_task, inspection_plan,
   inspection_point, check_template_item, check_template, building, community,
   project_staff, duty_binding, approval_flow, inspection_report, sys_notice,
   sys_message, user_push_device, upload_file,

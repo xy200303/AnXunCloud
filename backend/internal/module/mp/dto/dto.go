@@ -77,12 +77,6 @@ type STSReq struct {
 	} `json:"files" binding:"required,min=1,max=6"`
 }
 
-type MyOrdersQuery struct {
-	response.PageQuery
-	Type   string `form:"type"`
-	Status string `form:"status"`
-}
-
 type MessageQuery struct {
 	response.PageQuery
 	Type   string `form:"type"`

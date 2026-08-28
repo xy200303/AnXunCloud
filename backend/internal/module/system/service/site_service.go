@@ -137,7 +137,7 @@ func (s *SiteService) UploadRelease(userID, platform, version, note, filename st
 	}
 	err = s.db.Transaction(func(tx *gorm.DB) error {
 		meta := model.UploadFile{
-			FileKey: key, Scene: "app", UserID: userID, Size: size,
+			FileKey: key, Scene: "app", UserID: userID,
 			MimeType: mime, URL: s.store.URL(key), Name: filename, MD5: md5hex,
 			Storage: s.store.DriverName(),
 		}

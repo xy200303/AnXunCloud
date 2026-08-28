@@ -543,7 +543,7 @@ func (s *TaskService) CheckinDetail(c *gin.Context, id string) (gin.H, *errs.Err
 		exif, _ := p["exif_time"].(string)
 		photos = append(photos, gin.H{
 			"item": p["item"], "url": p["url"], "watermarked_url": p["watermarked_url"],
-			"exif_check": exifCheck(&r, exif),
+			"exif_check": exifCheck(&r, exif, s.cfgInt("inspection.exif_deviation_seconds", 300)),
 		})
 	}
 	// 逐项结果带照片 URL（photos 存 file_key；优先水印图）；v18 起读 checkin_record_item 快照表
@@ -578,9 +578,9 @@ func (s *TaskService) CheckinDetail(c *gin.Context, id string) (gin.H, *errs.Err
 	}, nil
 }
 
-// exifCheck 构造照片 EXIF 校验结论（无 EXIF 时间时 passed 为 nil）。
-// exifCheck 照片 EXIF 拍摄时间与打卡时间偏差校验（exifTime 为 timefmt 格式字符串，空=无 EXIF）。
-func exifCheck(r *model.CheckinRecord, exifTime string) gin.H {
+// exifCheck 照片 EXIF 拍摄时间与打卡时间偏差校验（exifTime 为 timefmt 格式字符串，空=无 EXIF 时 passed 为 nil）；
+// 阈值与打卡侧 suspectCheck 同源（inspection.exif_deviation_seconds，默认 300），两处判定口径一致。
+func exifCheck(r *model.CheckinRecord, exifTime string, limit int) gin.H {
 	if exifTime == "" {
 		return gin.H{"shot_at": nil, "deviation_seconds": nil, "passed": nil}
 	}
@@ -592,7 +592,18 @@ func exifCheck(r *model.CheckinRecord, exifTime string) gin.H {
 	if dev < 0 {
 		dev = -dev
 	}
-	return gin.H{"shot_at": exifTime, "deviation_seconds": dev, "passed": dev <= 300}
+	return gin.H{"shot_at": exifTime, "deviation_seconds": dev, "passed": dev <= limit}
+}
+
+// cfgInt 读取系统参数整数值（缺失/非法回退默认值）。
+func (s *TaskService) cfgInt(key string, def int) int {
+	var v string
+	if err := s.db.Model(&sysmodel.SysConfig{}).Where("key = ?", key).Select("value").Scan(&v).Error; err == nil {
+		if n, err2 := strconv.Atoi(v); err2 == nil {
+			return n
+		}
+	}
+	return def
 }
 
 func pointName(db *gorm.DB, id string) string {

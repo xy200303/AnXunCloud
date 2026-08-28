@@ -553,7 +553,7 @@ func normalizeQRCode(v string) string {
 // 逐项照片硬约束（一项一图）：每项最多 1 张；不合格项（pass=false）与模板 photo_required=required 的项须恰好 1 张，
 // file_key 逐一上传确认（43104/43106）；照片唯一归属逐项，无记录级照片。
 // 返回逐项快照行 + upload_file 索引（EXIF 判定/AI 输入/水印共用）；
-// name/requirement/ai_hint/photo_required 打卡当时从模板项复制，template_item_id 仅作可空血缘字段。
+// name/requirement/ai_hint/photo_required 打卡当时从模板项复制。
 func (s *CheckinService) resolveCheckItems(req *dto.CheckinReq, point *insmodel.InspectionPoint, ownerID string) ([]insmodel.CheckinRecordItem, map[string]sysmodel.UploadFile, *errs.Error) {
 	if point.TemplateID == nil || *point.TemplateID == "" {
 		return nil, nil, errs.ErrParam.WithMsg("该点位未绑定检查项模板，无法打卡")
@@ -610,7 +610,7 @@ func (s *CheckinService) resolveCheckItems(req *dto.CheckinReq, point *insmodel.
 		items = append(items, insmodel.CheckinRecordItem{
 			Name: it.Name, Pass: it.Pass, Note: it.Note,
 			Photos: types.StringArray(it.Photos), PhotoRequired: ti.PhotoRequired,
-			TemplateItemID: &ti.ID, Requirement: ti.Requirement, AIHint: ti.AIHint,
+			Requirement: ti.Requirement, AIHint: ti.AIHint,
 			JudgeType: ti.JudgeType, JudgeConfig: ti.JudgeConfig, Sort: i,
 		})
 	}
@@ -761,7 +761,7 @@ func writeItemVerdicts(db *gorm.DB, recID string, items []ai.ItemVerdict) {
 }
 
 // itemPhotoRefs 逐项照片（file_key → 可访问 URL）+ 标准要求/AI 识别要点，供大模型逐项核对；
-// 无逐项照片返回 nil（回退整组照片逻辑）。
+// 无逐项照片且无判定元数据的项不透出（无图可判）。
 func (s *CheckinService) itemPhotoRefs(items []insmodel.CheckinRecordItem) []ai.ItemPhoto {
 	var out []ai.ItemPhoto
 	for _, it := range items {
@@ -770,7 +770,7 @@ func (s *CheckinService) itemPhotoRefs(items []insmodel.CheckinRecordItem) []ai.
 			continue
 		}
 		// 无逐项照片的项：仅当带判定元数据（判定类型/标准要求/识别要点）时才透出，
-		// 由 AI 结合记录级照片判定（result=auto 模式下模板项均无单独照片）
+		// 由 AI 按文字要求判定（无图可核对时模型应判存疑）
 		if len(it.Photos) == 0 && !hasJudgeMeta(it) {
 			continue
 		}

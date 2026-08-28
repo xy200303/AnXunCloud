@@ -89,7 +89,7 @@ func TestProtocolOpenAIChat(t *testing.T) {
 
 	res, err := newMockClient(srv.URL, "openai_chat").ReviewCheckin(context.Background(), ReviewInput{
 		PointName: "配电房",
-		Photos:    []PhotoRef{{URL: "http://example.com/a.jpg"}},
+		ItemPhotos: []ItemPhoto{{Name: "灭火器在位", Photos: []PhotoRef{{URL: "http://example.com/a.jpg"}}}},
 	})
 	if err != nil {
 		t.Fatalf("调用失败: %v", err)
@@ -148,7 +148,7 @@ func TestProtocolOpenAIResponses(t *testing.T) {
 
 	res, err := newMockClient(srv.URL, "openai_responses").ReviewCheckin(context.Background(), ReviewInput{
 		PointName: "配电房",
-		Photos:    []PhotoRef{{URL: "http://example.com/a.jpg"}},
+		ItemPhotos: []ItemPhoto{{Name: "灭火器在位", Photos: []PhotoRef{{URL: "http://example.com/a.jpg"}}}},
 	})
 	if err != nil {
 		t.Fatalf("调用失败: %v", err)
@@ -210,7 +210,7 @@ func TestProtocolGemini(t *testing.T) {
 
 	res, err := newMockClient(srv.URL, "gemini").ReviewCheckin(context.Background(), ReviewInput{
 		PointName: "配电房",
-		Photos:    []PhotoRef{{URL: srv.URL + "/img.jpg"}},
+		ItemPhotos: []ItemPhoto{{Name: "灭火器在位", Photos: []PhotoRef{{URL: srv.URL + "/img.jpg"}}}},
 	})
 	if err != nil {
 		t.Fatalf("调用失败: %v", err)
@@ -275,7 +275,7 @@ func TestProtocolClaude(t *testing.T) {
 
 	res, err := newMockClient(srv.URL, "claude").ReviewCheckin(context.Background(), ReviewInput{
 		PointName: "配电房",
-		Photos:    []PhotoRef{{URL: srv.URL + "/img.jpg"}},
+		ItemPhotos: []ItemPhoto{{Name: "灭火器在位", Photos: []PhotoRef{{URL: srv.URL + "/img.jpg"}}}},
 	})
 	if err != nil {
 		t.Fatalf("调用失败: %v", err)

@@ -52,15 +52,10 @@ const DemoPassword = "Demo@12345"
 // demoTenantACode 演示租户 A 的公司代码（幂等标记：存在即跳过）。
 const demoTenantACode = "huaan"
 
-type demoPhotoRef struct {
-	item types.PhotoItem
-	key  string
-}
-
 type demoSeeder struct {
 	db         *gorm.DB
 	store      *storage.Storage
-	photoCache map[string]demoPhotoRef
+	photoCache map[string]string
 	roleIDs    map[string]string
 	pwdHash    string
 }
@@ -74,7 +69,7 @@ func Seed(db *gorm.DB, store *storage.Storage) error {
 	if count > 0 {
 		return nil
 	}
-	d := &demoSeeder{store: store, photoCache: map[string]demoPhotoRef{}, roleIDs: map[string]string{}}
+	d := &demoSeeder{store: store, photoCache: map[string]string{}, roleIDs: map[string]string{}}
 	return db.Transaction(func(tx *gorm.DB) error {
 		d.db = tx
 		return d.run()
@@ -127,33 +122,32 @@ func (d *demoSeeder) addStaff(tenantID, projectID, userID string, posts []string
 	return d.db.Create(&row).Error
 }
 
-// photo 生成/复用演示打卡照片（真实图片内置于 demoassets，仅本地存储驱动落盘；返回照片元素与 file_key）。
-func (d *demoSeeder) photo(tenantID, ownerID, label string) (types.PhotoItem, string) {
+// photo 生成/复用演示打卡照片（真实图片内置于 demoassets，仅本地存储驱动落盘；返回 file_key，失败返回空串）。
+func (d *demoSeeder) photo(tenantID, ownerID, label string) string {
 	if d.store == nil || !d.store.IsLocal() {
-		return types.PhotoItem{}, ""
+		return ""
 	}
-	if p, ok := d.photoCache[label]; ok {
-		return p.item, p.key
+	if key, ok := d.photoCache[label]; ok {
+		return key
 	}
 	data, err := demoAssetByLabel_(label)
 	if err != nil {
-		return types.PhotoItem{}, ""
+		return ""
 	}
 	key, url, data, md5, err := d.store.Save("checkin", ownerID, "jpg", bytes.NewReader(data))
 	if err != nil {
-		return types.PhotoItem{}, ""
+		return ""
 	}
 	rec := sysmodel.UploadFile{
 		TenantID: &tenantID, FileKey: key, Scene: "checkin", UserID: ownerID,
-		Size: int64(len(data)), MimeType: "image/jpeg", URL: url, WatermarkedURL: url,
+		MimeType: "image/jpeg", URL: url, WatermarkedURL: url,
 		Name: label + ".jpg", MD5: md5, Storage: d.store.DriverName(),
 	}
 	if err := d.db.Create(&rec).Error; err != nil {
-		return types.PhotoItem{}, ""
+		return ""
 	}
-	ref := demoPhotoRef{item: types.PhotoItem{Item: label, URL: url, WatermarkedURL: url, Required: true}, key: key}
-	d.photoCache[label] = ref
-	return ref.item, ref.key
+	d.photoCache[label] = key
+	return key
 }
 
 // demoAssetByLabel_ 按标签取内置演示照片字节。
@@ -469,7 +463,7 @@ func (d *demoSeeder) seedTenantA() error {
 				PhotoRequired: it.photoReq, Pass: true, Sort: j + 1, CreatedAt: checkinTime,
 			}
 			if it.photoReq == types.PhotoReqRequired {
-				_, key := d.photo(tid, xj01ID, it.name)
+				key := d.photo(tid, xj01ID, it.name)
 				if key != "" {
 					row.Photos = types.StringArray{key}
 				}
@@ -830,7 +824,7 @@ func (d *demoSeeder) seedMonthWorkload(tid, cid string, o monthWorkload) (monthS
 				PhotoRequired: it.photoReq, Pass: true, Sort: j + 1, CreatedAt: rec.CheckinTime,
 			}
 			if it.photoReq == types.PhotoReqRequired {
-				_, key := d.photo(tid, rec.InspectorID, it.name)
+				key := d.photo(tid, rec.InspectorID, it.name)
 				if key != "" {
 					row.Photos = types.StringArray{key}
 				}
@@ -872,8 +866,8 @@ func (d *demoSeeder) seedReportsA(tid, cid, planID string, pointIDs []string, po
 	}
 
 	// 2) 报告（stats 快照 = 实际数据统计；三级签字齐全，已归档）
-	_, key1 := d.photo(tid, p.xj01, "消防通道畅通无阻")
-	_, key2 := d.photo(tid, p.xj01, "灭火器压力正常")
+	key1 := d.photo(tid, p.xj01, "消防通道畅通无阻")
+	key2 := d.photo(tid, p.xj01, "灭火器压力正常")
 	var photoKeys []string
 	if key1 != "" && key2 != "" {
 		photoKeys = []string{key1, key2}

@@ -150,38 +150,6 @@ func (m JSONMap) Float(key string) float64 {
 	return 0
 }
 
-// PhotoItem 通用照片元素（演示种子/导出等照片 JSONB）。
-type PhotoItem struct {
-	Item           string `json:"item"`
-	URL            string `json:"url"`
-	WatermarkedURL string `json:"watermarked_url"`
-	ExifTime       string `json:"exif_time,omitempty"`
-	Required       bool   `json:"required"`
-}
-
-// PhotoArray 映射 jsonb 照片数组。
-type PhotoArray []PhotoItem
-
-func (a PhotoArray) Value() (driver.Value, error) {
-	if a == nil {
-		return "[]", nil
-	}
-	b, err := json.Marshal(a)
-	return string(b), err
-}
-
-func (a *PhotoArray) Scan(src any) error {
-	data, err := toBytes(src)
-	if err != nil {
-		return err
-	}
-	if data == nil {
-		*a = PhotoArray{}
-		return nil
-	}
-	return json.Unmarshal(data, a)
-}
-
 // 模板项拍照要求取值（check_template_item / checkin_record_item 的 photo_required 列）。
 const (
 	PhotoReqNone     = "none"     // 不要求拍照

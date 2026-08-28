@@ -382,7 +382,7 @@ func (s *StatsService) Export(c *gin.Context, req *dto.ExportReq) (gin.H, *errs.
 	if err != nil {
 		return nil, errs.ErrInternal
 	}
-	systemsvc.RegisterGeneratedFile(s.db, s.store, fileName, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", storage.MD5Hex(buf), key, url, int64(len(buf)))
+	systemsvc.RegisterGeneratedFile(s.db, s.store, fileName, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", storage.MD5Hex(buf), key, url)
 	return gin.H{
 		"export_id":    fmt.Sprintf("exp%s", time.Now().Format("20060102150405")),
 		"status":       "done",

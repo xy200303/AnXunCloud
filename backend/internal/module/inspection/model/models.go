@@ -306,14 +306,13 @@ func (CheckinRecord) TableName() string { return "checkin_record" }
 
 // CheckinRecordItem 打卡逐项结果快照（v18 起独立表）。
 // 快照语义：name/requirement/photo_required 在打卡当时从模板项复制，历史记录内容绝不依赖 join 模板表；
-// template_item_id 仅作可空血缘字段（统计用）。record_id 不加 FK（checkin_record 为按月分区表，
+// record_id 不加 FK（checkin_record 为按月分区表，
 // 其主键含分区键 created_at，FK 无法仅引用 id），以普通索引 + 应用层同事务写入保证一致。
 type CheckinRecordItem struct {
 	types.UUIDModel
-	RecordID       string  `gorm:"type:uuid" json:"record_id"`
-	TemplateItemID *string `gorm:"type:uuid" json:"template_item_id"`
-	Name           string  `gorm:"size:128" json:"name"`
-	Requirement    *string `gorm:"type:text" json:"requirement"`
+	RecordID    string  `gorm:"type:uuid" json:"record_id"`
+	Name        string  `gorm:"size:128" json:"name"`
+	Requirement *string `gorm:"type:text" json:"requirement"`
 	// AIHint AI 识别要点快照（打卡当时从模板项复制，与 name/requirement 同机制）
 	AIHint *string `gorm:"type:text" json:"ai_hint"`
 	// JudgeType/JudgeConfig 判定类型与参数快照（打卡当时从模板项复制）
@@ -324,7 +323,7 @@ type CheckinRecordItem struct {
 	Note          string        `gorm:"size:512" json:"note"`
 	// Photos 该项照片 file_key 数组（JSONB，不再拆表）
 	Photos types.StringArray `gorm:"type:jsonb" json:"photos"`
-	// AIVerdict/AIReason 逐项大模型结论（预留；模型未返回逐项结论时为空）
+	// AIVerdict/AIReason 逐项大模型结论（模型未返回逐项结论时为空）
 	AIVerdict *string `gorm:"size:16" json:"ai_verdict"`
 	AIReason  *string `gorm:"size:512" json:"ai_reason"`
 	// AIReading AI 读取的表计读数文本（metric 类检查项；NULL=无读数）

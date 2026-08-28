@@ -159,7 +159,7 @@ func (s *TemplateService) Delete(id string) *errs.Error {
 		if err := tx.Delete(&t).Error; err != nil {
 			return err
 		}
-		// 模板软删，级联删除不触发，项行显式清除（checkin_record_item.template_item_id 血缘不受影响）
+		// 模板软删，级联删除不触发，项行显式清除
 		return tx.Where("template_id = ?", id).Delete(&model.CheckTemplateItem{}).Error
 	})
 	if err != nil {

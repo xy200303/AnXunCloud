@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -301,31 +300,6 @@ func (s *ReportService) collectRecords(communityID string, start, end time.Time,
 		})
 	}
 	return rows
-}
-
-// reportPhotoURL 报告插图优先用水印图（留痕可读），无水印版回退原图。
-func reportPhotoURL(ph types.PhotoItem) string {
-	if ph.WatermarkedURL != "" {
-		return ph.WatermarkedURL
-	}
-	return ph.URL
-}
-
-// photoFileKey 从照片 URL 反推 file_key（local：.../uploads/{key} 或 .../api/files/{key}（可带 ?token=）；云存储：https://{bucket}.{endpoint}/{key}）。
-func photoFileKey(u string) string {
-	if i := strings.Index(u, "?"); i >= 0 {
-		u = u[:i]
-	}
-	if i := strings.Index(u, "/uploads/"); i >= 0 {
-		return u[i+len("/uploads/"):]
-	}
-	if i := strings.Index(u, "/api/files/"); i >= 0 {
-		return u[i+len("/api/files/"):]
-	}
-	if pu, err := url.Parse(u); err == nil && pu.Host != "" {
-		return strings.TrimPrefix(pu.Path, "/")
-	}
-	return ""
 }
 
 // statsRecords 从 stats JSONB 读取 records 快照并规范字段类型；无该字段返回 ok=false。
@@ -1134,7 +1108,7 @@ func (s *ReportService) RebuildPDF(reportID string) error {
 	if err != nil {
 		return err
 	}
-	systemsvc.RegisterGeneratedFile(s.db, s.store, r.Title+".pdf", "application/pdf", storage.MD5Hex(data), key, url, int64(len(data)))
+	systemsvc.RegisterGeneratedFile(s.db, s.store, r.Title+".pdf", "application/pdf", storage.MD5Hex(data), key, url)
 	if err := s.db.Model(&r).Update("file_key", key).Error; err != nil {
 		return err
 	}
@@ -1159,7 +1133,7 @@ func (s *ReportService) archivePDF(reportID string) {
 		logger.L.Warn("月报归档：保存失败", zap.Error(err), zap.String("report_id", reportID))
 		return
 	}
-	systemsvc.RegisterGeneratedFile(s.db, s.store, r.Title+".pdf", "application/pdf", storage.MD5Hex(data), key, url, int64(len(data)))
+	systemsvc.RegisterGeneratedFile(s.db, s.store, r.Title+".pdf", "application/pdf", storage.MD5Hex(data), key, url)
 	if err := s.db.Model(&r).Update("file_key", key).Error; err != nil {
 		logger.L.Warn("月报归档：回写 file_key 失败", zap.Error(err), zap.String("report_id", reportID))
 		return

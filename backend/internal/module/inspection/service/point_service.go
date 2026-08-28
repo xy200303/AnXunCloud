@@ -376,7 +376,7 @@ func (s *PointService) QRCodeBatch(c *gin.Context, req *dto.QRCodeBatchReq) (gin
 	if err != nil {
 		return nil, errs.ErrInternal
 	}
-	systemsvc.RegisterGeneratedFile(s.db, s.store, fileName, "application/zip", storage.MD5Hex(zipData), key, url, int64(len(zipData)))
+	systemsvc.RegisterGeneratedFile(s.db, s.store, fileName, "application/zip", storage.MD5Hex(zipData), key, url)
 	return gin.H{
 		"file_url":  url,
 		"file_name": fileName,

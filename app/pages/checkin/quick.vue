@@ -1,15 +1,13 @@
 <template>
   <view class="page" :style="{ backgroundColor: colors.bgPage }">
-    <!-- 自定义导航栏：左返回（上一项语义）、中标题、右退出 -->
+    <!-- 自定义导航栏：左返回（退出巡检）、中标题 -->
     <view class="navbar" :style="{ backgroundColor: colors.primary, paddingTop: statusBarHeight + 'px' }">
       <view class="navbar-row">
-        <view class="navbar-side" @click="onPrevTap">
+        <view class="navbar-side" @click="onBackTap">
           <text class="navbar-back" :style="{ color: colors.white }">‹</text>
         </view>
         <text class="navbar-title" :style="{ color: colors.white }">连续巡检</text>
-        <view class="navbar-side navbar-right" @click="onNavExit">
-          <text v-if="showPrev" class="navbar-exit" :style="{ color: colors.white }">退出</text>
-        </view>
+        <view class="navbar-side navbar-right"></view>
       </view>
     </view>
     <view class="navbar-space" :style="{ height: 'calc(88rpx + ' + statusBarHeight + 'px)' }"></view>
@@ -235,6 +233,11 @@
         <view class="done-btn" :style="{ backgroundColor: colors.white }" @click="exitWizard">
           <text class="done-btn-text" :style="{ color: colors.success }">返回</text>
         </view>
+      </view>
+
+      <!-- 上一项：主推进阶段且不在起点时显示（返回键=退出巡检，回退只走此按钮） -->
+      <view v-if="showPrev && !atWizardStart" class="prev-link" @click="onPrevTap">
+        <text class="prev-link-text" :style="{ color: colors.textSecondary }">‹ 上一项</text>
       </view>
 
       <view class="bottom-space"></view>
@@ -530,7 +533,7 @@ export default {
       if (this.overlayMsg != '' || this.submitting) return false
       return this.phase == 'cred' || this.phase == 'items' || this.phase == 'gate'
     },
-    /** 是否已到向导起点（第一点位第一步）：此时 prevStep 返回 false，底部显示「退出巡检」 */
+    /** 是否已到向导起点（第一点位第一步）：起点无上一项可回退，底部「上一项」按钮隐藏（退出走返回键） */
     atWizardStart(): boolean {
       if (this.pointIdx != 0) return false
       if (this.phase == 'cred') return true
@@ -557,23 +560,19 @@ export default {
     }
   },
   onBackPress(): boolean {
-    // 手动退出（exitWizard 的 navigateBack 在 App 端同样触发 onBackPress）：放行，否则退出会被劫持成「上一项」
+    // 手动退出（exitWizard 的 navigateBack 在 App 端同样触发 onBackPress）：放行
     if (this.forceExit) return false
     // 遮盖层（上传/AI 检查/提交中）：拦截返回并提示，避免用户误以为卡死
     if (this.overlayMsg != '' || this.submitting) {
       uni.showToast({ title: '处理中，请稍候…', icon: 'none' })
       return true
     }
-    // 点位完成过渡页（1.2s 自动推进）：放行返回，onUnload 后定时器自查 destroyed 不执行
+    // 点位完成过渡页（1.2s 自动推进）/ 任务完成页：放行返回直接退出
     if (this.phase == 'taskDone' || this.phase == 'pointDone') return false
-    if (this.phase == 'retake' || this.phase == 'abnormal') {
-      // 收尾页返回 = 回到提交本点位
-      this.phase = 'gate'
-      return true
-    }
-    // 到起点（第一点位第一步）时 prevStep 返回 false：放行系统默认返回退出向导。
-    // 注意：onBackPress 拦截（return true）的同时手动 navigateBack 会被抑制，造成"返回卡死退不出"。
-    return this.prevStep()
+    // 返回 = 退出巡检（甲方口径）：拦截并弹确认；确认在 modal 回调里走 exitWizard，
+    // 不在 onBackPress 同步上下文手动 navigateBack（会被抑制，造成"返回卡死退不出"）
+    this.confirmExit()
+    return true
   },
   watch: {
     /** 遮罩看门狗：任何链路异常导致遮罩超过 75s（> 请求 30s / 上传 60s 超时）时强制解除，防永久卡死 */
@@ -654,12 +653,16 @@ export default {
       this.wizPoints = rest.map((p) => freshPoint(p))
       this.pointIdx = 0
       this.itemIdx = 0
-      // 扫码进入：预核验编号写到匹配点位上
+      // 扫码/NFC 进入：预核验编号写到匹配点位上（按二维码编号或 NFC 卡号匹配，匹配即视为已核验）
       if (this.preVerifiedNo != '') {
         this.wizPoints.forEach((wp) => {
           const pt = this.taskPoints.find((p) => p.point_id == wp.point_id)
-          if (pt != null && pt.qrcode_no != '' && pt.qrcode_no == this.preVerifiedNo) {
+          if (pt == null) return
+          if (pt.qrcode_no != '' && pt.qrcode_no == this.preVerifiedNo) {
             wp.scannedNo = this.preVerifiedNo
+          }
+          if (pt.nfc_id != '' && pt.nfc_id == this.preVerifiedNo) {
+            wp.nfcCardId = this.preVerifiedNo
           }
         })
       }
@@ -1051,13 +1054,21 @@ export default {
       if (this.curPoint != null && this.curPoint.require_fence && !this.fenceOk) return
       this.submitPoint()
     },
-    /** 底部「上一项」点击：到起点时退出向导（非 onBackPress 上下文，navigateBack 有效） */
+    /** 底部「上一项」点击：回退一项；到起点时退出向导（兜底，起点时按钮已隐藏） */
     onPrevTap() {
       if (!this.prevStep()) this.exitWizard()
     },
-    /** 导航栏右侧「退出」：确认后退出向导（进度已持久化，可断点续检） */
-    onNavExit() {
-      if (!this.showPrev) return
+    /** 导航栏返回键：与系统返回同口径——退出巡检 */
+    onBackTap() {
+      if (this.overlayMsg != '' || this.submitting) return
+      if (this.phase == 'taskDone' || this.phase == 'pointDone') {
+        this.exitWizard()
+        return
+      }
+      this.confirmExit()
+    },
+    /** 退出确认：已拍内容已持久化（云端草稿/逐项落库），下次可断点续检 */
+    confirmExit() {
       uni.showModal({
         title: '退出巡检',
         content: '已拍内容会保留，下次可继续',
@@ -1377,7 +1388,7 @@ export default {
         })
     },
     exitWizard() {
-      // App 端 navigateBack 会触发 onBackPress，先置放行标记避免被 prevStep 拦截
+      // App 端 navigateBack 会触发 onBackPress，先置放行标记避免被退出确认拦截
       this.forceExit = true
       uni.navigateBack({
         fail: () => {
@@ -1466,11 +1477,6 @@ export default {
 .navbar-title {
   font-size: 36rpx;
   font-weight: 600;
-}
-
-.navbar-exit {
-  font-size: 32rpx;
-  font-weight: 500;
 }
 
 .navbar-space {
@@ -1888,6 +1894,18 @@ export default {
 
 .bottom-space {
   height: 64rpx;
+}
+
+/* 底部「上一项」（返回键=退出巡检，回退只走这个按钮） */
+.prev-link {
+  display: flex;
+  justify-content: center;
+  padding: 28rpx 0 12rpx;
+}
+
+.prev-link-text {
+  font-size: 30rpx;
+  padding: 12rpx 48rpx;
 }
 
 /* 处理中弹窗（居中卡片 + 转圈） */

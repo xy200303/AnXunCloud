@@ -553,6 +553,26 @@ func (d *demoSeeder) seedFireMonthly(tid, cid, tplID string, bldIDs, areaIDs map
 		}
 	}
 
+	// ---- 打卡方式测试点位：4 种凭证各 2 个（免围栏），挂在下面的每日测试计划上 ----
+	// 月检计划按执行日均分后免凭证点位不一定落在当天，专门准备一组当天必出的测试点
+	testStart := len(points)
+	for _, td := range []struct{ name, cred, nfc string }{
+		{"测试打卡点·免凭证1", insmodel.CredentialNone, ""},
+		{"测试打卡点·免凭证2", insmodel.CredentialNone, ""},
+		{"测试打卡点·二维码1", insmodel.CredentialQRCode, ""},
+		{"测试打卡点·二维码2", insmodel.CredentialQRCode, ""},
+		{"测试打卡点·NFC1", insmodel.CredentialNFC, "DEMO-NFC-001"},
+		{"测试打卡点·NFC2", insmodel.CredentialNFC, "DEMO-NFC-002"},
+		{"测试打卡点·任一凭证1", insmodel.CredentialAny, "DEMO-NFC-003"},
+		{"测试打卡点·任一凭证2", insmodel.CredentialAny, "DEMO-NFC-004"},
+	} {
+		i := len(points)
+		newPoint(td.name, "common", areaIDs["A区"], nil, nil,
+			114.3980+float64(i%4)*0.00008, 30.5047+float64(i%2)*0.00006, 80)
+		points[i].Credential = td.cred
+		points[i].NfcID = td.nfc
+	}
+
 	if err := d.createPoints(points); err != nil {
 		return err
 	}
@@ -597,6 +617,23 @@ func (d *demoSeeder) seedFireMonthly(tid, cid, tplID string, bldIDs, areaIDs map
 			}
 			ctxs = append(ctxs, planCtx{plan: plan, inspectorID: spec.inspectorID, ordered: inssvc.OrderPointsByRoute(d.db, ids)})
 		}
+	}
+
+	// 打卡方式测试计划：daily + 默认 all（每天生成、8 个测试点位当天一次巡完），
+	// 两名巡检员都会领到任务，全天候时段随测随用
+	testIDs := make(types.IDArray, 0, len(points)-testStart)
+	for _, pt := range points[testStart:] {
+		testIDs = append(testIDs, pt.ID)
+	}
+	testPlan := &insmodel.InspectionPlan{
+		TenantID: &tid, CommunityID: cid, Name: "打卡方式测试（每日）", PatrolType: insmodel.PatrolSafety,
+		PointIDs: testIDs, CycleType: "daily", CycleConfig: types.JSONMap{"interval": 1},
+		InspectorIDs: types.IDArray{huangID, yangID},
+		StartDate:    monthStart, TimeWindow: "00:00-23:59",
+		Status: sysmodel.StatusEnabled, Remark: "演示计划（seed-demo 生成）",
+	}
+	if err := d.db.Create(testPlan).Error; err != nil {
+		return err
 	}
 
 	// 本月历史：1 日至昨天每天每计划 1 条已完成任务（点位按 split 口径取当天切块）+ 全量打卡；

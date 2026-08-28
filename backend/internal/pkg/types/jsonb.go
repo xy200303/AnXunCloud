@@ -121,6 +121,10 @@ func (m JSONMap) Ints(key string) []int {
 	if !ok {
 		return nil
 	}
+	// 兼容两种来源：DB 读回（[]any/float64）与进程内直接构造（[]int，如演示种子/测试）
+	if ints, ok := v.([]int); ok {
+		return ints
+	}
 	arr, ok := v.([]any)
 	if !ok {
 		return nil

@@ -141,8 +141,10 @@ type PlanSaveReq struct {
 	// SelectionMode 点位圈选模式（缺省 explicit）；PointTypes 为 by_point_types 模式的圈选类型
 	SelectionMode string   `json:"selection_mode"`
 	PointTypes    []string `json:"point_types"`
-	Status        *int     `json:"status"`
-	Remark        string   `json:"remark"`
+	// AssignMode 点位分配方式（缺省 all；split=按执行日均分，仅 weekly/monthly 合法）
+	AssignMode string `json:"assign_mode" binding:"omitempty,oneof=all split"`
+	Status     *int   `json:"status"`
+	Remark     string `json:"remark"`
 }
 
 // ========== 任务 ==========

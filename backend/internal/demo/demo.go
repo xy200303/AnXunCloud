@@ -1,7 +1,9 @@
 // Package demo 演示数据播种（独立命令 cmd/seed-demo 调用）：与 server 主流程和系统预置 seed 完全解耦，
 // 仅显式运行 seed-demo 命令时触发，不随服务启动执行。
-// 内容：两家演示物业公司（租户）+ 小区/楼栋/编制/模板/点位/计划/任务/打卡/公告，
-// 覆盖打卡正常/异常/逾期，用于演示与验收。幂等：演示租户已存在则整体跳过。
+// 内容：两家演示物业公司（租户）+ 小区/楼栋/编制/模板/点位/计划/任务/打卡/公告。
+// 租户 A（华安物业/锦绣华庭）按甲方真实月度计划组织：小区分 A/B 区，消防设施（消火栓及灭火器）月检，
+// 黄辉负责 B 区、杨诗负责 A 区+B 区 16/17 栋，约 3500 点位，月度计划按 LPT 贪心分摊到每日，月底前巡完。
+// 幂等：演示租户已存在则整体跳过。
 package demo
 
 import (
@@ -14,12 +16,12 @@ import (
 	"gorm.io/gorm"
 
 	insmodel "anxuncloud/internal/module/inspection/model"
+	inssvc "anxuncloud/internal/module/inspection/service"
 	rptmodel "anxuncloud/internal/module/report/model"
 	sysmodel "anxuncloud/internal/module/system/model"
 	systemsvc "anxuncloud/internal/module/system/service"
 	"anxuncloud/internal/pkg/password"
 	"anxuncloud/internal/pkg/storage"
-	"anxuncloud/internal/pkg/timefmt"
 	"anxuncloud/internal/pkg/types"
 )
 
@@ -34,16 +36,14 @@ var demoAssetFiles = []string{
 
 // demoAssetByLabel 检查项 → 照片偏好（尽量贴近场景，未命中按标签哈希分配）。
 var demoAssetByLabel = map[string]string{
-	"消防通道畅通无阻":  "corridor.jpg",
-	"灭火器压力正常":   "fireext.jpg",
-	"设备运行无异响":   "pump.jpg",
+	"消防通道畅通无阻": "corridor.jpg",
+	"灭火器压力正常":  "fireext.jpg",
+	"设备运行无异响":  "pump.jpg",
 	"仪表读数在正常范围": "meter.jpg",
-	// 消防专项检查模板项（fire.go）
-	"消防枪头在位":    "fireext.jpg",
-	"水带齐全完好":    "fireext.jpg",
-	"手报按钮正常":    "corridor.jpg",
-	"压力表指针在绿区": "meter.jpg",
-	"在有效期内":     "fireext.jpg",
+	// 「消火栓及灭火器检查」模板项（租户 A 消防月检）
+	"灭火器在位且在有效期内": "fireext.jpg",
+	"消火栓箱完好无损坏":  "fireext.jpg",
+	"手动报警按钮外观完好":  "corridor.jpg",
 }
 
 // DemoPassword 全部演示账号的统一密码（满足 8–32 位含字母数字策略）。
@@ -162,7 +162,7 @@ func demoAssetByLabel_(label string) ([]byte, error) {
 }
 
 type demoTemplateItem struct {
-	name, requirement, photoReq string
+	name, requirement, photoReq, aiHint string
 }
 
 // createTemplate 检查项模板 + 项行，返回模板 ID 与必拍项名称列表。
@@ -179,6 +179,9 @@ func (d *demoSeeder) createTemplate(tenantID, name string, items []demoTemplateI
 		row := insmodel.CheckTemplateItem{
 			TemplateID: tpl.ID, Name: it.name, Requirement: strptr(it.requirement),
 			Required: true, PhotoRequired: it.photoReq, Sort: i + 1,
+		}
+		if it.aiHint != "" {
+			row.AIHint = strptr(it.aiHint)
 		}
 		if err := d.db.Create(&row).Error; err != nil {
 			return "", nil, err
@@ -221,7 +224,26 @@ func (d *demoSeeder) createPoint(tenantID, communityID string, buildingIDs []str
 	return pt.ID, nil
 }
 
-// ---------- 租户 A：华安物业（完整演示） ----------
+// createPoints 批量创建点位（一次取整段二维码序列号 + CreateInBatches；几千点位逐行插太慢）。
+// 点位的 QRCodeNo 由本函数分配，调用方不传。
+func (d *demoSeeder) createPoints(points []insmodel.InspectionPoint) error {
+	if len(points) == 0 {
+		return nil
+	}
+	var seqs []int64
+	if err := d.db.Raw("SELECT nextval('qrcode_no_seq') FROM generate_series(1, ?)", len(points)).Scan(&seqs).Error; err != nil {
+		return err
+	}
+	if len(seqs) != len(points) {
+		return fmt.Errorf("二维码序列号数量不符: %d/%d", len(seqs), len(points))
+	}
+	for i := range points {
+		points[i].QRCodeNo = fmt.Sprintf("P%06d", seqs[i])
+	}
+	return d.db.CreateInBatches(&points, 500).Error
+}
+
+// ---------- 租户 A：华安物业（完整演示：A/B 区消防设施月检） ----------
 
 func (d *demoSeeder) seedTenantA() error {
 	tenant := sysmodel.Tenant{
@@ -249,6 +271,7 @@ func (d *demoSeeder) seedTenantA() error {
 	}
 
 	// 账号（统一密码 Demo@12345；除租户管理员外不显式挂角色，演示岗位绑定角色的实时并集）
+	// 巡检员按甲方真实月度计划表：黄辉负责 B 区，杨诗负责 A 区+B 区 16/17 栋
 	adminID, err := d.createUser(tid, "huaan_admin", "王建国", "13800001001", d.roleIDs[sysmodel.TenantAdminCode])
 	if err != nil {
 		return err
@@ -261,11 +284,11 @@ func (d *demoSeeder) seedTenantA() error {
 	if err != nil {
 		return err
 	}
-	xj01ID, err := d.createUser(tid, "ha_xj01", "陈刚", "13800001004")
+	huangID, err := d.createUser(tid, "xj_huang", "黄辉", "13800001004")
 	if err != nil {
 		return err
 	}
-	xj02ID, err := d.createUser(tid, "ha_xj02", "赵敏", "13800001005")
+	yangID, err := d.createUser(tid, "xj_yang", "杨诗", "13800001005")
 	if err != nil {
 		return err
 	}
@@ -290,7 +313,7 @@ func (d *demoSeeder) seedTenantA() error {
 		return err
 	}
 
-	// 小区 + 楼栋
+	// 小区 + 楼栋/区域（A 区 1~12 栋、B 区 1~17 栋挂楼栋行；非楼栋点位挂 A 区/B 区区域行）
 	community := sysmodel.Community{
 		TenantID: tid, Name: "锦绣华庭", Address: "武汉市洪山区光谷大道 88 号",
 		ManagerID: &managerID,
@@ -300,16 +323,42 @@ func (d *demoSeeder) seedTenantA() error {
 		return err
 	}
 	cid := community.ID
-	var buildingIDs []string
-	for i, name := range []string{"1 栋", "2 栋", "3 栋"} {
+	bldIDs := map[string]string{}  // 楼栋名 → ID（如 "B区1栋"）
+	areaIDs := map[string]string{} // 区域名 → ID（如 "B区"）
+	sort := 1
+	addBuilding := func(name, typ string) (string, error) {
 		b := insmodel.Building{
-			TenantID: &tid, CommunityID: cid, Name: name, Type: "building",
-			Sort: i + 1, Status: sysmodel.StatusEnabled,
+			TenantID: &tid, CommunityID: cid, Name: name, Type: typ,
+			Sort: sort, Status: sysmodel.StatusEnabled,
 		}
+		sort++
 		if err := d.db.Create(&b).Error; err != nil {
+			return "", err
+		}
+		return b.ID, nil
+	}
+	for _, area := range []string{"A区", "B区"} {
+		id, err := addBuilding(area, "area")
+		if err != nil {
 			return err
 		}
-		buildingIDs = append(buildingIDs, b.ID)
+		areaIDs[area] = id
+	}
+	for i := 1; i <= 12; i++ {
+		name := fmt.Sprintf("A区%d栋", i)
+		id, err := addBuilding(name, "building")
+		if err != nil {
+			return err
+		}
+		bldIDs[name] = id
+	}
+	for i := 1; i <= 17; i++ {
+		name := fmt.Sprintf("B区%d栋", i)
+		id, err := addBuilding(name, "building")
+		if err != nil {
+			return err
+		}
+		bldIDs[name] = id
 	}
 
 	// 编制（一人多岗、责任楼栋均在编制体现）
@@ -320,12 +369,12 @@ func (d *demoSeeder) seedTenantA() error {
 	}{
 		{managerID, []string{sysmodel.PostProjectManager}, nil},
 		{safetyID, []string{"safety_supervisor"}, nil},
-		{xj01ID, []string{sysmodel.PostInspector}, nil},
-		{xj02ID, []string{sysmodel.PostInspector}, nil},
+		{huangID, []string{sysmodel.PostInspector}, nil},
+		{yangID, []string{sysmodel.PostInspector}, nil},
 		{engID, []string{"engineering_supervisor"}, nil},
 		{repairID, []string{sysmodel.PostRepairman}, nil},
 		{serviceID, []string{"service_supervisor"}, nil},
-		{bmID, []string{"building_manager"}, buildingIDs[:2]},
+		{bmID, []string{"building_manager"}, []string{bldIDs["A区1栋"], bldIDs["A区2栋"]}},
 		{fdID, []string{"receptionist"}, nil},
 	}
 	for _, s := range staff {
@@ -334,216 +383,341 @@ func (d *demoSeeder) seedTenantA() error {
 		}
 	}
 
-	// 检查项模板
-	tplSafetyID, safetyRequired, err := d.createTemplate(tid, "安全巡查通用模板", []demoTemplateItem{
-		{"消防通道畅通无阻", "通道无杂物堆放，安全出口标识清晰、应急照明正常", types.PhotoReqRequired},
-		{"灭火器压力正常", "指针在绿色区域，铅封完好，在有效期内", types.PhotoReqRequired},
-		{"无违规用电", "无私拉电线、无大功率违规电器", types.PhotoReqOptional},
-		{"门禁与监控运行正常", "门禁刷卡正常，监控画面清晰无遮挡", types.PhotoReqNone},
-	})
-	if err != nil {
-		return err
-	}
-	tplEquipID, equipRequired, err := d.createTemplate(tid, "设备设施专项模板", []demoTemplateItem{
-		{"设备运行无异响", "运行声音平稳，无异常振动", types.PhotoReqRequired},
-		{"仪表读数在正常范围", "压力表/温度表/电压表读数在额定区间内", types.PhotoReqRequired},
-		{"无跑冒滴漏", "管路、阀门、泵体无渗漏", types.PhotoReqOptional},
-	})
+	// 检查项模板：全部点位统一绑「消火栓及灭火器检查」（必拍项带 AI 识别要点）
+	tplFireID, _, err := d.createTemplate(tid, "消火栓及灭火器检查", fireCheckItems)
 	if err != nil {
 		return err
 	}
 
-	// 点位（坐标取武汉光谷一带，彼此偏移数十米）
-	pointDefs := []struct {
-		demoPoint
-		template string
-		required []string
-	}{
-		{demoPoint{"消防控制室", "fire_control", insmodel.CredentialQRCode, 0, 114.39850, 30.50520, 80}, tplSafetyID, safetyRequired},
-		{demoPoint{"配电房", "power_room", insmodel.CredentialQRCode, 0, 114.39862, 30.50532, 80}, tplEquipID, equipRequired},
-		{demoPoint{"水泵房", "pump_room", insmodel.CredentialQRCode, 1, 114.39831, 30.50541, 80}, tplEquipID, equipRequired},
-		{demoPoint{"1 栋电梯机房", "elevator", insmodel.CredentialQRCode, 0, 114.39855, 30.50508, 100}, tplEquipID, equipRequired},
-		{demoPoint{"地下车库出入口", "garage", insmodel.CredentialQRCode, -1, 114.39890, 30.50555, 100}, tplSafetyID, safetyRequired},
-		{demoPoint{"东门岗亭", "common", insmodel.CredentialAny, -1, 114.39920, 30.50530, 150}, tplSafetyID, safetyRequired},
-		{demoPoint{"园区北门", "common", insmodel.CredentialNone, -1, 114.39840, 30.50580, 150}, tplSafetyID, safetyRequired},
-	}
-	var pointIDs []string
-	pointMeta := map[string]demoPoint{}
-	for i, pd := range pointDefs {
-		id, err := d.createPoint(tid, cid, buildingIDs, pd.demoPoint, pd.template, pd.required, i+1)
-		if err != nil {
-			return err
-		}
-		pointIDs = append(pointIDs, id)
-		pointMeta[id] = pd.demoPoint
-	}
-
-	// 计划
-	planSafety := insmodel.InspectionPlan{
-		TenantID: &tid, CommunityID: cid, Name: "每日安全巡查", PatrolType: insmodel.PatrolSafety,
-		PointIDs: types.IDArray(pointIDs), CycleType: "daily", CycleConfig: types.JSONMap{"interval": 1},
-		InspectorIDs: types.IDArray{xj01ID, xj02ID},
-		StartDate:    daysAgo(7), TimeWindow: "08:00-20:00",
-		Status: sysmodel.StatusEnabled, Remark: "演示计划（seed-demo 生成）",
-	}
-	if err := d.db.Create(&planSafety).Error; err != nil {
-		return err
-	}
-	equipPoints := []string{pointIDs[1], pointIDs[2], pointIDs[3]}
-	planEquip := insmodel.InspectionPlan{
-		TenantID: &tid, CommunityID: cid, Name: "设备设施周检", PatrolType: insmodel.PatrolEquipment,
-		PointIDs: types.IDArray(equipPoints), CycleType: "weekly", CycleConfig: types.JSONMap{"weekdays": []int{1}},
-		InspectorIDs: types.IDArray{repairID},
-		StartDate:    daysAgo(7), TimeWindow: "09:00-17:00",
-		Status: sysmodel.StatusEnabled, Remark: "演示计划（seed-demo 生成）",
-	}
-	if err := d.db.Create(&planEquip).Error; err != nil {
-		return err
-	}
-
-	// 任务：昨日 xj01 已完成（含 1 条异常打卡）、昨日 xj02 逾期未巡、今日两条待巡
-	taskDone := insmodel.InspectionTask{
-		TenantID: &tid, PlanID: planSafety.ID, CommunityID: cid, InspectorID: xj01ID,
-		PatrolType: insmodel.PatrolSafety, TaskDate: daysAgo(1), Status: insmodel.TaskDone,
-		TotalPoints: len(pointIDs), DonePoints: len(pointIDs),
-		StartedAt: at(yesterdayAt(9, 2)), FinishedAt: at(yesterdayAt(10, 47)),
-	}
-	if err := d.db.Create(&taskDone).Error; err != nil {
-		return err
-	}
-	taskOverdue := insmodel.InspectionTask{
-		TenantID: &tid, PlanID: planSafety.ID, CommunityID: cid, InspectorID: xj02ID,
-		PatrolType: insmodel.PatrolSafety, TaskDate: daysAgo(1), Status: insmodel.TaskOverdue,
-		TotalPoints: len(pointIDs),
-	}
-	if err := d.db.Create(&taskOverdue).Error; err != nil {
-		return err
-	}
-	for _, uid := range []string{xj01ID, xj02ID} {
-		t := insmodel.InspectionTask{
-			TenantID: &tid, PlanID: planSafety.ID, CommunityID: cid, InspectorID: uid,
-			PatrolType: insmodel.PatrolSafety, TaskDate: daysAgo(0), Status: insmodel.TaskPending,
-			TotalPoints: len(pointIDs),
-		}
-		if err := d.db.Create(&t).Error; err != nil {
-			return err
-		}
-	}
-
-	// 昨日 xj01 的 7 条打卡（地下车库一条异常）
-	for i, pid := range pointIDs {
-		p := pointMeta[pid]
-		checkinTime := yesterdayAt(9, 5+i*14)
-		abnormal := p.typ == "garage"
-		rec := insmodel.CheckinRecord{
-			TenantID: &tid, TaskID: taskDone.ID, PointID: pid, InspectorID: xj01ID, CommunityID: cid,
-			CheckinTime: checkinTime, ClientTime: &checkinTime,
-			Longitude: floatptr(p.lng + 0.00003), Latitude: floatptr(p.lat + 0.00002),
-			DistanceToPoint: floatptr(3.6), CheckinType: insmodel.CredentialQRCode,
-			Result: insmodel.ResultNormal, AuditStatus: insmodel.AuditAutoPass,
-			CreatedAt: checkinTime,
-		}
-		if p.credential == insmodel.CredentialNone {
-			rec.CheckinType = "fence"
-		}
-		if abnormal {
-			rec.Result = insmodel.ResultAbnormal
-			rec.Remark = "车库 B 区一盏照明灯不亮，已拍照报修"
-		}
-		items, ok := demoTemplateItemsOf(p.typ, tplSafetyID, tplEquipID)
-		if !ok {
-			return fmt.Errorf("演示点位模板缺失: %s", p.name)
-		}
-		if err := d.db.Create(&rec).Error; err != nil {
-			return err
-		}
-		for j, it := range items.items {
-			row := insmodel.CheckinRecordItem{
-				RecordID: rec.ID, Name: it.name, Requirement: strptr(it.requirement),
-				PhotoRequired: it.photoReq, Pass: true, Sort: j + 1, CreatedAt: checkinTime,
-			}
-			if it.photoReq == types.PhotoReqRequired {
-				key := d.photo(tid, xj01ID, it.name)
-				if key != "" {
-					row.Photos = types.StringArray{key}
-				}
-			}
-			if abnormal && it.name == "门禁与监控运行正常" {
-				row.Pass = false
-				row.Note = "B 区一盏照明灯损坏"
-			}
-			if err := d.db.Create(&row).Error; err != nil {
-				return err
-			}
-		}
-	}
-
-	// 上月（报告期）真实工作量 + 月度报告：PDF 汇总/明细/照片按报告期实时查询，
-	// 与报告 stats 快照口径一致（月报已三级签字归档）
-	if err := d.seedReportsA(tid, cid, planSafety.ID, pointIDs, pointMeta, tplSafetyID, tplEquipID,
-		orderPeopleA{
-			manager: managerID, eng: engID, repair: repairID, service: serviceID,
-			bm: bmID, fd: fdID, xj01: xj01ID,
-		}, safetyID, xj02ID); err != nil {
-		return err
-	}
-
-	// 消防专项 + 两班倒巡更演示（《专项巡检与专项检查报告设计方案》§3.2/§3.3、§5 第 7 条）
-	if err := d.seedFireSpecial(tid, cid, buildingIDs, pointIDs, pointMeta, tplSafetyID, tplEquipID, firePeople{
-		manager: managerID, eng: engID, repair: repairID, xj01: xj01ID, xj02: xj02ID,
-	}); err != nil {
+	// 点位 + 月度计划 + 本月历史任务/打卡（黄辉 B 区、杨诗 A 区+B区16/17栋）
+	if err := d.seedFireMonthly(tid, cid, tplFireID, bldIDs, areaIDs, huangID, yangID); err != nil {
 		return err
 	}
 
 	// 公告
 	notice := sysmodel.SysNotice{
-		TenantID: &tid, Title: "关于开展夏季消防安全专项检查的通知",
-		Content: "各岗位请注意：即日起至本月底开展夏季消防安全专项检查，重点检查消防通道、灭火器有效期与电动车违规充电情况，请各巡检员按每日安全巡查计划逐项落实，发现异常立即拍照上报。",
-		Status:  1, PublishAt: at(daysAgo(2)), CreatedBy: &adminID, CreatedByName: "王建国",
+		TenantID: &tid, Title: "关于开展月度消防设施检查的通知",
+		Content: "各岗位请注意：本月消防设施（消火栓及灭火器）月检已按 A/B 区下达计划，黄辉负责 B 区、杨诗负责 A 区及 B 区 16/17 栋，请按每日任务逐项落实，发现异常立即拍照上报，月底前完成全部点位巡查。",
+		Status:  1, PublishAt: at(daysAgo(0)), CreatedBy: &adminID, CreatedByName: "王建国",
 	}
 	return d.db.Create(&notice).Error
 }
 
-type orderPeopleA struct {
-	manager, eng, repair, service, bm, fd, xj01 string
+// fireCheckItems 「消火栓及灭火器检查」模板项（参考真实消防检查；必拍项带 ai_hint，judge_type 走默认 general）。
+var fireCheckItems = []demoTemplateItem{
+	{"灭火器在位且在有效期内", "灭火器在位、压力表指针在绿区、铅封完好、在有效期内", types.PhotoReqRequired, "灭火器在位、压力表指针在绿区、铅封完好、在有效期内"},
+	{"消火栓箱完好无损坏", "箱门完好、水带水枪齐全、无锈蚀破损", types.PhotoReqRequired, "箱门完好、水带水枪齐全、无锈蚀破损"},
+	{"消防通道畅通无阻", "通道无杂物堆放、安全出口标识清晰", types.PhotoReqRequired, "通道无杂物堆放、安全出口标识清晰"},
+	{"手动报警按钮外观完好", "按钮外观完好、标识清晰", types.PhotoReqOptional, "按钮外观完好、标识清晰"},
 }
 
-// demoTemplateItemsOf 演示点位对应的模板项快照源（安全类点位 → 安全模板，设备类 → 设备模板）。
-func demoTemplateItemsOf(pointType, tplSafetyID, tplEquipID string) (struct {
-	items          []demoTemplateItem
-	requiredPhotos []string
-}, bool,
-) {
-	safety := []demoTemplateItem{
-		{"消防通道畅通无阻", "通道无杂物堆放，安全出口标识清晰、应急照明正常", types.PhotoReqRequired},
-		{"灭火器压力正常", "指针在绿色区域，铅封完好，在有效期内", types.PhotoReqRequired},
-		{"无违规用电", "无私拉电线、无大功率违规电器", types.PhotoReqOptional},
-		{"门禁与监控运行正常", "门禁刷卡正常，监控画面清晰无遮挡", types.PhotoReqNone},
-	}
-	equip := []demoTemplateItem{
-		{"设备运行无异响", "运行声音平稳，无异常振动", types.PhotoReqRequired},
-		{"仪表读数在正常范围", "压力表/温度表/电压表读数在额定区间内", types.PhotoReqRequired},
-		{"无跑冒滴漏", "管路、阀门、泵体无渗漏", types.PhotoReqOptional},
-	}
-	out := struct {
-		items          []demoTemplateItem
-		requiredPhotos []string
-	}{}
-	switch pointType {
-	case "power_room", "pump_room", "elevator":
-		if tplEquipID == "" {
-			return out, false
+// fireUnit 楼栋单元定位（区域 + 楼栋号 + 单元号）。
+type fireUnit struct {
+	area     string
+	bld, unit int
+}
+
+// firePlanChunk 月度计划分块：一块对应一个 monthly 计划（days 仅 1 天）。
+// start/end 为点位切片下标区间 [start, end)。
+type firePlanChunk struct {
+	name       string
+	start, end int
+}
+
+func (c firePlanChunk) size() int { return c.end - c.start }
+
+// seedFireMonthly 租户 A 巡检数据：A/B 区消防点位（约 3500 个，全部绑「消火栓及灭火器检查」模板）、
+// 按类别分块的月度计划（LPT 分摊到 1~28 日）、本月已过期日的已完成任务与全量打卡。
+func (d *demoSeeder) seedFireMonthly(tid, cid, tplID string, bldIDs, areaIDs map[string]string, huangID, yangID string) error {
+	var points []insmodel.InspectionPoint
+	var chunksHuang, chunksYang []firePlanChunk
+
+	newPoint := func(name, typ, bldID string, unitNo, floor *int, lng, lat float64, fence int) {
+		pt := insmodel.InspectionPoint{
+			TenantID: &tid, CommunityID: cid, Name: name, Type: typ,
+			Longitude: lng, Latitude: lat, FenceRadius: fence,
+			Credential: insmodel.CredentialQRCode, RequireFence: true,
+			TemplateID: &tplID, Sort: len(points) + 1,
+			Status: sysmodel.StatusEnabled, Remark: "演示点位（seed-demo 生成）",
 		}
-		out.items = equip
-		out.requiredPhotos = []string{"设备运行无异响", "仪表读数在正常范围"}
-	default:
-		if tplSafetyID == "" {
-			return out, false
+		if bldID != "" {
+			pt.BuildingID = &bldID
 		}
-		out.items = safety
-		out.requiredPhotos = []string{"消防通道畅通无阻", "灭火器压力正常"}
+		pt.UnitNo = unitNo
+		pt.Floor = floor
+		points = append(points, pt)
 	}
-	return out, true
+	intp := func(v int) *int { return &v }
+
+	// 楼栋坐标：以武汉光谷（114.3985,30.5052）为中心，A/B 区成片偏移；
+	// 同栋同单元的垂直点位共坐标。
+	bldCoord := func(area string, bld, unit int) (float64, float64) {
+		if area == "A区" {
+			return 114.3968 + float64((bld-1)%4)*0.0009 + float64(unit-1)*0.00012,
+				30.5038 + float64((bld-1)/4)*0.0007
+		}
+		return 114.3988 + float64((bld-1)%5)*0.0009 + float64(unit-1)*0.00012,
+			30.5056 + float64((bld-1)/5)*0.0007
+	}
+
+	// 楼栋点位：每单元 33 层各 1 个消防点（连续追加，类别范围由调用方记录）
+	buildUnits := func(units []fireUnit) {
+		for i := 0; i < len(units); i++ {
+			end := min(i+1, len(units))
+			for _, u := range units[i:end] {
+				lng, lat := bldCoord(u.area, u.bld, u.unit)
+				bldID := bldIDs[fmt.Sprintf("%s%d栋", u.area, u.bld)]
+				for f := 1; f <= 33; f++ {
+					newPoint(fmt.Sprintf("%s%d栋%d单元%d层消防点", u.area, u.bld, u.unit, f),
+						"fire_cabinet", bldID, intp(u.unit), intp(f), lng, lat, 80)
+				}
+			}
+		}
+	}
+
+	// 商铺点位（沿街网格坐标）
+	buildShops := func(area string, count int, lng0, lat0 float64) {
+		for i := 0; i < count; i += 50 {
+			end := min(i+50, count)
+			for j := i; j < end; j++ {
+				newPoint(fmt.Sprintf("%s商铺S%03d", area, j+101), "fire_extinguisher", areaIDs[area], nil, nil,
+					lng0+float64(j%30)*0.00006, lat0+float64(j/30)*0.00008, 80)
+			}
+		}
+	}
+
+	// 地下车库点位（大片网格坐标，围栏放宽到 150）
+	buildGarage := func(floorLabel, series string, floor, count int, lng0, lat0 float64, area string) {
+		for i := 0; i < count; i += 50 {
+			end := min(i+50, count)
+			for j := i; j < end; j++ {
+				newPoint(fmt.Sprintf("地下车库%s%s%03d消防点", floorLabel, series, j+1), "garage", areaIDs[area],
+					nil, intp(floor), lng0+float64(j%40)*0.00007, lat0+float64(j/40)*0.00005, 150)
+			}
+		}
+	}
+
+	// ---- 黄辉（B 区）：楼栋 22 单元×33 层 = 726，商铺 300，车库负一层 800，门岗 6 + 车棚 12 + 办公 8 ----
+	// 类别级分块：每类一个 split 计划，点位在切片内连续（切块时地理聚集）
+	mkChunk := func(name string, start int, chunks *[]firePlanChunk) {
+		*chunks = append(*chunks, firePlanChunk{name: name, start: start, end: len(points)})
+	}
+	catStart := len(points)
+	buildUnits([]fireUnit{
+		{"B区", 1, 1}, {"B区", 1, 2}, {"B区", 2, 1}, {"B区", 2, 2}, {"B区", 3, 1},
+		{"B区", 4, 1}, {"B区", 5, 1}, {"B区", 5, 2}, {"B区", 6, 1}, {"B区", 6, 2},
+		{"B区", 7, 1}, {"B区", 8, 1}, {"B区", 9, 1}, {"B区", 9, 2}, {"B区", 10, 1},
+		{"B区", 10, 2}, {"B区", 11, 1}, {"B区", 12, 1}, {"B区", 13, 1}, {"B区", 14, 1},
+		{"B区", 14, 2}, {"B区", 15, 1},
+	})
+	mkChunk("B区楼栋消防月检", catStart, &chunksHuang)
+	catStart = len(points)
+	buildShops("B区", 300, 114.3985, 30.5049)
+	mkChunk("B区商铺消防月检", catStart, &chunksHuang)
+	catStart = len(points)
+	buildGarage("负一层", "A", -1, 800, 114.3986, 30.5042, "B区")
+	mkChunk("B区地下车库消防月检（负一层）", catStart, &chunksHuang)
+	{
+		start := len(points)
+		for i := 0; i < 6; i++ {
+			newPoint(fmt.Sprintf("B区%d号门岗", i+1), "common", areaIDs["B区"], nil, nil,
+				114.3982+float64(i%3)*0.0003, 30.5054+float64(i/3)*0.0002, 100)
+		}
+		for i := 0; i < 12; i++ {
+			newPoint(fmt.Sprintf("B区电动车棚%d", i+1), "common", areaIDs["B区"], nil, nil,
+				114.3993+float64(i%4)*0.00015, 30.5048+float64(i/4)*0.00012, 100)
+		}
+		for i, name := range []string{"物业办公室", "多功能厅", "会议室", "客服中心", "档案室", "员工休息室", "监控室", "物资仓库"} {
+			newPoint(name+"消防点", "common", areaIDs["B区"], nil, nil,
+				114.3986+float64(i%4)*0.0001, 30.5051+float64(i/4)*0.0001, 80)
+		}
+		mkChunk("B区门岗车棚办公消防月检", start, &chunksHuang)
+	}
+
+	// ---- 杨诗（A 区 + B 区 16/17 栋）：楼栋 19 单元×33 层 = 627，商铺 280，车库负二层 720，门岗 5 + 车棚 10 ----
+	catStart = len(points)
+	buildUnits([]fireUnit{
+		{"A区", 1, 1}, {"A区", 2, 1}, {"A区", 2, 2}, {"A区", 3, 1}, {"A区", 3, 2},
+		{"A区", 4, 1}, {"A区", 5, 1}, {"A区", 6, 1}, {"A区", 7, 1}, {"A区", 7, 2},
+		{"A区", 8, 1}, {"A区", 9, 1}, {"A区", 10, 1}, {"A区", 11, 1}, {"A区", 12, 1},
+	})
+	buildUnits([]fireUnit{
+		{"B区", 16, 1}, {"B区", 16, 2}, {"B区", 17, 1}, {"B区", 17, 2},
+	})
+	mkChunk("A区楼栋消防月检（含B区16/17栋）", catStart, &chunksYang)
+	catStart = len(points)
+	buildShops("A区", 280, 114.3970, 30.5045)
+	mkChunk("A区商铺消防月检", catStart, &chunksYang)
+	catStart = len(points)
+	buildGarage("负二层", "B", -2, 720, 114.3969, 30.5033, "A区")
+	mkChunk("A区地下车库消防月检（负二层）", catStart, &chunksYang)
+	{
+		start := len(points)
+		for i := 0; i < 5; i++ {
+			newPoint(fmt.Sprintf("A区%d号门岗", i+1), "common", areaIDs["A区"], nil, nil,
+				114.3967+float64(i%3)*0.0003, 30.5046+float64(i/3)*0.0002, 100)
+		}
+		for i := 0; i < 10; i++ {
+			newPoint(fmt.Sprintf("A区电动车棚%d", i+1), "common", areaIDs["A区"], nil, nil,
+				114.3978+float64(i%4)*0.00015, 30.5041+float64(i/4)*0.00012, 100)
+		}
+		mkChunk("A区门岗车棚消防月检", start, &chunksYang)
+	}
+
+	if err := d.createPoints(points); err != nil {
+		return err
+	}
+
+	// 月度计划：每巡检员按类别 1 个计划（共 8 个），assign_mode=split 全月 1~28 日执行，
+	// 点位由系统在任务生成时按「执行日 × 巡检员」连续切块（路线优化排序后地理聚集，每人每日跑一片区域）
+	now := time.Now()
+	monthStart := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, time.Local)
+	allDays := make([]int, 28)
+	for i := range allDays {
+		allDays[i] = i + 1
+	}
+	ptByID := make(map[string]*insmodel.InspectionPoint, len(points))
+	for i := range points {
+		ptByID[points[i].ID] = &points[i]
+	}
+	type planCtx struct {
+		plan        *insmodel.InspectionPlan
+		inspectorID string
+		ordered     types.IDArray // 路线优化后的顺序（切块基准，与 GenerateForDate 同口径）
+	}
+	var ctxs []planCtx
+	for _, spec := range []struct {
+		chunks      []firePlanChunk
+		inspectorID string
+	}{{chunksHuang, huangID}, {chunksYang, yangID}} {
+		for _, c := range spec.chunks {
+			ids := make(types.IDArray, 0, c.size())
+			for _, pt := range points[c.start:c.end] {
+				ids = append(ids, pt.ID)
+			}
+			plan := &insmodel.InspectionPlan{
+				TenantID: &tid, CommunityID: cid, Name: c.name, PatrolType: "fire",
+				PointIDs: ids, CycleType: "monthly", CycleConfig: types.JSONMap{"days": allDays},
+				AssignMode:   insmodel.AssignSplit,
+				InspectorIDs: types.IDArray{spec.inspectorID},
+				StartDate:    monthStart, TimeWindow: "08:00-18:00",
+				Status: sysmodel.StatusEnabled, Remark: "演示计划（seed-demo 生成）",
+			}
+			if err := d.db.Create(plan).Error; err != nil {
+				return err
+			}
+			ctxs = append(ctxs, planCtx{plan: plan, inspectorID: spec.inspectorID, ordered: inssvc.OrderPointsByRoute(d.db, ids)})
+		}
+	}
+
+	// 本月历史：1 日至昨天每天每计划 1 条已完成任务（点位按 split 口径取当天切块）+ 全量打卡；
+	// 今天及未来由调度器/手动生成
+	yesterday := daysAgo(1)
+	if yesterday.Month() != now.Month() {
+		return nil // 每月 1 日播种：本月无历史日
+	}
+	ymax := yesterday.Day()
+
+	var tasks []insmodel.InspectionTask
+	var taskSlices []types.IDArray
+	for _, pc := range ctxs {
+		for day := 1; day <= ymax; day++ {
+			date := time.Date(now.Year(), now.Month(), day, 0, 0, 0, 0, time.Local)
+			slice := insmodel.SplitPointsForDate(pc.plan, pc.ordered, date, pc.inspectorID)
+			if len(slice) == 0 {
+				continue
+			}
+			n := len(slice)
+			// 打卡 08:30 起均匀递增，17:30 前巡完
+			first := time.Date(now.Year(), now.Month(), day, 8, 30, 0, 0, time.Local)
+			last := first.Add(time.Duration(32400/n*(n-1)) * time.Second)
+			tasks = append(tasks, insmodel.InspectionTask{
+				TenantID: &tid, PlanID: pc.plan.ID, CommunityID: cid, InspectorID: pc.inspectorID,
+				PatrolType: "fire", TaskDate: date, Status: insmodel.TaskDone,
+				PointIDs: slice, TotalPoints: n, DonePoints: n,
+				StartedAt: at(first.Add(-2 * time.Minute)), FinishedAt: at(last.Add(3 * time.Minute)),
+			})
+			taskSlices = append(taskSlices, slice)
+		}
+	}
+	if len(tasks) == 0 {
+		return nil
+	}
+	if err := d.db.CreateInBatches(&tasks, 500).Error; err != nil {
+		return err
+	}
+
+	// 打卡记录（约 2% 异常；created_at 与 checkin_time 同月，满足按月分区）
+	type abSpec struct{ remark, item, note string }
+	abSpecs := []abSpec{
+		{"灭火器压力不足，已登记更换", "灭火器在位且在有效期内", "压力表指针在红区"},
+		{"消火栓箱门损坏，已拍照报修", "消火栓箱完好无损坏", "箱门变形无法正常关闭"},
+		{"消防通道堆放杂物，已现场清理并告知责任人", "消防通道畅通无阻", "通道有杂物堆放"},
+		{"灭火器已过有效期，已登记更换", "灭火器在位且在有效期内", "铭牌显示已过有效期"},
+	}
+	var recs []insmodel.CheckinRecord
+	cnt, abCnt := 0, 0
+	for ti := range tasks {
+		slice := taskSlices[ti]
+		n := tasks[ti].TotalPoints
+		first := tasks[ti].StartedAt.Add(2 * time.Minute) // 回到 08:30
+		stepSec := 32400 / n
+		for i := 0; i < n; i++ {
+			pt := ptByID[slice[i]]
+			ct := first.Add(time.Duration(stepSec*i) * time.Second)
+			rec := insmodel.CheckinRecord{
+				TenantID: &tid, TaskID: tasks[ti].ID, PointID: pt.ID, InspectorID: tasks[ti].InspectorID,
+				CommunityID: cid, CheckinTime: ct, ClientTime: &ct,
+				Longitude: floatptr(pt.Longitude + 0.00003), Latitude: floatptr(pt.Latitude + 0.00002),
+				DistanceToPoint: floatptr(2.0 + float64(cnt%28)*0.1), CheckinType: insmodel.CredentialQRCode,
+				Result: insmodel.ResultNormal, AuditStatus: insmodel.AuditAutoPass, CreatedAt: ct,
+			}
+			if cnt%50 == 9 {
+				ab := abSpecs[abCnt%len(abSpecs)]
+				rec.Result = insmodel.ResultAbnormal
+				rec.Remark = ab.remark
+				abCnt++
+			}
+			recs = append(recs, rec)
+			cnt++
+		}
+	}
+	if err := d.db.CreateInBatches(&recs, 500).Error; err != nil {
+		return err
+	}
+
+	// 逐项结果快照（4 项；必拍项带共享照片 key；异常记录的对应必拍项 pass=false + note）
+	var items []insmodel.CheckinRecordItem
+	abCnt = 0
+	for i := range recs {
+		rec := &recs[i]
+		var ab *abSpec
+		if rec.Result == insmodel.ResultAbnormal {
+			ab = &abSpecs[abCnt%len(abSpecs)]
+			abCnt++
+		}
+		for j, it := range fireCheckItems {
+			row := insmodel.CheckinRecordItem{
+				RecordID: rec.ID, Name: it.name, Requirement: strptr(it.requirement),
+				JudgeType: "general", PhotoRequired: it.photoReq,
+				Pass: true, Sort: j + 1, CreatedAt: rec.CheckinTime,
+			}
+			if it.aiHint != "" {
+				row.AIHint = strptr(it.aiHint)
+			}
+			if it.photoReq == types.PhotoReqRequired {
+				if key := d.photo(tid, rec.InspectorID, it.name); key != "" {
+					row.Photos = types.StringArray{key}
+				}
+			}
+			if ab != nil && it.name == ab.item {
+				row.Pass = false
+				row.Note = ab.note
+			}
+			items = append(items, row)
+		}
+	}
+	return d.db.CreateInBatches(&items, 500).Error
 }
 
 // ---------- 租户 B：金源物业（验证隔离 + 抢单模式） ----------
@@ -609,9 +783,9 @@ func (d *demoSeeder) seedTenantB() error {
 	}
 
 	tplID, required, err := d.createTemplate(tid, "安全巡查通用模板", []demoTemplateItem{
-		{"消防通道畅通无阻", "通道无杂物堆放，安全出口标识清晰", types.PhotoReqRequired},
-		{"灭火器压力正常", "指针在绿色区域，在有效期内", types.PhotoReqRequired},
-		{"无违规充电", "无电动车违规入户/飞线充电", types.PhotoReqOptional},
+		{"消防通道畅通无阻", "通道无杂物堆放，安全出口标识清晰", types.PhotoReqRequired, ""},
+		{"灭火器压力正常", "指针在绿色区域，在有效期内", types.PhotoReqRequired, ""},
+		{"无违规充电", "无电动车违规入户/飞线充电", types.PhotoReqOptional, ""},
 	})
 	if err != nil {
 		return err
@@ -682,7 +856,7 @@ func (d *demoSeeder) seedTenantB() error {
 		}
 	}
 
-	// 上月（报告期）真实工作量 + 月度报告（待巡检员确认，与租户 A 的已归档形成对照）
+	// 上月（报告期）真实工作量 + 月度报告（待巡检员确认）
 	if err := d.seedReportsB(tid, cid, plan.ID, pointIDs, pointMeta, tplID, managerID, serviceID, repairID, xjID); err != nil {
 		return err
 	}
@@ -693,6 +867,44 @@ func (d *demoSeeder) seedTenantB() error {
 		Status:  1, PublishAt: at(daysAgo(1)), CreatedBy: &adminID, CreatedByName: "林秀英",
 	}
 	return d.db.Create(&notice).Error
+}
+
+// demoTemplateItemsOf 演示点位对应的模板项快照源（租户 B：安全类点位 → 安全模板）。
+func demoTemplateItemsOf(pointType, tplSafetyID, tplEquipID string) (struct {
+	items          []demoTemplateItem
+	requiredPhotos []string
+}, bool,
+) {
+	safety := []demoTemplateItem{
+		{"消防通道畅通无阻", "通道无杂物堆放，安全出口标识清晰、应急照明正常", types.PhotoReqRequired, ""},
+		{"灭火器压力正常", "指针在绿色区域，铅封完好，在有效期内", types.PhotoReqRequired, ""},
+		{"无违规用电", "无私拉电线、无大功率违规电器", types.PhotoReqOptional, ""},
+		{"门禁与监控运行正常", "门禁刷卡正常，监控画面清晰无遮挡", types.PhotoReqNone, ""},
+	}
+	equip := []demoTemplateItem{
+		{"设备运行无异响", "运行声音平稳，无异常振动", types.PhotoReqRequired, ""},
+		{"仪表读数在正常范围", "压力表/温度表/电压表读数在额定区间内", types.PhotoReqRequired, ""},
+		{"无跑冒滴漏", "管路、阀门、泵体无渗漏", types.PhotoReqOptional, ""},
+	}
+	out := struct {
+		items          []demoTemplateItem
+		requiredPhotos []string
+	}{}
+	switch pointType {
+	case "power_room", "pump_room", "elevator":
+		if tplEquipID == "" {
+			return out, false
+		}
+		out.items = equip
+		out.requiredPhotos = []string{"设备运行无异响", "仪表读数在正常范围"}
+	default:
+		if tplSafetyID == "" {
+			return out, false
+		}
+		out.items = safety
+		out.requiredPhotos = []string{"消防通道畅通无阻", "灭火器压力正常"}
+	}
+	return out, true
 }
 
 // ---------- 时间/编号小工具 ----------
@@ -707,16 +919,11 @@ func yesterdayAt(hour, min int) time.Time {
 	return time.Date(d.Year(), d.Month(), d.Day(), hour, min, 0, 0, time.Local)
 }
 
-func todayAt(hour, min int) time.Time {
-	d := daysAgo(0)
-	return time.Date(d.Year(), d.Month(), d.Day(), hour, min, 0, 0, time.Local)
-}
-
 func at(t time.Time) *time.Time { return &t }
 
 func floatptr(f float64) *float64 { return &f }
 
-// ---------- 月度报告演示（报告期真实工作量 → 报告，口径一致） ----------
+// ---------- 租户 B 月度报告演示（报告期真实工作量 → 报告，口径一致） ----------
 //
 // 背景：月报 PDF（pdfData）不按 stats 快照渲染，而是按报告期实时查询任务/打卡，
 // 所以演示数据必须在报告期（上月）落真实的任务与打卡，月报才有明细与照片。
@@ -842,69 +1049,6 @@ func (d *demoSeeder) seedMonthWorkload(tid, cid string, o monthWorkload) (monthS
 	return st, nil
 }
 
-// jday 报告期（上月）某日时刻。
-func jday(day, hour, min int) time.Time {
-	lm, _ := time.ParseInLocation("2006-01", lastMonthPeriod(), time.Local)
-	return time.Date(lm.Year(), lm.Month(), day, hour, min, 0, 0, time.Local)
-}
-
-// seedReportsA 租户 A 上月报告：先落报告期真实工作量，再按实际数据生成已归档报告。
-func (d *demoSeeder) seedReportsA(tid, cid, planID string, pointIDs []string, pointMeta map[string]demoPoint,
-	tplSafetyID, tplEquipID string, p orderPeopleA, safetyID, xj02ID string) error {
-	period := lastMonthPeriod()
-
-	// 1) 上月每日巡查：双巡检员，3 天逾期（赵敏），4 天各 1 条异常打卡（陈刚）
-	st, err := d.seedMonthWorkload(tid, cid, monthWorkload{
-		planID: planID, pointIDs: pointIDs, pointMeta: pointMeta,
-		tplSafetyID: tplSafetyID, tplEquipID: tplEquipID,
-		inspectors:  []string{p.xj01, xj02ID},
-		overdueDays: map[int]bool{5: true, 12: true, 19: true},
-		abnormalDay: map[int]int{3: 4, 10: 1, 18: 4, 25: 2}, // 车库/配电房/车库/水泵房
-	})
-	if err != nil {
-		return err
-	}
-
-	// 2) 报告（stats 快照 = 实际数据统计；三级签字齐全，已归档）
-	key1 := d.photo(tid, p.xj01, "消防通道畅通无阻")
-	key2 := d.photo(tid, p.xj01, "灭火器压力正常")
-	var photoKeys []string
-	if key1 != "" && key2 != "" {
-		photoKeys = []string{key1, key2}
-	}
-	rec := func(day, hour int, name, point, result string) map[string]any {
-		return map[string]any{
-			"checkin_time":   timefmt.T(jday(day, hour, 5)),
-			"inspector_name": name, "point_name": point, "checkin_type": "qrcode",
-			"distance": 3.2, "result": result, "is_suspect": false,
-			"audit_status": insmodel.AuditAutoPass, "photo_keys": photoKeys,
-		}
-	}
-	records := []any{
-		rec(3, 9, "陈刚", "消防控制室", insmodel.ResultNormal),
-		rec(11, 10, "赵敏", "东门岗亭", insmodel.ResultNormal),
-		rec(18, 9, "陈刚", "地下车库出入口", insmodel.ResultAbnormal),
-	}
-	svAt := monthDayAt(1, 14, 0)
-	mgAt := monthDayAt(2, 10, 0)
-	report := rptmodel.InspectionReport{
-		TenantID: &tid, CommunityID: cid, Period: period,
-		Title:        demoReportTitle("锦绣华庭", period),
-		Status:       rptmodel.StatusApproved,
-		Stats:        demoReportStats(st, 0, records),
-		InspectorIDs: types.IDArray{p.xj01, xj02ID},
-		InspectorSigned: types.SignArray{
-			{UserID: p.xj01, Name: "陈刚", SignedAt: timefmt.T(monthDayAt(1, 9, 10))},
-			{UserID: xj02ID, Name: "赵敏", SignedAt: timefmt.T(monthDayAt(1, 9, 25))},
-		},
-		SupervisorIDs: types.IDArray{safetyID},
-		SupervisorBy:  &safetyID, SupervisorAt: &svAt, SupervisorRemark: "数据属实，同意",
-		ManagerIDs: types.IDArray{p.manager},
-		ManagerBy:  &p.manager, ManagerAt: &mgAt, ManagerRemark: "审核通过，归档",
-	}
-	return d.db.Create(&report).Error
-}
-
 // seedReportsB 租户 B 上月报告：报告期真实工作量；报告待巡检员确认。
 func (d *demoSeeder) seedReportsB(tid, cid, planID string, pointIDs []string, pointMeta map[string]demoPoint,
 	tplID, managerID, serviceID, repairID, xjID string) error {
@@ -941,12 +1085,6 @@ func lastMonthPeriod() string {
 	now := time.Now()
 	first := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, time.Local)
 	return first.AddDate(0, -1, 0).Format("2006-01")
-}
-
-// monthDayAt 当前月某日时刻（报告签字时间用，月报次月初签署）。
-func monthDayAt(day, hour, min int) time.Time {
-	now := time.Now()
-	return time.Date(now.Year(), now.Month(), day, hour, min, 0, 0, time.Local)
 }
 
 // pct1 百分比（1 位小数，与 report_service.pct 同规则）。

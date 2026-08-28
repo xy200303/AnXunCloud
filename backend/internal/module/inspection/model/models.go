@@ -3,6 +3,7 @@ package model
 
 import (
 	"math"
+	"sort"
 	"time"
 
 	"gorm.io/gorm"
@@ -154,6 +155,12 @@ const (
 	SelectionByPointTypes = "by_point_types" // 按点位类型动态圈选（point_types），任务生成时实时展开
 )
 
+// 计划点位分配方式（assign_mode）
+const (
+	AssignAll   = "all"   // 每个执行日巡全部点位（默认）
+	AssignSplit = "split" // 点位按周期内执行日数连续均分（仅 weekly/monthly；大点位月检按日摊派）
+)
+
 // InspectionPlan 巡检计划
 type InspectionPlan struct {
 	types.UUIDModel
@@ -171,6 +178,8 @@ type InspectionPlan struct {
 	// SelectionMode 点位圈选模式（explicit 默认 / by_point_types）；default 标签让零值走 DB 默认值
 	SelectionMode string            `gorm:"size:16;default:explicit" json:"selection_mode"`
 	PointTypes    types.StringArray `gorm:"type:jsonb" json:"point_types"` // 圈选点位类型（by_point_types 时必填）
+	// AssignMode 点位分配方式（all 默认 / split 按执行日均分）；default 标签让零值走 DB 默认值
+	AssignMode string `gorm:"size:16;default:all" json:"assign_mode"`
 	Status        string            `gorm:"size:16" json:"status"`
 	Remark        string            `gorm:"size:255" json:"remark"`
 	CreatedAt     time.Time         `json:"created_at"`
@@ -207,6 +216,80 @@ func PlanRounds(cfg types.JSONMap) []Round {
 		rounds = append(rounds, Round{Name: name, Window: window})
 	}
 	return rounds
+}
+
+// PlanExecDays 计划在 date 所在周期内的执行日序列（升序去重）与 date 在其中的下标：
+// weekly 返回本周命中的 weekday（1-7，周日=7）；monthly 返回当月命中的日（-1 解析为月末，超出当月天数的剔除）。
+// date 不是执行日时 idx=-1。
+func PlanExecDays(p *InspectionPlan, date time.Time) (days []int, idx int) {
+	idx = -1
+	switch p.CycleType {
+	case "weekly":
+		wd := int(date.Weekday())
+		if wd == 0 {
+			wd = 7
+		}
+		seen := map[int]bool{}
+		for _, d := range p.CycleConfig.Ints("weekdays") {
+			if d >= 1 && d <= 7 && !seen[d] {
+				seen[d] = true
+				days = append(days, d)
+			}
+		}
+		sort.Ints(days)
+		for i, d := range days {
+			if d == wd {
+				idx = i
+			}
+		}
+	case "monthly":
+		last := time.Date(date.Year(), date.Month()+1, 0, 0, 0, 0, 0, time.Local).Day()
+		seen := map[int]bool{}
+		for _, d := range p.CycleConfig.Ints("days") {
+			if d == -1 {
+				d = last
+			}
+			if d >= 1 && d <= last && !seen[d] {
+				seen[d] = true
+				days = append(days, d)
+			}
+		}
+		sort.Ints(days)
+		for i, d := range days {
+			if d == date.Day() {
+				idx = i
+			}
+		}
+	}
+	return days, idx
+}
+
+// SplitPointsForDate 均分模式（assign_mode=split）：把点位按「执行日数 × 巡检员数」连续切块
+//（点位名单已按路线优化排序，连续块 = 地理聚集，每人每天跑的距离最小），取 (date, inspectorID) 对应的一块。
+// 非均分模式、date 非执行日或巡检员不在计划名单时原样返回。
+func SplitPointsForDate(p *InspectionPlan, pointIDs []string, date time.Time, inspectorID string) []string {
+	if p.AssignMode != AssignSplit {
+		return pointIDs
+	}
+	days, dayIdx := PlanExecDays(p, date)
+	if len(days) == 0 || dayIdx < 0 {
+		return pointIDs
+	}
+	inspIdx := -1
+	for i, id := range p.InspectorIDs {
+		if id == inspectorID {
+			inspIdx = i
+			break
+		}
+	}
+	if inspIdx < 0 {
+		return pointIDs
+	}
+	m := len(p.InspectorIDs)
+	n := len(pointIDs)
+	k := len(days) * m
+	c := dayIdx*m + inspIdx
+	return pointIDs[c*n/k : (c+1)*n/k]
 }
 
 // PlanDailyMinRounds 计划每日达标轮次线（cycle_config.daily_min_rounds；未配置或非非负整数返回 nil，即不设线）。

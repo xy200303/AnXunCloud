@@ -114,7 +114,8 @@ func (s *PlanService) toItem(p *model.InspectionPlan) gin.H {
 		"start_date": p.StartDate.Format("2006-01-02"), "end_date": endDate,
 		"time_window": p.TimeWindow, "status": sysmodel.StatusInt(p.Status),
 		"selection_mode": p.SelectionMode, "point_types": p.PointTypes,
-		"created_at": timefmt.T(p.CreatedAt),
+		"assign_mode":   p.AssignMode,
+		"created_at":    timefmt.T(p.CreatedAt),
 	}
 }
 
@@ -194,6 +195,10 @@ func (s *PlanService) Create(c *gin.Context, req *dto.PlanSaveReq) (string, *err
 		Remark:       req.Remark,
 	}
 	p.SelectionMode, p.PointTypes = selectionOf(req)
+	p.AssignMode = req.AssignMode
+	if p.AssignMode == "" {
+		p.AssignMode = model.AssignAll
+	}
 	if err := s.db.Create(&p).Error; err != nil {
 		return "", errs.ErrInternal
 	}
@@ -229,12 +234,17 @@ func (s *PlanService) Update(c *gin.Context, id string, req *dto.PlanSaveReq) *e
 		cfg = types.JSONMap{}
 	}
 	selectionMode, pointTypes := selectionOf(req)
+	assignMode := req.AssignMode
+	if assignMode == "" {
+		assignMode = model.AssignAll
+	}
 	updates := map[string]any{
 		"tenant_id": tenantID, "community_id": req.CommunityID, "name": req.Name, "patrol_type": patrolType,
 		"point_ids": types.IDArray(req.PointIDs), "cycle_type": req.CycleType,
 		"cycle_config": cfg, "inspector_ids": types.IDArray(req.InspectorIDs),
 		"start_date": start, "end_date": end, "time_window": req.TimeWindow, "remark": req.Remark,
 		"selection_mode": selectionMode, "point_types": types.StringArray(pointTypes),
+		"assign_mode": assignMode,
 	}
 	if req.Status != nil {
 		updates["status"] = sysmodel.StatusStr(*req.Status)
@@ -254,6 +264,7 @@ func (s *PlanService) Update(c *gin.Context, id string, req *dto.PlanSaveReq) *e
 	p.PointIDs, p.CycleType, p.CycleConfig, p.InspectorIDs = types.IDArray(req.PointIDs), req.CycleType, cfg, types.IDArray(req.InspectorIDs)
 	p.StartDate, p.EndDate, p.TimeWindow, p.Remark = start, end, req.TimeWindow, req.Remark
 	p.SelectionMode, p.PointTypes = selectionMode, types.StringArray(pointTypes)
+	p.AssignMode = assignMode
 	if req.Status != nil {
 		p.Status = sysmodel.StatusStr(*req.Status)
 	}
@@ -299,11 +310,13 @@ func (s *PlanService) syncActiveTasks(tx *gorm.DB, p *model.InspectionPlan) erro
 			"patrol_type":  p.PatrolType,
 		}
 		if len(pointIDs) > 0 {
-			updates["point_ids"] = pointIDs
-			updates["total_points"] = len(pointIDs)
+			// 与任务生成口径一致：均分模式按任务日期+巡检员切块后同步
+			taskPoints := model.SplitPointsForDate(p, pointIDs, task.TaskDate, task.InspectorID)
+			updates["point_ids"] = taskPoints
+			updates["total_points"] = len(taskPoints)
 			var donePoints int64
 			if err := tx.Model(&model.CheckinRecord{}).
-				Where("task_id = ? AND point_id IN ?", task.ID, pointIDs).
+				Where("task_id = ? AND point_id IN ?", task.ID, taskPoints).
 				Select("COUNT(DISTINCT point_id)").Scan(&donePoints).Error; err != nil {
 				return err
 			}
@@ -402,6 +415,16 @@ func (s *PlanService) validate(req *dto.PlanSaveReq) (time.Time, *time.Time, *er
 	// 时段：配了轮次以各轮次 window 为准，顶层 time_window 可留空；未配轮次维持必填
 	if req.TimeWindow == "" && len(rounds) == 0 {
 		return start, nil, errs.ErrParam.WithMsg("time_window 格式应为 HH:MM-HH:MM")
+	}
+	// 点位均分（split）仅 weekly/monthly 合法（daily 无执行日集合可切分）；
+	// 与轮次互斥：轮次按天全量巡更，均分按周期切块，语义冲突
+	if req.AssignMode == model.AssignSplit {
+		if req.CycleType == "daily" {
+			return start, nil, errs.ErrPlanCycleInvalid.WithMsg("每天周期不支持按日均分（每天本身即全量重复）")
+		}
+		if len(rounds) > 0 {
+			return start, nil, errs.ErrPlanCycleInvalid.WithMsg("按日均分与轮次设置不能同时使用")
+		}
 	}
 	if req.TimeWindow != "" {
 		if !timeWindowRe.MatchString(req.TimeWindow) {
@@ -606,7 +629,8 @@ func (s *PlanService) GenerateForDate(ctx context.Context, date time.Time) (int,
 		if len(pointIDs) == 0 {
 			continue
 		}
-		// 路线优化：楼栋聚类 + 最近邻重排，快照进任务（巡检员按最短路线顺序走）
+		// 路线优化：楼栋聚类 + 最近邻重排，快照进任务（巡检员按最短路线顺序走）。
+		// 均分模式在路线排序后按「执行日 × 巡检员」连续切块，每块地理聚集、每人每日距离最小
 		if s.routeOptimize() {
 			pointIDs = OrderPointsByRoute(s.db, pointIDs)
 		}
@@ -629,6 +653,11 @@ func (s *PlanService) GenerateForDate(ctx context.Context, date time.Time) (int,
 				if cnt > 0 {
 					continue
 				}
+				// 均分模式：取本执行日 × 本巡检员的连续点位块
+				taskPoints := model.SplitPointsForDate(p, pointIDs, date, inspectorID)
+				if len(taskPoints) == 0 {
+					continue
+				}
 				task := model.InspectionTask{
 					TenantID:    p.TenantID, // 冗余列随计划快照（=所属小区租户）
 					PlanID:      p.ID,
@@ -638,9 +667,9 @@ func (s *PlanService) GenerateForDate(ctx context.Context, date time.Time) (int,
 					TaskDate:    date,
 					RoundName:   rd.Name,
 					TimeWindow:  rd.Window,
-					PointIDs:    pointIDs,
+					PointIDs:    taskPoints,
 					Status:      model.TaskPending,
-					TotalPoints: len(pointIDs),
+					TotalPoints: len(taskPoints),
 				}
 				if err := s.db.Create(&task).Error; err != nil {
 					continue // uk_task_plan_date_inspector（含轮次维度）兜底，冲突即跳过

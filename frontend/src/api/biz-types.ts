@@ -177,6 +177,9 @@ export interface PlanCycleConfig {
 // 选点方式：explicit 手动名单 / by_point_types 按点位类型圈选（任务生成时实时展开）
 export type PlanSelectionMode = 'explicit' | 'by_point_types'
 
+// 点位分配方式：all 每个执行日全量 / split 总量按 执行日数×巡检员数 均分（仅 weekly/monthly）
+export type PlanAssignMode = 'all' | 'split'
+
 export interface PlanItem {
   id: string
   community_id: string
@@ -188,6 +191,7 @@ export interface PlanItem {
   point_types?: string[] | null
   cycle_type: 'daily' | 'weekly' | 'monthly'
   cycle_config: PlanCycleConfig
+  assign_mode?: PlanAssignMode
   inspector_ids: string[]
   inspector_names: string[]
   start_date: string
@@ -210,6 +214,7 @@ export interface PlanForm {
   point_types?: string[]
   cycle_type: string
   cycle_config: PlanCycleConfig
+  assign_mode?: PlanAssignMode
   inspector_ids: string[]
   start_date: string
   end_date: string

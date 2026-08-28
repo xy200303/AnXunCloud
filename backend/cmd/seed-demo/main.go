@@ -1,14 +1,11 @@
 // 演示数据播种命令（独立二进制，与 server 主流程完全解耦）。
 // 用法：seed-demo            全量播种（幂等，演示租户已存在则跳过）
 //
-//	seed-demo -fire       仅回填消防专项+两班倒巡更演示数据（老库升级用，幂等，不动其他数据）
-//
 // 自给自足：执行前先跑结构迁移 + 系统预置 seed（均幂等），空库也能直接生成演示数据。
 // 注意：演示账号的 casbin 策略由 server 启动时 SyncAll 写入，运行中的服务需重启后生效。
 package main
 
 import (
-	"flag"
 	"fmt"
 	"os"
 	"time"
@@ -23,8 +20,6 @@ import (
 )
 
 func main() {
-	fireOnly := flag.Bool("fire", false, "仅回填消防专项+两班倒巡更演示数据（老库升级用）")
-	flag.Parse()
 	// 与 server 保持一致：统一东八区（演示任务/打卡时间按本地时区生成）
 	time.Local = time.FixedZone("CST", 8*3600)
 
@@ -50,13 +45,6 @@ func main() {
 	}
 
 	store := storage.New(cfg.Upload, cfg.OSS, cfg.COS, cfg.App.BaseURL)
-	if *fireOnly {
-		if err := demo.SeedFireDemo(db, store); err != nil {
-			logger.L.Fatal("消防专项演示数据回填失败", zap.Error(err))
-		}
-		logger.L.Info("消防专项+两班倒巡更演示数据回填完成（专项计划已存在则跳过）")
-		return
-	}
 	if err := demo.Seed(db, store); err != nil {
 		logger.L.Fatal("演示数据写入失败", zap.Error(err))
 	}

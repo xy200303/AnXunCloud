@@ -242,24 +242,56 @@
             <el-radio value="weekly">每周</el-radio>
             <el-radio value="monthly">每月</el-radio>
           </el-radio-group>
-          <el-select
-            v-if="form.cycle_type === 'weekly'"
-            v-model="form.cycle_config.weekdays"
-            multiple
-            placeholder="选择星期"
-            style="width: 320px; margin-left: 12px"
-          >
-            <el-option v-for="(w, i) in ['周一', '周二', '周三', '周四', '周五', '周六', '周日']" :key="i + 1" :label="w" :value="i + 1" />
-          </el-select>
-          <el-select
-            v-if="form.cycle_type === 'monthly'"
-            v-model="form.cycle_config.days"
-            multiple
-            placeholder="选择日期"
-            style="width: 320px; margin-left: 12px"
-          >
-            <el-option v-for="d in 31" :key="d" :label="`${d} 日`" :value="d" />
-          </el-select>
+          <div v-if="form.cycle_type === 'weekly'" class="cycle-picker">
+            <el-select
+              v-model="form.cycle_config.weekdays"
+              multiple
+              placeholder="选择星期"
+              style="width: 320px"
+            >
+              <el-option v-for="(w, i) in ['周一', '周二', '周三', '周四', '周五', '周六', '周日']" :key="i + 1" :label="w" :value="i + 1" />
+            </el-select>
+            <div class="cycle-quick">
+              <el-button link size="small" type="primary" @click="quickWeekdays([1, 2, 3, 4, 5])">工作日</el-button>
+              <el-button link size="small" type="primary" @click="quickWeekdays([6, 7])">非工作日</el-button>
+              <el-button link size="small" type="primary" @click="quickWeekdays([1, 2, 3, 4, 5, 6, 7])">全选</el-button>
+              <el-button link size="small" @click="quickWeekdays([])">清空</el-button>
+            </div>
+          </div>
+          <div v-if="form.cycle_type === 'monthly'" class="cycle-picker">
+            <el-select
+              v-model="form.cycle_config.days"
+              multiple
+              placeholder="选择日期"
+              style="width: 320px"
+            >
+              <el-option label="月末" :value="-1" />
+              <el-option v-for="d in 31" :key="d" :label="`${d} 日`" :value="d" />
+            </el-select>
+            <div class="cycle-quick">
+              <el-button link size="small" type="primary" @click="quickMonthDays('workday')">本月工作日</el-button>
+              <el-button link size="small" type="primary" @click="quickMonthDays('weekend')">本月非工作日</el-button>
+              <el-button link size="small" type="primary" @click="quickMonthDays('all')">全月(1-28)</el-button>
+              <el-button link size="small" type="primary" @click="quickMonthDays('odd')">单号日</el-button>
+              <el-button link size="small" type="primary" @click="quickMonthDays('even')">双号日</el-button>
+              <el-button link size="small" type="primary" @click="quickMonthDays('firstHalf')">上半月</el-button>
+              <el-button link size="small" type="primary" @click="quickMonthDays('secondHalf')">下半月</el-button>
+              <el-button link size="small" @click="quickMonthDays('clear')">清空</el-button>
+            </div>
+            <div class="text-secondary cycle-hint">「本月工作日/非工作日」按当前月份日历填入具体日期，跨月后星期会漂移，长期计划建议用「全月/单双号/上下半月」或每周周期</div>
+          </div>
+        </el-form-item>
+
+        <!-- 分配方式（每周/每月）：总量按 执行日数×巡检员数 连续均分 -->
+        <el-form-item v-if="form.cycle_type !== 'daily'" label="分配方式">
+          <el-radio-group v-model="form.assign_mode">
+            <el-radio value="split">按执行日均分（推荐）</el-radio>
+            <el-radio value="all">每个执行日巡全部点位</el-radio>
+          </el-radio-group>
+          <div v-if="form.assign_mode === 'split'" class="text-secondary cycle-hint">
+            点位总量按 执行日数 × 巡检员数 连续切块，同一巡检员同一天分到相邻的一片区域，跑动距离最小。
+            <template v-if="splitEstimate > 0">预计每人每日约 <b>{{ splitEstimate }}</b> 个点位。</template>
+          </div>
         </el-form-item>
 
         <!-- 轮次设置（仅每天/每周）：配了轮次后计划级执行时段忽略 -->
@@ -406,7 +438,7 @@ import { listUsers } from '@/api/user'
 import { listDictOptions, type DictOption } from '@/api/dict'
 import { useUserStore } from '@/store/user'
 import { usePatrolTypes } from '@/composables/usePatrolTypes'
-import type { PlanItem, PlanCycleConfig, PlanSelectionMode, CommunityItem, PointItem, PatrolType } from '@/api/biz-types'
+import type { PlanItem, PlanCycleConfig, PlanSelectionMode, PlanAssignMode, CommunityItem, PointItem, PatrolType } from '@/api/biz-types'
 import type { UserItem } from '@/api/types'
 
 const userStore = useUserStore()
@@ -469,10 +501,11 @@ function cycleLabel(row: PlanItem) {
   if (row.cycle_type === 'daily') return '每天'
   if (row.cycle_type === 'weekly') {
     const names = ['', '一', '二', '三', '四', '五', '六', '日']
-    return `每周${(row.cycle_config?.weekdays || []).map((w) => names[w]).join('、')}`
+    return `每周${(row.cycle_config?.weekdays || []).map((w) => names[w]).join('、')}${row.assign_mode === 'split' ? ' · 均分' : ''}`
   }
   if (row.cycle_type === 'monthly') {
-    return `每月 ${(row.cycle_config?.days || []).join('、')} 日`
+    const days = (row.cycle_config?.days || []).map((d) => (d === -1 ? '月末' : `${d}`))
+    return `每月 ${days.join('、')} 日${row.assign_mode === 'split' ? ' · 均分' : ''}`
   }
   return row.cycle_type
 }
@@ -559,6 +592,7 @@ const form = reactive({
   point_types: [] as string[],
   cycle_type: 'daily',
   cycle_config: {} as PlanCycleConfig,
+  assign_mode: 'split' as PlanAssignMode,
   rounds: [] as RoundRow[],
   daily_min_rounds: null as number | null,
   timeRange: null as [string, string] | null,
@@ -569,6 +603,63 @@ const form = reactive({
 
 // 配了轮次（每天/每周）时忽略计划级执行时段
 const roundsEnabled = computed(() => form.cycle_type !== 'monthly' && form.rounds.length > 0)
+
+// ===== 周期快捷选择 =====
+function quickWeekdays(days: number[]) {
+  form.cycle_config.weekdays = days
+}
+
+// 每月快捷选择：workday/weekend 按当前月份日历展开为具体日期（跨月星期漂移，提示文案已说明）
+function quickMonthDays(kind: string) {
+  const range = (a: number, b: number) => Array.from({ length: b - a + 1 }, (_, i) => a + i)
+  switch (kind) {
+    case 'workday':
+    case 'weekend': {
+      const now = new Date()
+      const last = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate()
+      const days: number[] = []
+      for (let d = 1; d <= last; d++) {
+        const wd = new Date(now.getFullYear(), now.getMonth(), d).getDay()
+        if ((kind === 'workday') === (wd >= 1 && wd <= 5)) days.push(d)
+      }
+      form.cycle_config.days = days
+      break
+    }
+    case 'all':
+      form.cycle_config.days = range(1, 28)
+      break
+    case 'odd':
+      form.cycle_config.days = range(1, 31).filter((d) => d % 2 === 1)
+      break
+    case 'even':
+      form.cycle_config.days = range(2, 30).filter((d) => d % 2 === 0)
+      break
+    case 'firstHalf':
+      form.cycle_config.days = range(1, 15)
+      break
+    case 'secondHalf':
+      form.cycle_config.days = range(16, 28)
+      break
+    default:
+      form.cycle_config.days = []
+  }
+}
+
+// 执行日数（weekly=星期数，monthly=日期数）
+const execDayCount = computed(() => {
+  if (form.cycle_type === 'weekly') return form.cycle_config.weekdays?.length || 0
+  if (form.cycle_type === 'monthly') return form.cycle_config.days?.length || 0
+  return 0
+})
+
+// 均分预估：每人每日点位数 = 总量 / (执行日数 × 巡检员数)
+const splitEstimate = computed(() => {
+  if (form.cycle_type === 'daily' || form.assign_mode !== 'split') return 0
+  if (!execDayCount.value || !form.inspector_ids.length) return 0
+  const total = form.selection_mode === 'explicit' ? form.point_ids.length : previewCount.value
+  if (!total) return 0
+  return Math.ceil(total / (execDayCount.value * form.inspector_ids.length))
+})
 
 const formRules: FormRules = {
   name: [{ required: true, message: '请输入计划名称', trigger: 'blur' }],
@@ -761,6 +852,7 @@ async function openForm(row?: PlanItem) {
       point_types: [...(detail.point_types || [])],
       cycle_type: detail.cycle_type,
       cycle_config: { ...detail.cycle_config },
+      assign_mode: detail.assign_mode || 'all',
       // window 拆开为起止两个时刻便于编辑
       rounds: (detail.cycle_config?.rounds || []).map((r) => {
         const [start = '', end = ''] = (r.window || '').split('-')
@@ -778,7 +870,7 @@ async function openForm(row?: PlanItem) {
   } else {
     Object.assign(form, {
       id: '', name: '', community_id: null, patrol_type: 'safety', selection_mode: 'explicit' as PlanSelectionMode,
-      point_ids: [], point_types: [], cycle_type: 'daily', cycle_config: {}, rounds: [], daily_min_rounds: null,
+      point_ids: [], point_types: [], cycle_type: 'daily', cycle_config: {}, assign_mode: 'split' as PlanAssignMode, rounds: [], daily_min_rounds: null,
       timeRange: null, inspector_ids: [], dateRange: null, status: 1
     })
     candidatePoints.value = []
@@ -833,6 +925,7 @@ async function handleSubmit() {
     point_types: form.selection_mode === 'by_point_types' ? form.point_types : [],
     cycle_type: form.cycle_type,
     cycle_config,
+    assign_mode: form.cycle_type === 'daily' ? 'all' : form.assign_mode,
     inspector_ids: form.inspector_ids,
     start_date: form.dateRange![0],
     end_date: form.dateRange![1],
@@ -860,6 +953,20 @@ async function handleSubmit() {
 <style scoped lang="scss">
 .danger-text {
   color: $color-danger;
+}
+
+.cycle-picker {
+  margin-left: 12px;
+
+  .cycle-quick {
+    margin-top: 4px;
+  }
+}
+
+.cycle-hint {
+  font-size: $font-size-aux;
+  margin-top: 2px;
+  width: 100%;
 }
 
 .route-picker {

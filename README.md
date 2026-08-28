@@ -148,25 +148,18 @@ docker compose --env-file .env.prod -f docker-compose.prod.yml run --rm app /app
 docker compose --env-file .env.prod -f docker-compose.prod.yml restart app
 ```
 
-老库补演示工单照片（工单演示照片为后加特性，老库全量播种会被幂等跳过；该命令只补照片为空的演示工单，幂等、不动其他数据）：
+重置演示数据（`backend/scripts/reset_demo.sql` 仅清空业务数据，保留 admin/默认租户/系统配置；清空后需重新运行 seed-demo 生成演示数据）：
 
 ```bash
-# dev
-docker compose --env-file .env.dev -f docker-compose.dev.yml exec backend go run ./cmd/seed-demo -photos
-# prod（需先 git pull 并重建 app 镜像，使 /app/seed-demo 带上 -photos 参数）
-docker compose --env-file .env.prod -f docker-compose.prod.yml run --rm app /app/seed-demo -photos
+# 1. 清空（dev）
+docker exec -i anxuncloud-dev-postgres psql -U postgres -d anxuncloud -f /dev/stdin < backend/scripts/reset_demo.sql
+# 2. 重新播种（dev 容器内挂载源码）
+docker exec anxuncloud-dev-backend sh -c 'cd /app && go run ./cmd/seed-demo'
+# 3. 重启后端使演示账号 casbin 策略生效
+docker restart anxuncloud-dev-backend
 ```
 
-老库补消防专项+两班倒巡更演示数据（消防点位/检查模板/两班倒巡更计划/消防月度专项/当月专项检查报告为后加特性；该命令只补给已存在的演示租户，专项计划已存在则整体跳过，幂等、不动其他数据）：
-
-```bash
-# dev
-docker compose --env-file .env.dev -f docker-compose.dev.yml exec backend go run ./cmd/seed-demo -fire
-# prod（需先 git pull 并重建 app 镜像，使 /app/seed-demo 带上 -fire 参数）
-docker compose --env-file .env.prod -f docker-compose.prod.yml run --rm app /app/seed-demo -fire
-```
-
-内容：两家演示物业公司（华安物业 `huaan` / 金源物业 `jinyuan`），各含租户管理员、小区、楼栋、项目编制（项目经理/主管/巡检员/维修工/楼管员/前台）、检查项模板、点位（二维码/NFC/围栏凭证）、巡检计划、昨日已完成+逾期与今日待巡任务、带真实照片的打卡记录（内置 `demoassets/`，离线可用）、六态全覆盖工单、上月整月巡查工作量与当月工单台账、月度报告（华安已三级签字归档、金源待巡检员确认；报告期数据与 stats 快照口径一致，PDF 汇总/明细/照片/台账均有内容）与通知公告；金源小区开启抢单模式作对照。华安另含消防专项演示（《专项巡检与专项检查报告设计方案》§5 第 7 条）：锦绣华庭 1/2/3 栋每层楼消防箱 + 每栋 2 个灭火器点位（绑带 ai_hint 的消防箱/灭火器检查模板）、「日常保安巡更（两班倒）」轮次计划（近 3 天白班全完成、夜班含 1 条漏巡逾期，今日白班进行中/夜班待巡）、「消防设施月度专项检查」计划（按点位类型圈选，当月任务已完成，含 2 处异常转工程条线工单 1 闭环 1 处理中）与当月消防设施专项检查报告（已三级签字归档，主管级=工程主管）。全部演示账号密码统一为 `Demo@12345`（如 `huaan_admin`、`jinyuan_admin`、`ha_xj01`、`jy_xj01`）。
+内容：两家演示物业公司（华安物业 `huaan` / 金源物业 `jinyuan`）。华安物业（锦绣华庭）按甲方真实月度计划组织消防设施月检演示：小区分 A 区/B 区，全部约 3500 个点位统一绑「消火栓及灭火器检查」模板（4 个检查项，必拍项带 AI 识别要点）；黄辉（`xj_huang`）负责 B 区（楼栋 22 单元×33 层、商铺 300、地下车库负一层 800、门岗/车棚/办公，约 1850 点位），杨诗（`xj_yang`）负责 A 区+B 区 16/17 栋（约 1640 点位）；点位按类别组织成 8 个 `monthly` 计划（每人楼栋/商铺/车库/门岗车棚各 1 个），`assign_mode=split` + `cycle_config.days=1~28`，任务生成时按「执行日 × 巡检员」连续切块（路线优化后地理聚集，每人每日约 60~67 点位、跑一片相邻区域，月底前巡完，`time_window` 08:00-18:00）；本月已过期日预置已完成任务与全量打卡记录（约 2% 异常，必拍项带共享演示照片，内置 `demoassets/` 离线可用），今天及未来的任务由调度器或管理端「生成今日任务」自动生成。另含项目编制（项目经理/主管/巡检员/维修工/楼管员/前台）、打卡审批流与通知公告。金源物业（金源世纪城）为简版对照演示（每日安全巡查 + 上月月度报告待巡检员确认，开启抢单模式）。全部演示账号密码统一为 `Demo@12345`（如 `huaan_admin`、`jinyuan_admin`、`xj_huang`、`xj_yang`、`jy_xj01`）。
 
 ## 初始账号
 

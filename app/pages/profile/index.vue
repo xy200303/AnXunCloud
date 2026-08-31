@@ -65,6 +65,7 @@
 <script lang="ts">
 import { Colors, ColorTokens } from '@/utils/theme'
 import { apiUploadLocal, apiUpdateProfile } from '@/services/api'
+import { withFileToken } from '@/utils/fileurl'
 import { useAuthStore } from '@/stores/auth'
 import { toAbsUrl } from '@/utils/url'
 import SignaturePad from '@/components/SignaturePad.vue'
@@ -89,11 +90,11 @@ export default {
       const u = useAuthStore().userInfo
       return u != null && u.name != '' ? u.name.substring(0, 1) : '?'
     },
-    /** 头像 URL：avatar 存 file_key，拼后端源 + /uploads/；空 = 显示姓氏占位 */
+    /** 头像 URL：avatar 存 file_id 对应的访问地址；空 = 显示姓氏占位 */
     avatarUrl(): string {
       const u = useAuthStore().userInfo
       if (u == null || u.avatar == null || u.avatar == '') return ''
-      return toAbsUrl('/uploads/' + u.avatar)
+      return withFileToken(toAbsUrl('/api/files/' + u.avatar))
     },
     /** 岗位：在职编制岗位名去重拼接；无编制回落角色名，皆无显示未分配 */
     postText(): string {

@@ -462,7 +462,7 @@ func (s *ReportService) List(c *gin.Context, q *dto.ReportListQuery) (*response.
 	return &response.Page{List: list, Total: total, Page: q.Page, PageSize: q.PageSize}, nil
 }
 
-// Detail 报告详情（stats 全量 + 签字明细 + file_url）。
+// Detail 报告详情（stats 全量 + 签字明细 + file_id/file_url）。
 func (s *ReportService) Detail(c *gin.Context, id string) (gin.H, *errs.Error) {
 	r, be := s.getWithScope(c, id)
 	if be != nil {
@@ -493,8 +493,13 @@ func (s *ReportService) Detail(c *gin.Context, id string) (gin.H, *errs.Error) {
 		inspectors = append(inspectors, entry)
 	}
 	var fileURL any
+	fileID := ""
 	if r.FileKey != "" {
 		fileURL = s.store.URL(r.FileKey)
+		var f sysmodel.UploadFile
+		if s.db.Where("storage_key = ?", r.FileKey).First(&f).Error == nil {
+			fileID = f.ID
+		}
 	}
 	return gin.H{
 		"id": r.ID, "community_id": r.CommunityID, "community_name": s.commName(r.CommunityID),
@@ -520,7 +525,7 @@ func (s *ReportService) Detail(c *gin.Context, id string) (gin.H, *errs.Error) {
 		"manager_remark":           r.ManagerRemark,
 		"manager_signature_url":    s.sigURL(r.ManagerSignatureKey),
 		"reject_reason":            r.RejectReason,
-		"file_key":                 r.FileKey,
+		"file_id":                  fileID,
 		"file_url":                 fileURL,
 		"created_at":               timefmt.T(r.CreatedAt),
 		"updated_at":               timefmt.T(r.UpdatedAt),

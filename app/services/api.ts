@@ -378,7 +378,7 @@ export type ReportDetail = {
   manager_remark: string
   manager_signature_url: string | null
   reject_reason: string
-  file_key: string
+  file_id: string
   file_url: string | null
   created_at: string
   updated_at: string
@@ -1149,7 +1149,7 @@ export function apiReportDetail(id: string): Promise<ReportDetail> {
           manager_remark: d.manager_remark ?? '',
           manager_signature_url: d.manager_signature_url ?? null,
           reject_reason: d.reject_reason ?? '',
-          file_key: d.file_key ?? '',
+          file_id: d.file_id ?? '',
           file_url: d.file_url ?? null,
           created_at: d.created_at ?? '',
           updated_at: d.updated_at ?? ''

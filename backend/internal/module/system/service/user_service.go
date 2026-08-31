@@ -20,6 +20,7 @@ import (
 	"anxuncloud/internal/pkg/storage"
 	"anxuncloud/internal/pkg/timefmt"
 	"anxuncloud/internal/pkg/types"
+	"anxuncloud/internal/pkg/uploadfile"
 )
 
 // importMaxRows 单次导入数据行上限（接口文档 §2.3.9）。
@@ -763,7 +764,15 @@ func (s *UserService) UpdateProfile(uid string, name, phone string, sigKey *stri
 		return errs.ErrPhoneExists
 	}
 	if sigKey != nil && s.signAssets != nil {
-		if be := s.signAssets.SetUserSignature(uid, strings.TrimSpace(*sigKey)); be != nil {
+		value := strings.TrimSpace(*sigKey)
+		if value != "" {
+			f, err := uploadfile.ByID(s.db, value)
+			if err != nil || f.UserID != uid {
+				return errs.ErrPhotoNotUploaded
+			}
+			value = f.StorageKey
+		}
+		if be := s.signAssets.SetUserSignature(uid, value); be != nil {
 			return be
 		}
 	}

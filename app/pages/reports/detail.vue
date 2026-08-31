@@ -477,14 +477,14 @@ export default {
         .then((up) => {
           if (saveForLater) {
             const u = useAuthStore().userInfo
-            return apiUpdateProfile(u != null ? u.name : '', u != null ? u.phone : '', up.file_key)
+            return apiUpdateProfile(u != null ? u.name : '', u != null ? u.phone : '', up.file_id)
               .then(() => useAuthStore().fetchProfile())
               .then(() => {
                 uni.showToast({ title: '签名已保存，下次签字将直接使用', icon: 'none' })
                 return ''
               })
           }
-          return Promise.resolve(up.file_key)
+            return Promise.resolve(up.file_id)
         })
         .then((sigKey) => {
           pad.finish(true)
@@ -512,7 +512,7 @@ export default {
           if (!res.confirm) return
           this.withSignature((sigKey) => {
             this.signing = true
-            const body = sigKey != '' ? { signature_file_key: sigKey } : null
+            const body = sigKey != '' ? { signature_file_id: sigKey } : null
             apiSignInspector(this.reportId, body)
               .then((r) => {
                 this.afterSign(r.status == 'pending_supervisor' ? '全员已确认，已流转主管审批' : '已确认签字')
@@ -550,7 +550,7 @@ export default {
       this.withSignature((sigKey) => {
         this.signing = true
         const body: any = { proxy_for: proxyFor, reason: reason }
-        if (sigKey != '') body.signature_file_key = sigKey
+        if (sigKey != '') body.signature_file_id = sigKey
         apiSignInspector(this.reportId, body)
           .then((r) => {
             this.proxyShow = false
@@ -578,7 +578,7 @@ export default {
       this.withSignature((sigKey) => {
         this.signing = true
         const body: any = { action: 'approve', remark: remark }
-        if (sigKey != '') body.signature_file_key = sigKey
+        if (sigKey != '') body.signature_file_id = sigKey
         const req = isManager ? apiSignManager(this.reportId, body) : apiSignSupervisor(this.reportId, body)
         req
           .then(() => {

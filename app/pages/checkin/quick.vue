@@ -107,6 +107,13 @@
             </view>
             <text  hover-class="hover-dim" class="shot-empty-text" :style="{ color: curItem.status == 'failed' ? colors.danger : colors.primary }">{{ curItem.status == 'failed' ? '不合格，点这里重拍' : '点这里拍照' }}</text>
           </view>
+          <text
+            v-if="curItem.status == 'todo' || curItem.status == 'failed'"
+            hover-class="hover-dim"
+            class="escape-link"
+            :style="{ color: colors.warning }"
+            @click="reportPhotoItemMissing"
+          >设备不存在 / 无法拍摄，上报异常</text>
           <!-- 已拍：缩略图 + 状态角标 -->
           <block v-else>
             <view class="shot-preview" :style="{ backgroundColor: colors.bgPage }" @click="previewCurPhoto">
@@ -265,6 +272,7 @@ import {
   apiAiItemJobs,
   apiItemDrafts,
   apiItemDraftManual,
+  apiItemDraftPhotoAbnormal,
   CODE_AI_DISABLED,
   CODE_CHECKIN_LOCKED,
   ItemDraft,
@@ -379,7 +387,8 @@ function freshItem(name: string, requirement: string, judgeType: string): Wizard
     requirement: requirement,
     judge_type: judgeType,
     photos: [],
-    file_keys: [],
+    file_ids: [],
+    file_id: '',
     job_id: '',
     status: 'todo',
     verdict: '',
@@ -732,7 +741,7 @@ export default {
                 return
               }
               // 拍照项：照片 + AI 识别结论
-              it.file_keys = d.file_keys.slice()
+              it.file_ids = d.file_ids.slice()
               it.photos = d.photos.slice()
               it.job_id = d.job_id
               it.img_error = false
@@ -958,14 +967,28 @@ export default {
     takePhoto() {
       const it = this.curItem
       if (it == null || !this.curItemIsPhoto) return
-      this.shootFor(it, true)
+      this.shootFor(it, true, 'ai')
+    },
+    /** 拍照项逃生入口：设备不存在 / 无法拍摄，上报异常 */
+    reportPhotoItemMissing() {
+      const it = this.curItem
+      if (it == null || !this.curItemIsPhoto) return
+      uni.showModal({
+        title: '上报异常',
+        content: '确认现场确实没有这个设备，或当前无法拍到？请先拍一张佐证照片。',
+        confirmText: '继续',
+        cancelText: '取消',
+        success: (r) => {
+          if (r.confirm) this.shootFor(it, true, 'escape')
+        }
+      })
     },
     /** 补拍步重拍：重拍 = 重新拍照上传重新建 job，停留在补拍列表 */
     retakePhoto(it: WizardItemSnap) {
       if (it.status == 'recognizing') return
-      this.shootFor(it, false)
+      this.shootFor(it, false, 'ai')
     },
-    shootFor(it: WizardItemSnap, advance: boolean) {
+    shootFor(it: WizardItemSnap, advance: boolean, mode: 'ai' | 'escape') {
       const wp = this.curWizPoint
       if (wp == null) return
       const pointId = wp.point_id
@@ -979,17 +1002,26 @@ export default {
           // 只传原图：AI 识别无水印干扰；水印由服务端在打卡后统一烧录（点位/时间/坐标/巡检员）
           compressForUpload(paths[0]).then((raw) => {
             this.overlayMsg = '照片上传中…'
-            let fileKey = ''
+            let fileId = ''
             let fileUrl = ''
             apiUploadLocal(raw)
               .then((r) => {
-                fileKey = r.file_key
+                fileId = r.file_id
                 fileUrl = r.url
+                if (mode == 'escape') {
+                  return apiItemDraftPhotoAbnormal({
+                    task_id: this.taskId,
+                    point_id: pointId,
+                    name: it.name,
+                    file_ids: [fileId],
+                    note: '设备不存在 / 无法拍摄，已上报异常'
+                  }).then(() => ({ job_id: '' }))
+                }
                 return apiAiItemJobCreate({
                   task_id: this.taskId,
                   point_id: pointId,
                   name: it.name,
-                  file_keys: [fileKey]
+                  file_ids: [fileId]
                 })
               })
               .then((j) => {
@@ -997,14 +1029,29 @@ export default {
                 // 展示用服务端 URL（重启后仍可加载）；本地临时路径仅兜底
                 it.photos = [fileUrl != '' ? fileUrl : raw]
                 it.img_error = false
-                it.file_keys = [fileKey]
+                it.file_ids = [fileId]
+                it.file_id = fileId
                 it.job_id = j.job_id
-                it.status = 'recognizing'
-                it.verdict = ''
-                it.reason = ''
-                it.reading = ''
-                it.quality_pass = true
-                it.quality_issue = ''
+                if (mode == 'escape') {
+                  it.status = 'done'
+                  it.verdict = 'abnormal'
+                  it.reason = '设备不存在 / 无法拍摄，已上报异常'
+                  it.reading = ''
+                  it.quality_pass = true
+                  it.quality_issue = ''
+                  it.pass = false
+                  it.note = it.reason
+                  uni.showToast({ title: '异常已上报', icon: 'success' })
+                } else {
+                  it.status = 'recognizing'
+                  it.verdict = ''
+                  it.reason = ''
+                  it.reading = ''
+                  it.quality_pass = true
+                  it.quality_issue = ''
+                  it.pass = true
+                  it.note = ''
+                }
                 // 拍照项：立即推进下一项，不等识别结果
                 if (advance) this.nextStep()
               })
@@ -1248,7 +1295,7 @@ export default {
     /** 该项回到待拍状态（job 过期/失败） */
     resetItem(it: WizardItemSnap) {
       it.photos = []
-      it.file_keys = []
+      it.file_ids = []
       it.job_id = ''
       it.status = 'todo'
       it.verdict = ''
@@ -1321,7 +1368,7 @@ export default {
           name: it.name,
           pass: !isAbn,
           note: isAbn ? it.note : '',
-          photos: it.file_keys.slice(),
+          photos: it.file_ids.slice(),
           ai_verdict: it.verdict,
           ai_reason: it.reason,
           ai_reading: it.reading
@@ -1719,6 +1766,13 @@ export default {
   font-size: 40rpx;
   font-weight: 700;
   margin-top: 24rpx;
+}
+
+.escape-link {
+  font-size: 28rpx;
+  font-weight: 600;
+  margin-top: 18rpx;
+  text-align: center;
 }
 
 /* 拍照项：已拍预览 */

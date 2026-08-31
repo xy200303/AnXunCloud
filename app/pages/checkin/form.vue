@@ -145,7 +145,7 @@ type ItemView = {
   photo_required: string
   pass: boolean
   note: string
-  /** 水印烧录后的本地路径，提交时上传换 file_key */
+  /** 水印烧录后的本地路径，提交时上传换 file_id */
   photos: string[]
 }
 
@@ -574,12 +574,12 @@ export default {
         }
       })
     },
-    /** 在线提交：上传照片换 file_key → POST /checkin；网络异常转离线暂存 */
+    /** 在线提交：上传照片换 file_id → POST /checkin；网络异常转离线暂存 */
     submitOnline() {
       const pt = this.point as TaskPoint
       this.submitting = true
       uni.showLoading({ title: '上传中…', mask: true })
-      // 逐项照片 file_key（与 items 同序；照片唯一归属逐项，无记录级照片）
+      // 逐项照片 file_id（与 items 同序；照片唯一归属逐项，无记录级照片）
       const itemKeys: string[][] = this.items.map(() => [])
       let chain: Promise<void> = Promise.resolve()
       this.items.forEach((it, idx) => {
@@ -587,7 +587,7 @@ export default {
           chain = chain
             .then(() => apiUploadLocal(p))
             .then((r) => {
-              itemKeys[idx].push(r.file_key)
+              itemKeys[idx].push(r.file_id)
             })
         })
       })

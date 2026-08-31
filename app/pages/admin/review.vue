@@ -304,9 +304,10 @@ export default {
       this.rejecting = false
       this.rejectReason = ''
     },
-    /** 检查项照片：file_key 拼 /uploads/ 绝对地址（store.URL dev 规则） */
-    itemPhotoUrls(it: { photos: string[] }): string[] {
-      return (it.photos ?? []).map((k) => toAbsUrl('/uploads/' + k))
+    /** 检查项照片：后端已按文件 ID 解析 URL，旧数据再回退存储路径。 */
+    itemPhotoUrls(it: { photos: string[]; photo_urls?: string[] }): string[] {
+      if ((it.photo_urls ?? []).length > 0) return (it.photo_urls ?? []).map(toAbsUrl)
+      return (it.photos ?? []).map((key) => toAbsUrl('/uploads/' + key))
     },
     preview(urls: string[], idx: number) {
       uni.previewImage({ urls: urls, current: urls[idx] })

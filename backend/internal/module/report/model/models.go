@@ -44,7 +44,6 @@ type InspectionReport struct {
 	// 主管/经理签字时的手写签名图快照（巡检员快照在 InspectorSigned 元素内）
 	SupervisorSignatureKey string `gorm:"size:255" json:"supervisor_signature_key"`
 	ManagerSignatureKey    string `gorm:"size:255" json:"manager_signature_key"`
-	// 终审通过时的公章资产 file_key 快照（v16；空=终审时无公章或存量报告，回退当前 active 公章）
 	SealFileKey string         `gorm:"size:255" json:"seal_file_key"`
 	FileKey     string         `gorm:"size:255" json:"file_key"`
 	CreatedAt   time.Time      `json:"created_at"`

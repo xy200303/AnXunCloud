@@ -210,8 +210,8 @@ export type AiItemJobCreateReq = {
   point_id: string
   /** 检查项名（与点位模板对齐） */
   name: string
-  /** 该项照片 file_key（一项一图硬约束，恰好 1 张） */
-  file_keys: string[]
+  /** 该项照片 file_id（一项一图硬约束，恰好 1 张） */
+  file_ids: string[]
 }
 
 /** AI 逐项识别 job 状态（GET /checkin/ai-item-jobs?ids= 元素） */
@@ -390,14 +390,14 @@ export type ReportSignReq = {
   remark?: string
   reason?: string
   /** 未配置签名时随请求提交的一次性签名（须本人 scene=signature 上传） */
-  signature_file_key?: string
+  signature_file_id?: string
 }
 
 /** 巡检员确认请求（对齐 dto.InspectorSignReq：proxy_for 非空为代签，reason 必填） */
 export type InspectorSignReqPayload = {
   proxy_for?: string
   reason?: string
-  signature_file_key?: string
+  signature_file_id?: string
 }
 
 // ---- 消息 / 公告（对齐 MPService.Messages / NoticeService.Published） -----------------
@@ -576,7 +576,7 @@ type RawCheckinResult = {
 type ApiEnvelopeLike = {
   code: number
   message: string
-  data?: { file_key?: string; url?: string } | null
+  data?: { file_id?: string; url?: string } | null
 }
 
 // ---- 字段提取辅助（ID 字段容错：后端若下发 number 则转 string） --------------------
@@ -719,13 +719,13 @@ export function apiProfile(): Promise<UserInfo> {
 
 /**
  * 修改本人资料 PUT /profile（对齐 userCtl.UpdateProfile：name/phone 必传）；
- * signatureFileKey 不传 = 不改动签名；传入则创建/替换当前用户 active 签名资产（下次签字直接用）。
- * avatarFileKey 不传 = 不改动头像；传入则更新头像（存 file_key，展示拼 /uploads/）。
+ * signatureFileID 不传 = 不改动签名；传入则创建/替换当前用户 active 签名资产。
+ * avatarFileID 不传 = 不改动头像；传入则更新头像。
  */
-export function apiUpdateProfile(name: string, phone: string, signatureFileKey?: string, avatarFileKey?: string): Promise<UserInfo> {
+export function apiUpdateProfile(name: string, phone: string, signatureFileID?: string, avatarFileID?: string): Promise<UserInfo> {
   const body: Record<string, any> = { name: name, phone: phone }
-  if (signatureFileKey != null) body.signature_file_key = signatureFileKey
-  if (avatarFileKey != null) body.avatar = avatarFileKey
+  if (signatureFileID != null) body.signature_file_id = signatureFileID
+  if (avatarFileID != null) body.avatar = avatarFileID
   return new Promise<UserInfo>((resolve, reject) => {
     httpPut<RawUser>('/profile', body, true)
       .then((d) => {
@@ -938,7 +938,7 @@ export interface ItemDraft {
   point_id: string
   item_name: string
   job_id: string
-  file_keys: string[]
+  file_ids: string[]
   photos: string[]
   ai_status: string
   ai_verdict: string
@@ -962,7 +962,7 @@ export function apiItemDrafts(taskId: string, pointId?: string): Promise<ItemDra
             point_id: it.point_id ?? '',
             item_name: it.item_name ?? '',
             job_id: it.job_id ?? '',
-            file_keys: it.file_keys ?? [],
+            file_ids: it.file_ids ?? [],
             photos: it.photos ?? [],
             ai_status: it.ai_status ?? '',
             ai_verdict: it.ai_verdict ?? '',
@@ -983,6 +983,15 @@ export function apiItemDrafts(taskId: string, pointId?: string): Promise<ItemDra
 export function apiItemDraftManual(req: { task_id: string; point_id: string; name: string; pass: boolean; note: string }): Promise<void> {
   return new Promise<void>((resolve, reject) => {
     httpPost('/checkin/item-drafts/manual', req as unknown as Record<string, any>)
+      .then(() => resolve())
+      .catch(reject)
+  })
+}
+
+/** 拍照项异常逃生入口 POST /checkin/item-drafts/photo-abnormal */
+export function apiItemDraftPhotoAbnormal(req: { task_id: string; point_id: string; name: string; file_ids: string[]; note: string }): Promise<void> {
+  return new Promise<void>((resolve, reject) => {
+    httpPost('/checkin/item-drafts/photo-abnormal', req as unknown as Record<string, any>)
       .then(() => resolve())
       .catch(reject)
   })
@@ -1015,7 +1024,7 @@ export function apiUploadLocal(
   filePath: string,
   scene: 'checkin' | 'avatar' | 'signature' = 'checkin',
   retried = false
-): Promise<{ file_key: string; url: string }> {
+): Promise<{ file_id: string; url: string }> {
   return new Promise((resolve, reject) => {
     uni.uploadFile({
       url: getBaseUrl() + '/upload/local',
@@ -1050,7 +1059,7 @@ export function apiUploadLocal(
           return
         }
         resolve({
-          file_key: env.data?.file_key ?? '',
+          file_id: env.data?.file_id ?? '',
           url: env.data?.url ?? ''
         })
       },
@@ -1503,7 +1512,7 @@ export type ReviewRecord = {
   is_suspect: boolean
   suspect_reason: string
   photos: OrderPhoto[]
-  check_items: Array<{ name: string; pass: boolean; note: string; photos: string[]; requirement: string | null }>
+  check_items: Array<{ name: string; pass: boolean; note: string; photos: string[]; photo_urls?: string[]; requirement: string | null }>
   /** pending/passed/rejected */
   audit_status: string
   audit_by: string | null

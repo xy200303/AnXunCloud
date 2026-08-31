@@ -167,7 +167,7 @@ type SignEntry struct {
 	UserID   string `json:"user_id"`
 	Name     string `json:"name"`
 	SignedAt string `json:"signed_at"`
-	// SignatureKey 签字时的手写签名图快照 file_key（空=未设置签名，PDF 回退打印姓名）
+	// SignatureKey 签字时的手写签名图快照（空=未设置签名，PDF 回退打印姓名）
 	SignatureKey string `json:"signature_file_key,omitempty"`
 	// AssetID 签字时的签章资产 id（v16 起；可空，便于法律追溯定位版本）
 	AssetID string `json:"asset_id,omitempty"`

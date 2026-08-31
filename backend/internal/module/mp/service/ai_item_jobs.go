@@ -17,11 +17,11 @@ import (
 
 	insmodel "anxuncloud/internal/module/inspection/model"
 	"anxuncloud/internal/module/mp/dto"
-	sysmodel "anxuncloud/internal/module/system/model"
 	"anxuncloud/internal/pkg/ai"
 	"anxuncloud/internal/pkg/errs"
 	"anxuncloud/internal/pkg/logger"
 	"anxuncloud/internal/pkg/timefmt"
+	"anxuncloud/internal/pkg/uploadfile"
 
 	"go.uber.org/zap"
 	"gorm.io/gorm/clause"
@@ -50,7 +50,7 @@ type aiItemJobPayload struct {
 	AIHint      string         `json:"ai_hint,omitempty"`
 	JudgeType   string         `json:"judge_type,omitempty"`
 	JudgeConfig map[string]any `json:"judge_config,omitempty"`
-	FileKeys    []string       `json:"file_keys"`
+	FileIDs     []string       `json:"file_ids"`
 }
 
 // SubmitAIItemJob 提交逐项 AI 识别任务（POST /checkin/ai-item-jobs）。
@@ -88,13 +88,14 @@ func (s *CheckinService) SubmitAIItemJob(ctx context.Context, inspectorID string
 	if ai.NormalizeJudgeType(tplItem.JudgeType) == ai.JudgeManual {
 		return nil, errs.ErrParam.WithMsg("手动确认项无需 AI 识别")
 	}
-	// file_keys 归属校验（同 resolvePhotos 的上传确认逻辑）
-	for _, key := range req.FileKeys {
-		var count int64
-		s.db.Model(&sysmodel.UploadFile{}).Where("file_key = ? AND user_id = ?", key, inspectorID).Count(&count)
-		if count == 0 {
+	// file_ids 仅接受 upload_file.id。
+	fileIDs := make([]string, 0, len(req.FileIDs))
+	for _, ref := range req.FileIDs {
+		f, err := uploadfile.ByID(s.db, ref)
+		if err != nil || f.UserID != inspectorID {
 			return nil, errs.ErrPhotoNotUploaded
 		}
+		fileIDs = append(fileIDs, f.ID)
 	}
 	payload := aiItemJobPayload{
 		JobID: uuid.NewString(), UserID: inspectorID,
@@ -102,19 +103,19 @@ func (s *CheckinService) SubmitAIItemJob(ctx context.Context, inspectorID string
 		PointName: point.Name, PointType: point.Type,
 		Name: tplItem.Name, Requirement: strVal(tplItem.Requirement), AIHint: strVal(tplItem.AIHint),
 		JudgeType: tplItem.JudgeType, JudgeConfig: tplItem.JudgeConfig,
-		FileKeys: req.FileKeys,
+		FileIDs: fileIDs,
 	}
 	// 过程草稿实时落库：提交即记 pending（重新识别时重置旧结论），worker 识别完回写 done/failed。
 	// 草稿仅作过程记录，不影响任务进度；点位正式提交成功后才删除。
 	draft := insmodel.CheckinItemDraft{
 		TenantID: task.TenantID, TaskID: task.ID, PointID: req.PointID,
 		InspectorID: inspectorID, CommunityID: task.CommunityID,
-		ItemName: tplItem.Name, JobID: payload.JobID, FileKeys: req.FileKeys, AIStatus: insmodel.ItemDraftPending,
+		ItemName: tplItem.Name, JobID: payload.JobID, FileIDs: fileIDs, AIStatus: insmodel.ItemDraftPending,
 	}
 	if err := s.db.Clauses(clause.OnConflict{
 		Columns: []clause.Column{{Name: "task_id"}, {Name: "point_id"}, {Name: "item_name"}},
 		DoUpdates: clause.AssignmentColumns([]string{
-			"inspector_id", "community_id", "tenant_id", "job_id", "file_keys",
+			"inspector_id", "community_id", "tenant_id", "job_id", "file_ids",
 			"ai_status", "ai_verdict", "ai_reason", "ai_reading", "quality_pass", "quality_issue", "updated_at",
 		}),
 	}).Create(&draft).Error; err != nil {
@@ -225,9 +226,14 @@ func (s *CheckinService) processAIItemJob(ctx context.Context, raw string) {
 		s.rdb.Expire(ctx, key, aiItemJobTTL)
 		writeDraft(map[string]any{"ai_status": insmodel.ItemDraftFailed, "ai_reason": truncateStr(msg, 200)})
 	}
-	refs := make([]ai.PhotoRef, 0, len(p.FileKeys))
-	for _, k := range p.FileKeys {
-		refs = append(refs, ai.PhotoRef{URL: s.store.URL(k)})
+	refs := make([]ai.PhotoRef, 0, len(p.FileIDs))
+	for _, ref := range p.FileIDs {
+		f, err := uploadfile.ByID(s.db, ref)
+		if err != nil {
+			fail("识别照片不存在或已失效")
+			return
+		}
+		refs = append(refs, ai.PhotoRef{URL: f.URL})
 	}
 	input := ai.ReviewInput{
 		PointName: p.PointName, PointType: p.PointType, CheckItems: []string{p.Name},
@@ -287,13 +293,15 @@ func (s *CheckinService) ItemDrafts(ctx context.Context, inspectorID, taskID, po
 	q.Order("created_at").Find(&drafts)
 	items := make([]gin.H, 0, len(drafts))
 	for _, d := range drafts {
-		photos := make([]string, 0, len(d.FileKeys))
-		for _, k := range d.FileKeys {
-			photos = append(photos, s.store.URL(k))
+		photos := make([]string, 0, len(d.FileIDs))
+		for _, ref := range d.FileIDs {
+			if f, err := uploadfile.ByID(s.db, ref); err == nil {
+				photos = append(photos, f.URL)
+			}
 		}
 		items = append(items, gin.H{
 			"point_id": d.PointID, "item_name": d.ItemName, "job_id": d.JobID,
-			"file_keys": d.FileKeys, "photos": photos,
+			"file_ids": d.FileIDs, "photos": photos,
 			"ai_status": d.AIStatus, "ai_verdict": d.AIVerdict, "ai_reason": d.AIReason,
 			"ai_reading": d.AIReading, "quality_pass": d.QualityPass, "quality_issue": d.QualityIssue,
 			"manual_pass": d.ManualPass, "manual_note": d.ManualNote,
@@ -350,3 +358,69 @@ func (s *CheckinService) SaveManualDraft(ctx context.Context, inspectorID string
 	}
 	return gin.H{"saved": true}, nil
 }
+
+// SavePhotoItemAbnormalDraft 拍照项异常逃生入口：设备不存在/无法拍摄时，拍照佐证后直接落异常草稿。
+func (s *CheckinService) SavePhotoItemAbnormalDraft(ctx context.Context, inspectorID string, req *dto.PhotoItemAbnormalDraftReq) (gin.H, *errs.Error) {
+	var task insmodel.InspectionTask
+	if err := s.db.First(&task, "id = ?", req.TaskID).Error; err != nil || task.InspectorID != inspectorID {
+		return nil, errs.ErrTaskNotOwned
+	}
+	if task.Status == insmodel.TaskDone {
+		return nil, errs.ErrDuplicateCheckin.WithMsg("任务已完成")
+	}
+	var plan insmodel.InspectionPlan
+	if err := s.db.First(&plan, "id = ?", task.PlanID).Error; err != nil {
+		return nil, errs.ErrTaskNotOwned
+	}
+	if !insmodel.TaskPointIDs(&task, &plan).Contains(req.PointID) {
+		return nil, errs.ErrTaskNotOwned.WithMsg("点位不属于该任务")
+	}
+	var point insmodel.InspectionPoint
+	if err := s.db.First(&point, "id = ?", req.PointID).Error; err != nil {
+		return nil, errs.ErrNotFound.WithMsg("点位不存在")
+	}
+	if point.TemplateID == nil || *point.TemplateID == "" {
+		return nil, errs.ErrParam.WithMsg("该点位未绑定检查项模板")
+	}
+	var tplItem insmodel.CheckTemplateItem
+	if err := s.db.Where("template_id = ? AND name = ?", *point.TemplateID, req.Name).First(&tplItem).Error; err != nil {
+		return nil, errs.ErrParam.WithMsg("检查项「" + req.Name + "」不属于该点位模板")
+	}
+	if ai.NormalizeJudgeType(tplItem.JudgeType) == ai.JudgeManual {
+		return nil, errs.ErrParam.WithMsg("手动确认项请直接选择正常/异常")
+	}
+	if len(req.FileIDs) != 1 {
+		return nil, errs.ErrParam.WithMsg("异常上报需要恰好 1 张佐证照片")
+	}
+	ref := req.FileIDs[0]
+	f, err := uploadfile.ByID(s.db, ref)
+	if err != nil || f.UserID != inspectorID {
+		return nil, errs.ErrPhotoNotUploaded
+	}
+	note := strings.TrimSpace(req.Note)
+	if note == "" {
+		note = "设备不存在/无法拍摄，已上报异常"
+	}
+	draft := insmodel.CheckinItemDraft{
+		TenantID: task.TenantID, TaskID: task.ID, PointID: req.PointID,
+		InspectorID: inspectorID, CommunityID: task.CommunityID,
+		ItemName: tplItem.Name, FileIDs: []string{f.ID}, AIStatus: insmodel.ItemDraftDone,
+		AIVerdict: strPtr(ai.VerdictAbnormal), AIReason: strPtr(note),
+		QualityPass:  boolPtr(true),
+		QualityIssue: "",
+	}
+	if err := s.db.Clauses(clause.OnConflict{
+		Columns: []clause.Column{{Name: "task_id"}, {Name: "point_id"}, {Name: "item_name"}},
+		DoUpdates: clause.AssignmentColumns([]string{
+			"inspector_id", "community_id", "tenant_id", "file_ids",
+			"ai_status", "ai_verdict", "ai_reason", "ai_reading", "quality_pass", "quality_issue", "updated_at",
+		}),
+	}).Create(&draft).Error; err != nil {
+		return nil, errs.ErrInternal
+	}
+	return gin.H{"saved": true}, nil
+}
+
+func strPtr(s string) *string { return &s }
+
+func boolPtr(v bool) *bool { return &v }

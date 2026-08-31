@@ -406,7 +406,7 @@ func (UserPushDevice) TableName() string { return "user_push_device" }
 type UploadFile struct {
 	types.UUIDModel
 	TenantID       *string    `gorm:"type:uuid" json:"tenant_id"` // 冗余列（访问控制按 scene/归属判定）
-	FileKey        string     `gorm:"size:255" json:"file_key"`
+	StorageKey     string     `gorm:"column:storage_key;size:255" json:"-"`
 	Scene          string     `gorm:"size:16" json:"scene"`
 	UserID         string     `gorm:"type:uuid" json:"user_id"` // 零 UUID = 服务端生成文件（月报/导出包）
 	MimeType       string     `gorm:"size:128" json:"mime_type"`

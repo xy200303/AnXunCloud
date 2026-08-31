@@ -17,7 +17,7 @@ const SystemFileOwner = "00000000-0000-0000-0000-000000000000"
 // 统一文件层（/api/files）据此检索原始文件名与摘要；登记失败仅记日志，不阻断主流程。
 func RegisterGeneratedFile(db *gorm.DB, store *storage.Storage, filename, mime, md5, key, url string) {
 	rec := sysmodel.UploadFile{
-		FileKey: key, Scene: "export", UserID: SystemFileOwner,
+		StorageKey: key, Scene: "export", UserID: SystemFileOwner,
 		MimeType: mime, URL: url,
 		Name: filename, MD5: md5, Storage: store.DriverName(),
 	}

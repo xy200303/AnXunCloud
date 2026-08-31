@@ -142,7 +142,7 @@ func (d *demoSeeder) photo(tenantID, ownerID, label string) string {
 		return ""
 	}
 	rec := sysmodel.UploadFile{
-		TenantID: &tenantID, FileKey: key, Scene: "checkin", UserID: ownerID,
+		TenantID: &tenantID, StorageKey: key, Scene: "checkin", UserID: ownerID,
 		MimeType: "image/jpeg", URL: url, WatermarkedURL: url,
 		Name: label + ".jpg", MD5: md5, Storage: d.store.DriverName(),
 	}

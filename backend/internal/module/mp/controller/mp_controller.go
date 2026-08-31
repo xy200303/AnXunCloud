@@ -196,6 +196,17 @@ func (ctl *MPController) SaveManualDraft(c *gin.Context) {
 	write(c, data, be)
 }
 
+// SavePhotoItemAbnormalDraft POST /checkin/item-drafts/photo-abnormal（拍照项设备不存在/无法拍摄，落异常草稿）
+func (ctl *MPController) SavePhotoItemAbnormalDraft(c *gin.Context) {
+	var req dto.PhotoItemAbnormalDraftReq
+	if be := bind.JSON(c, &req); be != nil {
+		response.Fail(c, be)
+		return
+	}
+	data, be := ctl.checkin.SavePhotoItemAbnormalDraft(c.Request.Context(), uid(c), &req)
+	write(c, data, be)
+}
+
 // ========== 上传 ==========
 
 // STS POST /upload/sts

@@ -12,6 +12,7 @@ import (
 	"anxuncloud/internal/pkg/logger"
 	"anxuncloud/internal/pkg/pdf"
 	"anxuncloud/internal/pkg/timefmt"
+	"anxuncloud/internal/pkg/uploadfile"
 
 	"go.uber.org/zap"
 )
@@ -240,14 +241,16 @@ func (s *ReportService) pdfData(r *model.InspectionReport) pdf.MonthlyReportData
 			if pt.Type != t {
 				continue
 			}
-			for _, rec := range recsByPoint[pt.ID] {
-				base := pt.Name + "·" + rec.CheckinTime.Format("01-02")
-				for _, ci := range itemsByRec[rec.ID] {
-					for _, key := range ci.Photos {
-						group.Cells = append(group.Cells, pdf.PhotoCell{Label: base + "·" + ci.Name, Key: key})
+		for _, rec := range recsByPoint[pt.ID] {
+			base := pt.Name + "·" + rec.CheckinTime.Format("01-02")
+			for _, ci := range itemsByRec[rec.ID] {
+				for _, ref := range ci.Photos {
+					if f, err := uploadfile.ByID(s.db, ref); err == nil {
+						group.Cells = append(group.Cells, pdf.PhotoCell{Label: base + "·" + ci.Name, Key: f.ID})
 					}
 				}
 			}
+		}
 		}
 		if len(group.Cells) > photoGroupMaxCells {
 			group.Cells = group.Cells[:photoGroupMaxCells]
@@ -271,7 +274,11 @@ func (s *ReportService) pdfData(r *model.InspectionReport) pdf.MonthlyReportData
 		}
 		// 问题照片：逐项照片（v21 起照片唯一归属逐项）
 		for _, ci := range itemsByRec[rec.ID] {
-			row.ProblemPhotos = append(row.ProblemPhotos, ci.Photos...)
+			for _, ref := range ci.Photos {
+				if f, err := uploadfile.ByID(s.db, ref); err == nil {
+					row.ProblemPhotos = append(row.ProblemPhotos, f.ID)
+				}
+			}
 		}
 		// 处理情况列：异常打卡的复核结论（无整改闭环流程后以此替代）
 		row.FixText = auditStatusCN(rec.AuditStatus)

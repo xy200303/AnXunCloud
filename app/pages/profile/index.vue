@@ -173,7 +173,7 @@ export default {
           apiUploadLocal(path, 'avatar')
             .then((up) => {
               const u = useAuthStore().userInfo
-              return apiUpdateProfile(u != null ? u.name : '', u != null ? u.phone : '', undefined, up.file_key)
+              return apiUpdateProfile(u != null ? u.name : '', u != null ? u.phone : '', undefined, up.file_id)
             })
             .then(() => useAuthStore().fetchProfile())
             .then(() => {
@@ -205,7 +205,7 @@ export default {
       apiUploadLocal(filePath, 'signature')
         .then((up) => {
           const u = useAuthStore().userInfo
-          return apiUpdateProfile(u != null ? u.name : '', u != null ? u.phone : '', up.file_key)
+          return apiUpdateProfile(u != null ? u.name : '', u != null ? u.phone : '', up.file_id)
         })
         .then(() => useAuthStore().fetchProfile())
         .then(() => {

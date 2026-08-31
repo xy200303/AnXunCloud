@@ -19,6 +19,7 @@ import (
 	"anxuncloud/internal/pkg/errs"
 	"anxuncloud/internal/pkg/exifutil"
 	"anxuncloud/internal/pkg/storage"
+	"anxuncloud/internal/pkg/uploadfile"
 )
 
 // FileService 统一文件服务。
@@ -87,14 +88,14 @@ func (s *FileService) Upload(c *gin.Context, scene, filename string, size int64,
 		exifTime = exifutil.ReadShotTimeBytes(data)
 	}
 	rec := sysmodel.UploadFile{
-		FileKey: key, Scene: scene, UserID: uid,
+		StorageKey: key, Scene: scene, UserID: uid,
 		MimeType: mime, URL: url, ExifTime: exifTime,
 		Name: filepath.Base(filename), MD5: md5, Storage: s.store.DriverName(),
 	}
 	if err := s.db.Create(&rec).Error; err != nil {
 		return nil, errs.ErrInternal
 	}
-	return gin.H{"file_key": key, "url": url, "name": rec.Name, "md5": rec.MD5}, nil
+	return gin.H{"file_id": rec.ID, "url": url, "name": rec.Name, "md5": rec.MD5}, nil
 }
 
 // Download 统一下载/预览：查元数据 → scene 权限 → local 流式返回（原始文件名）/ 云存储 302。
@@ -104,27 +105,28 @@ func (s *FileService) Download(c *gin.Context, key string) (data []byte, redirec
 	if key == "" || strings.Contains(key, "..") {
 		return nil, "", "", "", errs.ErrNotFound
 	}
-	var rec sysmodel.UploadFile
-	if err := s.db.Where("file_key = ?", key).First(&rec).Error; err != nil {
+	rec, err := uploadfile.ByRef(s.db, key)
+	if err != nil {
 		// 兼容未登记的历史文件：按扩展名推断，仍走 scene 前缀判定
-		rec = sysmodel.UploadFile{FileKey: key, Scene: sceneOfKey(key), Name: filepath.Base(key)}
+		rec = sysmodel.UploadFile{StorageKey: key, Scene: sceneOfKey(key), Name: filepath.Base(key)}
 	}
 	if be := s.checkRead(c, &rec); be != nil {
 		return nil, "", "", "", be
 	}
 	mime = rec.MimeType
 	if mime == "" {
-		mime = mimeByExt(strings.TrimPrefix(strings.ToLower(filepath.Ext(key)), "."))
+	mime = mimeByExt(strings.TrimPrefix(strings.ToLower(filepath.Ext(rec.StorageKey)), "."))
 	}
+	fileKey := rec.StorageKey
 	if s.store.IsLocal() {
-		data, err := s.store.ReadFile(key)
+		data, err := s.store.ReadFile(fileKey)
 		if err != nil {
 			return nil, "", "", "", errs.ErrNotFound
 		}
 		return data, "", rec.Name, mime, nil
 	}
 	// 云存储：重定向到对象访问地址（后续接 COS 签名 URL 在此扩展）
-	return nil, s.store.URL(key), rec.Name, mime, nil
+	return nil, s.store.URL(fileKey), rec.Name, mime, nil
 }
 
 // sceneOfKey 从 file_key 第一段推断 scene（兼容未登记记录）。
@@ -160,7 +162,7 @@ func (s *FileService) checkRead(c *gin.Context, rec *sysmodel.UploadFile) *errs.
 	switch rec.Scene {
 	case "export":
 		sub := ""
-		parts := strings.Split(rec.FileKey, "/")
+		parts := strings.Split(rec.StorageKey, "/")
 		if len(parts) > 1 {
 			sub = parts[1]
 		}

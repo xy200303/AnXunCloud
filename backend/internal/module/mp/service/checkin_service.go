@@ -24,6 +24,7 @@ import (
 	"anxuncloud/internal/pkg/logger"
 	"anxuncloud/internal/pkg/notify"
 	"anxuncloud/internal/pkg/storage"
+	"anxuncloud/internal/pkg/uploadfile"
 	"anxuncloud/internal/pkg/timefmt"
 	"anxuncloud/internal/pkg/types"
 	"anxuncloud/internal/pkg/watermark"
@@ -189,7 +190,7 @@ func (s *CheckinService) doCheckinLocked(ctx context.Context, inspectorID string
 		return nil, nil, be
 	}
 	// ④ 检查项模板与逐项照片：模板每项都必须有提交结果（按 name 匹配）并生成逐项快照行；
-	// 必拍约束（模板 required 项/不合格项 ≥1 张）与 file_key 上传确认（43104 / 43106）在逐项内完成；
+	// 必拍约束（模板 required 项/不合格项 ≥1 张）与 file_id 上传确认（43104 / 43106）在逐项内完成；
 	// 返回 upload_file 索引（EXIF 判定/水印/AI 输入共用）。照片唯一归属逐项，无记录级照片。
 	checkItems, uploadFiles, be := s.resolveCheckItems(req, &point, inspectorID)
 	if be != nil {
@@ -551,7 +552,7 @@ func normalizeQRCode(v string) string {
 // resolveCheckItems 检查项模板校验并生成逐项快照行（v18 起写 checkin_record_item）：
 // 点位必须已绑定模板（v21 起强制，无模板概念已消除）；模板每项都必须有提交结果（按 name 匹配）；
 // 逐项照片硬约束（一项一图）：每项最多 1 张；不合格项（pass=false）与模板 photo_required=required 的项须恰好 1 张，
-// file_key 逐一上传确认（43104/43106）；照片唯一归属逐项，无记录级照片。
+// file_id 逐一上传确认（43104/43106）；照片唯一归属逐项，无记录级照片。
 // 返回逐项快照行 + upload_file 索引（EXIF 判定/AI 输入/水印共用）；
 // name/requirement/ai_hint/photo_required 打卡当时从模板项复制。
 func (s *CheckinService) resolveCheckItems(req *dto.CheckinReq, point *insmodel.InspectionPoint, ownerID string) ([]insmodel.CheckinRecordItem, map[string]sysmodel.UploadFile, *errs.Error) {
@@ -597,19 +598,22 @@ func (s *CheckinService) resolveCheckItems(req *dto.CheckinReq, point *insmodel.
 		if ti.PhotoRequired == types.PhotoReqRequired && len(it.Photos) == 0 {
 			return nil, nil, errs.ErrPhotoMissing.WithMsg("检查项「" + it.Name + "」要求必拍，须至少上传 1 张该项照片")
 		}
-		for _, key := range it.Photos {
-			if _, ok := files[key]; ok {
+		photoIDs := make([]string, 0, len(it.Photos))
+		for _, ref := range it.Photos {
+			if _, ok := files[ref]; ok {
+				photoIDs = append(photoIDs, ref)
 				continue
 			}
-			var f sysmodel.UploadFile
-			if err := s.db.Where("file_key = ? AND user_id = ?", key, ownerID).First(&f).Error; err != nil {
+			f, err := uploadfile.ByID(s.db, ref)
+			if err != nil || f.UserID != ownerID {
 				return nil, nil, errs.ErrPhotoNotUploaded
 			}
-			files[key] = f
+			files[f.ID] = f
+			photoIDs = append(photoIDs, f.ID)
 		}
 		items = append(items, insmodel.CheckinRecordItem{
 			Name: it.Name, Pass: it.Pass, Note: it.Note,
-			Photos: types.StringArray(it.Photos), PhotoRequired: ti.PhotoRequired,
+			Photos: types.StringArray(photoIDs), PhotoRequired: ti.PhotoRequired,
 			Requirement: ti.Requirement, AIHint: ti.AIHint,
 			JudgeType: ti.JudgeType, JudgeConfig: ti.JudgeConfig, Sort: i,
 		})
@@ -656,30 +660,36 @@ func (s *CheckinService) applyWatermarks(rec *insmodel.CheckinRecord, point *ins
 	}
 	seen := map[string]bool{}
 	for _, it := range items {
-		for _, key := range it.Photos {
-			if seen[key] {
+		for _, ref := range it.Photos {
+			if seen[ref] {
 				continue // 同一文件被多个项引用时只烧一次
 			}
-			seen[key] = true
-			wmKey := strings.TrimSuffix(key, ".jpg") + "_wm.jpg"
-			if key == wmKey {
-				wmKey = key + "_wm.jpg"
-			}
-			data, err := s.store.ReadFile(key)
+			seen[ref] = true
+			f, err := uploadfile.ByID(s.db, ref)
 			if err != nil {
-				logger.L.Warn("水印读取原图失败", zap.String("key", key), zap.Error(err))
+				logger.L.Warn("水印文件记录不存在", zap.String("ref", ref), zap.Error(err))
+				continue
+			}
+			fileKey := f.StorageKey
+			wmKey := strings.TrimSuffix(fileKey, ".jpg") + "_wm.jpg"
+			if fileKey == wmKey {
+				wmKey = fileKey + "_wm.jpg"
+			}
+			data, err := s.store.ReadFile(fileKey)
+			if err != nil {
+				logger.L.Warn("水印读取原图失败", zap.String("key", fileKey), zap.Error(err))
 				continue
 			}
 			out, err := watermark.DrawBytes(data, "", lines)
 			if err != nil {
-				logger.L.Warn("水印生成失败", zap.String("key", key), zap.Error(err))
+				logger.L.Warn("水印生成失败", zap.String("key", fileKey), zap.Error(err))
 				continue
 			}
 			if err := s.store.PutBytes(wmKey, out); err != nil {
 				logger.L.Warn("水印写回失败", zap.String("key", wmKey), zap.Error(err))
 				continue
 			}
-			s.db.Model(&sysmodel.UploadFile{}).Where("file_key = ?", key).
+			s.db.Model(&sysmodel.UploadFile{}).Where("id = ?", f.ID).
 				Update("watermarked_url", s.store.URL(wmKey))
 		}
 	}
@@ -760,7 +770,7 @@ func writeItemVerdicts(db *gorm.DB, recID string, items []ai.ItemVerdict) {
 	}
 }
 
-// itemPhotoRefs 逐项照片（file_key → 可访问 URL）+ 标准要求/AI 识别要点，供大模型逐项核对；
+// itemPhotoRefs 逐项照片（file_id → 可访问 URL）+ 标准要求/AI 识别要点，供大模型逐项核对；
 // 无逐项照片且无判定元数据的项不透出（无图可判）。
 func (s *CheckinService) itemPhotoRefs(items []insmodel.CheckinRecordItem) []ai.ItemPhoto {
 	var out []ai.ItemPhoto
@@ -775,8 +785,10 @@ func (s *CheckinService) itemPhotoRefs(items []insmodel.CheckinRecordItem) []ai.
 			continue
 		}
 		refs := make([]ai.PhotoRef, 0, len(it.Photos))
-		for _, key := range it.Photos {
-			refs = append(refs, ai.PhotoRef{URL: s.store.URL(key)})
+		for _, ref := range it.Photos {
+			if f, err := uploadfile.ByID(s.db, ref); err == nil {
+				refs = append(refs, ai.PhotoRef{URL: f.URL})
+			}
 		}
 		out = append(out, ai.ItemPhoto{
 			Name: it.Name, Requirement: strVal(it.Requirement), AIHint: strVal(it.AIHint),

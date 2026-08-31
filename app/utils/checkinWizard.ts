@@ -14,8 +14,10 @@ export type WizardItemSnap = {
   judge_type: string
   /** 照片展示地址（上传成功后的服务端 URL；本地临时路径仅即时预览，重启后可能失效） */
   photos: string[]
-  /** 已上传的 file_key（与 photos 一一对应） */
-  file_keys: string[]
+  /** 已上传的 upload_file.id（与 photos 一一对应） */
+  file_ids: string[]
+  /** 最近一张照片的 upload_file.id */
+  file_id?: string
   /** AI 识别 job（拍照项提交后轮询用） */
   job_id: string
   /** todo 待拍 / recognizing 识别中 / done 已有结论 / failed 失败（回退待拍） */

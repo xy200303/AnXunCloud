@@ -246,13 +246,13 @@ func writeExcel(c *gin.Context, filename string, data []byte) {
 	c.Data(200, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", data)
 }
 
-// UpdateProfile PUT /system/users/profile（登录即可）：修改本人基本资料（可选签名图 file_key、头像 URL），返回最新用户信息。
+// UpdateProfile PUT /system/users/profile（登录即可）：修改本人基本资料（可选签名图 file_id、头像 URL），返回最新用户信息。
 func (ctl *UserController) UpdateProfile(c *gin.Context) {
 	var req struct {
 		Name  string `json:"name" binding:"required"`
 		Phone string `json:"phone" binding:"required"`
-		// 手写签名图 file_key：缺省不改动；空串删除签名
-		SignatureFileKey *string `json:"signature_file_key"`
+		// 手写签名图 file_id：缺省不改动；空串删除签名
+		SignatureFileID *string `json:"signature_file_id"`
 		// 头像 URL：缺省不改动；空串清除头像
 		Avatar *string `json:"avatar"`
 	}
@@ -261,7 +261,7 @@ func (ctl *UserController) UpdateProfile(c *gin.Context) {
 		return
 	}
 	uid := middleware.CurrentUserID(c)
-	if be := ctl.svc.UpdateProfile(uid, req.Name, req.Phone, req.SignatureFileKey, req.Avatar); be != nil {
+	if be := ctl.svc.UpdateProfile(uid, req.Name, req.Phone, req.SignatureFileID, req.Avatar); be != nil {
 		response.Fail(c, be)
 		return
 	}

@@ -32,7 +32,7 @@ type SignReq struct {
 	Remark           string `json:"remark"`
 	Action           string `json:"action" binding:"required,oneof=approve reject"`
 	Reason           string `json:"reason"`
-	SignatureFileKey string `json:"signature_file_key"`
+	SignatureFileID string `json:"signature_file_id"`
 }
 
 // InspectorSignReq 巡检员确认请求：空 body 为本人确认；proxy_for 非空为代签（须 report:sign:proxy 权限，reason 必填）。
@@ -40,5 +40,5 @@ type SignReq struct {
 type InspectorSignReq struct {
 	ProxyFor         string `json:"proxy_for"`
 	Reason           string `json:"reason"`
-	SignatureFileKey string `json:"signature_file_key"`
+	SignatureFileID string `json:"signature_file_id"`
 }

@@ -113,14 +113,14 @@ func (s *UploadService) SaveLocal(userID string, scene, filename string, size in
 		exifTime = exifutil.ReadShotTimeBytes(data)
 	}
 	rec := sysmodel.UploadFile{
-		TenantID: s.userTenantID(userID), FileKey: key, Scene: scene, UserID: userID,
+		TenantID: s.userTenantID(userID), StorageKey: key, Scene: scene, UserID: userID,
 		MimeType: "image/" + ext, URL: url, ExifTime: exifTime,
 		Name: filepath.Base(filename), MD5: md5, Storage: s.store.DriverName(),
 	}
 	if err := s.db.Create(&rec).Error; err != nil {
 		return nil, errs.ErrInternal
 	}
-	return gin.H{"file_key": key, "url": url}, nil
+	return gin.H{"file_id": rec.ID, "url": url}, nil
 }
 
 // SaveAdminLocal 管理端本地上传（/api/admin/system/upload）：签名/公章/头像/公告附件。
@@ -152,14 +152,14 @@ func (s *UploadService) SaveAdminLocal(userID string, scene, filename string, si
 		mime = "application/octet-stream"
 	}
 	rec := sysmodel.UploadFile{
-		TenantID: s.userTenantID(userID), FileKey: key, Scene: scene, UserID: userID,
+		TenantID: s.userTenantID(userID), StorageKey: key, Scene: scene, UserID: userID,
 		MimeType: mime, URL: url,
 		Name: filepath.Base(filename), MD5: md5, Storage: s.store.DriverName(),
 	}
 	if err := s.db.Create(&rec).Error; err != nil {
 		return nil, errs.ErrInternal
 	}
-	return gin.H{"file_key": key, "url": url}, nil
+	return gin.H{"file_id": rec.ID, "url": url}, nil
 }
 
 // noticeImageExts 公告附件中按图片处理的扩展名（App 端缩略图预览）。
@@ -227,11 +227,11 @@ func (s *UploadService) Callback(c *gin.Context, body []byte) (int, any) {
 	}
 	// 幂等：同一 object 重复回调直接 OK
 	var count int64
-	s.db.Model(&sysmodel.UploadFile{}).Where("file_key = ?", form.Object).Count(&count)
+	s.db.Model(&sysmodel.UploadFile{}).Where("storage_key = ?", form.Object).Count(&count)
 	if count == 0 {
 		tenantID := user.TenantID
 		rec := sysmodel.UploadFile{
-			TenantID: &tenantID, FileKey: form.Object, Scene: form.Scene, UserID: form.UID,
+			TenantID: &tenantID, StorageKey: form.Object, Scene: form.Scene, UserID: form.UID,
 			MimeType: form.MimeType, URL: s.store.URL(form.Object),
 			Name: filepath.Base(form.Name), MD5: strings.Trim(form.ETag, `"`), Storage: s.store.DriverName(),
 		}

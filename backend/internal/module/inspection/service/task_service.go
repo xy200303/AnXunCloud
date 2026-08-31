@@ -381,7 +381,7 @@ func checkinBrief(db *gorm.DB, ck *model.CheckinRecord) gin.H {
 	}
 }
 
-// briefItemViews 任务明细内嵌的逐项结果（photos 为 file_key，结构同旧 JSONB 快照；requirement 可空）。
+// briefItemViews 任务明细内嵌的逐项结果（photos 为 file_id；requirement 可空）。
 func briefItemViews(db *gorm.DB, recordID string) []gin.H {
 	var items []model.CheckinRecordItem
 	db.Where("record_id = ?", recordID).Order("sort ASC").Find(&items)
@@ -553,7 +553,7 @@ func (s *TaskService) CheckinDetail(c *gin.Context, id string) (gin.H, *errs.Err
 			"exif_check": exifCheck(&r, exif, s.cfgInt("inspection.exif_deviation_seconds", 300)),
 		})
 	}
-	// 逐项结果带照片 URL（photos 存 file_key；优先水印图）；v18 起读 checkin_record_item 快照表
+		// 逐项结果带照片 URL（photos 存 file_id；优先水印图）；v18 起读 checkin_record_item 快照表
 	var recItems []model.CheckinRecordItem
 	s.db.Where("record_id = ?", r.ID).Order("sort ASC").Find(&recItems)
 	checkItems := make([]gin.H, 0, len(recItems))

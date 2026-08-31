@@ -404,7 +404,7 @@ type CheckinRecordItem struct {
 	PhotoRequired string        `gorm:"size:16" json:"photo_required"` // none/optional/required
 	Pass          bool          `json:"pass"`
 	Note          string        `gorm:"size:512" json:"note"`
-	// Photos 该项照片 file_key 数组（JSONB，不再拆表）
+	// Photos 该项照片 file_id 数组（JSONB，不再拆表）
 	Photos types.StringArray `gorm:"type:jsonb" json:"photos"`
 	// AIVerdict/AIReason 逐项大模型结论（模型未返回逐项结论时为空）
 	AIVerdict *string `gorm:"size:16" json:"ai_verdict"`
@@ -436,7 +436,7 @@ type CheckinItemDraft struct {
 	CommunityID  string            `gorm:"type:uuid" json:"community_id"`
 	ItemName     string            `gorm:"size:128" json:"item_name"`
 	JobID        string            `gorm:"size:64" json:"job_id"` // 识别队列 job（pending 恢复轮询用）
-	FileKeys     types.StringArray `gorm:"type:jsonb" json:"file_keys"`
+	FileIDs      types.StringArray `gorm:"column:file_ids;type:jsonb" json:"file_ids"`
 	AIStatus     string            `gorm:"size:16" json:"ai_status"`
 	AIVerdict    *string           `gorm:"size:16" json:"ai_verdict"`
 	AIReason     *string           `gorm:"size:512" json:"ai_reason"`

@@ -31,6 +31,7 @@ import (
 	"anxuncloud/internal/pkg/storage"
 	"anxuncloud/internal/pkg/timefmt"
 	"anxuncloud/internal/pkg/types"
+	"anxuncloud/internal/pkg/uploadfile"
 
 	"go.uber.org/zap"
 )
@@ -296,7 +297,7 @@ func (s *ReportService) collectRecords(communityID string, start, end time.Time,
 			"result":         rec.Result,
 			"is_suspect":     rec.IsSuspect,
 			"audit_status":   rec.AuditStatus,
-			"photo_keys":     photoKeys,
+			"photo_ids":      photoKeys,
 		})
 	}
 	return rows
@@ -315,7 +316,7 @@ func statsRecords(st types.JSONMap) ([]gin.H, bool) {
 			continue
 		}
 		keys := []string{}
-		switch arr := m["photo_keys"].(type) {
+		switch arr := m["photo_ids"].(type) {
 		case []any:
 			for _, k := range arr {
 				keys = append(keys, fmt.Sprint(k))
@@ -332,7 +333,7 @@ func statsRecords(st types.JSONMap) ([]gin.H, bool) {
 			"result":         fmt.Sprint(m["result"]),
 			"is_suspect":     m["is_suspect"] == true,
 			"audit_status":   fmt.Sprint(m["audit_status"]),
-			"photo_keys":     keys,
+			"photo_ids":      keys,
 		})
 	}
 	return rows, true
@@ -350,14 +351,23 @@ func (s *ReportService) reportRecords(r *model.InspectionReport) []gin.H {
 	return s.collectRecords(r.CommunityID, start, end, r.PatrolType)
 }
 
-// recordsWithURLs 明细行 photo_keys 转 photos[{url}]，供详情接口输出。
+// recordsWithURLs 明细行 photo_ids 转 photos[{file_id,file_key,url}]，供详情接口输出。
 func (s *ReportService) recordsWithURLs(rows []gin.H) []gin.H {
 	out := make([]gin.H, 0, len(rows))
 	for _, row := range rows {
-		keys, _ := row["photo_keys"].([]string)
+		keys, _ := row["photo_ids"].([]string)
 		photos := make([]gin.H, 0, len(keys))
+		files := uploadfile.ByIDs(s.db, keys)
 		for _, k := range keys {
-			photos = append(photos, gin.H{"url": s.store.URL(k)})
+			f, ok := files[k]
+			if !ok {
+				continue
+			}
+			url := f.URL
+			if f.WatermarkedURL != "" {
+				url = f.WatermarkedURL
+			}
+			photos = append(photos, gin.H{"file_id": f.ID, "url": url})
 		}
 		out = append(out, gin.H{
 			"checkin_time":   row["checkin_time"],
@@ -817,7 +827,7 @@ func (s *ReportService) SignInspector(c *gin.Context, id string, req *dto.Inspec
 	if proxy == nil {
 		sigUID = targetUID
 	}
-	sigKey, sigAssetID, sbe := s.resolveSignKey(sigUID, req.SignatureFileKey)
+	sigKey, sigAssetID, sbe := s.resolveSignKey(sigUID, req.SignatureFileID)
 	if sbe != nil {
 		return nil, sbe
 	}
@@ -924,7 +934,7 @@ func (s *ReportService) sign(c *gin.Context, id string, req *dto.SignReq, expect
 	}
 
 	// 手写签名前置：优先已配置签名，否则用随请求提交的一次性签名文件；都没有则不允许通过签字
-	sigKey, _, sbe := s.resolveSignKey(identity.UserID, req.SignatureFileKey)
+	sigKey, _, sbe := s.resolveSignKey(identity.UserID, req.SignatureFileID)
 	if sbe != nil {
 		return nil, sbe
 	}
@@ -1060,6 +1070,9 @@ func (s *ReportService) PDFByTicket(c *gin.Context, id string, ticket string) ([
 
 // loadPhoto 按 file_key 读取照片字节与图片类型（local 读本地文件；云存储 HTTP 下载）。
 func (s *ReportService) loadPhoto(fileKey string) ([]byte, string, error) {
+	if f, err := uploadfile.ByRef(s.db, fileKey); err == nil {
+		fileKey = f.StorageKey
+	}
 	var imgType string
 	switch strings.ToLower(filepath.Ext(fileKey)) {
 	case ".jpg", ".jpeg":
@@ -1233,7 +1246,7 @@ func (s *ReportService) resolveSignKey(uid, reqKey string) (sigKey, assetID stri
 	if sigKey == "" && reqKey != "" {
 		var cnt int64
 		s.db.Model(&sysmodel.UploadFile{}).
-			Where("file_key = ? AND scene = ? AND user_id = ?", reqKey, "signature", uid).Count(&cnt)
+			Where("id = ? AND scene = ? AND user_id = ?", reqKey, "signature", uid).Count(&cnt)
 		if cnt > 0 {
 			return reqKey, "", nil
 		}

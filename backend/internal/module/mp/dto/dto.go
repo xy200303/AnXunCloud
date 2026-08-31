@@ -17,7 +17,7 @@ type CheckinItemReq struct {
 	Name string `json:"name" binding:"required"`
 	Pass bool   `json:"pass"`
 	Note string `json:"note"`
-	// Photos 该项照片 file_key（一项一图硬约束：最多 1 张；不合格项与模板 required 项强制恰好 1 张）
+	// Photos 该项照片 file_id（一项一图硬约束：最多 1 张；不合格项与模板 required 项强制恰好 1 张）
 	Photos []string `json:"photos" binding:"omitempty,max=1"`
 	// AIVerdict/AIReason/AIReading 逐项 AI 识别确认提交（ai_confirmed=true）时带回的结论（均可空）
 	AIVerdict string `json:"ai_verdict"`
@@ -53,7 +53,7 @@ type AIItemJobReq struct {
 	TaskID   string   `json:"task_id" binding:"required"`
 	PointID  string   `json:"point_id" binding:"required"`
 	Name     string   `json:"name" binding:"required"`                 // 检查项名（须属于该点位模板项）
-	FileKeys []string `json:"file_keys" binding:"required,len=1"`      // 该项照片 file_key（一项一图硬约束）
+	FileIDs []string `json:"file_ids" binding:"required,len=1"`
 }
 
 // ManualItemDraftReq 手动确认项（感官项）选择落云端草稿：选择即保存，断点恢复以服务端为准。
@@ -63,6 +63,15 @@ type ManualItemDraftReq struct {
 	Name    string `json:"name" binding:"required"` // 检查项名（须为该点位模板的手动项）
 	Pass    bool   `json:"pass"`
 	Note    string `json:"note"`
+}
+
+// PhotoItemAbnormalDraftReq 拍照项异常逃生入口：设备不存在/无法拍摄时，拍照佐证后直接落异常草稿。
+type PhotoItemAbnormalDraftReq struct {
+	TaskID   string   `json:"task_id" binding:"required"`
+	PointID  string   `json:"point_id" binding:"required"`
+	Name     string   `json:"name" binding:"required"` // 检查项名（须为该点位模板的拍照项）
+	FileIDs []string `json:"file_ids" binding:"required,len=1"`
+	Note     string   `json:"note"`
 }
 
 type OfflineSyncReq struct {

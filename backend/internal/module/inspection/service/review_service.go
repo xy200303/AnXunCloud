@@ -24,6 +24,7 @@ import (
 	"anxuncloud/internal/pkg/storage"
 	"anxuncloud/internal/pkg/timefmt"
 	"anxuncloud/internal/pkg/types"
+	"anxuncloud/internal/pkg/uploadfile"
 )
 
 // spotcheckLimit 单次抽查抽取上限（防呆）。
@@ -36,7 +37,7 @@ const spotcheckAILimit = 50
 type ReviewService struct {
 	db       *gorm.DB
 	aiCli    *ai.Client
-	store    *storage.Storage // 可空；逐项照片 file_key 转 URL 用
+	store    *storage.Storage // 可空；逐项照片 file_id 转 URL 用
 	notifier *notify.Notifier
 }
 
@@ -476,7 +477,7 @@ func (s *ReviewService) spotcheckAI(c *gin.Context, req *dto.SpotcheckReq) (gin.
 	return gin.H{"picked": picked, "to_review": toReview, "passed": passed, "failed": failed}, nil
 }
 
-// checkItemViews 逐项结果视图（v18 起读 checkin_record_item 快照表）：附带该项照片可访问 URL（photos 存 file_key，优先水印图）。
+// checkItemViews 逐项结果视图（v18 起读 checkin_record_item 快照表）：附带该项照片可访问 URL（photos 存 file_id，优先水印图）。
 func (s *ReviewService) checkItemViews(recordID string) []gin.H {
 	var items []model.CheckinRecordItem
 	s.db.Where("record_id = ?", recordID).Order("sort ASC").Find(&items)
@@ -510,8 +511,10 @@ func (s *ReviewService) reviewInputOf(r *model.CheckinRecord) ai.ReviewInput {
 				continue
 			}
 			irefs := make([]ai.PhotoRef, 0, len(it.Photos))
-			for _, key := range it.Photos {
-				irefs = append(irefs, ai.PhotoRef{URL: s.store.URL(key)})
+			for _, ref := range it.Photos {
+				if f, err := uploadfile.ByID(s.db, ref); err == nil {
+					irefs = append(irefs, ai.PhotoRef{URL: f.URL})
+				}
 			}
 			itemPhotos = append(itemPhotos, ai.ItemPhoto{
 				Name: it.Name, Requirement: strVal(it.Requirement), AIHint: strVal(it.AIHint),

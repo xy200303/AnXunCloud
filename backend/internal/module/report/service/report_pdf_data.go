@@ -28,6 +28,7 @@ func (s *ReportService) pdfData(r *model.InspectionReport) pdf.MonthlyReportData
 	d := pdf.MonthlyReportData{
 		CommunityName: s.commName(r.CommunityID),
 		Period:        r.Period,
+		FireTemplate:  r.PatrolType == "fire",
 		CompanyName:   s.cfgString("report.company_name"),
 		Approved:      r.Status == model.StatusApproved,
 		ImageLoader: func(key string) ([]byte, string, error) {
@@ -169,7 +170,7 @@ func (s *ReportService) pdfData(r *model.InspectionReport) pdf.MonthlyReportData
 			continue
 		}
 		items := s.templateItems(pts, tplCache)
-		dt := pdf.DetailTable{TypeName: typeNames.label(t), Items: items}
+		dt := pdf.DetailTable{TypeName: typeNames.label(t), TypeCode: t, Items: items}
 		if len(items) > 0 {
 			dt.Note = "注：检查标准：" + strings.Join(items, "；") + "。"
 		}
@@ -241,16 +242,16 @@ func (s *ReportService) pdfData(r *model.InspectionReport) pdf.MonthlyReportData
 			if pt.Type != t {
 				continue
 			}
-		for _, rec := range recsByPoint[pt.ID] {
-			base := pt.Name + "·" + rec.CheckinTime.Format("01-02")
-			for _, ci := range itemsByRec[rec.ID] {
-				for _, ref := range ci.Photos {
-					if f, err := uploadfile.ByID(s.db, ref); err == nil {
-						group.Cells = append(group.Cells, pdf.PhotoCell{Label: base + "·" + ci.Name, Key: f.ID})
+			for _, rec := range recsByPoint[pt.ID] {
+				base := pt.Name + "·" + rec.CheckinTime.Format("01-02")
+				for _, ci := range itemsByRec[rec.ID] {
+					for _, ref := range ci.Photos {
+						if f, err := uploadfile.ByID(s.db, ref); err == nil {
+							group.Cells = append(group.Cells, pdf.PhotoCell{Label: base + "·" + ci.Name, Key: f.ID})
+						}
 					}
 				}
 			}
-		}
 		}
 		if len(group.Cells) > photoGroupMaxCells {
 			group.Cells = group.Cells[:photoGroupMaxCells]

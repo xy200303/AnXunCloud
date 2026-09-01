@@ -480,7 +480,7 @@ func (s *ReportService) List(c *gin.Context, q *dto.ReportListQuery) (*response.
 			"inspector_signed_count": len(r.InspectorSigned),
 			"supervisor_name":        s.userNamePtr(r.SupervisorBy),
 			"manager_name":           s.userNamePtr(r.ManagerBy),
-			"has_file":               r.FileKey != "",
+			"has_file":               r.FileID != "",
 			"created_at":             timefmt.T(r.CreatedAt),
 			"updated_at":             timefmt.T(r.UpdatedAt),
 		})
@@ -519,12 +519,10 @@ func (s *ReportService) Detail(c *gin.Context, id string) (gin.H, *errs.Error) {
 		inspectors = append(inspectors, entry)
 	}
 	var fileURL any
-	fileID := ""
-	if r.FileKey != "" {
-		fileURL = s.store.URL(r.FileKey)
-		var f sysmodel.UploadFile
-		if s.db.Where("storage_key = ?", r.FileKey).First(&f).Error == nil {
-			fileID = f.ID
+	fileID := r.FileID
+	if r.FileID != "" {
+		if f, ferr := uploadfile.ByID(s.db, r.FileID); ferr == nil {
+			fileURL = s.store.URL(f.StorageKey)
 		}
 	}
 	return gin.H{
@@ -544,12 +542,12 @@ func (s *ReportService) Detail(c *gin.Context, id string) (gin.H, *errs.Error) {
 		"supervisor_name":          s.userNamePtr(r.SupervisorBy),
 		"supervisor_at":            timefmt.TP(r.SupervisorAt),
 		"supervisor_remark":        r.SupervisorRemark,
-		"supervisor_signature_url": s.sigURL(r.SupervisorSignatureKey),
+		"supervisor_signature_url": s.sigURL(r.SupervisorSignatureID),
 		"manager_by":               r.ManagerBy,
 		"manager_name":             s.userNamePtr(r.ManagerBy),
 		"manager_at":               timefmt.TP(r.ManagerAt),
 		"manager_remark":           r.ManagerRemark,
-		"manager_signature_url":    s.sigURL(r.ManagerSignatureKey),
+		"manager_signature_url":    s.sigURL(r.ManagerSignatureID),
 		"reject_reason":            r.RejectReason,
 		"file_id":                  fileID,
 		"file_url":                 fileURL,
@@ -659,10 +657,10 @@ func (s *ReportService) createReport(communityID, patrolType string, start, end 
 			"inspector_signed": types.SignArray{},
 			"supervisor_ids":   supervisorIDs, "manager_ids": managerIDs,
 			"supervisor_by": nil, "supervisor_at": nil, "supervisor_remark": "",
-			"supervisor_signature_key": "",
+			"supervisor_signature_id": "",
 			"manager_by":               nil, "manager_at": nil, "manager_remark": "",
-			"manager_signature_key": "",
-			"reject_reason":         "", "file_key": "", "seal_file_key": "",
+			"manager_signature_id": "",
+			"reject_reason":         "", "file_key": "", "seal_file_id": "",
 		}
 		if err := s.db.Model(&r).Updates(updates).Error; err != nil {
 			return nil, errs.ErrInternal
@@ -954,7 +952,7 @@ func (s *ReportService) sign(c *gin.Context, id string, req *dto.SignReq, expect
 			"inspector_signed": types.SignArray{},
 			"reject_reason":    req.Reason,
 			"supervisor_by":    nil, "supervisor_at": nil, "supervisor_remark": "",
-			"supervisor_signature_key": "",
+			"supervisor_signature_id": "",
 		}
 		if err := s.db.Model(r).Updates(updates).Error; err != nil {
 			return nil, errs.ErrInternal
@@ -977,14 +975,14 @@ func (s *ReportService) sign(c *gin.Context, id string, req *dto.SignReq, expect
 	case model.StatusPendingSupervisor:
 		updates := map[string]any{
 			"supervisor_by": identity.UserID, "supervisor_at": now, "supervisor_remark": req.Remark,
-			"supervisor_signature_key": sigKey,
+			"supervisor_signature_id": sigKey,
 		}
 		// 经理级有签字人 → 流转终审并定向通知；无签字人 → 跳过终审直接归档（签字栏留空）
 		if len(r.ManagerIDs) > 0 {
 			updates["status"] = model.StatusPendingManager
 		} else {
 			updates["status"] = model.StatusApproved
-			updates["seal_file_key"] = s.activeSealKey(r.CommunityID)
+			updates["seal_file_key"] = s.activeSealID(r.CommunityID)
 		}
 		if err := s.db.Model(r).Updates(updates).Error; err != nil {
 			return nil, errs.ErrInternal
@@ -1002,9 +1000,9 @@ func (s *ReportService) sign(c *gin.Context, id string, req *dto.SignReq, expect
 		updates := map[string]any{
 			"status":     model.StatusApproved,
 			"manager_by": identity.UserID, "manager_at": now, "manager_remark": req.Remark,
-			"manager_signature_key": sigKey,
+			"manager_signature_id": sigKey,
 			// 公章快照：固化终审时点的 active 公章（按报告小区所属租户取章），后续换章不影响已归档报告
-			"seal_file_key": s.activeSealKey(r.CommunityID),
+			"seal_file_id": s.activeSealID(r.CommunityID),
 		}
 		if err := s.db.Model(r).Updates(updates).Error; err != nil {
 			return nil, errs.ErrInternal
@@ -1050,12 +1048,16 @@ func (s *ReportService) checkPDFAccess(c *gin.Context, r *model.InspectionReport
 // pdfBytes 取报告 PDF 字节：已归档读归档文件（按驱动读取，local 读盘 / 云存储 HTTP），否则即时生成临时版。
 func (s *ReportService) pdfBytes(r *model.InspectionReport) ([]byte, string, *errs.Error) {
 	filename := r.Title + ".pdf"
-	if r.FileKey != "" {
-		data, err := s.store.ReadFile(r.FileKey)
-		if err != nil {
-			logger.L.Warn("月报归档文件读取失败，回退即时生成", zap.String("report_id", r.ID), zap.Error(err))
+	if r.FileID != "" {
+		if f, ferr := uploadfile.ByID(s.db, r.FileID); ferr == nil {
+			data, err := s.store.ReadFile(f.StorageKey)
+			if err != nil {
+				logger.L.Warn("月报归档文件读取失败，回退即时生成", zap.String("report_id", r.ID), zap.Error(err))
+			} else {
+				return data, filename, nil
+			}
 		} else {
-			return data, filename, nil
+			logger.L.Warn("月报归档文件登记缺失，回退即时生成", zap.String("report_id", r.ID), zap.String("file_id", r.FileID))
 		}
 	}
 	data, err := pdf.GenerateMonthly(s.pdfData(r))
@@ -1102,9 +1104,10 @@ func (s *ReportService) PDFByTicket(c *gin.Context, id string, ticket string) ([
 	return s.pdfBytes(&r)
 }
 
-// loadPhoto 按 file_key 读取照片字节与图片类型（local 读本地文件；云存储 HTTP 下载）。
-func (s *ReportService) loadPhoto(fileKey string) ([]byte, string, error) {
-	if f, err := uploadfile.ByRef(s.db, fileKey); err == nil {
+// loadPhoto 按文件 ID 读取照片字节与图片类型（upload_file 解析存储路径；local 读本地文件 / 云存储 HTTP 下载）。
+func (s *ReportService) loadPhoto(fileID string) ([]byte, string, error) {
+	fileKey := fileID
+	if f, err := uploadfile.ByID(s.db, fileID); err == nil {
 		fileKey = f.StorageKey
 	}
 	var imgType string
@@ -1144,22 +1147,24 @@ func (s *ReportService) RebuildPDF(reportID string) error {
 	if err != nil {
 		return err
 	}
-	if s.store.IsLocal() && r.FileKey != "" {
-		if err := os.WriteFile(s.store.LocalPath(r.FileKey), data, 0o644); err != nil {
-			return err
+	if s.store.IsLocal() && r.FileID != "" {
+		if f, ferr := uploadfile.ByID(s.db, r.FileID); ferr == nil {
+			if err := os.WriteFile(s.store.LocalPath(f.StorageKey), data, 0o644); err != nil {
+				return err
+			}
+			logger.L.Info("月报 PDF 重渲染完成", zap.String("report_id", reportID), zap.String("file_id", r.FileID))
+			return nil
 		}
-		logger.L.Info("月报 PDF 重渲染完成", zap.String("report_id", reportID), zap.String("file_key", r.FileKey))
-		return nil
 	}
 	key, url, err := s.store.SaveGenerated("reports", r.Title+".pdf", data)
 	if err != nil {
 		return err
 	}
-	systemsvc.RegisterGeneratedFile(s.db, s.store, r.Title+".pdf", "application/pdf", storage.MD5Hex(data), key, url)
-	if err := s.db.Model(&r).Update("file_key", key).Error; err != nil {
+	fid := systemsvc.RegisterGeneratedFile(s.db, s.store, r.Title+".pdf", "application/pdf", storage.MD5Hex(data), key, url)
+	if err := s.db.Model(&r).Update("file_id", fid).Error; err != nil {
 		return err
 	}
-	logger.L.Info("月报 PDF 重渲染完成", zap.String("report_id", reportID), zap.String("file_key", key))
+	logger.L.Info("月报 PDF 重渲染完成", zap.String("report_id", reportID), zap.String("file_id", fid))
 	return nil
 }
 
@@ -1180,12 +1185,12 @@ func (s *ReportService) archivePDF(reportID string) {
 		logger.L.Warn("月报归档：保存失败", zap.Error(err), zap.String("report_id", reportID))
 		return
 	}
-	systemsvc.RegisterGeneratedFile(s.db, s.store, r.Title+".pdf", "application/pdf", storage.MD5Hex(data), key, url)
-	if err := s.db.Model(&r).Update("file_key", key).Error; err != nil {
-		logger.L.Warn("月报归档：回写 file_key 失败", zap.Error(err), zap.String("report_id", reportID))
+	fid := systemsvc.RegisterGeneratedFile(s.db, s.store, r.Title+".pdf", "application/pdf", storage.MD5Hex(data), key, url)
+	if err := s.db.Model(&r).Update("file_id", fid).Error; err != nil {
+		logger.L.Warn("月报归档：回写 file_id 失败", zap.Error(err), zap.String("report_id", reportID))
 		return
 	}
-	logger.L.Info("月报 PDF 归档完成", zap.String("report_id", reportID), zap.String("file_key", key))
+	logger.L.Info("月报 PDF 归档完成", zap.String("report_id", reportID), zap.String("file_id", fid))
 }
 
 // notify 写站内消息 + App 推送（统一走 notify.Notifier，仿 OrderService.Notify）。
@@ -1292,38 +1297,42 @@ func (s *ReportService) resolveSignKey(uid, reqKey string) (sigKey, assetID stri
 	return sigKey, assetID, nil
 }
 
-// signatureAssetOf 读取用户当前 active 签名资产（签字时快照 file_key 与资产 id，防后续换签名影响历史报告）。
-func (s *ReportService) signatureAssetOf(userID string) (fileKey, assetID string) {
+// signatureAssetOf 读取用户当前 active 签名资产（签字时快照 file_id 与资产 id，防后续换签名影响历史报告）。
+func (s *ReportService) signatureAssetOf(userID string) (fileID, assetID string) {
 	var a sysmodel.SignAsset
-	if err := s.db.Select("id", "file_key").
+	if err := s.db.Select("id", "file_id").
 		Where("asset_type = ? AND owner_id = ? AND status = ?",
 			sysmodel.SignAssetTypeUserSignature, userID, sysmodel.SignAssetStatusActive).
 		First(&a).Error; err != nil {
 		return "", ""
 	}
-	return a.FileKey, a.ID
+	return a.FileID, a.ID
 }
 
-// activeSealKey 报告所属租户当前 active 公章资产 file_key（无则空串）。
+// activeSealID 报告所属租户当前 active 公章资产 file_id（无则空串）。
 // 租户按报告归属小区解析（CommunityTenantID）：私有化下与操作者同租户，SaaS 下必须盖报告归属公司的章。
-func (s *ReportService) activeSealKey(communityID string) string {
+func (s *ReportService) activeSealID(communityID string) string {
 	tenantID := middleware.CommunityTenantID(s.db, communityID)
 	if tenantID == nil {
 		return ""
 	}
 	var a sysmodel.SignAsset
-	if err := s.db.Select("file_key").
+	if err := s.db.Select("file_id").
 		Where("tenant_id = ? AND asset_type = ? AND status = ?", *tenantID, sysmodel.SignAssetTypeCompanySeal, sysmodel.SignAssetStatusActive).
 		First(&a).Error; err != nil {
 		return ""
 	}
-	return a.FileKey
+	return a.FileID
 }
 
-// sigURL 签名图快照 file_key → 可访问 URL（空返回 nil）。
-func (s *ReportService) sigURL(key string) any {
-	if key == "" {
+// sigURL 签名图快照 file_id → 可访问 URL（空返回 nil；解析失败回退原图 URL 字段）。
+func (s *ReportService) sigURL(fileID string) any {
+	if fileID == "" {
 		return nil
 	}
-	return s.store.URL(key)
+	f, err := uploadfile.ByID(s.db, fileID)
+	if err != nil {
+		return nil
+	}
+	return s.store.URL(f.StorageKey)
 }

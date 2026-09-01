@@ -427,7 +427,7 @@ type AppRelease struct {
 	types.UUIDModel
 	Platform  string    `gorm:"size:16;index:idx_app_release_platform,priority:1" json:"platform"` // android/harmony/ios/wechat_mp
 	Version   string    `gorm:"size:64" json:"version"`
-	FileKey   string    `gorm:"size:255" json:"file_key"`
+	FileID    string    `gorm:"type:uuid" json:"file_id"`
 	Name      string    `gorm:"size:255" json:"name"`
 	Size      int64     `json:"size"`
 	Note      string    `gorm:"size:255" json:"note"`
@@ -444,7 +444,7 @@ type SignAsset struct {
 	TenantID      *string    `gorm:"type:uuid" json:"tenant_id"` // 所属租户（P3 起查询/创建/作废均按租户隔离）
 	AssetType     string     `gorm:"size:20" json:"asset_type"`
 	OwnerID       *string    `gorm:"type:uuid" json:"owner_id"`
-	FileKey       string     `gorm:"size:255" json:"file_key"`
+	FileID        string     `gorm:"type:uuid" json:"file_id"`
 	SHA256        string     `gorm:"size:64" json:"sha256"`
 	Version       int        `json:"version"`
 	Status        string     `gorm:"size:20" json:"status"`

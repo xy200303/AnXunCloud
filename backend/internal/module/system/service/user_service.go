@@ -770,7 +770,7 @@ func (s *UserService) UpdateProfile(uid string, name, phone string, sigKey *stri
 			if err != nil || f.UserID != uid {
 				return errs.ErrPhotoNotUploaded
 			}
-			value = f.StorageKey
+			value = f.ID // SetUserSignature 收文件 ID（统一口径）
 		}
 		if be := s.signAssets.SetUserSignature(uid, value); be != nil {
 			return be

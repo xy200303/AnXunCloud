@@ -87,7 +87,7 @@ func (s *SignAssetService) toItem(a *model.SignAsset, names map[string]string) d
 		ID:            a.ID,
 		AssetType:     a.AssetType,
 		OwnerID:       a.OwnerID,
-		FileKey:       a.FileKey,
+		FileID:        a.FileID,
 		SHA256:        a.SHA256,
 		Version:       a.Version,
 		Status:        a.Status,
@@ -101,8 +101,10 @@ func (s *SignAssetService) toItem(a *model.SignAsset, names map[string]string) d
 	if a.OwnerID != nil {
 		item.OwnerName = names[*a.OwnerID]
 	}
-	if s.store != nil && a.FileKey != "" {
-		item.URL = s.store.URL(a.FileKey)
+	if s.store != nil && a.FileID != "" {
+		if f, err := uploadfile.ByID(s.db, a.FileID); err == nil {
+			item.URL = s.store.URL(f.StorageKey)
+		}
 	}
 	if len(a.SHA256) > 12 {
 		item.SHA256Short = a.SHA256[:12]
@@ -124,7 +126,7 @@ func (s *SignAssetService) Create(operatorID, tenantID string, req *dto.SignAsse
 	if err != nil {
 		return nil, errs.ErrPhotoNotUploaded
 	}
-	asset, be := s.create(operatorID, tenantID, req.AssetType, req.OwnerID, f.StorageKey, req.Remark)
+	asset, be := s.create(operatorID, tenantID, req.AssetType, req.OwnerID, f.ID, req.Remark)
 	if be != nil {
 		return nil, be
 	}
@@ -139,9 +141,10 @@ func (s *SignAssetService) Create(operatorID, tenantID string, req *dto.SignAsse
 }
 
 // create 核心创建逻辑（个人签名替换与后台新增共用）；tenantID 为资产归属租户。
-func (s *SignAssetService) create(operatorID, tenantID, assetType string, ownerID *string, fileKey, remark string) (*model.SignAsset, *errs.Error) {
-	if fileKey == "" {
-		return nil, errs.ErrParam.WithMsg("file_key 为必填项")
+// fileID 为 upload_file.id（统一文件 ID 口径；读文件字节时内部解析存储路径）。
+func (s *SignAssetService) create(operatorID, tenantID, assetType string, ownerID *string, fileID, remark string) (*model.SignAsset, *errs.Error) {
+	if fileID == "" {
+		return nil, errs.ErrParam.WithMsg("file_id 为必填项")
 	}
 	if tenantID == "" {
 		return nil, errs.ErrParam.WithMsg("租户上下文缺失")
@@ -164,7 +167,11 @@ func (s *SignAssetService) create(operatorID, tenantID, assetType string, ownerI
 		return nil, errs.ErrParam.WithMsg("asset_type 取值非法（user_signature/company_seal）")
 	}
 
-	sha := s.sha256Of(fileKey)
+	f, ferr := uploadfile.ByID(s.db, fileID)
+	if ferr != nil {
+		return nil, errs.ErrPhotoNotUploaded
+	}
+	sha := s.sha256Of(f.StorageKey)
 	var asset model.SignAsset
 	err := s.db.Transaction(func(tx *gorm.DB) error {
 		// 同租户+type+owner 的查询基座（每次重建，避免 statement 条件残留）
@@ -188,7 +195,7 @@ func (s *SignAssetService) create(operatorID, tenantID, assetType string, ownerI
 			TenantID:  &tenantID,
 			AssetType: assetType,
 			OwnerID:   owner,
-			FileKey:   fileKey,
+			FileID:    fileID,
 			SHA256:    sha,
 			Version:   maxV + 1,
 			Status:    model.SignAssetStatusActive,
@@ -230,10 +237,10 @@ func (s *SignAssetService) Revoke(id, reason, tenantID string) *errs.Error {
 	return nil
 }
 
-// SetUserSignature 个人中心换签名：fileKey 非空创建/替换当前用户 active 签名资产（tenant_id 取该用户所属租户）；
+// SetUserSignature 个人中心换签名：fileID 非空创建/替换当前用户 active 签名资产（tenantID 取该用户所属租户）；
 // 空串表示移除签名（当前 active 置 revoked 留痕）。
-func (s *SignAssetService) SetUserSignature(uid, fileKey string) *errs.Error {
-	if fileKey == "" {
+func (s *SignAssetService) SetUserSignature(uid, fileID string) *errs.Error {
+	if fileID == "" {
 		var cur model.SignAsset
 		if err := s.db.Where("asset_type = ? AND owner_id = ? AND status = ?",
 			model.SignAssetTypeUserSignature, uid, model.SignAssetStatusActive).First(&cur).Error; err != nil {
@@ -254,34 +261,34 @@ func (s *SignAssetService) SetUserSignature(uid, fileKey string) *errs.Error {
 	if err := s.db.Select("tenant_id").First(&u, "id = ?", uid).Error; err != nil {
 		return errs.ErrNotFound
 	}
-	_, be := s.create(uid, u.TenantID, model.SignAssetTypeUserSignature, &uid, fileKey, "")
+	_, be := s.create(uid, u.TenantID, model.SignAssetTypeUserSignature, &uid, fileID, "")
 	return be
 }
 
-// ActiveSignature 用户当前 active 签名资产（file_key, asset_id）；无则空串。
-func (s *SignAssetService) ActiveSignature(userID string) (fileKey, assetID string) {
+// ActiveSignature 用户当前 active 签名资产（file_id, asset_id）；无则空串。
+func (s *SignAssetService) ActiveSignature(userID string) (fileID, assetID string) {
 	var a model.SignAsset
-	if err := s.db.Select("id", "file_key").
+	if err := s.db.Select("id", "file_id").
 		Where("asset_type = ? AND owner_id = ? AND status = ?",
 			model.SignAssetTypeUserSignature, userID, model.SignAssetStatusActive).
 		First(&a).Error; err != nil {
 		return "", ""
 	}
-	return a.FileKey, a.ID
+	return a.FileID, a.ID
 }
 
-// ActiveSealKey 指定租户当前 active 公章 file_key（tenantID 为空或无 active 公章返回空串）。
-func (s *SignAssetService) ActiveSealKey(tenantID *string) string {
+// ActiveSealID 指定租户当前 active 公章 file_id（tenantID 为空或无 active 公章返回空串）。
+func (s *SignAssetService) ActiveSealID(tenantID *string) string {
 	if tenantID == nil || *tenantID == "" {
 		return ""
 	}
 	var a model.SignAsset
-	if err := s.db.Select("file_key").
+	if err := s.db.Select("file_id").
 		Where("tenant_id = ? AND asset_type = ? AND status = ?", *tenantID, model.SignAssetTypeCompanySeal, model.SignAssetStatusActive).
 		First(&a).Error; err != nil {
 		return ""
 	}
-	return a.FileKey
+	return a.FileID
 }
 
 // sha256Of 计算文件内容 SHA-256（hex）；读取失败容错空串并告警。

@@ -181,7 +181,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { Search, Refresh, RefreshRight, Upload } from '@element-plus/icons-vue'
 import { listSignAssets, createSignAsset, revokeSignAsset, type SignAssetItem, type SignAssetType, type SignAssetStatus } from '@/api/sign-asset'
 import { listUsers } from '@/api/user'
-import { uploadImage, fileUrl, withFileToken } from '@/api/upload'
+import { uploadImage, withFileToken } from '@/api/upload'
 import type { UserItem } from '@/api/types'
 import type { UploadFile } from 'element-plus'
 
@@ -214,9 +214,9 @@ function statusTag(s: string): { label: string; type: 'info' | 'warning' | 'succ
   ) as { label: string; type: 'info' | 'warning' | 'success' | 'danger' }
 }
 
-// 图片地址：优先用接口返回的 url（敏感场景为 /api/files 鉴权地址，附 ?token=），缺省时按资产记录的 file_key（存储路径）拼静态路径
+// 图片地址：接口返回的 url（敏感场景为 /api/files 鉴权地址，附 ?token=）
 function assetUrl(row: SignAssetItem) {
-  return withFileToken(row.url || fileUrl(row.file_key || ''))
+  return withFileToken(row.url || '')
 }
 
 function sha256Short(v?: string | null) {

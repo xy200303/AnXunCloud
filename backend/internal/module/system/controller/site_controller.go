@@ -109,16 +109,22 @@ func (ctl *SiteController) Download(c *gin.Context) {
 		return
 	}
 	isImage := rel.Platform == "wechat_mp"
+	// file_id → 存储路径（统一文件 ID 口径）
+	key, ok := ctl.svc.ReleaseFileKey(rel)
+	if !ok {
+		response.Fail(c, errs.ErrNotFound.WithMsg("文件不存在或已删除"))
+		return
+	}
 	// 本地驱动直接发文件（支持大文件断点续传友好）；云驱动读回转发（当前实现上限 64MB）
 	if ctl.store.IsLocal() {
 		if !isImage {
 			c.Header("Content-Type", "application/octet-stream")
 			c.Header("Content-Disposition", contentDisposition(rel.Name))
 		}
-		c.File(ctl.store.LocalPath(rel.FileKey))
+		c.File(ctl.store.LocalPath(key))
 		return
 	}
-	data, err := ctl.store.ReadFile(rel.FileKey)
+	data, err := ctl.store.ReadFile(key)
 	if err != nil {
 		response.Fail(c, errs.ErrNotFound.WithMsg("文件不存在或已删除"))
 		return

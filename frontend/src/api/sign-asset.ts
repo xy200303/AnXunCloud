@@ -10,7 +10,7 @@ export interface SignAssetItem {
   asset_type: SignAssetType
   owner_id: string | null
   owner_name: string | null
-  file_key: string
+  file_id: string
   url?: string | null
   sha256?: string | null
   version: number

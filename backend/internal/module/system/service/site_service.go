@@ -11,6 +11,7 @@ import (
 	"anxuncloud/internal/module/system/model"
 	"anxuncloud/internal/pkg/errs"
 	"anxuncloud/internal/pkg/storage"
+	"anxuncloud/internal/pkg/uploadfile"
 )
 
 // SiteService 品牌官网管理。
@@ -89,6 +90,15 @@ func (s *SiteService) BrandConfigMap() map[string]string {
 	return out
 }
 
+// ReleaseFileKey 发布物 file_id → 存储路径（统一文件 ID 口径；未登记返回 false）。
+func (s *SiteService) ReleaseFileKey(rel *model.AppRelease) (string, bool) {
+	f, err := uploadfile.ByID(s.db, rel.FileID)
+	if err != nil {
+		return "", false
+	}
+	return f.StorageKey, true
+}
+
 // ListReleases 发布物列表（新的在前）。
 func (s *SiteService) ListReleases() ([]model.AppRelease, *errs.Error) {
 	var rows []model.AppRelease
@@ -132,7 +142,7 @@ func (s *SiteService) UploadRelease(userID, platform, version, note, filename st
 	}
 
 	rel := &model.AppRelease{
-		Platform: platform, Version: version, FileKey: key,
+		Platform: platform, Version: version,
 		Name: filename, Size: size, Note: strings.TrimSpace(note),
 	}
 	err = s.db.Transaction(func(tx *gorm.DB) error {
@@ -144,6 +154,7 @@ func (s *SiteService) UploadRelease(userID, platform, version, note, filename st
 		if err := tx.Create(&meta).Error; err != nil {
 			return err
 		}
+		rel.FileID = meta.ID
 		return tx.Create(rel).Error
 	})
 	if err != nil {

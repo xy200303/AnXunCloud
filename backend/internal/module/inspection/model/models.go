@@ -332,12 +332,10 @@ type InspectionTask struct {
 
 func (InspectionTask) TableName() string { return "inspection_task" }
 
-// TaskPointIDs 任务点位名单：任务快照优先，空则回落计划名单（兼容快照列上线前的存量任务）。
+// TaskPointIDs 任务点位名单：以任务快照为准（生成时固化；快照为空即无点位，
+// 不回落计划名单——计划后续编辑不应改变已生成任务的名单口径）。
 func TaskPointIDs(t *InspectionTask, p *InspectionPlan) types.IDArray {
-	if len(t.PointIDs) > 0 {
-		return t.PointIDs
-	}
-	return p.PointIDs
+	return t.PointIDs
 }
 
 // TaskTimeWindow 任务执行时段：任务快照优先（轮次任务），空则回落计划 time_window。

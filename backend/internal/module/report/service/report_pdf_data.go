@@ -40,9 +40,9 @@ func (s *ReportService) pdfData(r *model.InspectionReport) pdf.MonthlyReportData
 	}
 	if d.Approved {
 		// 公章：优先用终审时固化的快照；存量报告无快照回退报告所属租户当前 active 公章资产
-		d.SealKey = r.SealFileKey
+		d.SealKey = r.SealFileID
 		if d.SealKey == "" {
-			d.SealKey = s.activeSealKey(r.CommunityID)
+			d.SealKey = s.activeSealID(r.CommunityID)
 		}
 		if r.ManagerAt != nil {
 			d.ApproveDate = r.ManagerAt.Format("2006-01-02")
@@ -315,13 +315,13 @@ func (s *ReportService) pdfData(r *model.InspectionReport) pdf.MonthlyReportData
 	if r.SupervisorBy != nil {
 		d.Supervisor = pdf.SignInfo{
 			Name: s.userName(*r.SupervisorBy), Time: timefmt.TP(r.SupervisorAt),
-			Remark: r.SupervisorRemark, SignatureKey: r.SupervisorSignatureKey,
+			Remark: r.SupervisorRemark, SignatureKey: r.SupervisorSignatureID,
 		}
 	}
 	if r.ManagerBy != nil {
 		d.Manager = pdf.SignInfo{
 			Name: s.userName(*r.ManagerBy), Time: timefmt.TP(r.ManagerAt),
-			Remark: r.ManagerRemark, SignatureKey: r.ManagerSignatureKey,
+			Remark: r.ManagerRemark, SignatureKey: r.ManagerSignatureID,
 		}
 	}
 	return d

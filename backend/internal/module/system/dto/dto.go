@@ -282,7 +282,7 @@ type SignAssetItem struct {
 	AssetType     string  `json:"asset_type"`
 	OwnerID       *string `json:"owner_id"`
 	OwnerName     string  `json:"owner_name"`
-	FileKey       string  `json:"file_key"`
+	FileID        string  `json:"file_id"`
 	URL           string  `json:"url"`
 	SHA256        string  `json:"sha256"`
 	SHA256Short   string  `json:"sha256_short"`

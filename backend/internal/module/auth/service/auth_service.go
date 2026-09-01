@@ -20,6 +20,7 @@ import (
 	"anxuncloud/internal/pkg/password"
 	"anxuncloud/internal/pkg/session"
 	"anxuncloud/internal/pkg/storage"
+	"anxuncloud/internal/pkg/uploadfile"
 )
 
 // ChannelAdmin 后台会话渠道。
@@ -281,13 +282,15 @@ func (s *AuthService) Info(identity *middleware.Identity) (*dto.InfoResp, *errs.
 		}
 	}
 	resp.Staffs = s.staffBriefs(user)
-	// 签名取当前 active 签章资产（sign_asset 表）
+	// 签名取当前 active 签章资产（sign_asset 表，file_id → 存储路径解析 URL）
 	var sigAsset model.SignAsset
-	if err := s.db.Select("file_key").
+	if err := s.db.Select("file_id").
 		Where("asset_type = ? AND owner_id = ? AND status = ?",
 			model.SignAssetTypeUserSignature, user.ID, model.SignAssetStatusActive).
-		First(&sigAsset).Error; err == nil && sigAsset.FileKey != "" && s.store != nil {
-		resp.SignatureURL = s.store.URL(sigAsset.FileKey)
+		First(&sigAsset).Error; err == nil && sigAsset.FileID != "" && s.store != nil {
+		if f, ferr := uploadfile.ByID(s.db, sigAsset.FileID); ferr == nil {
+			resp.SignatureURL = s.store.URL(f.StorageKey)
+		}
 	}
 	if identity.DataScopeAll {
 		resp.DataScope = model.ScopeAll

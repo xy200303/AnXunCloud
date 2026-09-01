@@ -50,10 +50,10 @@ type InspectionReport struct {
 	ManagerRemark    string        `gorm:"size:512" json:"manager_remark"`
 	RejectReason     string        `gorm:"size:512" json:"reject_reason"`
 	// 主管/经理签字时的手写签名图快照（巡检员快照在 InspectorSigned 元素内）
-	SupervisorSignatureKey string `gorm:"size:255" json:"supervisor_signature_key"`
-	ManagerSignatureKey    string `gorm:"size:255" json:"manager_signature_key"`
-	SealFileKey string         `gorm:"size:255" json:"seal_file_key"`
-	FileKey     string         `gorm:"size:255" json:"file_key"`
+	SupervisorSignatureID string `gorm:"type:uuid" json:"supervisor_signature_id"`
+	ManagerSignatureID    string `gorm:"type:uuid" json:"manager_signature_id"`
+	SealFileID string         `gorm:"type:uuid" json:"seal_file_id"`
+	FileID     string         `gorm:"type:uuid" json:"file_id"`
 	CreatedAt   time.Time      `json:"created_at"`
 	UpdatedAt   time.Time      `json:"updated_at"`
 	DeletedAt   gorm.DeletedAt `json:"-"`

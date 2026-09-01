@@ -105,7 +105,7 @@ func (s *FileService) Download(c *gin.Context, key string) (data []byte, redirec
 	if key == "" || strings.Contains(key, "..") {
 		return nil, "", "", "", errs.ErrNotFound
 	}
-	rec, err := uploadfile.ByRef(s.db, key)
+	rec, err := uploadfile.ByID(s.db, key)
 	if err != nil {
 		// 兼容未登记的历史文件：按扩展名推断，仍走 scene 前缀判定
 		rec = sysmodel.UploadFile{StorageKey: key, Scene: sceneOfKey(key), Name: filepath.Base(key)}

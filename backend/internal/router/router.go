@@ -301,6 +301,12 @@ func New(cfg *config.Config, db *gorm.DB, rdb *redis.Client) (*gin.Engine, *insp
 		{
 			reports.GET("", middleware.RequirePerm("report:list"), reportCtl.List)
 			reports.POST("/generate", middleware.RequirePerm("report:generate"), middleware.OperLog(db, "report", "generate"), reportCtl.Generate)
+			// 报告生成计划（计划任务-报告计划 tab；周期驱动自动生成 + 手动触发）
+			reports.GET("/plans", middleware.RequirePerm("report:list"), reportCtl.ListReportPlans)
+			reports.POST("/plans", middleware.RequirePerm("report:generate"), middleware.OperLog(db, "report", "plan_create"), reportCtl.CreateReportPlan)
+			reports.PUT("/plans/:id", middleware.RequirePerm("report:generate"), middleware.OperLog(db, "report", "plan_update"), reportCtl.UpdateReportPlan)
+			reports.DELETE("/plans/:id", middleware.RequirePerm("report:generate"), middleware.OperLog(db, "report", "plan_delete"), reportCtl.DeleteReportPlan)
+			reports.POST("/plans/:id/run", middleware.RequirePerm("report:generate"), middleware.OperLog(db, "report", "plan_run"), reportCtl.RunReportPlanNow)
 			reports.POST("/:id/rebuild", middleware.RequirePerm("report:generate"), middleware.OperLog(db, "report", "rebuild"), reportCtl.Rebuild)
 			reports.GET("/sign-candidates", middleware.RequirePerm("report:generate"), reportCtl.SignCandidates)
 			reports.GET("/:id", middleware.RequirePerm("report:list"), reportCtl.Detail)

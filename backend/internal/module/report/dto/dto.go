@@ -15,9 +15,13 @@ type ReportListQuery struct {
 	PatrolType string `form:"patrol_type"`
 }
 
+// GenerateReq 手动生成报告：period（月度 YYYY-MM）或 start_date+end_date（任意期间）二选一
+// （start_date/end_date 同时提供时优先于 period，此时 period 仅作展示兜底，可传空）。
 type GenerateReq struct {
 	CommunityID string `json:"community_id" binding:"required"`
-	Period      string `json:"period" binding:"required"` // YYYY-MM
+	Period      string `json:"period"` // YYYY-MM（未给日期范围时必填）
+	StartDate   string `json:"start_date"` // 任意期间起（含，YYYY-MM-DD）
+	EndDate     string `json:"end_date"`   // 任意期间止（含，YYYY-MM-DD）
 	// 巡查类型：空=综合月报（现状）；非空=该类型专项检查报告（须为字典 patrol_type 的启用项）
 	PatrolType string `json:"patrol_type"`
 	PlanID     string `json:"plan_id"` // 溯源计划（可空；非空须为该小区下的巡检计划）
@@ -41,4 +45,17 @@ type InspectorSignReq struct {
 	ProxyFor         string `json:"proxy_for"`
 	Reason           string `json:"reason"`
 	SignatureFileID string `json:"signature_file_id"`
+}
+
+// ReportPlanReq 报告生成计划创建/更新请求。
+// cycle_config 按 cycle_type 取：monthly={day:1~28}；weekly={weekday:1~7（1=周一）}；daily={}。
+type ReportPlanReq struct {
+	CommunityID string         `json:"community_id" binding:"required"`
+	Name        string         `json:"name" binding:"required,max=64"`
+	PatrolType  string         `json:"patrol_type"` // 空=综合
+	CycleType   string         `json:"cycle_type" binding:"required,oneof=daily weekly monthly"`
+	CycleConfig map[string]any `json:"cycle_config"`
+	GenTime     string         `json:"gen_time" binding:"required"` // HH:MM
+	Status      string         `json:"status"`      // 更新时可传 enabled/disabled
+	Remark      string         `json:"remark" binding:"max=255"`
 }

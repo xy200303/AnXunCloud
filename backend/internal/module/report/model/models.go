@@ -26,6 +26,12 @@ type InspectionReport struct {
 	// PatrolType 巡查类型（字典 patrol_type 的 value）；空=综合月报（全类型口径），非空=该类型专项检查报告
 	PatrolType      string          `gorm:"size:32" json:"patrol_type"`
 	PlanID          *string         `gorm:"type:uuid" json:"plan_id"` // 溯源生成它的巡检计划（综合月报为空）
+	// ReportPlanID 溯源生成它的报告生成计划（手动生成的报告为空）
+	ReportPlanID *string `gorm:"type:uuid" json:"report_plan_id"`
+	// PeriodStart/PeriodEnd 报告期间（含头含尾；月报=整月，周报=周一~周日，日报=当天）。
+	// period 字符串保留作展示（月 2026-08 / 周 2026-08-31~09-06 / 日 2026-09-01）。
+	PeriodStart *time.Time `json:"period_start"`
+	PeriodEnd   *time.Time `json:"period_end"`
 	Title           string          `gorm:"size:128" json:"title"`
 	Status          string          `gorm:"size:24" json:"status"`
 	Stats           types.JSONMap   `gorm:"type:jsonb" json:"stats"`
@@ -52,3 +58,26 @@ type InspectionReport struct {
 }
 
 func (InspectionReport) TableName() string { return "inspection_report" }
+
+// ReportPlan 报告生成计划：周期驱动自动生成巡检报告（cycle 定义与巡检计划同构）。
+// 生成期间一律取「上一个完整周期」：monthly=上月（cycle_config.day=生成日 1~28）、
+// weekly=上周一至周日（cycle_config.weekday=生成星期几 1~7）、daily=昨日。
+type ReportPlan struct {
+	types.UUIDModel
+	TenantID    *string       `gorm:"type:uuid" json:"tenant_id"` // 冗余列（=所属小区租户）
+	CommunityID string        `gorm:"type:uuid" json:"community_id"`
+	Name        string        `gorm:"size:64" json:"name"`
+	PatrolType  string        `gorm:"size:32" json:"patrol_type"` // 空=综合
+	CycleType   string        `gorm:"size:16" json:"cycle_type"`  // daily/weekly/monthly
+	CycleConfig types.JSONMap `gorm:"type:jsonb" json:"cycle_config"`
+	GenTime     string        `gorm:"size:8" json:"gen_time"` // 生成时点 HH:MM（默认 06:00）
+	Status      string        `gorm:"size:16" json:"status"`
+	LastPeriod  string        `gorm:"size:32" json:"last_period"` // 上次生成的期间展示串
+	LastError   string        `gorm:"size:255" json:"last_error"`
+	Remark      string        `gorm:"size:255" json:"remark"`
+	CreatedAt   time.Time     `json:"created_at"`
+	UpdatedAt   time.Time     `json:"updated_at"`
+	DeletedAt   gorm.DeletedAt `json:"-"`
+}
+
+func (ReportPlan) TableName() string { return "report_plan" }

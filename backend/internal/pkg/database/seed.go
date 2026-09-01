@@ -125,7 +125,7 @@ func seedMenus(tx *gorm.DB) (map[string]string, error) {
 				{title: "批量生成二维码", typ: model.MenuTypeButton, perms: "inspection:point:qrcode", sort: 4},
 				{title: "批量导入", typ: model.MenuTypeButton, perms: "inspection:point:import", sort: 5},
 			}},
-			{title: "巡检计划", path: "/inspection/plans", icon: "Calendar", typ: model.MenuTypeMenu, perms: "inspection:plan:list", sort: 2, children: []menuSeed{
+			{title: "计划任务", path: "/inspection/plans", icon: "Calendar", typ: model.MenuTypeMenu, perms: "inspection:plan:list", sort: 2, children: []menuSeed{
 				{title: "新增计划", typ: model.MenuTypeButton, perms: "inspection:plan:create", sort: 1},
 				{title: "编辑计划", typ: model.MenuTypeButton, perms: "inspection:plan:update", sort: 2},
 				{title: "停用计划", typ: model.MenuTypeButton, perms: "inspection:plan:disable", sort: 3},

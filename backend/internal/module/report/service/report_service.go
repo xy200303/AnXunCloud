@@ -139,13 +139,18 @@ func scopeCheckinType(db *gorm.DB, patrolType string) *gorm.DB {
 	return db.Where("task_id IN (SELECT id FROM inspection_task WHERE patrol_type = ? AND deleted_at IS NULL)", patrolType)
 }
 
-// buildStats 聚合指定小区指定月度的统计数据与应确认巡检员集合。
-// patrolType 空=综合口径（全类型）；非空=只统计该类型（任务/打卡/异常均按类型过滤）。
+// buildStats 聚合指定小区指定月度的统计数据与应确认巡检员集合（buildStatsRange 的月度封装）。
 func (s *ReportService) buildStats(communityID, period, patrolType string) (types.JSONMap, types.IDArray, *errs.Error) {
 	start, end, be := periodRange(period)
 	if be != nil {
 		return nil, nil, be
 	}
+	return s.buildStatsRange(communityID, start, end, patrolType)
+}
+
+// buildStatsRange 聚合指定小区任意期间 [start, end) 的统计数据与应确认巡检员集合
+// （周/日报告与报告生成计划的期间口径）。patrolType 空=综合口径（全类型）。
+func (s *ReportService) buildStatsRange(communityID string, start, end time.Time, patrolType string) (types.JSONMap, types.IDArray, *errs.Error) {
 	startStr, endStr := start.Format("2006-01-02"), end.Format("2006-01-02")
 
 	// 任务汇总
@@ -224,18 +229,15 @@ func (s *ReportService) buildStats(communityID, period, patrolType string) (type
 	return stats, types.IDArray(inspectorIDs), nil
 }
 
-// lockPeriodCheckins 报告生成成功后归档锁定当期打卡记录：锁定后该点位打卡不可覆盖修改（43109）。
+// lockRangeCheckins 报告生成成功后归档锁定期间打卡记录：锁定后该点位打卡不可覆盖修改（43109）。
 // 紧随报告写库之后的写操作（报告生成本身非事务，失败仅记日志不影响报告结果）；
 // 已被覆盖的旧记录（superseded_by 非空）与已锁定记录不重复处理。
-func (s *ReportService) lockPeriodCheckins(communityID, period string) {
-	start, end, be := periodRange(period)
-	if be != nil {
-		return
-	}
+func (s *ReportService) lockRangeCheckins(communityID string, start, end time.Time) {
 	if err := s.db.Model(&insmodel.CheckinRecord{}).
 		Where("community_id = ? AND checkin_time >= ? AND checkin_time < ? AND superseded_by IS NULL AND locked_at IS NULL", communityID, start, end).
 		Update("locked_at", time.Now()).Error; err != nil {
-		logger.L.Warn("打卡记录归档锁定失败", zap.String("community_id", communityID), zap.String("period", period), zap.Error(err))
+		logger.L.Warn("打卡记录归档锁定失败", zap.String("community_id", communityID),
+			zap.String("start", start.Format("2006-01-02")), zap.String("end", end.Format("2006-01-02")), zap.Error(err))
 	}
 }
 
@@ -549,7 +551,17 @@ func (s *ReportService) Detail(c *gin.Context, id string) (gin.H, *errs.Error) {
 // 专项报告主管级默认槽位换成该类型汇报线槽位（patrol_report_line.<type>，如 fire→工程主管）；
 // 显式传数组按名单（仅校验用户存在且启用），空数组该级跳过。
 func (s *ReportService) Generate(c *gin.Context, req *dto.GenerateReq) (gin.H, *errs.Error) {
-	if _, _, be := periodRange(req.Period); be != nil {
+	// 期间口径二选一：start_date+end_date（任意期间，报告计划/临时范围生成）或 period（月度）
+	var start, end time.Time
+	var be *errs.Error
+	label := req.Period
+	if req.StartDate != "" && req.EndDate != "" {
+		start, end, be = parseDateRange(req.StartDate, req.EndDate)
+		label = req.StartDate + "~" + req.EndDate
+	} else {
+		start, end, be = periodRange(req.Period)
+	}
+	if be != nil {
 		return nil, be
 	}
 	if be := middleware.CheckCommunity(s.db, c, req.CommunityID); be != nil {
@@ -574,39 +586,60 @@ func (s *ReportService) Generate(c *gin.Context, req *dto.GenerateReq) (gin.H, *
 		}
 		planID = &req.PlanID
 	}
-	stats, inspectorIDs, be := s.buildStats(req.CommunityID, req.Period, req.PatrolType)
+	return s.createReport(req.CommunityID, req.PatrolType, start, end, label,
+		req.SupervisorIDs, req.ManagerIDs, planID, nil)
+}
+
+// createReport 生成（或按 community+period+patrol_type 判重重算）一份报告并启动签字流。
+// 手动生成（Generate）与报告生成计划执行器共用；inspectionPlanID 溯源巡检计划，
+// reportPlanID 溯源报告计划，均可空。返回 {id,title,status,regenerated}；
+// 已归档同口径报告报 ErrReportApproved。
+func (s *ReportService) createReport(communityID, patrolType string, start, end time.Time, label string,
+	supIDs, mgrIDs []string, inspectionPlanID, reportPlanID *string) (gin.H, *errs.Error) {
+	name := s.commName(communityID)
+	stats, inspectorIDs, be := s.buildStatsRange(communityID, start, end, patrolType)
 	if be != nil {
 		return nil, be
 	}
-	supSlot := supervisorSlot(req.PatrolType, func(t string) string {
-		return communitysvc.ResolveReportLineSlot(s.db, req.CommunityID, t)
+	supSlot := supervisorSlot(patrolType, func(t string) string {
+		return communitysvc.ResolveReportLineSlot(s.db, communityID, t)
 	})
-	supervisorIDs, be := s.resolveSigners(req.CommunityID, supSlot, req.SupervisorIDs)
+	supervisorIDs, be := s.resolveSigners(communityID, supSlot, supIDs)
 	if be != nil {
 		return nil, be
 	}
-	managerIDs, be := s.resolveSigners(req.CommunityID, sysmodel.SlotReportSignManager, req.ManagerIDs)
+	managerIDs, be := s.resolveSigners(communityID, sysmodel.SlotReportSignManager, mgrIDs)
 	if be != nil {
 		return nil, be
 	}
-	title := reportTitle(name, req.Period)
-	if req.PatrolType != "" {
-		title = specialReportTitle(name, req.Period, s.patrolTypeLabel(req.PatrolType))
+	var title string
+	if _, err := time.ParseInLocation("2006-01", label, time.Local); err == nil {
+		title = reportTitle(name, label)
+		if patrolType != "" {
+			title = specialReportTitle(name, label, s.patrolTypeLabel(patrolType))
+		}
+	} else {
+		title = name + label + "巡检工作报告"
+		if patrolType != "" {
+			title = name + label + s.patrolTypeLabel(patrolType) + "检查报告"
+		}
 	}
 	// 首个有签字人的级别起签；某级无签字人自动跳过（不伪造通过），三级全空则直接归档、签字栏留空
 	initialStatus := firstSignStatus(inspectorIDs, supervisorIDs, managerIDs)
+	endOfDay := end.Add(-time.Second)
 
 	var r model.InspectionReport
 	// 判重/重算按 community_id+period+patrol_type（COALESCE 归一，综合月报 NULL/'' 等价，与唯一索引一致）
 	err := s.db.Where("community_id = ? AND period = ? AND COALESCE(patrol_type, '') = ?",
-		req.CommunityID, req.Period, req.PatrolType).First(&r).Error
+		communityID, label, patrolType).First(&r).Error
 	if err == nil {
 		if r.Status == model.StatusApproved {
 			return nil, errs.ErrReportApproved
 		}
-		// 重算：重置签字流程（plan_id 随请求刷新溯源）
+		// 重算：重置签字流程（溯源字段随请求刷新）
 		updates := map[string]any{
-			"title": title, "status": initialStatus, "plan_id": planID,
+			"title": title, "status": initialStatus, "plan_id": inspectionPlanID,
+			"report_plan_id": reportPlanID, "period_start": start, "period_end": endOfDay,
 			"stats": stats, "inspector_ids": inspectorIDs,
 			"inspector_signed": types.SignArray{},
 			"supervisor_ids":   supervisorIDs, "manager_ids": managerIDs,
@@ -619,15 +652,17 @@ func (s *ReportService) Generate(c *gin.Context, req *dto.GenerateReq) (gin.H, *
 		if err := s.db.Model(&r).Updates(updates).Error; err != nil {
 			return nil, errs.ErrInternal
 		}
-		s.lockPeriodCheckins(req.CommunityID, req.Period) // 归档锁定当期打卡（不可再覆盖修改）
+		s.lockRangeCheckins(communityID, start, end) // 归档锁定当期打卡（不可再覆盖修改）
 		if initialStatus == model.StatusApproved {
 			go s.archivePDF(r.ID)
 		}
 		return gin.H{"id": r.ID, "title": title, "status": initialStatus, "regenerated": true}, nil
 	}
 	r = model.InspectionReport{
-		CommunityID: req.CommunityID, Period: req.Period, PatrolType: req.PatrolType, PlanID: planID, Title: title,
-		TenantID: middleware.CommunityTenantID(s.db, req.CommunityID), // 冗余列（=所属小区租户）
+		CommunityID: communityID, Period: label, PatrolType: patrolType,
+		PlanID: inspectionPlanID, ReportPlanID: reportPlanID,
+		PeriodStart: &start, PeriodEnd: &endOfDay, Title: title,
+		TenantID: middleware.CommunityTenantID(s.db, communityID), // 冗余列（=所属小区租户）
 		Status:   initialStatus, Stats: stats,
 		InspectorIDs: inspectorIDs, InspectorSigned: types.SignArray{},
 		SupervisorIDs: supervisorIDs, ManagerIDs: managerIDs,
@@ -635,58 +670,27 @@ func (s *ReportService) Generate(c *gin.Context, req *dto.GenerateReq) (gin.H, *
 	if err := s.db.Create(&r).Error; err != nil {
 		return nil, errs.ErrInternal
 	}
-	s.lockPeriodCheckins(req.CommunityID, req.Period) // 归档锁定当期打卡（不可再覆盖修改）
+	s.lockRangeCheckins(communityID, start, end) // 归档锁定当期打卡（不可再覆盖修改）
 	if initialStatus == model.StatusApproved {
 		go s.archivePDF(r.ID)
 	}
 	return gin.H{"id": r.ID, "title": title, "status": r.Status, "regenerated": false}, nil
 }
 
-// GenerateMonthlyAll 定时任务：为每个启用小区生成指定期间报告（已存在则跳过，幂等；
-// 签字人取槽位默认名单，无绑定或无人员该级自动跳过）。
-func (s *ReportService) GenerateMonthlyAll(period string) (int, error) {
-	var comms []sysmodel.Community
-	if err := s.db.Where("status = ?", sysmodel.StatusEnabled).Find(&comms).Error; err != nil {
-		return 0, err
+// parseDateRange 解析任意期间（YYYY-MM-DD 起止，含头含尾）为 [start, end) 时间区间。
+func parseDateRange(startStr, endStr string) (time.Time, time.Time, *errs.Error) {
+	start, err := time.ParseInLocation("2006-01-02", startStr, time.Local)
+	if err != nil {
+		return start, start, errs.ErrParam.WithMsg("start_date 格式应为 YYYY-MM-DD")
 	}
-	created := 0
-	for _, comm := range comms {
-		var count int64
-		s.db.Model(&model.InspectionReport{}).
-			Where("community_id = ? AND period = ? AND COALESCE(patrol_type, '') = ''", comm.ID, period).Count(&count)
-		if count > 0 {
-			continue
-		}
-		stats, inspectorIDs, be := s.buildStats(comm.ID, period, "") // 自动月报只生成综合月报（全类型口径）
-		if be != nil {
-			return created, be
-		}
-		supervisorIDs, be := s.resolveSigners(comm.ID, sysmodel.SlotReportSignSupervisor, nil)
-		if be != nil {
-			return created, be
-		}
-		managerIDs, be := s.resolveSigners(comm.ID, sysmodel.SlotReportSignManager, nil)
-		if be != nil {
-			return created, be
-		}
-		initialStatus := firstSignStatus(inspectorIDs, supervisorIDs, managerIDs)
-		r := model.InspectionReport{
-			TenantID:    &comm.TenantID, // 冗余列（=所属小区租户）
-			CommunityID: comm.ID, Period: period, Title: reportTitle(comm.Name, period),
-			Status: initialStatus, Stats: stats,
-			InspectorIDs: inspectorIDs, InspectorSigned: types.SignArray{},
-			SupervisorIDs: supervisorIDs, ManagerIDs: managerIDs,
-		}
-		if err := s.db.Create(&r).Error; err != nil {
-			return created, err
-		}
-		s.lockPeriodCheckins(comm.ID, period) // 归档锁定当期打卡（不可再覆盖修改）
-		if initialStatus == model.StatusApproved {
-			go s.archivePDF(r.ID)
-		}
-		created++
+	endD, err := time.ParseInLocation("2006-01-02", endStr, time.Local)
+	if err != nil {
+		return start, start, errs.ErrParam.WithMsg("end_date 格式应为 YYYY-MM-DD")
 	}
-	return created, nil
+	if endD.Before(start) {
+		return start, start, errs.ErrParam.WithMsg("end_date 不能早于 start_date")
+	}
+	return start, endD.AddDate(0, 0, 1), nil
 }
 
 // firstSignStatus 首个有签字人的签字级别；三级均无签字人返回 approved（签字栏留空直接归档，不伪造通过）。

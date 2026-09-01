@@ -49,6 +49,28 @@ func NewReportService(db *gorm.DB, rdb *redis.Client, store *storage.Storage, ge
 	return &ReportService{db: db, rdb: rdb, store: store, getCfg: getCfg, notifier: notifier}
 }
 
+// reportLayout 报告版式（report.layout 配置：ledger=台账版（甲方样稿骨架，分项按点位类型）/ generic=通用版；
+// 缺省 ledger——台账版分项由点位类型与检查项模板数据驱动，任何巡查类型通用）。
+func (s *ReportService) reportLayout() string {
+	if v := s.cfgString("report.layout"); v == "generic" {
+		return "generic"
+	}
+	return "ledger"
+}
+
+// reportTitleLine 封面大标题首行：report.title 配置优先（如「物业消防设施（器材类）月度」）；
+// 缺省按巡查类型推导（「物业{类型label}月度」，综合月报回落「物业综合月度」）。
+func (s *ReportService) reportTitleLine(r *model.InspectionReport) string {
+	if v := s.cfgString("report.title"); v != "" {
+		return v
+	}
+	label := s.patrolTypeLabel(r.PatrolType)
+	if label == "" || label == "综合" || label == "综合月报" {
+		return "物业综合月度"
+	}
+	return "物业" + label + "月度"
+}
+
 // cfgString 读取系统参数（未配置返回空串）。
 func (s *ReportService) cfgString(key string) string {
 	if s.getCfg == nil {

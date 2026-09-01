@@ -2,7 +2,6 @@ package service
 
 import (
 	"fmt"
-	"sort"
 	"strings"
 	"time"
 
@@ -28,7 +27,8 @@ func (s *ReportService) pdfData(r *model.InspectionReport) pdf.MonthlyReportData
 	d := pdf.MonthlyReportData{
 		CommunityName: s.commName(r.CommunityID),
 		Period:        r.Period,
-		FireTemplate:  r.PatrolType == "fire",
+		Layout:        s.reportLayout(),
+		TitleLine:     s.reportTitleLine(r),
 		CompanyName:   s.cfgString("report.company_name"),
 		Approved:      r.Status == model.StatusApproved,
 		ImageLoader: func(key string) ([]byte, string, error) {
@@ -81,7 +81,7 @@ func (s *ReportService) pdfData(r *model.InspectionReport) pdf.MonthlyReportData
 	// ===== 当期打卡记录（过滤已被覆盖的旧记录，台账只取有效记录） =====
 	var recs []insmodel.CheckinRecord
 	scopeCheckinType(s.db, r.PatrolType).
-		Select("id", "point_id", "inspector_id", "checkin_time", "result", "remark", "photos", "audit_status").
+		Select("id", "point_id", "inspector_id", "checkin_time", "result", "remark", "audit_status").
 		Where("community_id = ? AND checkin_time >= ? AND checkin_time < ? AND superseded_by IS NULL", r.CommunityID, start, end).
 		Order("checkin_time ASC").Find(&recs)
 	recsByPoint := map[string][]insmodel.CheckinRecord{}
@@ -174,31 +174,19 @@ func (s *ReportService) pdfData(r *model.InspectionReport) pdf.MonthlyReportData
 		if len(items) > 0 {
 			dt.Note = "注：检查标准：" + strings.Join(items, "；") + "。"
 		}
-		// 行：该类型点位的当期打卡记录（按点位名、打卡时间排序）
-		var typeRecs []insmodel.CheckinRecord
+		// 行：每点位一行（取当期最新一次有效打卡；未巡点位保留空行，明细完整覆盖应巡清单）
 		for _, pt := range pts {
-			typeRecs = append(typeRecs, recsByPoint[pt.ID]...)
-		}
-		sort.SliceStable(typeRecs, func(i, j int) bool {
-			pi, pj := pointByID[typeRecs[i].PointID], pointByID[typeRecs[j].PointID]
-			ni, nj := "", ""
-			if pi != nil {
-				ni = pi.Name
+			row := pdf.DetailRow{Location: pointLocation(pt)}
+			prs := recsByPoint[pt.ID]
+			if len(prs) == 0 {
+				row.Marks = make([]string, len(items))
+				row.Time = "—"
+				dt.Rows = append(dt.Rows, row)
+				continue
 			}
-			if pj != nil {
-				nj = pj.Name
-			}
-			if ni != nj {
-				return ni < nj
-			}
-			return typeRecs[i].CheckinTime.Before(typeRecs[j].CheckinTime)
-		})
-		for _, rec := range typeRecs {
-			row := pdf.DetailRow{
-				Location:  pointLocation(pointByID[rec.PointID]),
-				Inspector: userNames[rec.InspectorID],
-				Time:      rec.CheckinTime.Format("2006-01-02 15:04"),
-			}
+			rec := prs[len(prs)-1] // recs 按 checkin_time 升序，末条即最新
+			row.Inspector = userNames[rec.InspectorID]
+			row.Time = rec.CheckinTime.Format("01-02 15:04")
 			marks := make([]string, len(items))
 			var failed []string
 			for _, ci := range itemsByRec[rec.ID] {

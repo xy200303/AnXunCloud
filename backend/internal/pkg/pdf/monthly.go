@@ -92,7 +92,8 @@ type PhotoGroup struct {
 type MonthlyReportData struct {
 	CommunityName string   // 项目名称（小区名）
 	Period        string   // YYYY-MM
-	FireTemplate  bool     // 使用《物业消防设施（器材类）月度巡检报告》固定版式
+	Layout        string   // 报告版式：ledger=台账版（甲方样稿骨架，分项按点位类型数据驱动）/ 其他=通用版
+	TitleLine     string   // 封面大标题首行（空回落「物业设施月度」；由 report.title 配置或巡查类型推导）
 	CompanyName   string   // 管理单位落款（空则封面留白 / 页尾 XX物业服务中心）
 	Approved      bool     // 已终审（公章与报告日期仅终审后展示）
 	ApproveDate   string   // 终审日期 YYYY-MM-DD
@@ -131,8 +132,8 @@ func GenerateMonthly(data MonthlyReportData) ([]byte, error) {
 		return nil, fmt.Errorf("加载中文字体失败: %w", p.Error())
 	}
 
-	if isFireFacilityReport(data) {
-		renderFireMonthly(p, data)
+	if data.Layout == "ledger" {
+		renderLedgerMonthly(p, data)
 	} else {
 		renderCover(p, data)
 		renderTOC(p, data)
@@ -361,10 +362,14 @@ func renderCover(p *gofpdf.Fpdf, d MonthlyReportData) {
 		p.CellFormat(valueW, rowH, r[1], "1", 1, "L", false, 0, "")
 	}
 
-	// 居中大标题
+	// 居中大标题（首行可配，次行固定）
+	titleLine := d.TitleLine
+	if titleLine == "" {
+		titleLine = "物业设施月度"
+	}
 	p.SetY(112)
 	p.SetFont("noto", "B", 25)
-	p.CellFormat(contentW, 15, "物业消防设施（器材类）月度", "", 1, "C", false, 0, "")
+	p.CellFormat(contentW, 15, titleLine, "", 1, "C", false, 0, "")
 	p.CellFormat(contentW, 15, "巡 检 报 告", "", 1, "C", false, 0, "")
 
 	// 设施类别 / 管理单位 / 报告日期（下划线填空式）
@@ -987,71 +992,60 @@ func shortDateTime(s string) string {
 	return s
 }
 
-// ========== 消防设施（月度报告模板） ==========
+// ========== 台账版月度报告（甲方样稿骨架，分项按点位类型数据驱动） ==========
+//
+// 八页顺序：封面 → 目录 → 说明+签字审批栏 → 本月检查汇总表 → 分项巡检明细（每点位类型一张，
+// 检查列=该类型点位所绑检查项模板）→ 问题清单及整改台账 → 附件：分项检查照片。
+// 动态数据只填入固定行格，超出固定行数时新增同款续页，绝不改变既有行高或挤压其他单元格。
 
-// isFireFacilityReport 只对消防设施报告启用甲方提供的固定版式；其他专项仍使用通用报告，
-// 避免将非消防点位硬塞入消防检查列。
-func isFireFacilityReport(d MonthlyReportData) bool {
-	return d.FireTemplate
-}
-
-type fireDetailSpec struct {
-	Title string
-	Items []string
-	Note  string
-}
-
-var fireDetailSpecs = []fireDetailSpec{
-	{"4.1 灭火器巡检明细表", []string{"压力", "瓶体", "喷管", "铅封", "有效期"}, "注：压力表指针在绿区；瓶体、喷管、铅封完好；在有效期内。"},
-	{"4.2 消防栓巡检明细表", []string{"箱门", "水带", "枪头", "接口", "水压", "周围"}, "注：箱门、水带、水枪、接口完好；水压正常；周围无杂物遮挡。"},
-	{"4.3 应急灯等巡检明细表", []string{"应急照明灯", "疏散指示灯", "安全标示", "防火门", "防火卷帘门", "消防通道"}, "注：应急照明、疏散指示及安全标示完好；防火门、防火卷帘门可正常使用；消防通道畅通。"},
-}
-
-// renderFireMonthly 按甲方样稿的八页顺序绘制。动态数据只填入固定行格，超出固定行数
-// 时新增同款续页，绝不改变既有行高或挤压其他单元格。
-func renderFireMonthly(p *gofpdf.Fpdf, d MonthlyReportData) {
+// renderLedgerMonthly 台账版入口。
+func renderLedgerMonthly(p *gofpdf.Fpdf, d MonthlyReportData) {
 	renderCover(p, d)
-	renderFireTOC(p, d)
-	renderFireIntroAndSign(p, d)
-	renderFireSummary(p, d)
-	for _, spec := range fireDetailSpecs {
-		renderFireDetail(p, d, spec)
+	renderLedgerTOC(p, d)
+	renderLedgerIntroAndSign(p, d)
+	renderLedgerSummary(p, d)
+	for idx, table := range d.Details {
+		renderLedgerDetail(p, d, idx, table)
 	}
-	renderFireLedger(p, d)
+	renderIssueLedger(p, d)
 	// 模板仅将现场照片列为电子附件；没有照片时不额外生成空白附件页。
 	if len(d.PhotoGroups) > 0 {
 		renderPhotoAppendix(p, d)
 	}
 }
 
-func renderFireTOC(p *gofpdf.Fpdf, _ MonthlyReportData) {
+func renderLedgerTOC(p *gofpdf.Fpdf, d MonthlyReportData) {
 	p.AddPage()
 	p.SetY(38)
 	p.SetFont("noto", "B", 18)
 	p.CellFormat(contentW, 10, "目      录", "", 1, "C", false, 0, "")
 	p.Ln(12)
 	p.SetFont("noto", "", 12)
-	entries := []string{
-		"1. 报告编制说明", "2. 签字审批栏", "3. 本月检查汇总表", "4. 分项检查明细",
-		"    4.1 灭火器巡检明细表", "    4.2 消防栓巡检明细表", "    4.3 应急灯等巡检明细表",
-		"5. 问题清单及整改台账", "附件：分项检查照片（电子档）",
+	entries := []string{"1. 报告编制说明", "2. 签字审批栏", "3. 本月检查汇总表", "4. 分项检查明细"}
+	for idx, table := range d.Details {
+		entries = append(entries, "    "+ledgerDetailTitle(idx, table.TypeName))
 	}
+	entries = append(entries, "5. 问题清单及整改台账", "附件：分项检查照片（电子档）")
 	for _, entry := range entries {
 		p.SetX(margin + 28)
 		p.CellFormat(contentW-28, 11, entry, "", 1, "L", false, 0, "")
 	}
 }
 
-func renderFireIntroAndSign(p *gofpdf.Fpdf, d MonthlyReportData) {
+func renderLedgerIntroAndSign(p *gofpdf.Fpdf, d MonthlyReportData) {
 	p.AddPage()
 	p.SetY(18)
 	p.SetFont("noto", "B", 15)
 	p.CellFormat(contentW, 8, "1.报告编制说明", "", 1, "L", false, 0, "")
 	p.Ln(2)
+	coverage := strings.Join(d.TypeNames, "、")
+	if coverage == "" {
+		coverage = "各巡检点位"
+	}
 	intro := []string{
-		"本报告依据消防安全管理相关规定编制，记录物业服务人对园区消防设施（器材）开展月度巡检、隐患登记和整改跟踪的情况。",
+		"本报告依据相关规定与物业服务合同编制，记录物业服务人对园区设施开展月度巡检、隐患登记和整改跟踪的情况。",
 		"巡检人员使用系统完成点位打卡和现场拍照；安全负责人核对巡检数据、影像资料和整改进度；物业经理对报告进行审批。所有资料留痕归档，可追溯核查。",
-		"检查覆盖灭火器、消火栓、应急照明、疏散指示、防火门、防火卷帘门及消防通道等设施。",
+		"检查覆盖" + coverage + "等设施与区域。",
 	}
 	boxY := p.GetY()
 	for _, text := range intro {
@@ -1064,10 +1058,10 @@ func renderFireIntroAndSign(p *gofpdf.Fpdf, d MonthlyReportData) {
 	}
 	p.Rect(margin, boxY-2, contentW, p.GetY()-boxY+3, "D")
 	p.SetY(113)
-	renderFireSignTable(p, d)
+	renderLedgerSignTable(p, d)
 }
 
-func renderFireSignTable(p *gofpdf.Fpdf, d MonthlyReportData) {
+func renderLedgerSignTable(p *gofpdf.Fpdf, d MonthlyReportData) {
 	p.SetFont("noto", "B", 14)
 	p.CellFormat(contentW, 8, "2.签字审批栏", "", 1, "L", false, 0, "")
 	p.Ln(2)
@@ -1105,18 +1099,8 @@ func renderFireSignTable(p *gofpdf.Fpdf, d MonthlyReportData) {
 	p.SetY(y0 + headerH + bodyH)
 }
 
-func fireSpecIndex(name string) int {
-	switch {
-	case strings.Contains(name, "灭火") || strings.Contains(name, "fire_extinguisher"):
-		return 0
-	case strings.Contains(name, "栓") || strings.Contains(name, "消防箱") || strings.Contains(name, "fire_cabinet"):
-		return 1
-	default:
-		return 2
-	}
-}
-
-func renderFireSummary(p *gofpdf.Fpdf, d MonthlyReportData) {
+// renderLedgerSummary 本月检查汇总表（行=点位类型分项；整改两列按甲方口径留空——系统暂无整改闭环数据）。
+func renderLedgerSummary(p *gofpdf.Fpdf, d MonthlyReportData) {
 	p.AddPage()
 	p.SetY(22)
 	p.SetFont("noto", "B", 15)
@@ -1124,88 +1108,19 @@ func renderFireSummary(p *gofpdf.Fpdf, d MonthlyReportData) {
 	p.Ln(2)
 	widths := []float64{29, 14, 18, 20, 17, 17, 20, 45}
 	headerRow(p, widths, []string{"设施类别", "总数", "正常完好", "巡检完成率", "存在问题", "整改完毕", "整改完成率", "备注"}, 12)
-	rows := make([]SummaryRow, len(fireDetailSpecs))
-	for idx, spec := range fireDetailSpecs {
-		rows[idx].TypeName = strings.TrimSuffix(strings.TrimPrefix(spec.Title, "4."+itoa(idx+1)+" "), "巡检明细表")
-	}
 	for _, row := range d.Summary {
-		idx := fireSpecIndex(row.TypeName)
-		rows[idx].Total += row.Total
-		rows[idx].Normal += row.Normal
-		rows[idx].Problems += row.Problems
-		rows[idx].Rectified += row.Rectified
-		if row.Remark != "" {
-			if rows[idx].Remark != "" {
-				rows[idx].Remark += "；"
-			}
-			rows[idx].Remark += row.Remark
-		}
-	}
-	for idx := range rows {
-		if rows[idx].Total > 0 {
-			rows[idx].InspectRate = float64(rows[idx].Normal+rows[idx].Problems) * 100 / float64(rows[idx].Total)
-		}
-		if rows[idx].Problems > 0 {
-			rows[idx].RectifyRate = float64(rows[idx].Rectified) * 100 / float64(rows[idx].Problems)
-		}
-		dataRow(p, widths, []string{rows[idx].TypeName, itoa(rows[idx].Total), itoa(rows[idx].Normal), pctText(rows[idx].InspectRate), itoa(rows[idx].Problems), itoa(rows[idx].Rectified), pctText(rows[idx].RectifyRate), rows[idx].Remark}, 12, 9)
+		dataRow(p, widths, []string{row.TypeName, itoa(row.Total), itoa(row.Normal), pctText(row.InspectRate), itoa(row.Problems), "", "", row.Remark}, 12, 9)
 	}
 }
 
-func fireDetailRows(d MonthlyReportData, specIndex int, labels []string) []DetailRow {
-	var rows []DetailRow
-	for _, table := range d.Details {
-		if fireSpecIndex(table.TypeCode+table.TypeName) != specIndex {
-			continue
-		}
-		itemIndex := make(map[string]int, len(table.Items))
-		for idx, item := range table.Items {
-			itemIndex[item] = idx
-		}
-		for _, row := range table.Rows {
-			out := row
-			out.Marks = make([]string, len(labels))
-			fallbackMark := ""
-			for idx, label := range labels {
-				for item, original := range itemIndex {
-					if strings.Contains(item, label) || strings.Contains(label, item) {
-						if original < len(row.Marks) {
-							out.Marks[idx] = row.Marks[original]
-						}
-						break
-					}
-					if original < len(row.Marks) && itemCoversFireSpec(item, specIndex) {
-						fallbackMark = row.Marks[original]
-					}
-				}
-			}
-			// 存量模板中“灭火器在位且在有效期内”或“消火栓箱完好无损坏”等一个
-			// 检查项实际覆盖表格的多列。该项通过/不通过时同样写入对应固定列。
-			if fallbackMark != "" {
-				for idx := range out.Marks {
-					if out.Marks[idx] == "" {
-						out.Marks[idx] = fallbackMark
-					}
-				}
-			}
-			rows = append(rows, out)
-		}
-	}
-	return rows
+// ledgerDetailTitle 分项明细表标题（4.N {点位类型}巡检明细表）。
+func ledgerDetailTitle(idx int, typeName string) string {
+	return fmt.Sprintf("4.%d %s巡检明细表", idx+1, typeName)
 }
 
-func itemCoversFireSpec(item string, specIndex int) bool {
-	switch specIndex {
-	case 0:
-		return strings.Contains(item, "灭火器")
-	case 1:
-		return strings.Contains(item, "消火") || strings.Contains(item, "消防箱")
-	default:
-		return strings.Contains(item, "应急") || strings.Contains(item, "疏散") || strings.Contains(item, "防火") || strings.Contains(item, "通道")
-	}
-}
-
-func drawFireDetailHeader(p *gofpdf.Fpdf, items []string) []float64 {
+// drawLedgerDetailHeader 明细表头：序号/位置编号 + 检查项竖排窄列 + 问题说明/巡检人/巡检时间。
+// 检查项列宽随项数均分，表头文字逐字竖排（对齐甲方样稿）。
+func drawLedgerDetailHeader(p *gofpdf.Fpdf, items []string) []float64 {
 	itemW := (contentW - 9 - 32 - 37 - 20 - 17) / float64(len(items))
 	widths := []float64{9, 32}
 	for range items {
@@ -1241,9 +1156,11 @@ func drawFireDetailHeader(p *gofpdf.Fpdf, items []string) []float64 {
 	return widths
 }
 
-func renderFireDetail(p *gofpdf.Fpdf, d MonthlyReportData, spec fireDetailSpec) {
-	rows := fireDetailRows(d, fireSpecIndex(spec.Title), spec.Items)
-	if len(rows) == 0 {
+// renderLedgerDetail 一张分项巡检明细表：检查列=该类型点位所绑检查项模板（table.Items），
+// 行=点位当期最新打卡（table.Rows，Marks 与 Items 对齐：√正常/×异常/空未巡），表下检查标准注。
+func renderLedgerDetail(p *gofpdf.Fpdf, d MonthlyReportData, idx int, table DetailTable) {
+	rows := table.Rows
+	if rows == nil {
 		rows = []DetailRow{}
 	}
 	pageCount := (len(rows) + 8) / 9
@@ -1253,18 +1170,18 @@ func renderFireDetail(p *gofpdf.Fpdf, d MonthlyReportData, spec fireDetailSpec) 
 	for page := 0; page < pageCount; page++ {
 		p.AddPage()
 		p.SetY(22)
-		title := spec.Title
+		title := ledgerDetailTitle(idx, table.TypeName)
 		if page > 0 {
 			title += "（续）"
 		}
 		p.SetFont("noto", "B", 15)
 		p.CellFormat(contentW, 8, title, "", 1, "L", false, 0, "")
 		p.Ln(2)
-		widths := drawFireDetailHeader(p, spec.Items)
+		widths := drawLedgerDetailHeader(p, table.Items)
 		start, end := page*9, min((page+1)*9, len(rows))
-		for idx := start; idx < end; idx++ {
-			row := rows[idx]
-			cells := []string{itoa(idx + 1), row.Location}
+		for r := start; r < end; r++ {
+			row := rows[r]
+			cells := []string{itoa(r + 1), row.Location}
 			cells = append(cells, row.Marks...)
 			cells = append(cells, row.Problem, row.Inspector, row.Time)
 			dataRow(p, widths, cells, 14.0, 8.5)
@@ -1274,25 +1191,26 @@ func renderFireDetail(p *gofpdf.Fpdf, d MonthlyReportData, spec fireDetailSpec) 
 		}
 		p.Ln(2)
 		p.SetFont("noto", "", 8.5)
-		for _, line := range wrapText(p, spec.Note, contentW) {
+		for _, line := range wrapText(p, table.Note, contentW) {
 			p.CellFormat(contentW, 5, line, "", 1, "L", false, 0, "")
 		}
 	}
 }
 
-var fireLedgerWidths = []float64{9, 17, 41, 35, 41, 20, 17}
+var issueLedgerWidths = []float64{9, 17, 41, 35, 41, 20, 17}
 
-func drawFireLedgerHeader(p *gofpdf.Fpdf) {
-	headerRow(p, fireLedgerWidths, []string{"序号", "日期", "故障/问题", "照片", "处理情况", "照片", "检查人"}, 11)
+func drawIssueLedgerHeader(p *gofpdf.Fpdf) {
+	headerRow(p, issueLedgerWidths, []string{"序号", "日期", "故障/问题", "照片", "处理情况", "照片", "检查人"}, 11)
 }
 
-func drawFireLedgerPhoto(p *gofpdf.Fpdf, d MonthlyReportData, key, uniq string, x, y, w, h float64) {
+func drawIssueLedgerPhoto(p *gofpdf.Fpdf, d MonthlyReportData, key, uniq string, x, y, w, h float64) {
 	if name, iw, ih, ok := registerImage(p, d.ImageLoader, key, uniq, w-3, h-3); ok {
 		p.ImageOptions(name, x+(w-iw)/2, y+(h-ih)/2, iw, ih, false, gofpdf.ImageOptions{ReadDpi: true}, 0, "")
 	}
 }
 
-func renderFireLedger(p *gofpdf.Fpdf, d MonthlyReportData) {
+// renderIssueLedger 问题清单及整改台账（一条异常打卡记录一行；处理情况=复核结论）。
+func renderIssueLedger(p *gofpdf.Fpdf, d MonthlyReportData) {
 	pageCount := (len(d.Ledger) + 5) / 6
 	if pageCount == 0 {
 		pageCount = 1
@@ -1307,12 +1225,12 @@ func renderFireLedger(p *gofpdf.Fpdf, d MonthlyReportData) {
 		p.SetFont("noto", "B", 15)
 		p.CellFormat(contentW, 8, title, "", 1, "L", false, 0, "")
 		p.Ln(2)
-		drawFireLedgerHeader(p)
+		drawIssueLedgerHeader(p)
 		start, end := page*6, min((page+1)*6, len(d.Ledger))
 		for idx := start; idx < end; idx++ {
 			row, y0, h := d.Ledger[idx], p.GetY(), 25.0
 			x := margin
-			for _, w := range fireLedgerWidths {
+			for _, w := range issueLedgerWidths {
 				p.Rect(x, y0, w, h, "D")
 				x += w
 			}
@@ -1323,42 +1241,42 @@ func renderFireLedger(p *gofpdf.Fpdf, d MonthlyReportData) {
 			for _, cell := range center {
 				x := margin
 				for before := 0; before < cell.index; before++ {
-					x += fireLedgerWidths[before]
+					x += issueLedgerWidths[before]
 				}
 				p.SetXY(x, y0+(h-5)/2)
 				p.SetFont("noto", "", 8)
-				p.CellFormat(fireLedgerWidths[cell.index], 5, trunc(p, cell.text, fireLedgerWidths[cell.index]-1), "", 0, "C", false, 0, "")
+				p.CellFormat(issueLedgerWidths[cell.index], 5, trunc(p, cell.text, issueLedgerWidths[cell.index]-1), "", 0, "C", false, 0, "")
 			}
 			drawText := func(index int, text string) {
 				x := margin
 				for before := 0; before < index; before++ {
-					x += fireLedgerWidths[before]
+					x += issueLedgerWidths[before]
 				}
 				p.SetFont("noto", "", 8)
-				lines := wrapText(p, text, fireLedgerWidths[index]-3)
+				lines := wrapText(p, text, issueLedgerWidths[index]-3)
 				if len(lines) > 4 {
 					lines = lines[:4]
 				}
 				for lineIndex, line := range lines {
 					p.SetXY(x+1.5, y0+1.5+float64(lineIndex)*4.5)
-					p.CellFormat(fireLedgerWidths[index]-3, 4.5, line, "", 0, "L", false, 0, "")
+					p.CellFormat(issueLedgerWidths[index]-3, 4.5, line, "", 0, "L", false, 0, "")
 				}
 			}
 			drawText(2, row.Problem)
 			drawText(4, row.FixText)
-			xProblemPhoto := margin + fireLedgerWidths[0] + fireLedgerWidths[1] + fireLedgerWidths[2]
-			xFixPhoto := xProblemPhoto + fireLedgerWidths[3] + fireLedgerWidths[4]
+			xProblemPhoto := margin + issueLedgerWidths[0] + issueLedgerWidths[1] + issueLedgerWidths[2]
+			xFixPhoto := xProblemPhoto + issueLedgerWidths[3] + issueLedgerWidths[4]
 			if len(row.ProblemPhotos) > 0 {
-				drawFireLedgerPhoto(p, d, row.ProblemPhotos[0], fmt.Sprintf("fire-ledger-p-%d", idx), xProblemPhoto, y0, fireLedgerWidths[3], h)
+				drawIssueLedgerPhoto(p, d, row.ProblemPhotos[0], fmt.Sprintf("issue-ledger-p-%d", idx), xProblemPhoto, y0, issueLedgerWidths[3], h)
 			}
 			if len(row.FixPhotos) > 0 {
-				drawFireLedgerPhoto(p, d, row.FixPhotos[0], fmt.Sprintf("fire-ledger-f-%d", idx), xFixPhoto, y0, fireLedgerWidths[5], h)
+				drawIssueLedgerPhoto(p, d, row.FixPhotos[0], fmt.Sprintf("issue-ledger-f-%d", idx), xFixPhoto, y0, issueLedgerWidths[5], h)
 			}
 			p.SetY(y0 + h)
 		}
 		for empty := end - start; empty < 6; empty++ {
 			y0, h, x := p.GetY(), 25.0, margin
-			for _, w := range fireLedgerWidths {
+			for _, w := range issueLedgerWidths {
 				p.Rect(x, y0, w, h, "D")
 				x += w
 			}

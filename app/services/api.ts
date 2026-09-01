@@ -287,17 +287,6 @@ export type OrderPhoto = {
   watermarked_url: string
 }
 
-/** 项目启用点位选项（GET /points?community_id=，问题上报关联点位用） */
-export type PointOption = { id: string; name: string }
-
-/** GET /points?community_id= → 项目启用点位列表（须为该项目在职编制成员） */
-export function apiListPoints(communityId: string): Promise<PointOption[]> {
-  return new Promise((resolve, reject) => {
-    httpGet<Array<{ id: string; name: string }>>('/points?community_id=' + communityId)
-      .then((d) => resolve((d || []).map((p) => ({ id: p.id, name: p.name ?? '' }))))
-      .catch(reject)
-  })
-}
 
 /** 离线补传响应（对齐 CheckinService.OfflineSync） */
 export type OfflineSyncResult = {
@@ -638,10 +627,6 @@ export function apiLogin(username: string, password: string, tenantCode?: string
   })
 }
 
-/** 刷新 POST /refresh（静默刷新由 request 层 refreshSession 完成，此处为对外的同能力入口） */
-export function apiRefresh(): Promise<boolean> {
-  return refreshSession()
-}
 
 /** 注册开关 GET /auth/register-config → data.enabled */
 export function apiRegisterConfig(): Promise<boolean> {

@@ -6,9 +6,6 @@ export function listMenus(params?: { title?: string; status?: number | '' }) {
   return request<MenuNode[]>({ url: '/system/menus', method: 'get', params })
 }
 
-export function getMenu(id: string) {
-  return request<MenuNode>({ url: `/system/menus/${id}`, method: 'get' })
-}
 
 export function createMenu(data: Partial<MenuNode>) {
   return request<{ id: string }>({ url: '/system/menus', method: 'post', data })

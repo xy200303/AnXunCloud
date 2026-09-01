@@ -17,12 +17,6 @@ export function listPoints(params: PointQuery) {
   return request<PageResult<PointItem>>({ url: '/inspection/points', method: 'get', params })
 }
 
-export function getPoint(id: string) {
-  return request<PointItem & { referenced_plans?: { id: string; name: string }[] }>({
-    url: `/inspection/points/${id}`,
-    method: 'get'
-  })
-}
 
 export function createPoint(data: PointForm) {
   return request<{ id: string; qrcode_no: string }>({ url: '/inspection/points', method: 'post', data })

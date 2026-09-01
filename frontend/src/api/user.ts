@@ -19,9 +19,6 @@ export function listUsers(params: UserQuery) {
   return request<PageResult<UserItem>>({ url: '/system/users', method: 'get', params })
 }
 
-export function getUser(id: string) {
-  return request<UserItem>({ url: `/system/users/${id}`, method: 'get' })
-}
 
 export function createUser(data: UserForm) {
   return request<{ id: string }>({ url: '/system/users', method: 'post', data })

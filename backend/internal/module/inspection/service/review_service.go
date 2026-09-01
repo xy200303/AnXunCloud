@@ -22,7 +22,6 @@ import (
 	"anxuncloud/internal/pkg/notify"
 	"anxuncloud/internal/pkg/response"
 	"anxuncloud/internal/pkg/storage"
-	"anxuncloud/internal/pkg/timefmt"
 	"anxuncloud/internal/pkg/types"
 	"anxuncloud/internal/pkg/uploadfile"
 )
@@ -103,38 +102,7 @@ func (s *ReviewService) scopeQuery(c *gin.Context, auditStatus, communityID, ins
 	return middleware.ApplyCommunityFilter(db, c, "checkin_record.community_id"), nil
 }
 
-func (s *ReviewService) reviewItem(r *model.CheckinRecord) gin.H {
-	return gin.H{
-		"id": r.ID, "task_id": r.TaskID, "point_id": r.PointID,
-		"point_name":     pointName(s.db, r.PointID),
-		"community_id":   r.CommunityID,
-		"community_name": commName(s.db, r.CommunityID),
-		"inspector_id":   r.InspectorID, "inspector_name": userName(s.db, r.InspectorID),
-		"checkin_time": timefmt.T(r.CheckinTime), "checkin_type": r.CheckinType,
-		"distance_to_point": distanceOrNil(r), "result": r.Result, "remark": r.Remark,
-		"is_suspect": r.IsSuspect, "suspect_reason": r.SuspectReason,
-		"photos": RecordFlatPhotos(s.db, r.ID), "check_items": s.checkItemViews(r.ID),
-		"audit_status": r.AuditStatus, "audit_step": r.AuditStep, "flow_steps": s.flowStepViews(r),
-		"audit_by": r.AuditBy,
-		"audit_at": timefmt.TP(r.AuditAt), "audit_remark": r.AuditRemark,
-		"ai_verdict": r.AIVerdict, "ai_reason": r.AIReason,
-		"ai_quality_pass": r.AIQualityPass, "ai_quality_issue": r.AIQualityIssue,
-		"force_submit":    r.ForceSubmit,
-	}
-}
 
-// flowStepViews 审批链环节视图（供前端展示进度：环节名 + 是否已通过 + 是否当前环节）。
-func (s *ReviewService) flowStepViews(r *model.CheckinRecord) []gin.H {
-	flow := communitysvc.ResolveFlow(s.db, r.CommunityID, sysmodel.FlowCheckinReview)
-	out := make([]gin.H, 0, len(flow))
-	for i, step := range flow {
-		out = append(out, gin.H{
-			"name": step.Name, "slot": step.Slot,
-			"done": i < int(r.AuditStep), "current": i == int(r.AuditStep) && r.AuditStatus == model.AuditPending,
-		})
-	}
-	return out
-}
 
 // Pass 审核通过当前环节（审批链按链执行，扩展方案 §3）：
 // 操作者须在当前环节槽位名单内；非末环节通过后推进到下一环节并通知下一环节名单，末环节通过才置 pass。
@@ -478,22 +446,6 @@ func (s *ReviewService) spotcheckAI(c *gin.Context, req *dto.SpotcheckReq) (gin.
 	return gin.H{"picked": picked, "to_review": toReview, "passed": passed, "failed": failed}, nil
 }
 
-// checkItemViews 逐项结果视图（v18 起读 checkin_record_item 快照表）：附带该项照片可访问 URL（photos 存 file_id，优先水印图）。
-func (s *ReviewService) checkItemViews(recordID string) []gin.H {
-	var items []model.CheckinRecordItem
-	s.db.Where("record_id = ?", recordID).Order("sort ASC").Find(&items)
-	out := make([]gin.H, 0, len(items))
-	for _, ci := range items {
-		out = append(out, gin.H{
-			"name": ci.Name, "pass": ci.Pass, "note": ci.Note,
-			"photos": ci.Photos, "photo_urls": ItemPhotoURLs(s.db, ci.Photos),
-			"requirement": ci.Requirement, "ai_hint": ci.AIHint,
-			"judge_type": ci.JudgeType, "judge_config": ci.JudgeConfig,
-			"ai_verdict": ci.AIVerdict, "ai_reason": ci.AIReason, "ai_reading": ci.AIReading, "exception_type": ci.ExceptionType,
-		})
-	}
-	return out
-}
 
 // reviewInputOf 由打卡记录组装大模型审核上下文（照片全部来自逐项快照）。
 func (s *ReviewService) reviewInputOf(r *model.CheckinRecord) ai.ReviewInput {

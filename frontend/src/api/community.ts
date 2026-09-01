@@ -7,9 +7,6 @@ export function listCommunities(params?: { page?: number; page_size?: number; na
   return request<PageResult<CommunityItem>>({ url: '/communities', method: 'get', params })
 }
 
-export function getCommunity(id: string) {
-  return request<CommunityItem & { buildings: BuildingItem[] }>({ url: `/communities/${id}`, method: 'get' })
-}
 
 export function createCommunity(data: { name: string; address?: string; manager_id?: string | null; status?: number }) {
   return request<{ id: string }>({ url: '/communities', method: 'post', data })

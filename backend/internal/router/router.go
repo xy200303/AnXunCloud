@@ -405,6 +405,7 @@ func New(cfg *config.Config, db *gorm.DB, rdb *redis.Client) (*gin.Engine, *insp
 				appPoints.GET("/:id", middleware.RequirePerm("inspection:point:list"), inspectionCtl.PointDetail)
 				appPoints.PUT("/:id", middleware.RequirePerm("inspection:point:update"), middleware.OperLog(db, "inspection", "update"), inspectionCtl.UpdatePoint)
 			}
+			appAuth.GET("/dict-options", dictCtl.Options) // 业务字典只读选项（报告类型下拉等，登录即可）
 			// 检查项模板（建点位时下拉选项）
 			appAuth.GET("/inspection/templates", middleware.RequirePerm("inspection:template:list", "inspection:point:create"), templateCtl.List)
 			// 任务监控 + 一键催办
@@ -425,6 +426,7 @@ func New(cfg *config.Config, db *gorm.DB, rdb *redis.Client) (*gin.Engine, *insp
 			// 月报签字（权限点与 PC 完全一致；待我签用 ?pending_mine=1）
 			appReports := appAuth.Group("/reports")
 			{
+				appReports.POST("/generate", middleware.RequirePerm("report:generate"), middleware.OperLog(db, "report", "generate"), reportCtl.Generate) // App 管理端手动生成报告
 				appReports.GET("", middleware.RequirePerm("report:list"), reportCtl.List)
 				appReports.GET("/:id", middleware.RequirePerm("report:list"), reportCtl.Detail)
 				appReports.POST("/:id/sign-inspector", middleware.RequirePerm("report:sign:inspector", "report:sign:proxy"), middleware.OperLog(db, "report", "sign_inspector"), reportCtl.SignInspector)

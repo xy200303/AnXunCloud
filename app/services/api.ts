@@ -1751,3 +1751,34 @@ export function apiTemplateList(): Promise<TemplateListItem[]> {
       .catch(reject)
   })
 }
+
+/** 业务字典选项 GET /dict-options?type_code=（登录即可；报告类型下拉等） */
+export type DictOption = { label: string; value: string; sort: number }
+
+export function apiDictOptions(typeCode: string): Promise<DictOption[]> {
+  return new Promise<DictOption[]>((resolve, reject) => {
+    httpGet<DictOption[]>('/dict-options?type_code=' + encodeURIComponent(typeCode))
+      .then((d) => resolve(d ?? []))
+      .catch(reject)
+  })
+}
+
+/** App 管理端手动生成报告 POST /reports/generate（须 report:generate 权限；签字人走槽位自动圈选） */
+export function apiReportGenerate(body: {
+  community_id: string
+  period: string
+  patrol_type?: string
+  detail_mode?: string
+}): Promise<{ id: string; title: string; status: string; regenerated: boolean }> {
+  return new Promise((resolve, reject) => {
+    httpPost<{ id: string; title: string; status: string; regenerated: boolean }>('/reports/generate', body as unknown as Record<string, any>)
+      .then((d) => {
+        if (d == null) {
+          reject(new Error('生成响应异常'))
+          return
+        }
+        resolve(d)
+      })
+      .catch(reject)
+  })
+}

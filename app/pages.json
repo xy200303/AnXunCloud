@@ -41,6 +41,12 @@
       }
     },
     {
+      "path": "pages/reports/generate",
+      "style": {
+        "navigationBarTitleText": "生成报告"
+      }
+    },
+    {
       "path": "pages/reports/detail",
       "style": {
         "navigationBarTitleText": "报告详情"

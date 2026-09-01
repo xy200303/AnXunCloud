@@ -14,6 +14,10 @@
         >{{ t.label }}</text>
         <view v-if="tab == t.key"  hover-class="hover-dim" class="tab-line" :style="{ backgroundColor: colors.primary }"></view>
       </view>
+      <!-- 管理端入口：手动生成报告（须 report:generate 权限） -->
+      <view v-if="canGenerate" class="tab gen-entry" hover-class="hover-dim" @click="goGenerate">
+        <text class="gen-entry-text" :style="{ color: colors.primary }">+ 生成报告</text>
+      </view>
     </view>
 
     <!-- 骨架屏 -->
@@ -62,6 +66,7 @@
 <script lang="ts">
 import { Colors, ColorTokens } from '@/utils/theme'
 import { apiReports, ReportListItem } from '@/services/api'
+import { useAuthStore } from '@/stores/auth'
 
 type TabKey = 'pending' | 'doing' | 'done'
 
@@ -109,6 +114,10 @@ export default {
     tabs(): { key: TabKey; label: string }[] {
       return TABS
     },
+    /** 管理端「生成报告」入口显隐（须 report:generate 权限） */
+    canGenerate(): boolean {
+      return useAuthStore().hasPerm('report:generate')
+    },
     emptyTitle(): string {
       if (this.tab == 'pending') return '暂时没有要你签字的报告'
       if (this.tab == 'doing') return '暂时没有进行中的报告'
@@ -131,6 +140,9 @@ export default {
     this.load()
   },
   methods: {
+    goGenerate() {
+      uni.navigateTo({ url: '/pages/reports/generate' })
+    },
     switchTab(key: TabKey) {
       if (this.tab == key) return
       this.tab = key
@@ -193,6 +205,17 @@ export default {
 
 .tab-text {
   font-size: 30rpx;
+}
+
+.gen-entry {
+  margin-left: auto;
+  justify-content: center;
+  padding-right: 8rpx;
+}
+
+.gen-entry-text {
+  font-size: 28rpx;
+  font-weight: 600;
 }
 
 .tab-line {

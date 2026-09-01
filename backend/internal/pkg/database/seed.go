@@ -475,7 +475,6 @@ func seedConfigs(tx *gorm.DB) error {
 		{Key: "ai.result_editable", Name: "打卡结果允许覆盖修改", Value: "true", ConfigGroup: "ai", Remark: "关闭后已提交点位不可重拍覆盖（App 端读取）"},
 		{Key: "ai.worker_concurrency", Name: "逐项识别并发数", Value: "4", ConfigGroup: "ai", Remark: "逐项 AI 识别队列的消费 worker 数（服务启动时读取）"},
 		{Key: "report.company_name", Name: "管理单位落款", Value: "", ConfigGroup: "report", Remark: "月报封面\"管理单位\"与页尾落款单位名称；空则留白"},
-		{Key: "report.layout", Name: "月报版式", Value: "ledger", ConfigGroup: "report", Remark: "ledger=台账版（甲方样稿骨架，分项按点位类型自动生成）；generic=通用版"},
 		{Key: "site.slogan", Name: "官网标语", Value: "二维码 / NFC / GPS 围栏三重到点校验，拍照留证、异常复核、月度报告电子签，巡检情况后台一目了然。", ConfigGroup: "site", Remark: "官网首页主标题下的一句话介绍"},
 		{Key: "site.contact_phone", Name: "联系电话", Value: "", ConfigGroup: "site", Remark: "官网页脚展示，留空不显示"},
 		{Key: "site.contact_email", Name: "联系邮箱", Value: "", ConfigGroup: "site", Remark: "官网页脚展示，留空不显示"},

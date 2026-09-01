@@ -18,7 +18,6 @@ func TestLedgerMonthlyRendersDynamicTablesAndContinuationPages(t *testing.T) {
 	data := MonthlyReportData{
 		CommunityName: "测试小区",
 		Period:        "2026-09",
-		Layout:        "ledger",
 		TypeNames:     []string{"灭火器", "消防箱", "应急照明"},
 		Summary:       []SummaryRow{{TypeName: "灭火器", Total: 10, Normal: 9, InspectRate: 100, Problems: 1}},
 		Details:       []DetailTable{{TypeName: "灭火器", Items: []string{"压力", "瓶体", "喷管", "铅封", "有效期"}, Rows: rows}},

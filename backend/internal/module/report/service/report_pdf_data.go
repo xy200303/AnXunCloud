@@ -27,7 +27,6 @@ func (s *ReportService) pdfData(r *model.InspectionReport) pdf.MonthlyReportData
 	d := pdf.MonthlyReportData{
 		CommunityName: s.commName(r.CommunityID),
 		Period:        r.Period,
-		Layout:        s.reportLayout(),
 		TitleLine:     s.reportTitleLine(r),
 		CompanyName:   s.cfgString("report.company_name"),
 		Approved:      r.Status == model.StatusApproved,

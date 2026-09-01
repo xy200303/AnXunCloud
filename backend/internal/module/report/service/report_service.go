@@ -49,15 +49,6 @@ func NewReportService(db *gorm.DB, rdb *redis.Client, store *storage.Storage, ge
 	return &ReportService{db: db, rdb: rdb, store: store, getCfg: getCfg, notifier: notifier}
 }
 
-// reportLayout 报告版式（report.layout 配置：ledger=台账版（甲方样稿骨架，分项按点位类型）/ generic=通用版；
-// 缺省 ledger——台账版分项由点位类型与检查项模板数据驱动，任何巡查类型通用）。
-func (s *ReportService) reportLayout() string {
-	if v := s.cfgString("report.layout"); v == "generic" {
-		return "generic"
-	}
-	return "ledger"
-}
-
 // reportTitleLine 封面大标题首行：直接按巡查类型名推导（「物业{类型label}月度」，
 // 综合月报回落「物业综合月度」），不提供配置项，避免标题口径分叉。
 func (s *ReportService) reportTitleLine(r *model.InspectionReport) string {

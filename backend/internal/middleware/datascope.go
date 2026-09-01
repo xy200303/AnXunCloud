@@ -88,12 +88,13 @@ func ApplyCommunityFilter(db *gorm.DB, c *gin.Context, column string) *gorm.DB {
 		if tid == "" {
 			return db
 		}
-		sub := db.Session(&gorm.Session{}).Model(&model.Community{}).
+		sub := db.Session(&gorm.Session{NewDB: true}).Model(&model.Community{}).
 			Select("id").Where("tenant_id = ?", tid)
 		return db.Where(column+" IN (?)", sub)
 	}
 	if identity.TenantID != "" {
-		sub := db.Session(&gorm.Session{}).Model(&model.Community{}).
+		// NewDB 干净会话：防止调用方的 WHERE 条件（如点位名模糊、状态过滤）泄漏进小区子查询
+		sub := db.Session(&gorm.Session{NewDB: true}).Model(&model.Community{}).
 			Select("id").Where("tenant_id = ?", identity.TenantID)
 		db = db.Where(column+" IN (?)", sub)
 	}

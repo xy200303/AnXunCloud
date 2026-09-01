@@ -11,6 +11,10 @@
           <text class="comm-picker-text" :style="{ color: communityId == '' ? colors.textSecondary : colors.textPrimary }">{{ communityName }}</text>
           <text class="comm-picker-arrow" :style="{ color: colors.textSecondary }">▾</text>
         </view>
+        <view v-if="communityId != ''" class="comm-picker" :style="{ borderColor: colors.border }" @click="openBuildingSheet">
+          <text class="comm-picker-text" :style="{ color: buildingId == '' ? colors.textSecondary : colors.textPrimary }">{{ buildingName }}</text>
+          <text class="comm-picker-arrow" :style="{ color: colors.textSecondary }">▾</text>
+        </view>
         <view v-if="canCreate" class="btn-add" :style="{ backgroundColor: colors.primary }" @click="goCreate">
           <text class="btn-add-text" :style="{ color: colors.white }">+ 新增</text>
         </view>
@@ -26,6 +30,42 @@
         />
         <text class="search-btn" :style="{ color: colors.primary }" @click="reload">搜索</text>
       </view>
+      <!-- 类型筛选（字典 point_type 横向滑动） -->
+      <scroll-view scroll-x class="chip-scroll" :show-scrollbar="false">
+        <view class="chip-row">
+          <view
+            v-for="t in typeChips"
+            :key="t.value"
+            class="chip"
+            hover-class="hover-dim"
+            :style="{
+              backgroundColor: typeFilter == t.value ? colors.primary : colors.bgPage,
+              borderColor: typeFilter == t.value ? colors.primary : colors.border
+            }"
+            @click="pickType(t.value)"
+          >
+            <text class="chip-text" :style="{ color: typeFilter == t.value ? colors.white : colors.textRegular }">{{ t.label }}</text>
+          </view>
+        </view>
+      </scroll-view>
+      <!-- 凭证筛选 -->
+      <scroll-view scroll-x class="chip-scroll" :show-scrollbar="false">
+        <view class="chip-row">
+          <view
+            v-for="c in credChips"
+            :key="c.value"
+            class="chip"
+            hover-class="hover-dim"
+            :style="{
+              backgroundColor: credFilter == c.value ? colors.primary : colors.bgPage,
+              borderColor: credFilter == c.value ? colors.primary : colors.border
+            }"
+            @click="pickCred(c.value)"
+          >
+            <text class="chip-text" :style="{ color: credFilter == c.value ? colors.white : colors.textRegular }">{{ c.label }}</text>
+          </view>
+        </view>
+      </scroll-view>
     </view>
 
     <!-- 骨架屏 -->
@@ -82,7 +122,7 @@
 
 <script lang="ts">
 import { Colors, ColorTokens } from '@/utils/theme'
-import { apiPointList, apiCommunityTree, PointItem, CommunityTreeNode } from '@/services/api'
+import { apiPointList, apiCommunityTree, apiDictOptions, PointItem, CommunityTreeNode, DictOption } from '@/services/api'
 import { useAuthStore } from '@/stores/auth'
 
 const PAGE_SIZE = 20
@@ -99,7 +139,11 @@ type ListData = {
   communities: CommunityTreeNode[]
   tenantId: string
   communityId: string
+  buildingId: string
   keyword: string
+  typeFilter: string
+  credFilter: string
+  typeOptions: DictOption
   loading: boolean
   loadingMore: boolean
   loaded: boolean
@@ -145,7 +189,11 @@ export default {
       communities: [] as CommunityTreeNode[],
       tenantId: '',
       communityId: '',
+      buildingId: '',
       keyword: '',
+      typeFilter: '',
+      credFilter: '',
+      typeOptions: [] as DictOption[,
       loading: true,
       loadingMore: false,
       loaded: false,
@@ -189,12 +237,36 @@ export default {
       const c = this.visibleCommunities.find((x) => x.id == this.communityId)
       return c != null ? c.name : '全部小区'
     },
+    buildings(): Array<{ id: string; name: string; type: string }> {
+      const c = this.visibleCommunities.find((x) => x.id == this.communityId)
+      return c != null ? c.buildings : []
+    },
+    buildingName(): string {
+      if (this.buildingId == '') return '楼栋/区域'
+      const b = this.buildings.find((x) => x.id == this.buildingId)
+      return b != null ? b.name : '楼栋/区域'
+    },
+    typeChips(): Array<{ value: string; label: string }> {
+      return [{ value: '', label: '全部类型' }].concat(this.typeOptions.map((o) => ({ value: o.value, label: o.label })))
+    },
+    credChips(): Array<{ value: string; label: string }> {
+      return [
+        { value: '', label: '全部凭证' },
+        { value: 'qrcode', label: '二维码' },
+        { value: 'nfc', label: 'NFC' },
+        { value: 'any', label: '任一' },
+        { value: 'none', label: '免凭证' }
+      ]
+    },
     noMore(): boolean {
       return this.loaded && this.list.length >= this.total
     }
   },
   onLoad() {
     this.fetchCommunities()
+    apiDictOptions('point_type').then((opts) => {
+      this.typeOptions = opts
+    }).catch(() => {})
     this.reload()
   },
   onShow() {
@@ -224,6 +296,7 @@ export default {
           const id = res.tapIndex == 0 ? '' : this.visibleCommunities[res.tapIndex - 1].id
           if (id == this.communityId) return
           this.communityId = id
+          this.buildingId = ''
           this.reload()
         }
       })
@@ -242,6 +315,27 @@ export default {
         }
       })
     },
+    /** 楼栋/区域筛选：当前小区的楼栋与区域行（首项为全部） */
+    openBuildingSheet() {
+      const names = ['全部楼栋/区域'].concat(this.buildings.map((b) => b.name))
+      uni.showActionSheet({
+        itemList: names,
+        success: (res) => {
+          const id = res.tapIndex == 0 ? '' : this.buildings[res.tapIndex - 1].id
+          if (id == this.buildingId) return
+          this.buildingId = id
+          this.reload()
+        }
+      })
+    },
+    pickType(v: string) {
+      this.typeFilter = v
+      this.reload()
+    },
+    pickCred(v: string) {
+      this.credFilter = v
+      this.reload()
+    },
     reload() {
       this.page = 1
       this.fetchPage(false)
@@ -257,7 +351,11 @@ export default {
       } else {
         this.loading = true
       }
-      apiPointList(this.page, PAGE_SIZE, this.communityId, this.keyword.trim(), this.tenantId)
+      apiPointList(this.page, PAGE_SIZE, this.communityId, this.keyword.trim(), this.tenantId, {
+        type: this.typeFilter,
+        credential: this.credFilter,
+        buildingId: this.buildingId
+      })
         .then((res) => {
           const views: PointView[] = []
           res.list.forEach((p: PointItem) => {
@@ -292,6 +390,29 @@ export default {
 <style scoped>
 .page {
   flex: 1;
+}
+
+.chip-scroll {
+  margin-top: 16rpx;
+  white-space: nowrap;
+}
+
+.chip-row {
+  flex-direction: row;
+  display: inline-flex;
+}
+
+.chip {
+  border-width: 1rpx;
+  border-style: solid;
+  border-radius: 999rpx;
+  padding: 10rpx 26rpx;
+  margin-right: 16rpx;
+  flex-shrink: 0;
+}
+
+.chip-text {
+  font-size: 26rpx;
 }
 
 .filter-bar {

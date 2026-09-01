@@ -1679,12 +1679,22 @@ export function apiReviewReject(id: string, reason: string): Promise<null> {
   return httpPost<null>('/inspection/review/' + id + '/reject', { reason: reason }, true)
 }
 
-/** 点位列表 GET /inspection/points */
-export function apiPointList(page: number, pageSize: number, communityId: string, name: string, tenantId = ''): Promise<PointsPage> {
+/** 点位列表 GET /inspection/points（支持类型/凭证/楼栋过滤） */
+export function apiPointList(
+  page: number,
+  pageSize: number,
+  communityId: string,
+  name: string,
+  tenantId = '',
+  opts: { type?: string; credential?: string; buildingId?: string } = {}
+): Promise<PointsPage> {
   let path = '/inspection/points?page=' + page + '&page_size=' + pageSize
   if (tenantId != '') path += '&tenant_id=' + encodeURIComponent(tenantId)
   if (communityId != '') path += '&community_id=' + communityId
   if (name != '') path += '&name=' + encodeURIComponent(name)
+  if (opts.type != null && opts.type != '') path += '&type=' + encodeURIComponent(opts.type)
+  if (opts.credential != null && opts.credential != '') path += '&credential=' + encodeURIComponent(opts.credential)
+  if (opts.buildingId != null && opts.buildingId != '') path += '&building_id=' + opts.buildingId
   return new Promise<PointsPage>((resolve, reject) => {
     httpGet<any>(path)
       .then((d) => {

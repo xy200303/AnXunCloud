@@ -657,10 +657,10 @@ func (s *ReportService) createReport(communityID, patrolType string, start, end 
 			"inspector_signed": types.SignArray{},
 			"supervisor_ids":   supervisorIDs, "manager_ids": managerIDs,
 			"supervisor_by": nil, "supervisor_at": nil, "supervisor_remark": "",
-			"supervisor_signature_id": "",
+			"supervisor_signature_id": nil,
 			"manager_by":               nil, "manager_at": nil, "manager_remark": "",
-			"manager_signature_id": "",
-			"reject_reason":         "", "file_key": "", "seal_file_id": "",
+			"manager_signature_id": nil,
+			"reject_reason":         "", "file_id": nil, "seal_file_id": nil,
 		}
 		if err := s.db.Model(&r).Updates(updates).Error; err != nil {
 			return nil, errs.ErrInternal
@@ -890,11 +890,25 @@ func (s *ReportService) SignInspector(c *gin.Context, id string, req *dto.Inspec
 	updates := map[string]any{"inspector_signed": signed}
 	newStatus := r.Status
 	if allSigned {
+		// 流转下一签字级；空级别自动跳过（与 firstSignStatus 同口径），全空直接归档
 		newStatus = model.StatusPendingSupervisor
+		if len(r.SupervisorIDs) == 0 {
+			newStatus = model.StatusPendingManager
+			if len(r.ManagerIDs) == 0 {
+				newStatus = model.StatusApproved
+				updates["status"] = newStatus
+				if sealID := s.activeSealID(r.CommunityID); sealID != "" {
+					updates["seal_file_id"] = sealID
+				}
+			}
+		}
 		updates["status"] = newStatus
 	}
 	if err := s.db.Model(r).Updates(updates).Error; err != nil {
 		return nil, errs.ErrInternal
+	}
+	if allSigned && newStatus == model.StatusApproved {
+		go s.archivePDF(r.ID)
 	}
 	if allSigned {
 		// 定向通知指定主管签字人（无签字人时该级本已跳过，不会走到这里仍保底校验）
@@ -952,7 +966,7 @@ func (s *ReportService) sign(c *gin.Context, id string, req *dto.SignReq, expect
 			"inspector_signed": types.SignArray{},
 			"reject_reason":    req.Reason,
 			"supervisor_by":    nil, "supervisor_at": nil, "supervisor_remark": "",
-			"supervisor_signature_id": "",
+			"supervisor_signature_id": nil,
 		}
 		if err := s.db.Model(r).Updates(updates).Error; err != nil {
 			return nil, errs.ErrInternal
@@ -982,7 +996,9 @@ func (s *ReportService) sign(c *gin.Context, id string, req *dto.SignReq, expect
 			updates["status"] = model.StatusPendingManager
 		} else {
 			updates["status"] = model.StatusApproved
-			updates["seal_file_key"] = s.activeSealID(r.CommunityID)
+			if sealID := s.activeSealID(r.CommunityID); sealID != "" {
+				updates["seal_file_id"] = sealID
+			}
 		}
 		if err := s.db.Model(r).Updates(updates).Error; err != nil {
 			return nil, errs.ErrInternal
@@ -1001,8 +1017,10 @@ func (s *ReportService) sign(c *gin.Context, id string, req *dto.SignReq, expect
 			"status":     model.StatusApproved,
 			"manager_by": identity.UserID, "manager_at": now, "manager_remark": req.Remark,
 			"manager_signature_id": sigKey,
-			// 公章快照：固化终审时点的 active 公章（按报告小区所属租户取章），后续换章不影响已归档报告
-			"seal_file_id": s.activeSealID(r.CommunityID),
+		}
+		// 公章快照：固化终审时点的 active 公章（按报告小区所属租户取章），后续换章不影响已归档报告
+		if sealID := s.activeSealID(r.CommunityID); sealID != "" {
+			updates["seal_file_id"] = sealID
 		}
 		if err := s.db.Model(r).Updates(updates).Error; err != nil {
 			return nil, errs.ErrInternal

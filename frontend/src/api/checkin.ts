@@ -10,6 +10,7 @@ export interface CheckinQuery {
   inspector_id?: string
   task_id?: string
   result?: string
+  exception_type?: string // device_missing=设备缺失 / unable_to_capture=无法拍摄
   checkin_type?: string
   audit_status?: string
   is_suspect?: boolean

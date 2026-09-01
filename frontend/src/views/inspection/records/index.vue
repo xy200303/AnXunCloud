@@ -38,6 +38,12 @@
             <el-option label="异常" value="abnormal" />
           </el-select>
         </el-form-item>
+        <el-form-item label="异常类型">
+          <el-select v-model="query.exception_type" placeholder="全部" clearable style="width: 130px">
+            <el-option label="设备缺失" value="device_missing" />
+            <el-option label="无法拍摄" value="unable_to_capture" />
+          </el-select>
+        </el-form-item>
         <el-form-item v-if="activeTab === 'reviewed'" label="审核结果">
           <el-select v-model="reviewedStatus" style="width: 120px">
             <el-option label="全部" value="all" />
@@ -123,6 +129,7 @@
               <el-tag v-else-if="row.result === 'abnormal'" type="danger" size="small">异常</el-tag>
               <el-tag v-else type="success" size="small">正常</el-tag>
               <el-tag v-if="row.force_submit" type="warning" size="small" effect="dark">强制提交</el-tag>
+              <el-tag v-for="et in exceptionTypeTags(row.exception_types)" :key="et.value" type="danger" size="small" effect="plain">{{ et.label }}</el-tag>
               <el-tag v-if="row.ai_verdict === 'review' || row.ai_verdict === 'error'" type="warning" size="small" effect="plain">AI 存疑</el-tag>
             </div>
           </template>
@@ -280,6 +287,13 @@ function auditStatusTag(s: string): { label: string; type: 'info' | 'warning' | 
   ) as { label: string; type: 'info' | 'warning' | 'success' | 'danger' }
 }
 
+// 异常类型标签（exception_types 逗号分隔 → 标签数组）
+function exceptionTypeTags(v?: string): Array<{ value: string; label: string }> {
+  if (!v) return []
+  const labels: Record<string, string> = { device_missing: '设备缺失', unable_to_capture: '无法拍摄' }
+  return v.split(',').filter(Boolean).map((x) => ({ value: x, label: labels[x] || x }))
+}
+
 // AI 结论标签
 function aiVerdictTag(v: string): { label: string; type: 'info' | 'warning' | 'success' | 'danger' } {
   return (
@@ -308,7 +322,7 @@ function defaultRange(): [string, string] {
 }
 
 const timeRange = ref<[string, string] | null>(defaultRange())
-const query = reactive<CheckinQuery>({ page: 1, page_size: 20, community_id: undefined, inspector_id: undefined, result: '' })
+const query = reactive<CheckinQuery>({ page: 1, page_size: 20, community_id: undefined, inspector_id: undefined, result: '', exception_type: '' })
 
 // tab 徽章计数（与列表过滤条件联动，不含审核状态本身）
 const counts = reactive<AuditCounts>({ auto_pass: 0, pending: 0, pass: 0, rejected: 0 })
@@ -326,6 +340,7 @@ function filterParams() {
     community_id: query.community_id,
     inspector_id: query.inspector_id,
     result: query.result || undefined,
+    exception_type: query.exception_type || undefined,
     is_suspect: onlySuspect.value || undefined,
     force_submit: onlyForceSubmit.value || undefined,
     ai_verdict: onlyAiSuspect.value ? 'review,error' : undefined,
@@ -368,6 +383,7 @@ function handleReset() {
   query.community_id = undefined
   query.inspector_id = undefined
   query.result = ''
+  query.exception_type = ''
   reviewedStatus.value = 'all'
   onlySuspect.value = false
   onlyForceSubmit.value = false

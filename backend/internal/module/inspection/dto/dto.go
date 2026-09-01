@@ -175,6 +175,8 @@ type CheckinListQuery struct {
 	InspectorID string `form:"inspector_id"`
 	TaskID      string `form:"task_id"`
 	Result      string `form:"result"`
+	// ExceptionType 逐项异常类型过滤（device_missing=设备缺失 / unable_to_capture=无法拍摄；EXISTS 逐项匹配）
+	ExceptionType string `form:"exception_type"`
 	CheckinType string `form:"checkin_type"`
 	IsSuspect   string `form:"is_suspect"`
 	AuditStatus string `form:"audit_status"`

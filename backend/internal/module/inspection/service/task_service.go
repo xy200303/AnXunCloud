@@ -416,6 +416,9 @@ func (s *TaskService) applyCheckinFilters(c *gin.Context, q *dto.CheckinListQuer
 	if q.Result != "" {
 		db = db.Where("result = ?", q.Result)
 	}
+	if q.ExceptionType != "" {
+		db = db.Where("EXISTS (SELECT 1 FROM checkin_record_item ci WHERE ci.record_id = checkin_record.id AND ci.exception_type = ?)", q.ExceptionType)
+	}
 	if q.CheckinType != "" {
 		db = db.Where("checkin_type = ?", q.CheckinType)
 	}
@@ -465,6 +468,14 @@ func (s *TaskService) CheckinAuditCounts(c *gin.Context, q *dto.CheckinListQuery
 	return out, nil
 }
 
+// exceptionTypesOf 记录内逐项异常类型去重拼接（列表"异常类型"列展示；空=无异常类型上报）。
+func exceptionTypesOf(db *gorm.DB, recordID string) string {
+	var types_ []string
+	db.Model(&model.CheckinRecordItem{}).Distinct("exception_type").
+		Where("record_id = ? AND exception_type <> ''", recordID).Pluck("exception_type", &types_)
+	return strings.Join(types_, ",")
+}
+
 // CheckinList 打卡记录分页检索。
 func (s *TaskService) CheckinList(c *gin.Context, q *dto.CheckinListQuery) (*response.Page, *errs.Error) {
 	db, be := s.applyCheckinFilters(c, q)
@@ -496,6 +507,7 @@ func (s *TaskService) CheckinList(c *gin.Context, q *dto.CheckinListQuery) (*res
 			"id": r.ID, "task_id": r.TaskID, "point_id": r.PointID,
 			"point_name":     pointName(s.db, r.PointID),
 			"community_name": commName(s.db, r.CommunityID),
+			"exception_types": exceptionTypesOf(s.db, r.ID),
 			"inspector_id": r.InspectorID, "inspector_name": userName(s.db, r.InspectorID),
 			"checkin_time": timefmt.T(r.CheckinTime), "checkin_type": r.CheckinType,
 			"distance_to_point": distanceOrNil(r), "result": r.Result,

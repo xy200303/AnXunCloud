@@ -166,10 +166,11 @@
             </el-table>
           </template>
 
-          <!-- 巡检记录明细 -->
+          <!-- 巡检记录明细（分块渲染，滚动到底加载更多，避免几千行一次渲染卡死） -->
           <template v-if="detail.records?.length">
-            <div class="section-title">巡检记录明细</div>
-            <el-table :data="detail.records" border size="small" max-height="320" style="width: 100%">
+            <div class="section-title">巡检记录明细（{{ detail.records.length }} 条）</div>
+            <div class="records-scroll" @scroll="onRecordsScroll">
+              <el-table :data="visibleRecords" border size="small" style="width: 100%">
               <el-table-column prop="checkin_time" label="打卡时间" width="145" />
               <el-table-column prop="inspector_name" label="巡检员" width="75" />
               <el-table-column prop="point_name" label="点位" min-width="90" show-overflow-tooltip />
@@ -205,7 +206,10 @@
                   <span v-else class="text-secondary">无</span>
                 </template>
               </el-table-column>
-            </el-table>
+              </el-table>
+              <div v-if="!recordsAllLoaded" class="records-more">下拉加载更多（{{ visibleRecords.length }}/{{ detail.records.length }}）</div>
+              <div v-else class="records-more text-secondary">全部 {{ detail.records.length }} 条已加载</div>
+            </div>
           </template>
 
           <!-- 三级签字进度 -->
@@ -590,12 +594,28 @@ const emptyStats: ReportStats = {
 }
 const stats = computed<ReportStats>(() => ({ ...emptyStats, ...(detail.value?.stats || {}), daily: detail.value?.stats?.daily || [] }))
 
+// ===== 记录明细分块渲染（滚动加载） =====
+const RECORDS_CHUNK = 100
+const recordsVisible = ref(RECORDS_CHUNK)
+
+const visibleRecords = computed(() => (detail.value?.records || []).slice(0, recordsVisible.value))
+const recordsAllLoaded = computed(() => visibleRecords.value.length >= (detail.value?.records?.length || 0))
+
+function onRecordsScroll(e: Event) {
+  if (recordsAllLoaded.value) return
+  const el = e.target as HTMLElement
+  if (el.scrollTop + el.clientHeight >= el.scrollHeight - 80) {
+    recordsVisible.value += RECORDS_CHUNK
+  }
+}
+
 async function openDetail(row: ReportItem) {
   detail.value = null
   detailVisible.value = true
   detailLoading.value = true
   try {
-    detail.value = await getReport(row.id)
+    recordsVisible.value = RECORDS_CHUNK
+  detail.value = await getReport(row.id)
   } finally {
     detailLoading.value = false
   }
@@ -989,6 +1009,18 @@ async function submitGenerate() {
   font-size: $font-size-body;
   font-weight: 600;
   color: $color-text-primary;
+}
+
+.records-scroll {
+  max-height: 340px;
+  overflow-y: auto;
+}
+
+.records-more {
+  text-align: center;
+  font-size: 12px;
+  color: #86909c;
+  padding: 8px 0;
 }
 
 .record-photo {

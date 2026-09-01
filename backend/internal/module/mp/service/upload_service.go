@@ -65,7 +65,7 @@ func (s *UploadService) STS(userID string, req *dto.STSReq) (gin.H, *errs.Error)
 			"expire_seconds": 3600,
 		}, nil
 	}
-	creds, err := s.store.AssumeRole()
+	creds, err := s.store.AssumeRole(dir)
 	if err != nil {
 		return nil, errs.ErrSTSFailed
 	}

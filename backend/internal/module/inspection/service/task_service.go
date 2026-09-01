@@ -74,16 +74,33 @@ func (s *TaskService) List(c *gin.Context, q *dto.TaskListQuery) (*response.Page
 	} else {
 		db = db.Where("task_date = ?", time.Now().Format("2006-01-02"))
 	}
-	// Tab 扩展筛选
+	// Tab 扩展筛选（打卡子查询叠加同一日期窗，避免对分区打卡表无时间界全量扫描）
+	rangeStart, rangeEnd := q.TaskDate, q.TaskDate
+	if rangeStart == "" {
+		rangeStart, rangeEnd = q.StartDate, q.EndDate
+	}
+	boundCk := func(sub *gorm.DB) *gorm.DB {
+		if rangeStart != "" {
+			sub = sub.Where("checkin_time >= ?", rangeStart+" 00:00:00")
+		}
+		if rangeEnd != "" {
+			sub = sub.Where("checkin_time < ?", rangeEnd+" 23:59:59.999999")
+		}
+		if rangeStart == "" && rangeEnd == "" {
+			sub = sub.Where("checkin_time >= ?", time.Now().Format("2006-01-02")+" 00:00:00").
+				Where("checkin_time < ?", time.Now().AddDate(0, 0, 1).Format("2006-01-02")+" 00:00:00")
+		}
+		return sub
+	}
 	switch q.Filter {
 	case "missing":
 		db = db.Where("done_points < total_points AND status <> ?", model.TaskPending)
 	case "abnormal":
-		db = db.Where("id IN (?)", s.db.Model(&model.CheckinRecord{}).
-			Select("task_id").Where("result = ? AND superseded_by IS NULL", model.ResultAbnormal))
+		db = db.Where("id IN (?)", boundCk(s.db.Model(&model.CheckinRecord{}).
+			Select("task_id").Where("result = ? AND superseded_by IS NULL", model.ResultAbnormal)))
 	case "suspect":
-		db = db.Where("id IN (?)", s.db.Model(&model.CheckinRecord{}).
-			Select("task_id").Where("is_suspect AND superseded_by IS NULL"))
+		db = db.Where("id IN (?)", boundCk(s.db.Model(&model.CheckinRecord{}).
+			Select("task_id").Where("is_suspect AND superseded_by IS NULL")))
 	}
 	db = middleware.ApplyCommunityFilter(db, c, "inspection_task.community_id")
 	var total int64

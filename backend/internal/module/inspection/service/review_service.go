@@ -77,8 +77,9 @@ func (s *ReviewService) List(c *gin.Context, q *dto.ReviewListQuery) (*response.
 		return nil, errs.ErrInternal
 	}
 	list := make([]gin.H, 0, len(rows))
+	batch := s.loadReviewBatch(rows)
 	for i := range rows {
-		list = append(list, s.reviewItem(&rows[i]))
+		list = append(list, s.reviewItemBatch(&rows[i], batch))
 	}
 	return &response.Page{List: list, Total: total, Page: q.Page, PageSize: q.PageSize}, nil
 }

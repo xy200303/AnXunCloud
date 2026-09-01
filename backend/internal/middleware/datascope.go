@@ -139,7 +139,8 @@ func CheckCommunity(db *gorm.DB, c *gin.Context, communityID string) *errs.Error
 		return nil
 	}
 	if identity.TenantID != "" {
-		t := CommunityTenantID(db, communityID)
+		// NewDB 干净会话（与超管分支同规）：防御调用方传入带 WHERE 条件的句柄污染小区归属查询
+		t := CommunityTenantID(db.Session(&gorm.Session{NewDB: true}), communityID)
 		// 小区不存在或属于其他租户：一律按越权处理，不暴露存在性
 		if t == nil || *t != identity.TenantID {
 			return errs.ErrDataScope

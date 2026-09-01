@@ -241,13 +241,17 @@ func (s *ReportService) lockRangeCheckins(communityID string, start, end time.Ti
 	}
 }
 
+// recordsSnapshotLimit stats.records 快照上限：防止大小区整月记录全量载入内存并塞爆 stats JSONB（MB 级）。
+const recordsSnapshotLimit = 3000
+
 // collectRecords 收集该小区该期间打卡记录明细（按打卡时间正序；patrolType 非空只取该类型），供 stats.records 快照存储。
 // 字段：打卡时间/巡检员姓名/点位名称/打卡方式/距点位距离/结果/疑似标记/审核状态/照片 file_key 列表。
+// 超出 recordsSnapshotLimit 截断（取最早 N 条；PDF 明细表数据源是实时查询不受影响，此处仅报告详情快照）。
 func (s *ReportService) collectRecords(communityID string, start, end time.Time, patrolType string) []gin.H {
 	var recs []insmodel.CheckinRecord
 	if err := scopeCheckinType(s.db, patrolType).
 		Where("community_id = ? AND checkin_time >= ? AND checkin_time < ? AND superseded_by IS NULL", communityID, start, end).
-		Order("checkin_time ASC, id ASC").Find(&recs).Error; err != nil {
+		Order("checkin_time ASC, id ASC").Limit(recordsSnapshotLimit).Find(&recs).Error; err != nil {
 		return []gin.H{}
 	}
 	// 批量解析巡检员姓名与点位名称
@@ -365,11 +369,17 @@ func (s *ReportService) reportRecords(r *model.InspectionReport) []gin.H {
 
 // recordsWithURLs 明细行 photo_ids 转 photos[{file_id,file_key,url}]，供详情接口输出。
 func (s *ReportService) recordsWithURLs(rows []gin.H) []gin.H {
+	// 汇总全部 photo_ids 一次批量解析（消除逐行 ByIDs 的 N+1）
+	allKeys := make([]string, 0, 64)
+	for _, row := range rows {
+		keys, _ := row["photo_ids"].([]string)
+		allKeys = append(allKeys, keys...)
+	}
+	files := uploadfile.ByIDs(s.db, allKeys)
 	out := make([]gin.H, 0, len(rows))
 	for _, row := range rows {
 		keys, _ := row["photo_ids"].([]string)
 		photos := make([]gin.H, 0, len(keys))
-		files := uploadfile.ByIDs(s.db, keys)
 		for _, k := range keys {
 			f, ok := files[k]
 			if !ok {
@@ -400,7 +410,10 @@ func (s *ReportService) recordsWithURLs(rows []gin.H) []gin.H {
 func (s *ReportService) List(c *gin.Context, q *dto.ReportListQuery) (*response.Page, *errs.Error) {
 	db := s.db.Model(&model.InspectionReport{})
 	if identity := middleware.CurrentIdentity(c); identity != nil && identity.ScopeSelf {
-		// self 档（纯一线岗位）：仅本人相关报告（三级签字名单任一含本人）
+		// self 档（纯一线岗位）：仅本人相关报告（三级签字名单任一含本人），且不得跨租户
+		if identity.TenantID != "" {
+			db = db.Where("tenant_id = ?", identity.TenantID)
+		}
 		j := fmt.Sprintf(`["%s"]`, identity.UserID)
 		db = db.Where(`inspector_ids @> ?::jsonb OR supervisor_ids @> ?::jsonb OR manager_ids @> ?::jsonb`, j, j, j)
 	} else {
@@ -450,7 +463,8 @@ func (s *ReportService) List(c *gin.Context, q *dto.ReportListQuery) (*response.
 	}
 	var rows []model.InspectionReport
 	offset, limit := q.Normalize()
-	if err := db.Order("period DESC, id DESC").Offset(offset).Limit(limit).Find(&rows).Error; err != nil {
+	// 列表不需要 stats 明细快照（MB 级 JSONB），排除以降低 IO
+	if err := db.Omit("stats").Order("period DESC, id DESC").Offset(offset).Limit(limit).Find(&rows).Error; err != nil {
 		return nil, errs.ErrInternal
 	}
 	list := make([]gin.H, 0, len(rows))

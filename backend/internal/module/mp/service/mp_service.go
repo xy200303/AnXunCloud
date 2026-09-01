@@ -334,14 +334,18 @@ func (s *MPService) PointByCode(inspectorID, code string) (gin.H, *errs.Error) {
 	if err := s.db.Where("qrcode_no = ? OR UPPER(nfc_id) = ?", code, strings.ToUpper(strings.TrimSpace(code))).First(&pt).Error; err != nil {
 		return nil, errs.ErrNotFound.WithMsg("未找到相关点位信息")
 	}
-	// 数据权限：非全量数据范围的用户须在该点位所在项目的编制内（任意岗位）
+	// 数据权限：先卡租户边界（非超管不得跨租户），再按数据范围/编制收窄
 	var user sysmodel.SysUser
-	if err := s.db.Select("id", "role_ids").First(&user, "id = ?", inspectorID).Error; err != nil {
+	if err := s.db.Select("id", "role_ids", "tenant_id").First(&user, "id = ?", inspectorID).Error; err != nil {
 		return nil, errs.ErrUnauthorized
 	}
+	roleIDs, err := middleware.EffectiveRoleIDs(s.db, &user)
+	if err != nil {
+		return nil, errs.ErrInternal
+	}
 	var roles []sysmodel.SysRole
-	if len(user.RoleIDs) > 0 {
-		s.db.Select("id", "data_scope").Where("id IN ?", []string(user.RoleIDs)).Find(&roles)
+	if len(roleIDs) > 0 {
+		s.db.Select("id", "data_scope").Where("id IN ?", roleIDs).Find(&roles)
 	}
 	scopeAll := false
 	for _, r := range roles {
@@ -349,6 +353,17 @@ func (s *MPService) PointByCode(inspectorID, code string) (gin.H, *errs.Error) {
 			scopeAll = true
 			break
 		}
+	}
+	// 租户边界：超管（super_admin 角色）不限；其余一律不得跨租户
+	isSuper := false
+	for _, r := range roles {
+		if r.Code == sysmodel.SuperAdminCode {
+			isSuper = true
+			break
+		}
+	}
+	if !isSuper && pt.TenantID != nil && user.TenantID != "" && *pt.TenantID != user.TenantID {
+		return nil, errs.ErrNotFound.WithMsg("未找到相关点位信息")
 	}
 	if !scopeAll {
 		projectIDs, err := middleware.StaffProjectIDs(s.db, inspectorID)

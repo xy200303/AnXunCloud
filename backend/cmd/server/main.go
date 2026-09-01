@@ -52,6 +52,9 @@ func main() {
 	if err := database.Migrate(db); err != nil {
 		logger.L.Fatal("数据库迁移失败", zap.Error(err))
 	}
+	if cfg.Wechat.MockEnabled() {
+		logger.L.Warn("微信 mock 登录已开启：mock:<手机号> 可直接登录任意已开户账号，仅限开发联调，严禁带到生产")
+	}
 	if cfg.Env == "prod" && cfg.Admin.Password == "Admin@123" {
 		logger.L.Warn("生产环境仍使用默认超管密码，请尽快修改 ADMIN_PASSWORD")
 	}

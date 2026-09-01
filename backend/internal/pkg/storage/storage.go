@@ -142,7 +142,9 @@ type STSCredentials struct {
 }
 
 // AssumeRole 调阿里云 STS AssumeRole（RPC 签名 HMAC-SHA1，免 SDK）。
-func (s *Storage) AssumeRole() (*STSCredentials, error) {
+// dir 为授权前缀（scene/yyyyMM/uid/）：session Policy 收窄到该前缀的 PutObject，
+// 防止临时凭证被用于读写桶内其他租户/场景的文件。
+func (s *Storage) AssumeRole(dir string) (*STSCredentials, error) {
 	expire := s.oss.ExpireSeconds
 	if expire <= 0 {
 		expire = 3600
@@ -159,6 +161,7 @@ func (s *Storage) AssumeRole() (*STSCredentials, error) {
 		"RoleArn":          s.oss.RoleArn,
 		"RoleSessionName":  "pi-upload",
 		"DurationSeconds":  fmt.Sprintf("%d", expire),
+		"Policy": `{"Version":"1","Statement":[{"Effect":"Allow","Action":["oss:PutObject"],"Resource":["acs:oss:*:*:` + s.oss.Bucket + `/` + dir + `*"]}]}`,
 	}
 	// 构造待签名字符串
 	keys := make([]string, 0, len(params))

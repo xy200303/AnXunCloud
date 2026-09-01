@@ -58,12 +58,9 @@ func (s *ReportService) reportLayout() string {
 	return "ledger"
 }
 
-// reportTitleLine 封面大标题首行：report.title 配置优先（如「物业消防设施（器材类）月度」）；
-// 缺省按巡查类型推导（「物业{类型label}月度」，综合月报回落「物业综合月度」）。
+// reportTitleLine 封面大标题首行：直接按巡查类型名推导（「物业{类型label}月度」，
+// 综合月报回落「物业综合月度」），不提供配置项，避免标题口径分叉。
 func (s *ReportService) reportTitleLine(r *model.InspectionReport) string {
-	if v := s.cfgString("report.title"); v != "" {
-		return v
-	}
 	label := s.patrolTypeLabel(r.PatrolType)
 	if label == "" || label == "综合" || label == "综合月报" {
 		return "物业综合月度"

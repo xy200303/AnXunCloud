@@ -33,6 +33,14 @@ func planCfgInt(cfg types.JSONMap, key string, def int) int {
 	return def
 }
 
+// detailModeOr 明细策略缺省归一（空/other→full）。
+func detailModeOr(v string) string {
+	if v == "abnormal" {
+		return "abnormal"
+	}
+	return "full"
+}
+
 // duePeriod 计算计划当前应生成的期间（一律为「上一个完整周期」[start, end)，label 为展示串）。
 // 未到期（生成时点未到/周期日不匹配）返回 ok=false；monthly 在生成日及之后均视为到期（停机补跑，last_period 判重）。
 func duePeriod(p *model.ReportPlan, now time.Time) (start, end time.Time, label string, ok bool) {
@@ -89,7 +97,7 @@ func (s *ReportService) RunDueReportPlans(now time.Time) (int, error) {
 		if !ok || label == p.LastPeriod {
 			continue
 		}
-		_, be := s.createReport(p.CommunityID, p.PatrolType, start, end, label, nil, nil, nil, &p.ID)
+		_, be := s.createReport(p.CommunityID, p.PatrolType, start, end, label, nil, nil, nil, &p.ID, detailModeOr(p.DetailMode))
 		upd := map[string]any{"last_period": label, "last_error": ""}
 		if be != nil {
 			// 已有同口径归档报告：视为本期已完成（记期间跳过）；其他错误记录待下轮重试
@@ -133,7 +141,7 @@ func (s *ReportService) reportPlanView(p *model.ReportPlan) gin.H {
 		"id": p.ID, "community_id": p.CommunityID, "community_name": s.commName(p.CommunityID),
 		"name": p.Name, "patrol_type": p.PatrolType, "patrol_type_label": s.patrolTypeLabel(p.PatrolType),
 		"cycle_type": p.CycleType, "cycle_config": p.CycleConfig, "cycle_text": cycleTextOf(p),
-		"gen_time": p.GenTime, "status": p.Status,
+		"gen_time": p.GenTime, "status": p.Status, "detail_mode": p.DetailMode,
 		"last_period": p.LastPeriod, "last_error": p.LastError, "remark": p.Remark,
 		"created_at": p.CreatedAt.Format("2006-01-02 15:04:05"),
 	}
@@ -188,6 +196,9 @@ func (s *ReportService) validateReportPlanReq(c *gin.Context, req *dto.ReportPla
 	if len(req.GenTime) != 5 || req.GenTime[2] != ':' {
 		return nil, errs.ErrParam.WithMsg("gen_time 格式应为 HH:MM")
 	}
+	if req.DetailMode != "" && req.DetailMode != "full" && req.DetailMode != "abnormal" {
+		return nil, errs.ErrParam.WithMsg("detail_mode 取值非法（full=全量点位 / abnormal=仅异常点位）")
+	}
 	return cfg, nil
 }
 
@@ -202,6 +213,7 @@ func (s *ReportService) CreateReportPlan(c *gin.Context, req *dto.ReportPlanReq)
 		CommunityID: req.CommunityID, Name: req.Name, PatrolType: req.PatrolType,
 		CycleType: req.CycleType, CycleConfig: cfg, GenTime: req.GenTime,
 		Status: sysmodel.StatusEnabled, Remark: req.Remark,
+		DetailMode: detailModeOr(req.DetailMode),
 	}
 	if err := s.db.Create(&p).Error; err != nil {
 		return nil, errs.ErrInternal
@@ -222,6 +234,7 @@ func (s *ReportService) UpdateReportPlan(c *gin.Context, id string, req *dto.Rep
 	updates := map[string]any{
 		"community_id": req.CommunityID, "name": req.Name, "patrol_type": req.PatrolType,
 		"cycle_type": req.CycleType, "cycle_config": cfg, "gen_time": req.GenTime, "remark": req.Remark,
+		"detail_mode": detailModeOr(req.DetailMode),
 	}
 	if req.Status != "" {
 		updates["status"] = req.Status
@@ -264,7 +277,7 @@ func (s *ReportService) RunReportPlanNow(c *gin.Context, id string) (gin.H, *err
 	if !ok {
 		return nil, errs.ErrParam.WithMsg("今天不是该计划的生成日（" + cycleTextOf(&p) + "）")
 	}
-	out, be := s.createReport(p.CommunityID, p.PatrolType, start, end, label, nil, nil, nil, &p.ID)
+	out, be := s.createReport(p.CommunityID, p.PatrolType, start, end, label, nil, nil, nil, &p.ID, detailModeOr(p.DetailMode))
 	if be != nil {
 		return nil, be
 	}

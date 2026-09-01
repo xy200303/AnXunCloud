@@ -123,7 +123,7 @@ export function getReport(id: string) {
 export function generateReport(data: {
   community_id: string
   period: string
-  patrol_type?: string
+  patrol_type?: string; detail_mode?: string
   plan_id?: string
   supervisor_ids?: string[]
   manager_ids?: string[]

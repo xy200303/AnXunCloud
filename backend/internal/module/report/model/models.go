@@ -28,6 +28,8 @@ type InspectionReport struct {
 	PlanID          *string         `gorm:"type:uuid" json:"plan_id"` // 溯源生成它的巡检计划（综合月报为空）
 	// ReportPlanID 溯源生成它的报告生成计划（手动生成的报告为空）
 	ReportPlanID *string `gorm:"type:uuid" json:"report_plan_id"`
+	// DetailMode 明细策略：full=全量点位（每点位一行）/ abnormal=仅异常点位（报告厚度控制）
+	DetailMode string `gorm:"size:16;default:full" json:"detail_mode"`
 	// PeriodStart/PeriodEnd 报告期间（含头含尾；月报=整月，周报=周一~周日，日报=当天）。
 	// period 字符串保留作展示（月 2026-08 / 周 2026-08-31~09-06 / 日 2026-09-01）。
 	PeriodStart *time.Time `json:"period_start"`
@@ -71,6 +73,7 @@ type ReportPlan struct {
 	CycleType   string        `gorm:"size:16" json:"cycle_type"`  // daily/weekly/monthly
 	CycleConfig types.JSONMap `gorm:"type:jsonb" json:"cycle_config"`
 	GenTime     string        `gorm:"size:8" json:"gen_time"` // 生成时点 HH:MM（默认 06:00）
+	DetailMode  string        `gorm:"size:16;default:full" json:"detail_mode"` // 明细策略：full/abnormal
 	Status      string        `gorm:"size:16" json:"status"`
 	LastPeriod  string        `gorm:"size:32" json:"last_period"` // 上次生成的期间展示串
 	LastError   string        `gorm:"size:255" json:"last_error"`

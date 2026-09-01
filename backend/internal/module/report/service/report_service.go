@@ -587,7 +587,7 @@ func (s *ReportService) Generate(c *gin.Context, req *dto.GenerateReq) (gin.H, *
 		planID = &req.PlanID
 	}
 	return s.createReport(req.CommunityID, req.PatrolType, start, end, label,
-		req.SupervisorIDs, req.ManagerIDs, planID, nil)
+		req.SupervisorIDs, req.ManagerIDs, planID, nil, req.DetailMode)
 }
 
 // createReport 生成（或按 community+period+patrol_type 判重重算）一份报告并启动签字流。
@@ -595,7 +595,7 @@ func (s *ReportService) Generate(c *gin.Context, req *dto.GenerateReq) (gin.H, *
 // reportPlanID 溯源报告计划，均可空。返回 {id,title,status,regenerated}；
 // 已归档同口径报告报 ErrReportApproved。
 func (s *ReportService) createReport(communityID, patrolType string, start, end time.Time, label string,
-	supIDs, mgrIDs []string, inspectionPlanID, reportPlanID *string) (gin.H, *errs.Error) {
+	supIDs, mgrIDs []string, inspectionPlanID, reportPlanID *string, detailMode string) (gin.H, *errs.Error) {
 	name := s.commName(communityID)
 	stats, inspectorIDs, be := s.buildStatsRange(communityID, start, end, patrolType)
 	if be != nil {
@@ -640,6 +640,7 @@ func (s *ReportService) createReport(communityID, patrolType string, start, end 
 		updates := map[string]any{
 			"title": title, "status": initialStatus, "plan_id": inspectionPlanID,
 			"report_plan_id": reportPlanID, "period_start": start, "period_end": endOfDay,
+			"detail_mode": detailModeOr(detailMode),
 			"stats": stats, "inspector_ids": inspectorIDs,
 			"inspector_signed": types.SignArray{},
 			"supervisor_ids":   supervisorIDs, "manager_ids": managerIDs,
@@ -660,7 +661,7 @@ func (s *ReportService) createReport(communityID, patrolType string, start, end 
 	}
 	r = model.InspectionReport{
 		CommunityID: communityID, Period: label, PatrolType: patrolType,
-		PlanID: inspectionPlanID, ReportPlanID: reportPlanID,
+		PlanID: inspectionPlanID, ReportPlanID: reportPlanID, DetailMode: detailModeOr(detailMode),
 		PeriodStart: &start, PeriodEnd: &endOfDay, Title: title,
 		TenantID: middleware.CommunityTenantID(s.db, communityID), // 冗余列（=所属小区租户）
 		Status:   initialStatus, Stats: stats,

@@ -22,6 +22,7 @@ type GenerateReq struct {
 	Period      string `json:"period"` // YYYY-MM（未给日期范围时必填）
 	StartDate   string `json:"start_date"` // 任意期间起（含，YYYY-MM-DD）
 	EndDate     string `json:"end_date"`   // 任意期间止（含，YYYY-MM-DD）
+	DetailMode  string `json:"detail_mode"` // 明细策略：full/abnormal（缺省 full）
 	// 巡查类型：空=综合月报（现状）；非空=该类型专项检查报告（须为字典 patrol_type 的启用项）
 	PatrolType string `json:"patrol_type"`
 	PlanID     string `json:"plan_id"` // 溯源计划（可空；非空须为该小区下的巡检计划）
@@ -56,6 +57,7 @@ type ReportPlanReq struct {
 	CycleType   string         `json:"cycle_type" binding:"required,oneof=daily weekly monthly"`
 	CycleConfig map[string]any `json:"cycle_config"`
 	GenTime     string         `json:"gen_time" binding:"required"` // HH:MM
+	DetailMode  string         `json:"detail_mode"`                 // 明细策略：full=全量点位 / abnormal=仅异常点位（缺省 full）
 	Status      string         `json:"status"`      // 更新时可传 enabled/disabled
 	Remark      string         `json:"remark" binding:"max=255"`
 }

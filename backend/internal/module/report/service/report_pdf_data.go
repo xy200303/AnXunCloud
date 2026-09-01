@@ -174,16 +174,23 @@ func (s *ReportService) pdfData(r *model.InspectionReport) pdf.MonthlyReportData
 			dt.Note = "注：检查标准：" + strings.Join(items, "；") + "。"
 		}
 		// 行：每点位一行（取当期最新一次有效打卡；未巡点位保留空行，明细完整覆盖应巡清单）
+		// detail_mode=abnormal 时只保留异常点位行（报告厚度控制；汇总表仍为全量口径）
 		for _, pt := range pts {
 			row := pdf.DetailRow{Location: pointLocation(pt)}
 			prs := recsByPoint[pt.ID]
 			if len(prs) == 0 {
+				if r.DetailMode == "abnormal" {
+					continue
+				}
 				row.Marks = make([]string, len(items))
 				row.Time = "—"
 				dt.Rows = append(dt.Rows, row)
 				continue
 			}
 			rec := prs[len(prs)-1] // recs 按 checkin_time 升序，末条即最新
+			if r.DetailMode == "abnormal" && rec.Result != insmodel.ResultAbnormal {
+				continue
+			}
 			row.Inspector = userNames[rec.InspectorID]
 			row.Time = rec.CheckinTime.Format("01-02 15:04")
 			marks := make([]string, len(items))
@@ -217,6 +224,9 @@ func (s *ReportService) pdfData(r *model.InspectionReport) pdf.MonthlyReportData
 				}
 			}
 			dt.Rows = append(dt.Rows, row)
+		}
+		if r.DetailMode == "abnormal" && len(dt.Rows) == 0 {
+			continue // 仅异常明细模式下该类型无异常点位，不出空表
 		}
 		d.Details = append(d.Details, dt)
 	}

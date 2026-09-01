@@ -13,6 +13,7 @@ export interface ReportPlan {
   cycle_text: string
   gen_time: string
   status: string
+  detail_mode: string
   last_period: string
   last_error: string
   remark: string
@@ -28,6 +29,7 @@ export interface ReportPlanBody {
   gen_time: string
   status?: string
   remark?: string
+  detail_mode?: string
 }
 
 export function listReportPlans(communityId?: string) {

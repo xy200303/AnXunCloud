@@ -375,6 +375,13 @@
             class="patrol-type-tip"
           />
         </el-form-item>
+        <el-form-item label="明细范围">
+          <el-radio-group v-model="generateForm.detail_mode">
+            <el-radio-button value="full">全部点位</el-radio-button>
+            <el-radio-button value="abnormal">仅异常点位</el-radio-button>
+          </el-radio-group>
+          <div class="form-tip">点位量大时选「仅异常点位」可大幅压缩报告页数（汇总统计不受影响）</div>
+        </el-form-item>
         <el-form-item label="主管签字人">
           <el-select
             v-model="generateForm.supervisor_ids"
@@ -883,6 +890,7 @@ const generateForm = reactive({
   community_id: undefined as string | undefined,
   period: undefined as string | undefined,
   patrol_type: '',
+  detail_mode: 'full',
   supervisor_ids: [] as string[],
   manager_ids: [] as string[]
 })
@@ -930,6 +938,7 @@ async function submitGenerate() {
       community_id: generateForm.community_id!,
       period: generateForm.period!,
       patrol_type: generateForm.patrol_type || undefined,
+      detail_mode: generateForm.detail_mode,
       supervisor_ids: generateForm.supervisor_ids,
       manager_ids: generateForm.manager_ids
     })

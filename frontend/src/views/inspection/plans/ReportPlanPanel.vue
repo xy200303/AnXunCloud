@@ -96,6 +96,13 @@
         <el-form-item label="生成时点" prop="gen_time">
           <el-time-picker v-model="genTimeDate" format="HH:mm" placeholder="06:00" style="width: 140px" />
         </el-form-item>
+        <el-form-item label="明细范围">
+          <el-radio-group v-model="form.detail_mode">
+            <el-radio-button value="full">全部点位</el-radio-button>
+            <el-radio-button value="abnormal">仅异常点位</el-radio-button>
+          </el-radio-group>
+          <span class="form-tip">点位量大时选「仅异常点位」压缩报告页数</span>
+        </el-form-item>
         <el-form-item label="备注">
           <el-input v-model="form.remark" type="textarea" :rows="2" maxlength="255" />
         </el-form-item>
@@ -142,7 +149,8 @@ const saving = ref(false)
 const formRef = ref<FormInstance>()
 const form = reactive({
   id: '', name: '', community_id: '', patrol_type: '',
-  cycle_type: 'monthly', day: 1, weekday: 1, gen_time: '06:00', status: 'enabled', remark: ''
+  cycle_type: 'monthly', day: 1, weekday: 1, gen_time: '06:00', status: 'enabled', remark: '',
+  detail_mode: 'full'
 })
 const genTimeDate = computed({
   get: () => {
@@ -167,12 +175,14 @@ function openForm(row?: ReportPlan) {
       cycle_type: row.cycle_type,
       day: Number(row.cycle_config?.day ?? 1),
       weekday: Number(row.cycle_config?.weekday ?? 1),
-      gen_time: row.gen_time || '06:00', status: row.status, remark: row.remark || ''
+      gen_time: row.gen_time || '06:00', status: row.status, remark: row.remark || '',
+      detail_mode: row.detail_mode || 'full'
     })
   } else {
     Object.assign(form, {
       id: '', name: '', community_id: filterCommunity.value || '', patrol_type: '',
-      cycle_type: 'monthly', day: 1, weekday: 1, gen_time: '06:00', status: 'enabled', remark: ''
+      cycle_type: 'monthly', day: 1, weekday: 1, gen_time: '06:00', status: 'enabled', remark: '',
+      detail_mode: 'full'
     })
   }
   formVisible.value = true
@@ -193,7 +203,8 @@ async function submitForm() {
         : {},
       gen_time: form.gen_time,
       status: form.status,
-      remark: form.remark || undefined
+      remark: form.remark || undefined,
+      detail_mode: form.detail_mode
     }
     if (form.id) {
       await updateReportPlan(form.id, body)
@@ -230,7 +241,7 @@ async function handleToggle(row: ReportPlan) {
   await updateReportPlan(row.id, {
     community_id: row.community_id, name: row.name, patrol_type: row.patrol_type || undefined,
     cycle_type: row.cycle_type, cycle_config: row.cycle_config, gen_time: row.gen_time,
-    status: next, remark: row.remark || undefined
+    status: next, remark: row.remark || undefined, detail_mode: row.detail_mode || 'full'
   })
   ElMessage.success(next === 'enabled' ? '已启用' : '已停用')
   fetchList()

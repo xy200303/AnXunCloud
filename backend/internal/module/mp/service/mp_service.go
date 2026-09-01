@@ -690,6 +690,7 @@ func (s *MPService) CheckinItems(inspectorID, checkinID string) ([]gin.H, *errs.
 			"ai_verdict": strVal(it.AIVerdict), "ai_reason": strVal(it.AIReason),
 			"ai_reading": strVal(it.AIReading),
 			"note":       it.Note,
+			"exception_type": it.ExceptionType,
 			"photo_urls": inssvc.ItemPhotoURLs(s.db, it.Photos),
 		})
 	}

@@ -26,6 +26,7 @@ export type WizardItemSnap = {
   verdict: string
   reason: string
   reading: string
+  exception_type?: string
   quality_pass: boolean
   quality_issue: string
   /** 照片加载失败标记（image @error 置真，显示占位提示，不持久化语义） */

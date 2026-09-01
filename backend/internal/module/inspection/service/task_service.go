@@ -389,7 +389,7 @@ func briefItemViews(db *gorm.DB, recordID string) []gin.H {
 	for _, it := range items {
 		out = append(out, gin.H{
 			"name": it.Name, "pass": it.Pass, "note": it.Note,
-			"photos": it.Photos, "requirement": it.Requirement,
+			"photos": it.Photos, "requirement": it.Requirement, "exception_type": it.ExceptionType,
 		})
 	}
 	return out
@@ -563,7 +563,7 @@ func (s *TaskService) CheckinDetail(c *gin.Context, id string) (gin.H, *errs.Err
 			"photos": ci.Photos, "photo_urls": ItemPhotoURLs(s.db, ci.Photos),
 			"requirement": ci.Requirement, "ai_hint": ci.AIHint,
 			"judge_type": ci.JudgeType, "judge_config": ci.JudgeConfig,
-			"ai_verdict": ci.AIVerdict, "ai_reason": ci.AIReason, "ai_reading": ci.AIReading,
+			"ai_verdict": ci.AIVerdict, "ai_reason": ci.AIReason, "ai_reading": ci.AIReading, "exception_type": ci.ExceptionType,
 		})
 	}
 	return gin.H{

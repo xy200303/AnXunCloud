@@ -455,6 +455,7 @@ func (s *CheckinService) applyConfirmedAI(rec *insmodel.CheckinRecord, items []i
 	for i := range items {
 		var v, r, rd string
 		if d, ok := draftByName[items[i].Name]; ok && d.AIVerdict != nil {
+			items[i].ExceptionType = d.ExceptionType
 			v = *d.AIVerdict
 			if d.AIReason != nil {
 				r = *d.AIReason
@@ -594,6 +595,13 @@ func (s *CheckinService) resolveCheckItems(req *dto.CheckinReq, point *insmodel.
 		}
 		if !it.Pass && len(it.Photos) == 0 {
 			return nil, nil, errs.ErrPhotoMissing.WithMsg("检查项「" + it.Name + "」不合格，须至少上传 1 张该项照片")
+		}
+		exceptionType := strings.TrimSpace(it.ExceptionType)
+		if exceptionType != "" && !validItemExceptionType(exceptionType) {
+			return nil, nil, errs.ErrParam.WithMsg("检查项「" + it.Name + "」异常类型无效")
+		}
+		if exceptionType != "" && it.Pass {
+			return nil, nil, errs.ErrParam.WithMsg("检查项「" + it.Name + "」已上报项目异常，结果必须为异常")
 		}
 		if ti.PhotoRequired == types.PhotoReqRequired && len(it.Photos) == 0 {
 			return nil, nil, errs.ErrPhotoMissing.WithMsg("检查项「" + it.Name + "」要求必拍，须至少上传 1 张该项照片")

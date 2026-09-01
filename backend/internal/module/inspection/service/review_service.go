@@ -488,7 +488,7 @@ func (s *ReviewService) checkItemViews(recordID string) []gin.H {
 			"photos": ci.Photos, "photo_urls": ItemPhotoURLs(s.db, ci.Photos),
 			"requirement": ci.Requirement, "ai_hint": ci.AIHint,
 			"judge_type": ci.JudgeType, "judge_config": ci.JudgeConfig,
-			"ai_verdict": ci.AIVerdict, "ai_reason": ci.AIReason, "ai_reading": ci.AIReading,
+			"ai_verdict": ci.AIVerdict, "ai_reason": ci.AIReason, "ai_reading": ci.AIReading, "exception_type": ci.ExceptionType,
 		})
 	}
 	return out

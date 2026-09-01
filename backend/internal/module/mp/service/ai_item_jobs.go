@@ -116,7 +116,7 @@ func (s *CheckinService) SubmitAIItemJob(ctx context.Context, inspectorID string
 		Columns: []clause.Column{{Name: "task_id"}, {Name: "point_id"}, {Name: "item_name"}},
 		DoUpdates: clause.AssignmentColumns([]string{
 			"inspector_id", "community_id", "tenant_id", "job_id", "file_ids",
-			"ai_status", "ai_verdict", "ai_reason", "ai_reading", "quality_pass", "quality_issue", "updated_at",
+			"exception_type", "ai_status", "ai_verdict", "ai_reason", "ai_reading", "quality_pass", "quality_issue", "updated_at",
 		}),
 	}).Create(&draft).Error; err != nil {
 		return nil, errs.ErrInternal
@@ -301,7 +301,7 @@ func (s *CheckinService) ItemDrafts(ctx context.Context, inspectorID, taskID, po
 		}
 		items = append(items, gin.H{
 			"point_id": d.PointID, "item_name": d.ItemName, "job_id": d.JobID,
-			"file_ids": d.FileIDs, "photos": photos,
+			"file_ids": d.FileIDs, "photos": photos, "exception_type": d.ExceptionType,
 			"ai_status": d.AIStatus, "ai_verdict": d.AIVerdict, "ai_reason": d.AIReason,
 			"ai_reading": d.AIReading, "quality_pass": d.QualityPass, "quality_issue": d.QualityIssue,
 			"manual_pass": d.ManualPass, "manual_note": d.ManualNote,
@@ -361,6 +361,9 @@ func (s *CheckinService) SaveManualDraft(ctx context.Context, inspectorID string
 
 // SavePhotoItemAbnormalDraft 拍照项异常逃生入口：设备不存在/无法拍摄时，拍照佐证后直接落异常草稿。
 func (s *CheckinService) SavePhotoItemAbnormalDraft(ctx context.Context, inspectorID string, req *dto.PhotoItemAbnormalDraftReq) (gin.H, *errs.Error) {
+	if !validItemExceptionType(req.ExceptionType) {
+		return nil, errs.ErrParam.WithMsg("异常类型无效")
+	}
 	var task insmodel.InspectionTask
 	if err := s.db.First(&task, "id = ?", req.TaskID).Error; err != nil || task.InspectorID != inspectorID {
 		return nil, errs.ErrTaskNotOwned
@@ -399,13 +402,18 @@ func (s *CheckinService) SavePhotoItemAbnormalDraft(ctx context.Context, inspect
 	}
 	note := strings.TrimSpace(req.Note)
 	if note == "" {
-		note = "设备不存在/无法拍摄，已上报异常"
+		if req.ExceptionType == "device_missing" {
+			note = "设备确实不存在，已上报异常"
+		} else {
+			note = "现场无法拍摄，已上报异常"
+		}
 	}
 	draft := insmodel.CheckinItemDraft{
 		TenantID: task.TenantID, TaskID: task.ID, PointID: req.PointID,
 		InspectorID: inspectorID, CommunityID: task.CommunityID,
 		ItemName: tplItem.Name, FileIDs: []string{f.ID}, AIStatus: insmodel.ItemDraftDone,
-		AIVerdict: strPtr(ai.VerdictAbnormal), AIReason: strPtr(note),
+		ExceptionType: req.ExceptionType,
+		AIVerdict:     strPtr(ai.VerdictAbnormal), AIReason: strPtr(note),
 		QualityPass:  boolPtr(true),
 		QualityIssue: "",
 	}
@@ -413,7 +421,7 @@ func (s *CheckinService) SavePhotoItemAbnormalDraft(ctx context.Context, inspect
 		Columns: []clause.Column{{Name: "task_id"}, {Name: "point_id"}, {Name: "item_name"}},
 		DoUpdates: clause.AssignmentColumns([]string{
 			"inspector_id", "community_id", "tenant_id", "file_ids",
-			"ai_status", "ai_verdict", "ai_reason", "ai_reading", "quality_pass", "quality_issue", "updated_at",
+			"exception_type", "ai_status", "ai_verdict", "ai_reason", "ai_reading", "quality_pass", "quality_issue", "updated_at",
 		}),
 	}).Create(&draft).Error; err != nil {
 		return nil, errs.ErrInternal
@@ -424,3 +432,7 @@ func (s *CheckinService) SavePhotoItemAbnormalDraft(ctx context.Context, inspect
 func strPtr(s string) *string { return &s }
 
 func boolPtr(v bool) *bool { return &v }
+
+func validItemExceptionType(exceptionType string) bool {
+	return exceptionType == "device_missing" || exceptionType == "unable_to_capture"
+}

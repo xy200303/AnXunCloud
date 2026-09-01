@@ -72,6 +72,8 @@
                 <div>{{ item.name }}</div>
                 <div v-if="item.requirement" class="item-requirement">{{ item.requirement }}</div>
                 <div v-if="item.ai_hint" class="item-ai-hint">AI 要点：{{ item.ai_hint }}</div>
+                <el-tag v-if="item.exception_type === 'device_missing'" type="danger" size="small">项目异常：设备缺失</el-tag>
+                <el-tag v-else-if="item.exception_type === 'unable_to_capture'" type="warning" size="small">项目异常：无法拍摄</el-tag>
               </template>
             </el-table-column>
             <el-table-column label="结果" width="80" align="center">

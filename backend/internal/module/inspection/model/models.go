@@ -411,6 +411,7 @@ type CheckinRecordItem struct {
 	AIReason  *string `gorm:"size:512" json:"ai_reason"`
 	// AIReading AI 读取的表计读数文本（metric 类检查项；NULL=无读数）
 	AIReading *string   `gorm:"size:64" json:"ai_reading"`
+	ExceptionType string `gorm:"size:24;default:''" json:"exception_type"` // device_missing / unable_to_capture
 	Sort      int       `json:"sort"`
 	CreatedAt time.Time `json:"created_at"`
 }
@@ -441,6 +442,7 @@ type CheckinItemDraft struct {
 	AIVerdict    *string           `gorm:"size:16" json:"ai_verdict"`
 	AIReason     *string           `gorm:"size:512" json:"ai_reason"`
 	AIReading    *string           `gorm:"size:64" json:"ai_reading"`
+	ExceptionType string           `gorm:"size:24;default:''" json:"exception_type"`
 	QualityPass  *bool             `json:"quality_pass"`
 	QualityIssue string            `gorm:"size:255" json:"quality_issue"`
 	// ManualPass/ManualNote 手动确认项（感官项）的选择结果；NULL=非手动项/未选择

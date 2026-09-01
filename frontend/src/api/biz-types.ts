@@ -351,6 +351,8 @@ export interface CheckinCheckItem {
   ai_reason?: string
   // 表计读数类检查项的 AI 读数（其余类型为空）
   ai_reading?: string | null
+  /** 拍照项异常逃生入口的项目异常类型 */
+  exception_type?: 'device_missing' | 'unable_to_capture' | ''
   // 打卡当时的判定类型快照
   judge_type?: string
   judge_config?: Record<string, unknown> | null

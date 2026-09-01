@@ -178,6 +178,8 @@ export type CheckinItemReqPayload = {
   ai_verdict?: string
   ai_reason?: string
   ai_reading?: string
+  /** 异常逃生入口的项目异常类型；由服务端草稿校验后写入正式记录 */
+  exception_type?: 'device_missing' | 'unable_to_capture' | ''
 }
 
 /** 打卡提交请求体（对齐后端 dto.CheckinReq） */
@@ -944,6 +946,7 @@ export interface ItemDraft {
   ai_verdict: string
   ai_reason: string
   ai_reading: string
+  exception_type?: string
   quality_pass: boolean
   quality_issue: string
   manual_pass: boolean | null
@@ -968,6 +971,7 @@ export function apiItemDrafts(taskId: string, pointId?: string): Promise<ItemDra
             ai_verdict: it.ai_verdict ?? '',
             ai_reason: it.ai_reason ?? '',
             ai_reading: it.ai_reading ?? '',
+            exception_type: it.exception_type ?? '',
             quality_pass: it.quality_pass ?? true,
             quality_issue: it.quality_issue ?? '',
             manual_pass: it.manual_pass ?? null,
@@ -989,7 +993,7 @@ export function apiItemDraftManual(req: { task_id: string; point_id: string; nam
 }
 
 /** 拍照项异常逃生入口 POST /checkin/item-drafts/photo-abnormal */
-export function apiItemDraftPhotoAbnormal(req: { task_id: string; point_id: string; name: string; file_ids: string[]; note: string }): Promise<void> {
+export function apiItemDraftPhotoAbnormal(req: { task_id: string; point_id: string; name: string; file_ids: string[]; note: string; exception_type: 'device_missing' | 'unable_to_capture' }): Promise<void> {
   return new Promise<void>((resolve, reject) => {
     httpPost('/checkin/item-drafts/photo-abnormal', req as unknown as Record<string, any>)
       .then(() => resolve())

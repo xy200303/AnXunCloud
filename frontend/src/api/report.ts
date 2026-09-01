@@ -157,11 +157,11 @@ export function getSignCandidates(communityId: string, patrolType?: string) {
 }
 
 // 巡检员确认：无 body 为本人确认；带 proxy_for+reason 为代签（须 report:sign:proxy 权限）
-// signature_file_key：未配置手写签名时随请求提交的一次性签名（签字页弹出签名板手写产生）
+// signature_file_id：未配置手写签名时随请求提交的一次性签名（签字页弹出签名板手写产生）
 export interface InspectorSignPayload {
   proxy_for?: string
   reason?: string
-  signature_file_key?: string
+  signature_file_id?: string
 }
 
 export function signInspector(id: string, payload?: InspectorSignPayload) {
@@ -176,7 +176,7 @@ export interface SignBody {
   action: 'approve' | 'reject'
   remark?: string
   reason?: string
-  signature_file_key?: string // 一次性签名（未配置手写签名时）
+  signature_file_id?: string // 一次性签名（未配置手写签名时）
 }
 
 export function signSupervisor(id: string, data: SignBody) {

@@ -140,7 +140,7 @@
       </div>
     </div>
 
-    <!-- 更换公章对话框：上传图片拿 file_key 后创建资产 -->
+    <!-- 更换公章对话框：上传图片拿 file_id 后创建资产 -->
     <el-dialog v-model="sealDialogVisible" title="更换公章" width="480px" :close-on-click-modal="false">
       <el-alert type="warning" :closable="false" show-icon style="margin-bottom: 12px">
         上传后原公章自动转为「已替换」，全局仅保留一条生效公章
@@ -148,9 +148,9 @@
       <el-form label-width="88px">
         <el-form-item label="公章图片" required>
           <div class="seal-uploader">
-            <div v-if="sealForm.file_key" class="seal-preview">
-              <el-image :src="withFileToken(sealForm.url || fileUrl(sealForm.file_key))" fit="contain" class="seal-img" />
-              <el-button type="danger" link @click="sealForm.file_key = ''">移除</el-button>
+            <div v-if="sealForm.file_id" class="seal-preview">
+              <el-image :src="withFileToken(sealForm.url)" fit="contain" class="seal-img" />
+              <el-button type="danger" link @click="sealForm.file_id = ''">移除</el-button>
             </div>
             <el-upload
               :auto-upload="false"
@@ -158,7 +158,7 @@
               accept=".png,.jpg,.jpeg"
               :on-change="handleSealChange"
             >
-              <el-button :loading="sealUploading">{{ sealForm.file_key ? '重新选择' : '选择图片' }}</el-button>
+              <el-button :loading="sealUploading">{{ sealForm.file_id ? '重新选择' : '选择图片' }}</el-button>
             </el-upload>
             <div class="text-secondary">PNG/JPG，不超过 2MB</div>
           </div>
@@ -214,7 +214,7 @@ function statusTag(s: string): { label: string; type: 'info' | 'warning' | 'succ
   ) as { label: string; type: 'info' | 'warning' | 'success' | 'danger' }
 }
 
-// 图片地址：优先用接口返回的 url（敏感场景为 /api/files 鉴权地址，附 ?token=），缺省时按 file_key 拼静态路径
+// 图片地址：优先用接口返回的 url（敏感场景为 /api/files 鉴权地址，附 ?token=），缺省时按资产记录的 file_key（存储路径）拼静态路径
 function assetUrl(row: SignAssetItem) {
   return withFileToken(row.url || fileUrl(row.file_key || ''))
 }
@@ -302,10 +302,10 @@ async function handleRevoke(row: SignAssetItem) {
 const sealDialogVisible = ref(false)
 const sealUploading = ref(false)
 const sealSubmitting = ref(false)
-const sealForm = reactive({ file_key: '', url: '', remark: '' })
+const sealForm = reactive({ file_id: '', url: '', remark: '' })
 
 function openSealDialog() {
-  sealForm.file_key = ''
+  sealForm.file_id = ''
   sealForm.url = ''
   sealForm.remark = ''
   sealDialogVisible.value = true
@@ -324,8 +324,8 @@ async function handleSealChange(uploadFile: UploadFile) {
   }
   sealUploading.value = true
   try {
-    const { file_key, url } = await uploadImage(raw, 'seal')
-    sealForm.file_key = file_key
+    const { file_id, url } = await uploadImage(raw, 'seal')
+    sealForm.file_id = file_id
     sealForm.url = url
     ElMessage.success('图片已上传')
   } catch {
@@ -336,7 +336,7 @@ async function handleSealChange(uploadFile: UploadFile) {
 }
 
 async function submitSeal() {
-  if (!sealForm.file_key) {
+  if (!sealForm.file_id) {
     ElMessage.warning('请先上传公章图片')
     return
   }
@@ -344,7 +344,7 @@ async function submitSeal() {
   try {
     await createSignAsset({
       asset_type: 'company_seal',
-      file_key: sealForm.file_key,
+      file_id: sealForm.file_id,
       remark: sealForm.remark.trim() || undefined
     })
     ElMessage.success('公章已更换')

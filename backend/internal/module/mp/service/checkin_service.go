@@ -620,7 +620,7 @@ func (s *CheckinService) resolveCheckItems(req *dto.CheckinReq, point *insmodel.
 			photoIDs = append(photoIDs, f.ID)
 		}
 		items = append(items, insmodel.CheckinRecordItem{
-			Name: it.Name, Pass: it.Pass, Note: it.Note,
+			Name: it.Name, Pass: it.Pass, Note: it.Note, ExceptionType: exceptionType,
 			Photos: types.StringArray(photoIDs), PhotoRequired: ti.PhotoRequired,
 			Requirement: ti.Requirement, AIHint: ti.AIHint,
 			JudgeType: ti.JudgeType, JudgeConfig: ti.JudgeConfig, Sort: i,

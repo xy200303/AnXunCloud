@@ -4,7 +4,7 @@ import { request } from '@/utils/request'
 import { getToken } from '@/utils/auth'
 
 export interface UploadResult {
-  file_key: string
+  file_id: string
   url: string
 }
 

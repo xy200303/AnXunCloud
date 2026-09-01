@@ -724,13 +724,13 @@ function withSignature(action: (sigKey: string) => Promise<void>) {
 // 签名板保存：上传 PNG；勾选保存则写入签章资产（下次签字直接用），否则仅本次签字使用
 async function handlePadSave(file: File, saveForLater: boolean) {
   try {
-    const { file_key } = await uploadImage(file, 'signature')
-    let sigKey = file_key
+    const { file_id } = await uploadImage(file, 'signature')
+    let sigKey = file_id
     if (saveForLater) {
       await updateProfile({
         name: userStore.info?.name || '',
         phone: userStore.info?.phone || '',
-        signature_file_key: file_key
+        signature_file_id: file_key
       })
       await userStore.fetchInfo()
       sigKey = ''
@@ -757,7 +757,7 @@ async function submitProxySign() {
       const res = await signInspector(id, {
         proxy_for: user_id,
         reason,
-        signature_file_key: sigKey || undefined
+        signature_file_id: sigKey || undefined
       })
       proxyVisible.value = false
       await afterSign(res.status === 'pending_supervisor' ? '全员已确认，已流转主管审批' : '代签已记录')
@@ -785,7 +785,7 @@ async function handleInspectorSign() {
   withSignature(async (sigKey) => {
     signing.value = true
     try {
-      const res = await signInspector(id, sigKey ? { signature_file_key: sigKey } : undefined)
+      const res = await signInspector(id, sigKey ? { signature_file_id: sigKey } : undefined)
       await afterSign(res.status === 'pending_supervisor' ? '全员已确认，已流转主管审批' : '已确认签字')
     } catch {
       // 错误提示由请求拦截器统一弹出（如「不在应签名单」「已确认过」）
@@ -814,7 +814,7 @@ async function handleApprove() {
   withSignature(async (sigKey) => {
     signing.value = true
     try {
-      const body = { action: 'approve' as const, remark, signature_file_key: sigKey || undefined }
+      const body = { action: 'approve' as const, remark, signature_file_id: sigKey || undefined }
       if (isManager) {
         await signManager(id, body)
         await afterSign('终审通过，报告已归档')

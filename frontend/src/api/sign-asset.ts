@@ -35,8 +35,8 @@ export function listSignAssets(params: SignAssetListQuery) {
   return request<PageResult<SignAssetItem>>({ url: '/system/sign-assets', method: 'get', params })
 }
 
-// 创建即 active；同类型同属主旧版本自动 replaced（company_seal 全局仅一条 active）
-export function createSignAsset(data: { asset_type: SignAssetType; owner_id?: string; file_key: string; remark?: string }) {
+// 创建即 active；同类型同属主旧版本自动 replaced（company_seal 全局仅一条 active）；file_id 为上传接口返回的文件 ID
+export function createSignAsset(data: { asset_type: SignAssetType; owner_id?: string; file_id: string; remark?: string }) {
   return request<SignAssetItem>({ url: '/system/sign-assets', method: 'post', data })
 }
 

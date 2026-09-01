@@ -125,13 +125,13 @@ func (d *demoSeeder) addStaff(tenantID, projectID, userID string, posts []string
 	return d.db.Create(&row).Error
 }
 
-// photo 生成/复用演示打卡照片（真实图片内置于 demoassets，仅本地存储驱动落盘；返回 file_key，失败返回空串）。
+// photo 生成/复用演示打卡照片（真实图片内置于 demoassets，仅本地存储驱动落盘；返回 upload_file.id，失败返回空串）。
 func (d *demoSeeder) photo(tenantID, ownerID, label string) string {
 	if d.store == nil || !d.store.IsLocal() {
 		return ""
 	}
-	if key, ok := d.photoCache[label]; ok {
-		return key
+	if id, ok := d.photoCache[label]; ok {
+		return id
 	}
 	data, err := demoAssetByLabel_(label)
 	if err != nil {
@@ -149,8 +149,8 @@ func (d *demoSeeder) photo(tenantID, ownerID, label string) string {
 	if err := d.db.Create(&rec).Error; err != nil {
 		return ""
 	}
-	d.photoCache[label] = key
-	return key
+	d.photoCache[label] = rec.ID
+	return rec.ID
 }
 
 // demoAssetByLabel_ 按标签取内置演示照片字节。
@@ -837,40 +837,44 @@ func (d *demoSeeder) seedTenantB() error {
 		return err
 	}
 
-	taskDone := insmodel.InspectionTask{
-		TenantID: &tid, PlanID: plan.ID, CommunityID: cid, InspectorID: xjID,
-		PatrolType: insmodel.PatrolSafety, TaskDate: daysAgo(1), Status: insmodel.TaskDone,
-		TotalPoints: len(pointIDs), DonePoints: len(pointIDs),
-		StartedAt: at(yesterdayAt(8, 40)), FinishedAt: at(yesterdayAt(9, 35)),
-	}
-	if err := d.db.Create(&taskDone).Error; err != nil {
-		return err
-	}
-	taskToday := insmodel.InspectionTask{
-		TenantID: &tid, PlanID: plan.ID, CommunityID: cid, InspectorID: xjID,
-		PatrolType: insmodel.PatrolSafety, TaskDate: daysAgo(0), Status: insmodel.TaskPending,
-		TotalPoints: len(pointIDs),
-	}
-	if err := d.db.Create(&taskToday).Error; err != nil {
-		return err
-	}
-
-	for i, pid := range pointIDs {
-		p := pointMeta[pid]
-		checkinTime := yesterdayAt(8, 45+i*12)
-		rec := insmodel.CheckinRecord{
-			TenantID: &tid, TaskID: taskDone.ID, PointID: pid, InspectorID: xjID, CommunityID: cid,
-			CheckinTime: checkinTime, ClientTime: &checkinTime,
-			Longitude: floatptr(p.lng + 0.00002), Latitude: floatptr(p.lat + 0.00002),
-			DistanceToPoint: floatptr(2.8), CheckinType: insmodel.CredentialQRCode,
-			Result: insmodel.ResultNormal, AuditStatus: insmodel.AuditAutoPass,
-			CreatedAt: checkinTime,
+	// 昨天属于本月时才单独补「昨日已完成 + 今日待办」两条任务；
+	// 每月 1 日播种时昨天在上月，已由 seedReportsB 的上月工作量覆盖（同计划同日期重复会撞 uk_task_plan_date_inspector）
+	if daysAgo(1).Month() == time.Now().Month() {
+		taskDone := insmodel.InspectionTask{
+			TenantID: &tid, PlanID: plan.ID, CommunityID: cid, InspectorID: xjID,
+			PatrolType: insmodel.PatrolSafety, TaskDate: daysAgo(1), Status: insmodel.TaskDone,
+			TotalPoints: len(pointIDs), DonePoints: len(pointIDs),
+			StartedAt: at(yesterdayAt(8, 40)), FinishedAt: at(yesterdayAt(9, 35)),
 		}
-		if p.credential == insmodel.CredentialNone {
-			rec.CheckinType = "fence"
-		}
-		if err := d.db.Create(&rec).Error; err != nil {
+		if err := d.db.Create(&taskDone).Error; err != nil {
 			return err
+		}
+		taskToday := insmodel.InspectionTask{
+			TenantID: &tid, PlanID: plan.ID, CommunityID: cid, InspectorID: xjID,
+			PatrolType: insmodel.PatrolSafety, TaskDate: daysAgo(0), Status: insmodel.TaskPending,
+			TotalPoints: len(pointIDs),
+		}
+		if err := d.db.Create(&taskToday).Error; err != nil {
+			return err
+		}
+
+		for i, pid := range pointIDs {
+			p := pointMeta[pid]
+			checkinTime := yesterdayAt(8, 45+i*12)
+			rec := insmodel.CheckinRecord{
+				TenantID: &tid, TaskID: taskDone.ID, PointID: pid, InspectorID: xjID, CommunityID: cid,
+				CheckinTime: checkinTime, ClientTime: &checkinTime,
+				Longitude: floatptr(p.lng + 0.00002), Latitude: floatptr(p.lat + 0.00002),
+				DistanceToPoint: floatptr(2.8), CheckinType: insmodel.CredentialQRCode,
+				Result: insmodel.ResultNormal, AuditStatus: insmodel.AuditAutoPass,
+				CreatedAt: checkinTime,
+			}
+			if p.credential == insmodel.CredentialNone {
+				rec.CheckinType = "fence"
+			}
+			if err := d.db.Create(&rec).Error; err != nil {
+				return err
+			}
 		}
 	}
 

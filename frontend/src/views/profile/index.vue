@@ -161,7 +161,7 @@ const userStore = useUserStore()
 
 const info = computed(() => userStore.info)
 const avatarText = computed(() => userStore.name.slice(0, 1) || '用')
-// 头像 URL：avatar 存 file_key，本地存储模式拼 /uploads 静态路由
+// 头像 URL：avatar 存上传接口返回的 url（本地存储为 /uploads 静态路径）
 const avatarUrl = computed(() => (info.value?.avatar ? fileUrl(info.value.avatar) : ''))
 const activeTab = ref('profile')
 
@@ -172,8 +172,8 @@ async function handleAvatarUpload(opt: { file: File }) {
   if (uploadingAvatar.value) return
   uploadingAvatar.value = true
   try {
-    const { file_key } = await uploadImage(opt.file, 'avatar')
-    await updateProfile({ name: info.value?.name || '', phone: info.value?.phone || '', avatar: file_key })
+    const { url } = await uploadImage(opt.file, 'avatar')
+    await updateProfile({ name: info.value?.name || '', phone: info.value?.phone || '', avatar: url })
     await userStore.fetchInfo()
     ElMessage.success('头像已更新')
   } catch {
@@ -234,13 +234,13 @@ const signatureUrl = computed(() => withFileToken(info.value?.signature_url || '
 const savingSignature = ref(false)
 
 // 签名保存：name/phone 传当前已保存值，避免覆盖基本资料表单
-async function saveSignature(fileKey: string) {
+async function saveSignature(fileId: string) {
   savingSignature.value = true
   try {
     await updateProfile({
       name: info.value?.name || '',
       phone: info.value?.phone || '',
-      signature_file_key: fileKey
+      signature_file_id: fileId
     })
     await userStore.fetchInfo()
     return true
@@ -273,8 +273,8 @@ function openPad() {
 async function handlePadSave(file: File) {
   savingSignature.value = true
   try {
-    const { file_key } = await uploadImage(file, 'signature')
-    if (await saveSignature(file_key)) {
+    const { file_id } = await uploadImage(file, 'signature')
+    if (await saveSignature(file_id)) {
       ElMessage.success('签名已保存')
       return true
     }

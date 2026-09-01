@@ -263,10 +263,11 @@ type SignAssetQuery struct {
 }
 
 // SignAssetCreateReq 新增签章资产（创建即 active，同租户+type+owner 原 active 自动置 replaced）。
+// file_id 为上传接口返回的文件 ID（服务端解析为存储路径并校验归属）。
 type SignAssetCreateReq struct {
 	AssetType string  `json:"asset_type" binding:"required,oneof=user_signature company_seal"`
 	OwnerID   *string `json:"owner_id"`
-	FileKey   string  `json:"file_key" binding:"required"`
+	FileID    string  `json:"file_id" binding:"required"`
 	Remark    string  `json:"remark"`
 }
 

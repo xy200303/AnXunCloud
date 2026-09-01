@@ -18,6 +18,7 @@ import (
 	"anxuncloud/internal/pkg/response"
 	"anxuncloud/internal/pkg/storage"
 	"anxuncloud/internal/pkg/timefmt"
+	"anxuncloud/internal/pkg/uploadfile"
 
 	"go.uber.org/zap"
 )
@@ -113,8 +114,17 @@ func (s *SignAssetService) toItem(a *model.SignAsset, names map[string]string) d
 
 // Create 新增签章资产（创建即 active；同租户+type+owner 原 active 同事务置 replaced）。
 // tenantID 取操作者所属租户（个人签名/公章同规则）。
+// file_id 经 uploadfile.ByID 解析为存储路径（统一文件 ID 口径；归属校验：非本人上传且非超管拒绝）。
 func (s *SignAssetService) Create(operatorID, tenantID string, req *dto.SignAssetCreateReq) (*dto.SignAssetItem, *errs.Error) {
-	asset, be := s.create(operatorID, tenantID, req.AssetType, req.OwnerID, strings.TrimSpace(req.FileKey), req.Remark)
+	fileID := strings.TrimSpace(req.FileID)
+	if fileID == "" {
+		return nil, errs.ErrParam.WithMsg("file_id 为必填项")
+	}
+	f, err := uploadfile.ByID(s.db, fileID)
+	if err != nil {
+		return nil, errs.ErrPhotoNotUploaded
+	}
+	asset, be := s.create(operatorID, tenantID, req.AssetType, req.OwnerID, f.StorageKey, req.Remark)
 	if be != nil {
 		return nil, be
 	}

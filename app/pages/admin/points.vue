@@ -143,7 +143,7 @@ type ListData = {
   keyword: string
   typeFilter: string
   credFilter: string
-  typeOptions: DictOption
+  typeOptions: DictOption[]
   loading: boolean
   loadingMore: boolean
   loaded: boolean
@@ -193,7 +193,7 @@ export default {
       keyword: '',
       typeFilter: '',
       credFilter: '',
-      typeOptions: [] as DictOption[,
+      typeOptions: [] as DictOption[],
       loading: true,
       loadingMore: false,
       loaded: false,

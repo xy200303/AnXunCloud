@@ -28,6 +28,11 @@ ALTER TABLE inspection_report ADD COLUMN file_id uuid;
 UPDATE inspection_report r SET file_id = f.id FROM upload_file f WHERE f.storage_key = r.file_key;
 ALTER TABLE inspection_report DROP COLUMN file_key;
 
+-- 5) app_release：安装包引用统一为 upload_file.id（上传时同事务已登记）
+ALTER TABLE app_release ADD COLUMN file_id uuid;
+UPDATE app_release ar SET file_id = f.id FROM upload_file f WHERE f.storage_key = ar.file_key;
+ALTER TABLE app_release DROP COLUMN file_key;
+
 -- +goose Down
 -- 不可逆（file_key 已按 id 重写）：仅还原列结构，不回填数据。
 ALTER TABLE sign_asset ADD COLUMN file_key varchar(255);
@@ -35,8 +40,4 @@ ALTER TABLE inspection_report ADD COLUMN seal_file_key varchar(255);
 ALTER TABLE inspection_report ADD COLUMN supervisor_signature_key varchar(255);
 ALTER TABLE inspection_report ADD COLUMN manager_signature_key varchar(255);
 ALTER TABLE inspection_report ADD COLUMN file_key varchar(255);
-
--- 5) app_release：安装包引用统一为 upload_file.id（上传时同事务已登记）
-ALTER TABLE app_release ADD COLUMN file_id uuid;
-UPDATE app_release ar SET file_id = f.id FROM upload_file f WHERE f.storage_key = ar.file_key;
-ALTER TABLE app_release DROP COLUMN file_key;
+ALTER TABLE app_release ADD COLUMN file_key varchar(255);

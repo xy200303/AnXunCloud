@@ -411,49 +411,6 @@ func (s *MPService) PointByCode(inspectorID, code string) (gin.H, *errs.Error) {
 	}, nil
 }
 
-// Points 项目启用点位列表（问题上报关联点位用）。
-// 数据权限：普通用户须为该项目在职编制成员（任意岗位）；超级管理员可跨租户访问。
-func (s *MPService) Points(c *gin.Context, userID, communityID string) ([]gin.H, *errs.Error) {
-	if communityID == "" {
-		return nil, errs.ErrParam.WithMsg("community_id 不能为空")
-	}
-	identity := middleware.CurrentIdentity(c)
-	if identity == nil || !identity.SuperAdmin {
-		var staffCount int64
-		s.db.Model(&sysmodel.ProjectStaff{}).
-			Where("project_id = ? AND user_id = ? AND status = ?", communityID, userID, sysmodel.StatusEnabled).Count(&staffCount)
-		if staffCount == 0 {
-			return nil, errs.ErrDataScope
-		}
-	} else if be := middleware.CheckCommunity(s.db, c, communityID); be != nil {
-		return nil, be
-	}
-	var points []insmodel.InspectionPoint
-	if err := s.db.Select("id", "name", "building_id").
-		Where("community_id = ? AND status = ?", communityID, sysmodel.StatusEnabled).
-		Order("sort ASC, created_at ASC").Find(&points).Error; err != nil {
-		return nil, errs.ErrInternal
-	}
-	// 楼栋名称批量取，避免逐点查询
-	buildingNames := map[string]string{}
-	var buildings []insmodel.Building
-	s.db.Select("id", "name").Where("community_id = ?", communityID).Find(&buildings)
-	for _, b := range buildings {
-		buildingNames[b.ID] = b.Name
-	}
-	items := make([]gin.H, 0, len(points))
-	for _, p := range points {
-		name := p.Name
-		if p.BuildingID != nil {
-			if bn := buildingNames[*p.BuildingID]; bn != "" {
-				name = bn + " · " + p.Name
-			}
-		}
-		items = append(items, gin.H{"id": p.ID, "name": name})
-	}
-	return items, nil
-}
-
 // PublicPoint 短链接公开点位摘要（免登录：NFC 贴卡/扫码打开 H5 信息页的数据源）。
 // 脱敏原则：仅点位基础信息 + 巡检结果摘要，不出坐标、照片、凭证配置等敏感项。
 func (s *MPService) PublicPoint(code string) (gin.H, *errs.Error) {
@@ -600,21 +557,44 @@ func (s *MPService) TaskDetail(inspectorID, taskID string) (gin.H, *errs.Error) 
 	for i := range checkins {
 		byPoint[checkins[i].PointID] = &checkins[i]
 	}
-	// 任务点位名单：任务快照优先，空回落计划名单（存量任务）
+	// 任务点位名单：以任务快照为准（生成时固化，不随计划后续编辑变化）
 	pointIDs := insmodel.TaskPointIDs(&task, &plan)
+	// 点位/楼栋一次批量预载（3900+ 点位任务逐点 First 会产生数千次 SQL），再按名单顺序组装。
+	// 注意 pointIDs 是 types.IDArray（实现了 driver.Valuer 会整体序列化为 JSON 字符串），必须显式转 []string 才能被 IN 展开。
+	var ptRows []insmodel.InspectionPoint
+	if len(pointIDs) > 0 {
+		s.db.Where("id IN ?", []string(pointIDs)).Find(&ptRows)
+	}
+	ptByID := make(map[string]*insmodel.InspectionPoint, len(ptRows))
+	buildingIDSet := map[string]struct{}{}
+	for i := range ptRows {
+		ptByID[ptRows[i].ID] = &ptRows[i]
+		if ptRows[i].BuildingID != nil && *ptRows[i].BuildingID != "" {
+			buildingIDSet[*ptRows[i].BuildingID] = struct{}{}
+		}
+	}
+	buildingNames := map[string]string{}
+	if len(buildingIDSet) > 0 {
+		bIDs := make([]string, 0, len(buildingIDSet))
+		for id := range buildingIDSet {
+			bIDs = append(bIDs, id)
+		}
+		var bs []insmodel.Building
+		s.db.Select("id", "name").Where("id IN ?", bIDs).Find(&bs)
+		for _, b := range bs {
+			buildingNames[b.ID] = b.Name
+		}
+	}
 	points := make([]gin.H, 0, len(pointIDs))
 	ptTpl := map[int]string{} // points 下标 → 点位绑定的检查项模板 ID（仅非空）
 	for i, pid := range pointIDs {
-		var pt insmodel.InspectionPoint
-		if s.db.First(&pt, "id = ?", pid).Error != nil {
+		pt, ok := ptByID[pid]
+		if !ok {
 			continue
 		}
 		buildingName := ""
 		if pt.BuildingID != nil {
-			var b insmodel.Building
-			if s.db.Select("name").First(&b, "id = ?", *pt.BuildingID).Error == nil {
-				buildingName = b.Name
-			}
+			buildingName = buildingNames[*pt.BuildingID]
 		}
 		var myCheckin any
 		if ck, ok := byPoint[pid]; ok {

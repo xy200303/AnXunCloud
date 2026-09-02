@@ -90,12 +90,6 @@ func (ctl *MPController) PointByCode(c *gin.Context) {
 	write(c, data, be)
 }
 
-// Points GET /points?community_id=（问题上报关联点位的候选列表）
-func (ctl *MPController) Points(c *gin.Context) {
-	data, be := ctl.mp.Points(c, uid(c), c.Query("community_id"))
-	write(c, data, be)
-}
-
 // PublicPoint GET /api/public/point/:code（短链接 H5 点位信息页，免登录脱敏摘要）
 func (ctl *MPController) PublicPoint(c *gin.Context) {
 	code := c.Param("code")

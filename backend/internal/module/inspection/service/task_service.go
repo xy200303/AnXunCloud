@@ -210,7 +210,7 @@ func (s *TaskService) Detail(c *gin.Context, id string) (gin.H, *errs.Error) {
 	for i := range checkins {
 		byPoint[checkins[i].PointID] = &checkins[i]
 	}
-	// 任务点位名单：任务快照优先（by_point_types 圈选/轮次任务均落快照），空回落计划名单（存量任务）
+	// 任务点位名单：以任务快照为准（by_point_types 圈选/轮次任务均落快照；不回落计划名单）
 	pointIDs := model.TaskPointIDs(&t, &plan)
 	// 项级进度派生：过程草稿按点位聚合（done=已有结论[含手动项]，recognizing=AI 识别中，failed=识别失败待重拍）；
 	// 总项数取点位模板当前项数（观测层数据，模板中途变更只影响展示，不影响正式记录）

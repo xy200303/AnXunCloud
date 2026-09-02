@@ -719,23 +719,28 @@ func (s *PlanService) PreviewPoints(c *gin.Context, communityID, pointTypes stri
 			return nil, errs.ErrParam.WithMsg("point_types 中存在非法或已停用的点位类型：" + pt)
 		}
 	}
-	var pts []model.InspectionPoint
-	if err := s.db.Where("community_id = ? AND type IN ? AND status = ?", communityID, typeList, sysmodel.StatusEnabled).
-		Order("sort ASC, created_at ASC").Find(&pts).Error; err != nil {
+	// 命中总数走 COUNT；明细只返回前 previewPointsLimit 条示例（3900+ 点位小区全量返回会拖垮计划表单），
+	// 楼栋名一次批量解析，避免逐点查询的 N+1。
+	base := s.db.Model(&model.InspectionPoint{}).
+		Where("community_id = ? AND type IN ? AND status = ?", communityID, typeList, sysmodel.StatusEnabled)
+	var total int64
+	if err := base.Count(&total).Error; err != nil {
 		return nil, errs.ErrInternal
 	}
+	var pts []model.InspectionPoint
+	if err := base.Order("sort ASC, created_at ASC").Limit(previewPointsLimit).Find(&pts).Error; err != nil {
+		return nil, errs.ErrInternal
+	}
+	buildingNames := pointBuildingNames(s.db, pts)
 	list := make([]gin.H, 0, len(pts))
 	for i := range pts {
 		buildingName := ""
 		if pts[i].BuildingID != nil {
-			var b model.Building
-			if s.db.Select("name").First(&b, "id = ?", *pts[i].BuildingID).Error == nil {
-				buildingName = b.Name
-			}
+			buildingName = buildingNames[*pts[i].BuildingID]
 		}
 		list = append(list, gin.H{"id": pts[i].ID, "name": pts[i].Name, "type": pts[i].Type, "building_name": buildingName})
 	}
-	return gin.H{"count": len(pts), "points": list}, nil
+	return gin.H{"count": total, "points": list, "preview_limit": previewPointsLimit}, nil
 }
 
 // FlipOverdue 将窗口结束时刻已过仍未完成的任务置为 overdue，并定向通知：

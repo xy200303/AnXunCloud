@@ -37,9 +37,9 @@
         <text  hover-class="hover-dim" class="quick-btn-text" :style="{ color: colors.white }">{{ quickBtnText }}</text>
       </view>
 
-      <!-- 点位列表（未打卡置顶，已打卡沉底；组内保持 sort 顺序） -->
+      <!-- 点位列表（未打卡置顶，已打卡沉底；组内保持 sort 顺序；分块渲染，触底加载更多） -->
       <view
-        v-for="p in sortedPoints"
+        v-for="p in visiblePoints"
         :key="p.point_id"
          hover-class="hover-dim" class="card point-row"
         :style="{ backgroundColor: colors.bgCard }"
@@ -63,6 +63,9 @@
 
       <!-- 手动模式入口（弱化文字链，给熟手留后路） -->
       <text v-if="aiEnabled && hasUnchecked" class="manual-link" :style="{ color: colors.textSecondary }" @click="goManual">手动模式（逐项填写）</text>
+      <view v-if="visiblePoints.length < sortedPoints.length" class="load-more">
+        <text class="load-more-text" :style="{ color: colors.textSecondary }">上拉加载更多（{{ visiblePoints.length }}/{{ sortedPoints.length }}）</text>
+      </view>
       <view class="bottom-space"></view>
     </view>
 
@@ -118,6 +121,8 @@ type DetailData = {
   /** 云端逐项草稿（有 = 显示「继续巡检」并标注 AI 检查中/巡检中点位） */
   drafts: ItemDraft[]
   points: PointView[]
+  /** 分块渲染：已挂载到列表的点位数（触底递增，全量数据仍在内存供排序/续巡） */
+  visibleCount: number
 }
 
 function statusTextOf(s: string): string {
@@ -149,6 +154,9 @@ function patrolTextOf(t: string): string {
   if (t == 'building') return '楼栋巡查'
   return ''
 }
+
+/** 点位分块渲染块大小（触底每次再挂载一块） */
+const POINTS_CHUNK = 50
 
 /** 云端草稿点位进度档：recognizing=有项 AI 识别中；doing=已拍/已答未提交；''=未开始（不标注） */
 type SnapStage = 'recognizing' | 'doing' | ''
@@ -216,7 +224,8 @@ export default {
       donePoints: 0,
       aiEnabled: false,
       drafts: [],
-      points: [] as PointView[]
+      points: [] as PointView[],
+      visibleCount: POINTS_CHUNK
     }
   },
   onLoad(options: any) {
@@ -226,6 +235,10 @@ export default {
   onShow() {
     // 打卡返回后刷新点位状态
     if (this.loaded) this.load()
+  },
+  onReachBottom() {
+    // 分块渲染：触底再挂下一块（3900+ 点位任务避免首屏整屏节点）
+    if (this.visibleCount < this.sortedPoints.length) this.visibleCount += POINTS_CHUNK
   },
   onPullDownRefresh() {
     this.load()
@@ -241,6 +254,10 @@ export default {
           return a.i - b.i
         })
         .map((x) => x.p)
+    },
+    /** 分块渲染：当前已挂载的点位块 */
+    visiblePoints(): PointView[] {
+      return this.sortedPoints.slice(0, this.visibleCount)
     },
     /** 存在未打卡点位 → 显示大按钮 */
     hasUnchecked(): boolean {
@@ -320,6 +337,7 @@ export default {
             }
           })
           this.points = res.points.map((p: TaskPoint) => toPointView(p, draftStats))
+          this.visibleCount = POINTS_CHUNK
           uni.stopPullDownRefresh()
         })
         .catch((e: Error) => {
@@ -482,6 +500,15 @@ export default {
   font-size: 26rpx;
   text-align: center;
   padding: 24rpx;
+}
+
+.load-more {
+  text-align: center;
+  padding: 20rpx 0;
+}
+
+.load-more-text {
+  font-size: 24rpx;
 }
 
 .bottom-space {

@@ -273,14 +273,12 @@ func (s *PointService) MapPoints(c *gin.Context, communityID string) ([]gin.H, *
 	if err := s.db.Where("community_id = ?", communityID).Order("sort ASC, id ASC").Find(&rows).Error; err != nil {
 		return nil, errs.ErrInternal
 	}
+	buildingNames := pointBuildingNames(s.db, rows)
 	list := make([]gin.H, 0, len(rows))
 	for _, p := range rows {
 		buildingName := ""
 		if p.BuildingID != nil {
-			var b model.Building
-			if s.db.Select("name").First(&b, "id = ?", *p.BuildingID).Error == nil {
-				buildingName = b.Name
-			}
+			buildingName = buildingNames[*p.BuildingID]
 		}
 		list = append(list, gin.H{
 			"id": p.ID, "name": p.Name, "building_name": buildingName,
@@ -505,6 +503,33 @@ func validPointType(db *gorm.DB, t string) bool {
 
 // pointBatchMaxCount 批量建点单次上限（与导入上限同口径）。
 const pointBatchMaxCount = 500
+
+// previewPointsLimit 圈选命中预览返回的示例点位条数上限（命中总数走 COUNT 全量统计）。
+const previewPointsLimit = 50
+
+// pointBuildingNames 批量解析点位列表的楼栋名（id→name），消除逐点查询的 N+1。
+func pointBuildingNames(db *gorm.DB, pts []model.InspectionPoint) map[string]string {
+	idSet := map[string]struct{}{}
+	for i := range pts {
+		if pts[i].BuildingID != nil && *pts[i].BuildingID != "" {
+			idSet[*pts[i].BuildingID] = struct{}{}
+		}
+	}
+	names := map[string]string{}
+	if len(idSet) == 0 {
+		return names
+	}
+	ids := make([]string, 0, len(idSet))
+	for id := range idSet {
+		ids = append(ids, id)
+	}
+	var buildings []model.Building
+	db.Select("id", "name").Where("id IN ?", ids).Find(&buildings)
+	for _, b := range buildings {
+		names[b.ID] = b.Name
+	}
+	return names
+}
 
 // BatchCreate 批量建点：按 楼栋×楼层×每层数量 生成点位（《专项巡检与专项检查报告设计方案》§3.3）。
 // 名称占位符 {building}/{floor}/{seq}（负楼层渲染为 B1/B2…）；同楼栋下同名跳过（幂等重入）；

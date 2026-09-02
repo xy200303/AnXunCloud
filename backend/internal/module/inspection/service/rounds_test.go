@@ -75,16 +75,16 @@ func TestPlanDailyMinRounds(t *testing.T) {
 	}
 }
 
-// TestTaskPointIDs 任务点位名单：快照优先，空快照回落计划名单（存量任务兼容）。
+// TestTaskPointIDs 任务点位名单：以任务快照为准（不回落计划名单——计划后续编辑不应改变已生成任务的名单口径）。
 func TestTaskPointIDs(t *testing.T) {
 	plan := &model.InspectionPlan{PointIDs: types.IDArray{"p1", "p2"}}
 	task := &model.InspectionTask{}
-	if got := model.TaskPointIDs(task, plan); len(got) != 2 || got[0] != "p1" {
-		t.Fatalf("空快照应回落计划名单: %v", got)
+	if got := model.TaskPointIDs(task, plan); len(got) != 0 {
+		t.Fatalf("空快照应为空名单（不回落计划）: %v", got)
 	}
 	task.PointIDs = types.IDArray{"p3"}
 	if got := model.TaskPointIDs(task, plan); len(got) != 1 || got[0] != "p3" {
-		t.Fatalf("快照非空应优先读快照: %v", got)
+		t.Fatalf("快照非空应读快照: %v", got)
 	}
 }
 

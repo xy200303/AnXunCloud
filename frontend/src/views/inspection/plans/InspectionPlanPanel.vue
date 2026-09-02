@@ -217,8 +217,21 @@
               <div v-if="routeError" class="route-error">{{ routeError }}</div>
             </div>
             <div class="route-col">
-              <div class="route-col-title">可选点位（{{ candidatePoints.length }}）</div>
-              <div class="route-list">
+              <div class="route-col-title">可选点位（{{ candidateTotal }}）</div>
+              <el-input
+                v-model="candidateKeyword"
+                size="small"
+                placeholder="搜索点位名称"
+                clearable
+                style="margin-bottom: 6px"
+                @keyup.enter="searchCandidates"
+                @clear="searchCandidates"
+              >
+                <template #append>
+                  <el-button :icon="Search" @click="searchCandidates" />
+                </template>
+              </el-input>
+              <div class="route-list" v-loading="candidateLoading">
                 <el-checkbox-group v-model="checkedCandidateIds">
                   <div v-for="p in candidatePoints" :key="p.id" class="route-item">
                     <el-checkbox :value="p.id" :disabled="form.point_ids.includes(p.id)">
@@ -227,6 +240,12 @@
                   </div>
                 </el-checkbox-group>
                 <el-empty v-if="!form.community_id" description="请先选择小区" :image-size="48" />
+                <el-empty v-else-if="!candidatePoints.length && !candidateLoading" description="无匹配点位" :image-size="48" />
+                <div v-if="candidatePoints.length < candidateTotal" class="route-more">
+                  <el-button link size="small" type="primary" :loading="candidateLoading" @click="loadCandidates()">
+                    加载更多（{{ candidatePoints.length }}/{{ candidateTotal }}）
+                  </el-button>
+                </div>
               </div>
               <el-button size="small" type="primary" plain :disabled="!checkedCandidateIds.length" @click="addPoints">
                 加入路线
@@ -408,8 +427,8 @@
       </template>
     </el-dialog>
 
-    <!-- 圈选命中点位清单 -->
-    <el-dialog v-model="previewVisible" title="圈选命中点位" width="560px">
+    <!-- 圈选命中点位清单（后端只返回前 preview_limit 条示例，标题显示命中总数） -->
+    <el-dialog v-model="previewVisible" :title="`圈选命中点位（共 ${previewCount} 个）`" width="560px">
       <el-table v-loading="previewLoading" :data="previewPoints" border size="small" max-height="380" style="width: 100%">
         <el-table-column type="index" label="#" width="50" align="center" />
         <el-table-column prop="name" label="点位名称" min-width="150" show-overflow-tooltip />
@@ -420,6 +439,9 @@
           <template #default="{ row }">{{ pointTypeName(row.type) }}</template>
         </el-table-column>
       </el-table>
+      <div v-if="previewCount > previewPoints.length" class="preview-tip">
+        仅展示前 {{ previewPoints.length }} 条示例，任务生成时将覆盖全部 {{ previewCount }} 个命中点位
+      </div>
     </el-dialog>
   </div>
 </template>
@@ -683,32 +705,70 @@ const formRules: FormRules = {
   dateRange: [{ required: true, message: '请选择有效期', trigger: 'change' }]
 }
 
-// 路线选择器
+// 路线选择器：候选列表远程搜索 + 分页加载更多（3900+ 点位小区不能一次拉全）；
+// 已选点位独立 map 保存（id → 点位摘要），不依赖候选列表，避免已选点位不在候选页内时路线显示残缺
+interface RoutePoint {
+  id: string
+  name: string
+  building_name: string
+}
+const CANDIDATE_PAGE_SIZE = 50
 const candidatePoints = ref<PointItem[]>([])
+const candidateKeyword = ref('')
+const candidatePage = ref(0)
+const candidateTotal = ref(0)
+const candidateLoading = ref(false)
 const checkedCandidateIds = ref<string[]>([])
+const selectedPointMap = ref<Record<string, RoutePoint>>({})
 
 const selectedPoints = computed(() =>
-  form.point_ids
-    .map((id) => candidatePoints.value.find((p) => p.id === id))
-    .filter(Boolean) as PointItem[]
+  form.point_ids.map((id) => selectedPointMap.value[id]).filter(Boolean) as RoutePoint[]
 )
+
+async function loadCandidates(reset = false) {
+  if (!form.community_id) {
+    candidatePoints.value = []
+    candidateTotal.value = 0
+    candidatePage.value = 0
+    return
+  }
+  const page = reset ? 1 : candidatePage.value + 1
+  candidateLoading.value = true
+  try {
+    const data = await listPoints({
+      community_id: form.community_id,
+      status: 1,
+      name: candidateKeyword.value || undefined,
+      page,
+      page_size: CANDIDATE_PAGE_SIZE
+    })
+    candidatePoints.value = reset ? data.list : candidatePoints.value.concat(data.list)
+    candidateTotal.value = data.total
+    candidatePage.value = page
+  } finally {
+    candidateLoading.value = false
+  }
+}
+
+function searchCandidates() {
+  loadCandidates(true)
+}
 
 async function handleFormCommunityChange() {
   form.point_ids = []
   checkedCandidateIds.value = []
+  selectedPointMap.value = {}
+  candidateKeyword.value = ''
   routeError.value = ''
-  if (!form.community_id) {
-    candidatePoints.value = []
-    return
-  }
-  const data = await listPoints({ community_id: form.community_id, status: 1, page: 1, page_size: 100 })
-  candidatePoints.value = data.list
+  await loadCandidates(true)
   refreshPreview()
 }
 
 function addPoints() {
   for (const id of checkedCandidateIds.value) {
     if (!form.point_ids.includes(id)) form.point_ids.push(id)
+    const p = candidatePoints.value.find((x) => x.id === id)
+    if (p) selectedPointMap.value[id] = { id: p.id, name: p.name, building_name: p.building_name }
   }
   checkedCandidateIds.value = []
   routeError.value = ''
@@ -864,8 +924,14 @@ async function openForm(row?: PlanItem) {
       dateRange: [detail.start_date, detail.end_date],
       status: detail.status
     })
-    const data = await listPoints({ community_id: detail.community_id, status: 1, page: 1, page_size: 100 })
-    candidatePoints.value = data.list
+    // 已选点位摘要直接取详情返回的 points（含名称/楼栋），不依赖候选列表页是否覆盖
+    const map: Record<string, RoutePoint> = {}
+    for (const p of detail.points || []) {
+      map[p.id] = { id: p.id, name: p.name, building_name: p.building_name }
+    }
+    selectedPointMap.value = map
+    candidateKeyword.value = ''
+    await loadCandidates(true)
     refreshPreview()
   } else {
     Object.assign(form, {
@@ -874,6 +940,10 @@ async function openForm(row?: PlanItem) {
       timeRange: null, inspector_ids: [], dateRange: null, status: 1
     })
     candidatePoints.value = []
+    candidateTotal.value = 0
+    candidatePage.value = 0
+    candidateKeyword.value = ''
+    selectedPointMap.value = {}
     previewCount.value = 0
     previewPoints.value = []
   }
@@ -992,6 +1062,18 @@ async function handleSubmit() {
     max-height: 200px;
     overflow-y: auto;
     margin-bottom: $spacing-sm;
+  }
+
+  .route-more {
+    text-align: center;
+    padding: 4px 0;
+  }
+
+  .preview-tip {
+    margin-top: 8px;
+    font-size: 12px;
+    color: #909399;
+    text-align: center;
   }
 
   .route-item {

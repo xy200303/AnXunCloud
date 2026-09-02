@@ -298,6 +298,11 @@ export default {
             return
           }
           this.point = pt
+          // 预核验编号按点位匹配：命中 NFC 卡号 → 视为已刷卡核验；否则按二维码编号（原扫码进入行为）
+          if (this.scannedNo != '' && pt.nfc_id != '' && pt.nfc_id == this.scannedNo && pt.qrcode_no != this.scannedNo) {
+            this.nfcCardId = this.scannedNo
+            this.scannedNo = ''
+          }
           this.items = pt.check_items.map((c) => ({
             name: c.name,
             requirement: c.requirement,

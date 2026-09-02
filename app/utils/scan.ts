@@ -73,8 +73,9 @@ function doScan() {
 /**
  * NFC 打卡（iOS 唯一入口；Android/鸿蒙另有全局前台监听，见 App.vue）。
  * 用户点按钮 → 系统扫描面板 → 读卡片 UID → 任务定位器跳转（后端 by-code 按 nfc_id 匹配）。
+ * 导出供「+」菜单的 NFC 识别项复用（iOS 手动触发入口）。
  */
-function doNfc() {
+export function doNfc() {
   if (!isNfcSupported()) {
     toastNfcUnavailable()
     return

@@ -247,6 +247,11 @@
         <text  hover-class="hover-dim" class="prev-link-text" :style="{ color: colors.textSecondary }">‹ 上一项</text>
       </view>
 
+      <!-- 手动模式入口：当前点位改用逐项填写表单（向导进度在云端草稿，切走重进可续） -->
+      <view v-if="showManualEntry"  hover-class="hover-dim" class="prev-link" @click="goManualPoint">
+        <text  hover-class="hover-dim" class="prev-link-text" :style="{ color: colors.textSecondary }">手动填写本点位</text>
+      </view>
+
       <view class="bottom-space"></view>
     </view>
 
@@ -547,6 +552,12 @@ export default {
     /** 底部「上一项」：主推进阶段且遮盖层未开启时显示 */
     showPrev(): boolean {
       if (this.overlayMsg != '' || this.submitting) return false
+      return this.phase == 'cred' || this.phase == 'items' || this.phase == 'gate'
+    },
+    /** 手动模式入口：主推进阶段 + 非修改模式 + 有当前点位（修改模式点位已打卡，手动表单会拒） */
+    showManualEntry(): boolean {
+      if (this.modify || this.overlayMsg != '' || this.submitting) return false
+      if (this.curPoint == null) return false
       return this.phase == 'cred' || this.phase == 'items' || this.phase == 'gate'
     },
     /** 是否在本点位第一步（无上一项可回退，底部「上一项」按钮隐藏；退出走返回键）。
@@ -1164,6 +1175,21 @@ export default {
     /** 底部「上一项」点击：回退一项（不跨点位）；兜底到本点位第一步时走退出确认（正常不会到这，起点按钮已隐藏） */
     onPrevTap() {
       if (!this.prevStep()) this.confirmExit()
+    },
+    /**
+     * 手动填写本点位：跳逐项填写表单（redirectTo 替换向导；向导进度在云端草稿，重进可续）。
+     * 已核验的扫码/NFC 凭证随 no 参数带过去，表单按编号匹配二维码/NFC 自动免核验。
+     */
+    goManualPoint() {
+      const pt = this.curPoint
+      if (pt == null) return
+      let url =
+        '/pages/checkin/form?task_id=' + encodeURIComponent(this.taskId) +
+        '&point_id=' + encodeURIComponent(pt.point_id)
+      const wp = this.curWizPoint
+      const preNo = wp != null ? (wp.scannedNo != '' ? wp.scannedNo : wp.nfcCardId) : ''
+      if (preNo != '') url += '&no=' + encodeURIComponent(preNo)
+      uni.redirectTo({ url: url })
     },
     /** 导航栏返回键：与系统返回同口径——退出巡检 */
     onBackTap() {

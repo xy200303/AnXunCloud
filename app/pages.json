@@ -4,7 +4,19 @@
       "path": "pages/tasks/today",
       "style": {
         "navigationBarTitleText": "今日任务",
-        "enablePullDownRefresh": true
+        "enablePullDownRefresh": true,
+        "app-plus": {
+          "titleNView": {
+            "buttons": [
+              {
+                "text": "+",
+                "fontSize": "30px",
+                "color": "#FFFFFF",
+                "width": "48px"
+              }
+            ]
+          }
+        }
       }
     },
     {

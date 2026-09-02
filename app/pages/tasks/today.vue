@@ -92,6 +92,19 @@
       <text class="empty-retry" :style="{ color: colors.primary }" @click="load">重试</text>
     </view>
 
+    <!-- 导航栏「+」菜单（微信式下拉；数据驱动，加功能往 plusItems 里加一行） -->
+    <view v-if="menuOpen" class="plus-mask" @click="menuOpen = false">
+      <view class="plus-menu" @click.stop>
+        <block v-for="(m, i) in plusItems" :key="m.key">
+          <view v-if="i > 0" class="plus-divider"></view>
+          <view  hover-class="hover-dim" class="plus-item" @click="onPlusItem(m.key)">
+            <text  hover-class="hover-dim" class="plus-item-icon" :style="{ color: colors.white }">{{ m.icon }}</text>
+            <text  hover-class="hover-dim" class="plus-item-text" :style="{ color: colors.white }">{{ m.label }}</text>
+          </view>
+        </block>
+      </view>
+    </view>
+
     <view class="tabbar-space"></view>
   </view>
 </template>
@@ -101,6 +114,7 @@ import { Colors, ColorTokens } from '@/utils/theme'
 import { apiTasksToday, TodayTask } from '@/services/api'
 import { offlineCount, syncOfflineCheckins } from '@/utils/offline'
 import { useMessageStore } from '@/stores/message'
+import { doNfc } from '@/utils/scan'
 
 /** 巡查类型文案（内置回落：后端未透传 patrol_type_label 时使用；新类型如 fire 以字典 label 为准） */
 function patrolTextOf(t: string): string {
@@ -167,6 +181,10 @@ type TodayData = {
   typeChips: Array<{ label: string; value: string }>
   /** 离线暂存待补传条数（>0 显示提示条） */
   offlineCount: number
+  /** 导航栏「+」菜单是否展开 */
+  menuOpen: boolean
+  /** 「+」菜单项（数据驱动，后续加功能在此追加一行即可） */
+  plusItems: Array<{ key: string; label: string; icon: string }>
 }
 
 function statusTextOf(s: string): string {
@@ -215,7 +233,12 @@ export default {
       typeFilter: '',
       // 类型筛选 chip：「全部」+ 按当日任务实际类型动态生成（字典新类型如 fire 自动出现）
       typeChips: [{ label: '全部', value: '' }] as Array<{ label: string; value: string }>,
-      offlineCount: 0
+      offlineCount: 0,
+      menuOpen: false,
+      plusItems: [
+        { key: 'nearby', label: '附近点位', icon: '◎' },
+        { key: 'nfc', label: 'NFC 识别', icon: '≋' }
+      ] as Array<{ key: string; label: string; icon: string }>
     }
   },
   computed: {
@@ -269,7 +292,24 @@ export default {
   onPullDownRefresh() {
     this.load()
   },
+  /** 原生导航栏「+」按钮（pages.json titleNView.buttons）：展开/收起功能菜单 */
+  onNavigationBarButtonTap() {
+    this.menuOpen = !this.menuOpen
+  },
   methods: {
+    /** 「+」菜单项分发 */
+    onPlusItem(key: string) {
+      this.menuOpen = false
+      if (key == 'nearby') {
+        this.goNearby()
+        return
+      }
+      if (key == 'nfc') {
+        // iOS 手动触发入口（CoreNFC 必须用户明确触发）；Android/鸿蒙同样可用
+        doNfc()
+        return
+      }
+    },
     /** 触发一轮补传并回显结果/剩余数 */
     trySync() {
       syncOfflineCheckins().then((r) => {
@@ -514,5 +554,49 @@ export default {
 
 .tabbar-space {
   height: 160rpx;
+}
+
+/* 导航栏「+」菜单：微信式深色下拉，锚定右上角（原生导航栏下方） */
+.plus-mask {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 998;
+}
+
+.plus-menu {
+  position: absolute;
+  top: 8rpx;
+  right: 24rpx;
+  min-width: 280rpx;
+  background-color: #4c4c4c;
+  border-radius: 16rpx;
+  overflow: hidden;
+}
+
+.plus-item {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  padding: 28rpx 36rpx;
+}
+
+.plus-item-icon {
+  font-size: 34rpx;
+  margin-right: 20rpx;
+  width: 40rpx;
+  text-align: center;
+}
+
+.plus-item-text {
+  font-size: 30rpx;
+}
+
+.plus-divider {
+  height: 1rpx;
+  background-color: rgba(255, 255, 255, 0.15);
+  margin: 0 36rpx;
 }
 </style>

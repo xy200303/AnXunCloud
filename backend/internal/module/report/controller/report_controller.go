@@ -63,6 +63,22 @@ func (ctl *ReportController) Detail(c *gin.Context) {
 	write(c, data, be)
 }
 
+// PagedRecords GET /reports/:id/records 打卡明细分页
+func (ctl *ReportController) PagedRecords(c *gin.Context) {
+	id, be := pathID(c)
+	if be != nil {
+		response.Fail(c, be)
+		return
+	}
+	var q dto.ReportRecordsQuery
+	if be := bind.Query(c, &q); be != nil {
+		response.Fail(c, be)
+		return
+	}
+	page, be := ctl.svc.PagedRecords(c, id, &q)
+	write(c, page, be)
+}
+
 // Generate POST /reports/generate
 func (ctl *ReportController) Generate(c *gin.Context) {
 	var req dto.GenerateReq

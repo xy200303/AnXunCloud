@@ -15,6 +15,11 @@ type ReportListQuery struct {
 	PatrolType string `form:"patrol_type"`
 }
 
+// ReportRecordsQuery 报告打卡明细分页（仅分页参数）。
+type ReportRecordsQuery struct {
+	response.PageQuery
+}
+
 // GenerateReq 手动生成报告：period（月度 YYYY-MM）或 start_date+end_date（任意期间）二选一
 // （start_date/end_date 同时提供时优先于 period，此时 period 仅作展示兜底，可传空）。
 type GenerateReq struct {

@@ -166,11 +166,11 @@
             </el-table>
           </template>
 
-          <!-- 巡检记录明细（分块渲染，滚动到底加载更多，避免几千行一次渲染卡死） -->
-          <template v-if="detail.records?.length">
-            <div class="section-title">巡检记录明细（{{ detail.records.length }} 条）</div>
+          <!-- 巡检记录明细（后端分页，滚动到底加载下一页，避免几千行一次返回/渲染卡死） -->
+          <template v-if="recordRows.length">
+            <div class="section-title">巡检记录明细（{{ recordsTotal }} 条）</div>
             <div class="records-scroll" @scroll="onRecordsScroll">
-              <el-table :data="visibleRecords" border size="small" style="width: 100%">
+              <el-table :data="recordRows" border size="small" style="width: 100%">
               <el-table-column prop="checkin_time" label="打卡时间" width="145" />
               <el-table-column prop="inspector_name" label="巡检员" width="75" />
               <el-table-column prop="point_name" label="点位" min-width="90" show-overflow-tooltip />
@@ -207,8 +207,10 @@
                 </template>
               </el-table-column>
               </el-table>
-              <div v-if="!recordsAllLoaded" class="records-more">下拉加载更多（{{ visibleRecords.length }}/{{ detail.records.length }}）</div>
-              <div v-else class="records-more text-secondary">全部 {{ detail.records.length }} 条已加载</div>
+              <div v-if="!recordsAllLoaded" class="records-more">
+                {{ recordsLoading ? '加载中…' : `下拉加载更多（${recordRows.length}/${recordsTotal}）` }}
+              </div>
+              <div v-else class="records-more text-secondary">全部 {{ recordsTotal }} 条已加载</div>
             </div>
           </template>
 
@@ -464,6 +466,7 @@ import { ElMessage, ElMessageBox, type FormInstance, type FormRules } from 'elem
 import {
   listReports,
   getReport,
+  getReportRecords,
   generateReport,
   getSignCandidates,
   signInspector,
@@ -471,6 +474,7 @@ import {
   signManager,
   type ReportItem,
   type ReportDetail,
+  type ReportRecord,
   type ReportStats,
   type ReportStatus,
   type SignCandidate
@@ -594,18 +598,32 @@ const emptyStats: ReportStats = {
 }
 const stats = computed<ReportStats>(() => ({ ...emptyStats, ...(detail.value?.stats || {}), daily: detail.value?.stats?.daily || [] }))
 
-// ===== 记录明细分块渲染（滚动加载） =====
-const RECORDS_CHUNK = 100
-const recordsVisible = ref(RECORDS_CHUNK)
+// ===== 记录明细分页加载（后端分页，滚动到底拉下一页，避免几千行一次返回/渲染卡死） =====
+const RECORDS_PAGE_SIZE = 100
+const recordRows = ref<ReportRecord[]>([])
+const recordsTotal = ref(0)
+const recordsPage = ref(0)
+const recordsLoading = ref(false)
 
-const visibleRecords = computed(() => (detail.value?.records || []).slice(0, recordsVisible.value))
-const recordsAllLoaded = computed(() => visibleRecords.value.length >= (detail.value?.records?.length || 0))
+const recordsAllLoaded = computed(() => recordsPage.value > 0 && recordRows.value.length >= recordsTotal.value)
+
+async function loadRecordsPage(id: string, page: number) {
+  recordsLoading.value = true
+  try {
+    const data = await getReportRecords(id, { page, page_size: RECORDS_PAGE_SIZE })
+    recordsTotal.value = data.total
+    recordRows.value = page === 1 ? data.list : recordRows.value.concat(data.list)
+    recordsPage.value = page
+  } finally {
+    recordsLoading.value = false
+  }
+}
 
 function onRecordsScroll(e: Event) {
-  if (recordsAllLoaded.value) return
+  if (recordsAllLoaded.value || recordsLoading.value || !detail.value) return
   const el = e.target as HTMLElement
   if (el.scrollTop + el.clientHeight >= el.scrollHeight - 80) {
-    recordsVisible.value += RECORDS_CHUNK
+    loadRecordsPage(detail.value.id, recordsPage.value + 1)
   }
 }
 
@@ -613,9 +631,12 @@ async function openDetail(row: ReportItem) {
   detail.value = null
   detailVisible.value = true
   detailLoading.value = true
+  recordRows.value = []
+  recordsTotal.value = 0
+  recordsPage.value = 0
   try {
-    recordsVisible.value = RECORDS_CHUNK
-  detail.value = await getReport(row.id)
+    const [d] = await Promise.all([getReport(row.id), loadRecordsPage(row.id, 1)])
+    detail.value = d
   } finally {
     detailLoading.value = false
   }

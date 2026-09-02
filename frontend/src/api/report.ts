@@ -50,7 +50,7 @@ export interface ReportInspector {
   proxy_reason?: string
 }
 
-// 打卡记录明细行（stats.records 快照；历史报告由后端实时查询兜底）
+// 打卡记录明细行（与后端 /reports/:id/records 分页接口行结构一致）
 export interface ReportRecord {
   checkin_time: string
   inspector_name: string
@@ -117,6 +117,11 @@ export function listReports(params: ReportListQuery) {
 
 export function getReport(id: string) {
   return request<ReportDetail>({ url: `/reports/${id}`, method: 'get' })
+}
+
+// 报告打卡明细分页（实时查询，按打卡时间正序；详情页滚动加载用，明细不再随详情整包返回）
+export function getReportRecords(id: string, params: { page?: number; page_size?: number }) {
+  return request<PageResult<ReportRecord>>({ url: `/reports/${id}/records`, method: 'get', params })
 }
 
 // patrol_type 可空=综合月报；非空=该类型专项检查报告（同小区同月按类型各一份）

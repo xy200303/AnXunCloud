@@ -309,6 +309,7 @@ func New(cfg *config.Config, db *gorm.DB, rdb *redis.Client) (*gin.Engine, *insp
 			reports.POST("/plans/:id/run", middleware.RequirePerm("report:generate"), middleware.OperLog(db, "report", "plan_run"), reportCtl.RunReportPlanNow)
 			reports.POST("/:id/rebuild", middleware.RequirePerm("report:generate"), middleware.OperLog(db, "report", "rebuild"), reportCtl.Rebuild)
 			reports.GET("/sign-candidates", middleware.RequirePerm("report:generate"), reportCtl.SignCandidates)
+			reports.GET("/:id/records", middleware.RequirePerm("report:list"), reportCtl.PagedRecords)
 			reports.GET("/:id", middleware.RequirePerm("report:list"), reportCtl.Detail)
 			reports.POST("/:id/sign-inspector", middleware.RequirePerm("report:sign:inspector", "report:sign:proxy"), middleware.OperLog(db, "report", "sign_inspector"), reportCtl.SignInspector)
 			// 主管/经理签字不挂权限点：授权以报告生成时圈定的名单成员身份为准（service 内校验）
@@ -333,7 +334,6 @@ func New(cfg *config.Config, db *gorm.DB, rdb *redis.Client) (*gin.Engine, *insp
 			mpAuth.GET("/tasks/today", mpCtl.TodayTasks)
 			mpAuth.GET("/tasks/:id", mpCtl.TaskDetail)
 			mpAuth.GET("/points/by-code/:code", mpCtl.PointByCode)
-			mpAuth.GET("/points", mpCtl.Points)
 			mpAuth.POST("/checkin", mpCtl.Checkin)
 			mpAuth.POST("/checkin/offline-sync", mpCtl.OfflineSync)
 			mpAuth.POST("/checkin/ai-item-jobs", mpCtl.SubmitAIItemJob) // 逐项 AI 识别：提交
@@ -374,7 +374,6 @@ func New(cfg *config.Config, db *gorm.DB, rdb *redis.Client) (*gin.Engine, *insp
 			appAuth.GET("/tasks/today", mpCtl.TodayTasks)
 			appAuth.GET("/tasks/:id", mpCtl.TaskDetail)
 			appAuth.GET("/points/by-code/:code", mpCtl.PointByCode)
-			appAuth.GET("/points", mpCtl.Points)
 			appAuth.POST("/checkin", mpCtl.Checkin)
 			appAuth.POST("/checkin/offline-sync", mpCtl.OfflineSync)
 			appAuth.POST("/checkin/ai-item-jobs", mpCtl.SubmitAIItemJob) // 逐项 AI 识别：提交
@@ -428,6 +427,7 @@ func New(cfg *config.Config, db *gorm.DB, rdb *redis.Client) (*gin.Engine, *insp
 			{
 				appReports.POST("/generate", middleware.RequirePerm("report:generate"), middleware.OperLog(db, "report", "generate"), reportCtl.Generate) // App 管理端手动生成报告
 				appReports.GET("", middleware.RequirePerm("report:list"), reportCtl.List)
+				appReports.GET("/:id/records", middleware.RequirePerm("report:list"), reportCtl.PagedRecords)
 				appReports.GET("/:id", middleware.RequirePerm("report:list"), reportCtl.Detail)
 				appReports.POST("/:id/sign-inspector", middleware.RequirePerm("report:sign:inspector", "report:sign:proxy"), middleware.OperLog(db, "report", "sign_inspector"), reportCtl.SignInspector)
 				// 主管/经理签字不挂权限点：同 PC，授权以报告名单成员身份为准

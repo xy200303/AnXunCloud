@@ -224,7 +224,6 @@ func (s *ReportService) buildStatsRange(communityID string, start, end time.Time
 		"suspect_count":  ckSum.Suspect,
 		"issue_count":    ckSum.Abnormal, // 当期异常打卡数（原 wo_created 口径的替代指标）
 		"daily":          daily,
-		"records":        s.collectRecords(communityID, start, end, patrolType),
 	}
 	return stats, types.IDArray(inspectorIDs), nil
 }
@@ -244,6 +243,9 @@ func (s *ReportService) lockRangeCheckins(communityID string, start, end time.Ti
 // recordsSnapshotLimit stats.records 快照上限：防止大小区整月记录全量载入内存并塞爆 stats JSONB（MB 级）。
 const recordsSnapshotLimit = 3000
 
+// detailRecordsLimit 报告详情接口 records 首页条数上限（完整分页明细走 PagedRecords）。
+const detailRecordsLimit = 100
+
 // collectRecords 收集该小区该期间打卡记录明细（按打卡时间正序；patrolType 非空只取该类型），供 stats.records 快照存储。
 // 字段：打卡时间/巡检员姓名/点位名称/打卡方式/距点位距离/结果/疑似标记/审核状态/照片 file_key 列表。
 // 超出 recordsSnapshotLimit 截断（取最早 N 条；PDF 明细表数据源是实时查询不受影响，此处仅报告详情快照）。
@@ -254,6 +256,11 @@ func (s *ReportService) collectRecords(communityID string, start, end time.Time,
 		Order("checkin_time ASC, id ASC").Limit(recordsSnapshotLimit).Find(&recs).Error; err != nil {
 		return []gin.H{}
 	}
+	return s.recordRows(recs)
+}
+
+// recordRows 打卡记录 → 报告明细行（批量解析姓名/点位/逐项照片，photo_ids 待 recordsWithURLs 转 URL）。
+func (s *ReportService) recordRows(recs []insmodel.CheckinRecord) []gin.H {
 	// 批量解析巡检员姓名与点位名称
 	userIDSet, pointIDSet := map[string]bool{}, map[string]bool{}
 	for _, rec := range recs {
@@ -355,16 +362,58 @@ func statsRecords(st types.JSONMap) ([]gin.H, bool) {
 	return rows, true
 }
 
-// reportRecords 报告打卡明细行：stats.records 快照优先；历史报告缺快照时实时查询兜底。
+// reportRecords 报告打卡明细首页：stats.records 快照（旧报告）优先；否则实时查前 detailRecordsLimit 条
+//（完整分页明细走 PagedRecords，详情接口不再整包返回；快照路径同样截断，避免旧报告整包几千条冗余传输）。
 func (s *ReportService) reportRecords(r *model.InspectionReport) []gin.H {
 	if rows, ok := statsRecords(r.Stats); ok {
+		if len(rows) > detailRecordsLimit {
+			rows = rows[:detailRecordsLimit]
+		}
 		return rows
 	}
-	start, end, be := periodRange(r.Period)
+	start, end, be := s.reportRange(r)
 	if be != nil {
 		return []gin.H{}
 	}
-	return s.collectRecords(r.CommunityID, start, end, r.PatrolType)
+	var recs []insmodel.CheckinRecord
+	if err := scopeCheckinType(s.db, r.PatrolType).
+		Where("community_id = ? AND checkin_time >= ? AND checkin_time < ? AND superseded_by IS NULL", r.CommunityID, start, end).
+		Order("checkin_time ASC, id ASC").Limit(detailRecordsLimit).Find(&recs).Error; err != nil {
+		return []gin.H{}
+	}
+	return s.recordRows(recs)
+}
+
+// reportRange 报告期间 [start, end)：优先 period_start/period_end（新报告），缺省按 period 月度解析。
+func (s *ReportService) reportRange(r *model.InspectionReport) (time.Time, time.Time, *errs.Error) {
+	if r.PeriodStart != nil && r.PeriodEnd != nil {
+		return *r.PeriodStart, r.PeriodEnd.Add(time.Second), nil
+	}
+	return periodRange(r.Period)
+}
+
+// PagedRecords 报告打卡明细分页（实时查询，不走 stats 快照；按打卡时间正序）。
+func (s *ReportService) PagedRecords(c *gin.Context, id string, q *dto.ReportRecordsQuery) (*response.Page, *errs.Error) {
+	r, be := s.getWithScope(c, id)
+	if be != nil {
+		return nil, be
+	}
+	start, end, be := s.reportRange(r)
+	if be != nil {
+		return nil, be
+	}
+	db := scopeCheckinType(s.db.Model(&insmodel.CheckinRecord{}), r.PatrolType).
+		Where("community_id = ? AND checkin_time >= ? AND checkin_time < ? AND superseded_by IS NULL", r.CommunityID, start, end)
+	var total int64
+	if err := db.Count(&total).Error; err != nil {
+		return nil, errs.ErrInternal
+	}
+	var recs []insmodel.CheckinRecord
+	offset, limit := q.Normalize()
+	if err := db.Order("checkin_time ASC, id ASC").Offset(offset).Limit(limit).Find(&recs).Error; err != nil {
+		return nil, errs.ErrInternal
+	}
+	return &response.Page{List: s.recordsWithURLs(s.recordRows(recs)), Total: total, Page: q.Page, PageSize: q.PageSize}, nil
 }
 
 // recordsWithURLs 明细行 photo_ids 转 photos[{file_id,file_key,url}]，供详情接口输出。

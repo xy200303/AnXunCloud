@@ -6,6 +6,8 @@ import (
 	"io"
 	"strings"
 
+	"github.com/gin-gonic/gin"
+	"github.com/xuri/excelize/v2"
 	"gorm.io/gorm"
 
 	"anxuncloud/internal/middleware"
@@ -546,6 +548,39 @@ func (s *UserService) Export(q *dto.UserListQuery, op *middleware.Identity, tena
 
 // Import 逐行校验导入用户（跳过失败行，成功行落库）。super_admin 角色仅超管本人可导入。
 // 租户归属（菜单归位方案 §2）：导入用户归入上下文租户（tenantID 由 EffectiveTenantID 解析）。
+// ImportTemplate 生成用户导入模板（角色/小区软下拉数据源按上下文租户生成，口径与 Import 一致；
+// 非超管操作者的角色列表不含超级管理员——与 Import 的导入校验口径一致）。
+func (s *UserService) ImportTemplate(c *gin.Context) (*excelize.File, *errs.Error) {
+	tid, be := middleware.EffectiveTenantID(c, s.db)
+	if be != nil {
+		return nil, be
+	}
+	roleNames := []string{}
+	{
+		var roles []model.SysRole
+		q := s.db.Where("tenant_id IS NULL OR tenant_id = ?", tid).Order("created_at ASC")
+		if identity := middleware.CurrentIdentity(c); identity == nil || !identity.SuperAdmin {
+			q = q.Where("code <> ?", model.SuperAdminCode)
+		}
+		if err := q.Find(&roles).Error; err != nil {
+			return nil, errs.ErrInternal
+		}
+		for _, r := range roles {
+			roleNames = append(roleNames, r.Name)
+		}
+	}
+	commNames := []string{}
+	if err := s.db.Model(&model.Community{}).Where("tenant_id = ?", tid).
+		Order("name ASC").Pluck("name", &commNames).Error; err != nil {
+		return nil, errs.ErrInternal
+	}
+	f, err := excel.UserImportTemplate(roleNames, commNames)
+	if err != nil {
+		return nil, errs.ErrInternal
+	}
+	return f, nil
+}
+
 func (s *UserService) Import(r io.Reader, op *middleware.Identity, tenantID string) (*dto.ImportResult, string, *errs.Error) {
 	rows, err := excel.ParseUserImport(r)
 	if err != nil {

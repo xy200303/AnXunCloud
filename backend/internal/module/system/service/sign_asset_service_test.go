@@ -21,6 +21,12 @@ const (
 	tenantB = "22222222-2222-2222-2222-222222222222"
 	userA1  = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
 	userB1  = "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"
+
+	fileA1 = "f1111111-1111-1111-1111-111111111111"
+	fileB1 = "f2222222-2222-2222-2222-222222222222"
+	fileA2 = "f3333333-3333-3333-3333-333333333333"
+	fileA  = "f4444444-4444-4444-4444-444444444444"
+	fileB  = "f5555555-5555-5555-5555-555555555555"
 )
 
 // newSignAssetTestSvc 内存 sqlite + 本地存储驱动的测试服务（文件不存在时 sha256 容错空串）。
@@ -31,8 +37,16 @@ func newSignAssetTestSvc(t *testing.T) *SignAssetService {
 	if err != nil {
 		t.Fatalf("打开内存库失败: %v", err)
 	}
-	if err := db.AutoMigrate(&model.SignAsset{}, &model.SysUser{}); err != nil {
+	if err := db.AutoMigrate(&model.SignAsset{}, &model.SysUser{}, &model.UploadFile{}); err != nil {
 		t.Fatalf("建表失败: %v", err)
+	}
+	// 预置上传文件记录（Create 走 uploadfile.ByID 校验 file_id 存在且为合法 UUID）
+	for _, fid := range []string{fileA1, fileB1, fileA2, fileA, fileB} {
+		uf := model.UploadFile{StorageKey: "test/" + fid, Scene: "sign", UserID: userA1, Name: fid + ".png", Storage: "local"}
+		uf.ID = fid
+		if err := db.Create(&uf).Error; err != nil {
+			t.Fatalf("造文件失败: %v", err)
+		}
 	}
 	seedUser := func(id, tenantID string) {
 		u := model.SysUser{TenantID: tenantID, Username: id, Name: id, Status: model.StatusEnabled}
@@ -51,14 +65,14 @@ func newSignAssetTestSvc(t *testing.T) *SignAssetService {
 func TestCreateCompanySealPerTenant(t *testing.T) {
 	svc := newSignAssetTestSvc(t)
 
-	a1, be := svc.Create(userA1, tenantA, &dto.SignAssetCreateReq{AssetType: model.SignAssetTypeCompanySeal, FileKey: "seal/a1.png"})
+	a1, be := svc.Create(userA1, tenantA, &dto.SignAssetCreateReq{AssetType: model.SignAssetTypeCompanySeal, FileID: fileA1})
 	if be != nil {
 		t.Fatalf("租户A建章失败: %v", be)
 	}
 	if a1.ID == "" {
 		t.Fatal("租户A公章应创建成功")
 	}
-	b1, be := svc.Create(userB1, tenantB, &dto.SignAssetCreateReq{AssetType: model.SignAssetTypeCompanySeal, FileKey: "seal/b1.png"})
+	b1, be := svc.Create(userB1, tenantB, &dto.SignAssetCreateReq{AssetType: model.SignAssetTypeCompanySeal, FileID: fileB1})
 	if be != nil {
 		t.Fatalf("租户B建章失败: %v", be)
 	}
@@ -69,7 +83,7 @@ func TestCreateCompanySealPerTenant(t *testing.T) {
 		t.Fatalf("两租户应各有 1 枚 active 公章，实际 %d", cnt)
 	}
 	// 同租户换章：旧章置 replaced，新章 version 递增
-	a2, be := svc.Create(userA1, tenantA, &dto.SignAssetCreateReq{AssetType: model.SignAssetTypeCompanySeal, FileKey: "seal/a2.png"})
+	a2, be := svc.Create(userA1, tenantA, &dto.SignAssetCreateReq{AssetType: model.SignAssetTypeCompanySeal, FileID: fileA2})
 	if be != nil {
 		t.Fatalf("租户A换章失败: %v", be)
 	}
@@ -93,20 +107,20 @@ func TestCreateCompanySealPerTenant(t *testing.T) {
 	}
 }
 
-// TestActiveSealKeyByTenant ActiveSealKey 按租户取章；无章租户/空租户返回空串。
-func TestActiveSealKeyByTenant(t *testing.T) {
+// TestActiveSealIDByTenant ActiveSealID 按租户取章（返回 file_id）；无章租户/空租户返回空串。
+func TestActiveSealIDByTenant(t *testing.T) {
 	svc := newSignAssetTestSvc(t)
-	if _, be := svc.Create(userA1, tenantA, &dto.SignAssetCreateReq{AssetType: model.SignAssetTypeCompanySeal, FileKey: "seal/a.png"}); be != nil {
+	if _, be := svc.Create(userA1, tenantA, &dto.SignAssetCreateReq{AssetType: model.SignAssetTypeCompanySeal, FileID: fileA}); be != nil {
 		t.Fatalf("租户A建章失败: %v", be)
 	}
 	ta, tb := tenantA, tenantB
-	if got := svc.ActiveSealKey(&ta); got != "seal/a.png" {
+	if got := svc.ActiveSealID(&ta); got != fileA {
 		t.Fatalf("租户A应取到自己的章，实际 %q", got)
 	}
-	if got := svc.ActiveSealKey(&tb); got != "" {
+	if got := svc.ActiveSealID(&tb); got != "" {
 		t.Fatalf("租户B无章应返回空串，实际 %q", got)
 	}
-	if got := svc.ActiveSealKey(nil); got != "" {
+	if got := svc.ActiveSealID(nil); got != "" {
 		t.Fatalf("空租户应返回空串，实际 %q", got)
 	}
 }
@@ -114,8 +128,8 @@ func TestActiveSealKeyByTenant(t *testing.T) {
 // TestListTenantIsolation List 仅返回操作者租户资产。
 func TestListTenantIsolation(t *testing.T) {
 	svc := newSignAssetTestSvc(t)
-	svc.Create(userA1, tenantA, &dto.SignAssetCreateReq{AssetType: model.SignAssetTypeCompanySeal, FileKey: "seal/a.png"})
-	svc.Create(userB1, tenantB, &dto.SignAssetCreateReq{AssetType: model.SignAssetTypeCompanySeal, FileKey: "seal/b.png"})
+	svc.Create(userA1, tenantA, &dto.SignAssetCreateReq{AssetType: model.SignAssetTypeCompanySeal, FileID: fileA})
+	svc.Create(userB1, tenantB, &dto.SignAssetCreateReq{AssetType: model.SignAssetTypeCompanySeal, FileID: fileB})
 
 	page, be := svc.List(&dto.SignAssetQuery{}, tenantA)
 	if be != nil {
@@ -129,7 +143,7 @@ func TestListTenantIsolation(t *testing.T) {
 // TestRevokeCrossTenant 跨租户作废按 404 处理，且原资产状态不变。
 func TestRevokeCrossTenant(t *testing.T) {
 	svc := newSignAssetTestSvc(t)
-	item, be := svc.Create(userA1, tenantA, &dto.SignAssetCreateReq{AssetType: model.SignAssetTypeCompanySeal, FileKey: "seal/a.png"})
+	item, be := svc.Create(userA1, tenantA, &dto.SignAssetCreateReq{AssetType: model.SignAssetTypeCompanySeal, FileID: fileA})
 	if be != nil {
 		t.Fatalf("租户A建章失败: %v", be)
 	}
@@ -150,7 +164,7 @@ func TestRevokeCrossTenant(t *testing.T) {
 // TestSetUserSignatureTenant 个人签名写入归属用户的 tenant_id。
 func TestSetUserSignatureTenant(t *testing.T) {
 	svc := newSignAssetTestSvc(t)
-	if be := svc.SetUserSignature(userB1, "sig/b.png"); be != nil {
+	if be := svc.SetUserSignature(userB1, fileB); be != nil {
 		t.Fatalf("设置签名失败: %v", be)
 	}
 	var a model.SignAsset

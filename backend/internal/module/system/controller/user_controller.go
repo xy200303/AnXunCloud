@@ -158,11 +158,11 @@ func (ctl *UserController) Delete(c *gin.Context) {
 	response.OK(c, nil)
 }
 
-// ImportTemplate GET /system/users/import-template（直接返回 Excel 文件流）
+// ImportTemplate GET /system/users/import-template（角色/小区软下拉，数据源按租户动态生成）
 func (ctl *UserController) ImportTemplate(c *gin.Context) {
-	f, err := excel.UserImportTemplate()
-	if err != nil {
-		response.Fail(c, errs.ErrInternal)
+	f, be := ctl.svc.ImportTemplate(c)
+	if be != nil {
+		response.Fail(c, be)
 		return
 	}
 	defer f.Close()

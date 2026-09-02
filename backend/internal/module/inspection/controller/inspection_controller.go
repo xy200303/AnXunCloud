@@ -72,11 +72,11 @@ func (ctl *InspectionController) CreatePoint(c *gin.Context) {
 // pointImportMaxFileSize 导入文件大小上限 5MB。
 const pointImportMaxFileSize = 5 << 20
 
-// PointImportTemplate GET /inspection/points/import-template（直接返回 Excel 文件流）
+// PointImportTemplate GET /inspection/points/import-template（选项字段带下拉验证，数据源按数据范围动态生成）
 func (ctl *InspectionController) PointImportTemplate(c *gin.Context) {
-	f, err := excel.PointImportTemplate()
-	if err != nil {
-		response.Fail(c, errs.ErrInternal)
+	f, be := ctl.points.ImportTemplate(c)
+	if be != nil {
+		response.Fail(c, be)
 		return
 	}
 	defer f.Close()

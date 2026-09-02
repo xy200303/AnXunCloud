@@ -789,7 +789,7 @@ const templateFields = [
   { field: '点位类型', required: '*', rule: '须为字典 point_type 中的类型（标签或值均可）' },
   { field: '检查项模板', required: '*', rule: '必填，须为启用中的模板名称；逐项判定与必拍项均由模板驱动' },
   { field: 'NFC卡号', required: '—', rule: '选填；打卡方式为 NFC 时必填，为任一时建议填写' },
-  { field: '经度/纬度', required: '*', rule: 'GCJ-02 坐标系，如 120.212001 / 30.208112' },
+  { field: '经度/纬度', required: '—', rule: 'GCJ-02 坐标系，如 120.212001 / 30.208112；打卡方式含围栏时必填，否则可留空（记 0,0，现场用手机「获取当前位置」刷新补齐）' },
   { field: '围栏半径(米)', required: '—', rule: '选填，10–2000 整数，默认取系统参数' },
   { field: '打卡方式', required: '—', rule: '扫码 / NFC / 任一 / 围栏 / 扫码+围栏 / NFC+围栏 / 任一+围栏，默认扫码+围栏' },
   { field: '必拍项', required: '—', rule: '已废弃：必拍项由检查项模板逐项配置，该列导入时忽略' },

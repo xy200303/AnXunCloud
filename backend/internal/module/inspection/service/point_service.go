@@ -16,6 +16,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	qrcode "github.com/skip2/go-qrcode"
+	"github.com/xuri/excelize/v2"
 	"gorm.io/gorm"
 
 	"anxuncloud/internal/middleware"
@@ -683,6 +684,48 @@ var importModeMap = map[string][2]any{
 	"任一+围栏":  {model.CredentialAny, true},
 }
 
+// ImportTemplate 生成点位导入模板（选项类字段带下拉验证，数据源按调用方数据范围生成：
+// 非超管仅本租户小区，超管显式租户收窄否则全部——与 Import 的名称解析口径一致）。
+func (s *PointService) ImportTemplate(c *gin.Context) (*excelize.File, *errs.Error) {
+	commNames := []string{}
+	{
+		q := s.db.Model(&sysmodel.Community{})
+		if identity := middleware.CurrentIdentity(c); identity != nil {
+			if identity.SuperAdmin {
+				tid, be := middleware.ExplicitTenantID(c, s.db)
+				if be != nil {
+					return nil, be
+				}
+				if tid != "" {
+					q = q.Where("tenant_id = ?", tid)
+				}
+			} else {
+				q = q.Where("tenant_id = ?", identity.TenantID)
+			}
+		}
+		if err := q.Order("name ASC").Pluck("name", &commNames).Error; err != nil {
+			return nil, errs.ErrInternal
+		}
+	}
+	typeLabels := []string{}
+	if err := s.db.Model(&sysmodel.SysDictData{}).
+		Where("type_code = 'point_type' AND status = ?", sysmodel.StatusEnabled).
+		Order("sort ASC").Pluck("label", &typeLabels).Error; err != nil {
+		return nil, errs.ErrInternal
+	}
+	tplNames := []string{}
+	if err := s.db.Model(&model.CheckTemplate{}).
+		Where("status = ?", sysmodel.StatusEnabled).
+		Order("name ASC").Pluck("name", &tplNames).Error; err != nil {
+		return nil, errs.ErrInternal
+	}
+	f, err := excel.PointImportTemplate(commNames, typeLabels, tplNames)
+	if err != nil {
+		return nil, errs.ErrInternal
+	}
+	return f, nil
+}
+
 // Import 逐行校验导入点位（跳过失败行，成功行落库；二维码编号照常自动发号）。
 func (s *PointService) Import(c *gin.Context, r io.Reader) (*dto.PointImportResult, string, *errs.Error) {
 	rows, err := excel.ParsePointImport(r)
@@ -785,9 +828,9 @@ func (s *PointService) Import(c *gin.Context, r io.Reader) (*dto.PointImportResu
 		fail := func(reason string) {
 			result.FailDetails = append(result.FailDetails, dto.PointImportFail{Row: rowNums[i], Name: name, Reason: reason})
 		}
-		// 1. 必填：小区/点位名称/点位类型/经纬度
-		if commText == "" || name == "" || typeText == "" || lonText == "" || latText == "" {
-			fail("小区/点位名称/点位类型/经度/纬度均为必填")
+		// 1. 必填：小区/点位名称/点位类型（经纬度是否必填取决于打卡方式是否含围栏，见第 6 步）
+		if commText == "" || name == "" || typeText == "" {
+			fail("小区/点位名称/点位类型均为必填")
 			continue
 		}
 		// 2. 小区存在性与数据权限
@@ -835,23 +878,7 @@ func (s *PointService) Import(c *gin.Context, r io.Reader) (*dto.PointImportResu
 			}
 			templateID = &tid
 		}
-		// 6. 经纬度与围栏半径
-		lon, errLon := strconv.ParseFloat(lonText, 64)
-		lat, errLat := strconv.ParseFloat(latText, 64)
-		if errLon != nil || errLat != nil || lon < -180 || lon > 180 || lat < -90 || lat > 90 {
-			fail("经纬度格式或取值非法")
-			continue
-		}
-		radius := 0
-		if radiusText != "" {
-			n, err := strconv.Atoi(radiusText)
-			if err != nil || n < 10 || n > 2000 {
-				fail("围栏半径须为 10–2000 的整数")
-				continue
-			}
-			radius = n
-		}
-		// 7. 打卡方式（默认扫码+围栏）；NFC 凭证必须填卡号
+		// 6. 打卡方式（默认扫码+围栏）；NFC 凭证必须填卡号
 		credential, requireFence := model.CredentialQRCode, true
 		if modeText != "" {
 			m, ok := importModeMap[modeText]
@@ -865,6 +892,35 @@ func (s *PointService) Import(c *gin.Context, r io.Reader) (*dto.PointImportResu
 		if credential == model.CredentialNFC && nfcID == "" {
 			fail("打卡方式含 NFC 时 NFC卡号 必填")
 			continue
+		}
+		// 7. 经纬度与围栏半径：含围栏时经纬度必填；无围栏可留空记 0,0（现场用手机「获取当前位置」刷新补齐）
+		lon, lat := 0.0, 0.0
+		if lonText == "" && latText == "" {
+			if requireFence {
+				fail("打卡方式含围栏时 经度/纬度 必填")
+				continue
+			}
+		} else {
+			if lonText == "" || latText == "" {
+				fail("经度/纬度须同时填写或同时留空")
+				continue
+			}
+			var errLon, errLat error
+			lon, errLon = strconv.ParseFloat(lonText, 64)
+			lat, errLat = strconv.ParseFloat(latText, 64)
+			if errLon != nil || errLat != nil || lon < -180 || lon > 180 || lat < -90 || lat > 90 {
+				fail("经纬度格式或取值非法")
+				continue
+			}
+		}
+		radius := 0
+		if radiusText != "" {
+			n, err := strconv.Atoi(radiusText)
+			if err != nil || n < 10 || n > 2000 {
+				fail("围栏半径须为 10–2000 的整数")
+				continue
+			}
+			radius = n
 		}
 		// 8. 同楼栋下名称防重（库中或本批次）
 		bid := ""

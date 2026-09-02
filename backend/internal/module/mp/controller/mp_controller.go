@@ -90,6 +90,22 @@ func (ctl *MPController) PointByCode(c *gin.Context) {
 	write(c, data, be)
 }
 
+// NearbyPoints GET /points/nearby?longitude&latitude（附近点位推荐：今日任务点位按距离升序）
+func (ctl *MPController) NearbyPoints(c *gin.Context) {
+	lng, errLng := strconv.ParseFloat(c.Query("longitude"), 64)
+	lat, errLat := strconv.ParseFloat(c.Query("latitude"), 64)
+	if errLng != nil || errLat != nil {
+		response.Fail(c, errs.ErrParam.WithMsg("longitude/latitude 为必填数值"))
+		return
+	}
+	data, be := ctl.mp.NearbyPoints(uid(c), lng, lat)
+	if be == nil {
+		// AI 能力透出（配置归 checkin 服务管）：未打卡点位点击后走向导还是手动表单
+		data["ai_enabled"] = ctl.checkin.AIEnabled()
+	}
+	write(c, data, be)
+}
+
 // PublicPoint GET /api/public/point/:code（短链接 H5 点位信息页，免登录脱敏摘要）
 func (ctl *MPController) PublicPoint(c *gin.Context) {
 	code := c.Param("code")

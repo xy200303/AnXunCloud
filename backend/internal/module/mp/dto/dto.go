@@ -39,6 +39,9 @@ type CheckinReq struct {
 	NFCID       string  `json:"nfc_id"`
 	Longitude   float64 `json:"longitude" binding:"required"`
 	Latitude    float64 `json:"latitude" binding:"required"`
+	// Altitude/Accuracy 定位辅助信息（米，可空，仅参考展示不参与校验）；<=0 视为未提供
+	Altitude   float64 `json:"altitude"`
+	Accuracy   float64 `json:"accuracy"`
 	ClientTime  string  `json:"client_time" binding:"required"`
 	Result      string  `json:"result" binding:"required,oneof=normal abnormal"`
 	Remark      string  `json:"remark"`

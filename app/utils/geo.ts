@@ -51,6 +51,8 @@ export type Gcj02Location = {
   latitude: number
   /** 精度（米），可能为 0（部分系统不返回） */
   accuracy: number
+  /** 海拔（米），可能为 0（部分系统/坐标系不返回；仅参考，误差大） */
+  altitude: number
 }
 
 /**
@@ -64,7 +66,7 @@ export function getLocationGcj02(
   uni.getLocation({
     type: 'gcj02',
     success: (res) => {
-      success({ longitude: res.longitude, latitude: res.latitude, accuracy: res.accuracy || 0 })
+      success({ longitude: res.longitude, latitude: res.latitude, accuracy: res.accuracy || 0, altitude: (res as any).altitude || 0 })
     },
     fail: (err) => {
       const msg = err != null && err.errMsg != null ? String(err.errMsg) : ''
@@ -77,7 +79,7 @@ export function getLocationGcj02(
         type: 'wgs84',
         success: (res) => {
           const r = wgs84ToGcj02(res.longitude, res.latitude)
-          success({ longitude: r[0], latitude: r[1], accuracy: res.accuracy || 0 })
+          success({ longitude: r[0], latitude: r[1], accuracy: res.accuracy || 0, altitude: (res as any).altitude || 0 })
         },
         fail: (e2) => {
           if (fail != null) fail(e2 != null && e2.errMsg != null ? String(e2.errMsg) : '')

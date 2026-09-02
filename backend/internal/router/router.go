@@ -334,6 +334,7 @@ func New(cfg *config.Config, db *gorm.DB, rdb *redis.Client) (*gin.Engine, *insp
 			mpAuth.GET("/tasks/today", mpCtl.TodayTasks)
 			mpAuth.GET("/tasks/:id", mpCtl.TaskDetail)
 			mpAuth.GET("/points/by-code/:code", mpCtl.PointByCode)
+			mpAuth.GET("/points/nearby", mpCtl.NearbyPoints)
 			mpAuth.POST("/checkin", mpCtl.Checkin)
 			mpAuth.POST("/checkin/offline-sync", mpCtl.OfflineSync)
 			mpAuth.POST("/checkin/ai-item-jobs", mpCtl.SubmitAIItemJob) // 逐项 AI 识别：提交
@@ -374,6 +375,7 @@ func New(cfg *config.Config, db *gorm.DB, rdb *redis.Client) (*gin.Engine, *insp
 			appAuth.GET("/tasks/today", mpCtl.TodayTasks)
 			appAuth.GET("/tasks/:id", mpCtl.TaskDetail)
 			appAuth.GET("/points/by-code/:code", mpCtl.PointByCode)
+			appAuth.GET("/points/nearby", mpCtl.NearbyPoints)
 			appAuth.POST("/checkin", mpCtl.Checkin)
 			appAuth.POST("/checkin/offline-sync", mpCtl.OfflineSync)
 			appAuth.POST("/checkin/ai-item-jobs", mpCtl.SubmitAIItemJob) // 逐项 AI 识别：提交

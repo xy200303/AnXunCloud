@@ -47,7 +47,10 @@
 
       <view class="summary">
         <text class="summary-date" :style="{ color: colors.textSecondary }">{{ date }}</text>
-        <text class="summary-progress" :style="{ color: colors.primary }">{{ donePoints }}/{{ totalPoints }}</text>
+        <view class="summary-right">
+          <text class="nearby-link" :style="{ color: colors.primary }" @click="goNearby">附近点位</text>
+          <text class="summary-progress" :style="{ color: colors.primary }">{{ donePoints }}/{{ totalPoints }}</text>
+        </view>
       </view>
 
       <view v-if="filteredTasks.length == 0" class="empty-filter">
@@ -310,6 +313,9 @@ export default {
     goDetail(id: string) {
       uni.navigateTo({ url: '/pages/tasks/detail?id=' + encodeURIComponent(id) })
     },
+    goNearby() {
+      uni.navigateTo({ url: '/pages/tasks/nearby' })
+    },
     /** 类型筛选 chip：按当日任务实际类型动态生成（label 走后端字典，新类型零改动生效） */
     buildTypeChips() {
       const chips: Array<{ label: string; value: string }> = [{ label: '全部', value: '' }]
@@ -435,6 +441,17 @@ export default {
   margin-bottom: 24rpx;
   padding-left: 8rpx;
   padding-right: 8rpx;
+}
+
+.summary-right {
+  flex-direction: row;
+  align-items: center;
+}
+
+.nearby-link {
+  font-size: 26rpx;
+  margin-right: 24rpx;
+  padding: 4rpx 16rpx;
 }
 
 .summary-date {

@@ -73,6 +73,13 @@
       }
     },
     {
+      "path": "pages/tasks/nearby",
+      "style": {
+        "navigationBarTitleText": "附近点位",
+        "enablePullDownRefresh": true
+      }
+    },
+    {
       "path": "pages/checkin/form",
       "style": {
         "navigationBarTitleText": "巡检打卡"

@@ -208,11 +208,20 @@ func (s *CheckinService) doCheckinLocked(ctx context.Context, inspectorID string
 		checkinType = "offline"
 	}
 	now := time.Now()
+	// 定位辅助信息（海拔/精度）：>0 才落库，仅参考展示不参与校验
+	var altitude, accuracy *float64
+	if req.Altitude > 0 {
+		altitude = &req.Altitude
+	}
+	if req.Accuracy > 0 {
+		accuracy = &req.Accuracy
+	}
 	rec := insmodel.CheckinRecord{
 		TenantID: task.TenantID, // 冗余列随任务快照（=所属小区租户）
 		TaskID:   req.TaskID, PointID: req.PointID, InspectorID: inspectorID,
 		CommunityID: task.CommunityID, CheckinTime: now, ClientTime: &clientTime,
 		Longitude: &req.Longitude, Latitude: &req.Latitude, DistanceToPoint: &distance,
+		Altitude: altitude, Accuracy: accuracy,
 		CheckinType: checkinType, Result: req.Result, Remark: req.Remark,
 		IsSuspect: isSuspect, SuspectReason: suspectReason,
 		AuditStatus: insmodel.AuditAutoPass,

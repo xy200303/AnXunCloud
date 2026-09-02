@@ -162,6 +162,9 @@ type FormData = {
   hasLoc: boolean
   myLng: number
   myLat: number
+  /** 海拔/定位精度（米，0=未取得；仅随打卡上送作参考展示） */
+  myAlt: number
+  myAcc: number
   /** 与点位距离（米），-1 表示未知 */
   distance: number
   /** 扫码核验后的二维码编号（空 = 未核验） */
@@ -227,6 +230,8 @@ export default {
       hasLoc: false,
       myLng: 0,
       myLat: 0,
+      myAlt: 0,
+      myAcc: 0,
       distance: -1,
       scannedNo: '',
       nfcCardId: '',
@@ -320,6 +325,8 @@ export default {
           this.hasLoc = true
           this.myLng = loc.longitude
           this.myLat = loc.latitude
+          this.myAlt = loc.altitude
+          this.myAcc = loc.accuracy
           if (this.point != null) {
             this.distance = Math.round(
               haversine(loc.longitude, loc.latitude, this.point.longitude, this.point.latitude)
@@ -603,6 +610,8 @@ export default {
             nfc_id: pt.credential == 'nfc' || pt.credential == 'any' ? (this.nfcCardId != '' ? this.nfcCardId : undefined) : undefined,
             longitude: this.myLng,
             latitude: this.myLat,
+            altitude: this.myAlt > 0 ? this.myAlt : undefined,
+            accuracy: this.myAcc > 0 ? this.myAcc : undefined,
             client_time: fmtDateTime(new Date()),
             result: abnormal ? 'abnormal' : 'normal',
             remark: this.remark.trim(),

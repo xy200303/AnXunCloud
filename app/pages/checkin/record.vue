@@ -35,6 +35,10 @@
           <text class="meta-label" :style="{ color: colors.textSecondary }">距点位</text>
           <text class="meta-value" :style="{ color: colors.textRegular }">{{ distance }} 米</text>
         </view>
+        <view v-if="altitude != null || accuracy != null" class="meta-row">
+          <text class="meta-label" :style="{ color: colors.textSecondary }">定位信息</text>
+          <text class="meta-value" :style="{ color: colors.textRegular }">{{ locInfoText }}</text>
+        </view>
       </view>
 
       <!-- 逐项明细 -->
@@ -100,6 +104,8 @@ export default {
       checkinTime: '',
       checkinType: '',
       distance: null as number | null,
+      altitude: null as number | null,
+      accuracy: null as number | null,
       locked: false,
       taskStatus: '',
       aiEnabled: false,
@@ -109,6 +115,13 @@ export default {
   computed: {
     checkinTypeText(): string {
       return checkinTypeTextOf(this.checkinType)
+    },
+    /** 定位辅助信息文案：海拔 xx 米 · 精度 xx 米（仅有值的部分） */
+    locInfoText(): string {
+      const parts: string[] = []
+      if (this.altitude != null) parts.push('海拔 ' + Math.round(this.altitude) + ' 米')
+      if (this.accuracy != null) parts.push('精度 ±' + Math.round(this.accuracy) + ' 米')
+      return parts.join(' · ')
     },
     /** 可修改：AI 启用（修改走向导重拍重识别）+ 未归档锁定 + 任务未巡完（收工即定稿） */
     canModify(): boolean {
@@ -151,6 +164,8 @@ export default {
           this.checkinTime = pt.my_checkin.checkin_time
           this.checkinType = pt.my_checkin.checkin_type
           this.distance = pt.my_checkin.distance_to_point
+          this.altitude = pt.my_checkin.altitude ?? null
+          this.accuracy = pt.my_checkin.accuracy ?? null
           this.result = pt.my_checkin.result
           this.locked = pt.my_checkin.locked
           this.taskStatus = res.status

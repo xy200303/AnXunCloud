@@ -5,7 +5,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
+	"sort"
 	"strings"
 	"time"
 
@@ -602,9 +604,19 @@ func (s *MPService) TaskDetail(inspectorID, taskID string) (gin.H, *errs.Error) 
 			if ck.DistanceToPoint != nil {
 				dist = int(*ck.DistanceToPoint)
 			}
+			// 海拔/定位精度（可空，仅参考展示，不参与校验）
+			alt := any(nil)
+			if ck.Altitude != nil {
+				alt = *ck.Altitude
+			}
+			acc := any(nil)
+			if ck.Accuracy != nil {
+				acc = *ck.Accuracy
+			}
 			myCheckin = gin.H{
 				"id": ck.ID, "checkin_time": timefmt.T(ck.CheckinTime),
 				"checkin_type": ck.CheckinType, "distance_to_point": dist,
+				"altitude": alt, "accuracy": acc,
 				"result": ck.Result, "is_suspect": ck.IsSuspect,
 				"locked": ck.LockedAt != nil, // 已随周期报告归档锁定：不可覆盖修改
 			}
@@ -756,4 +768,139 @@ func progressOf(done, total int) int {
 		return 0
 	}
 	return done * 100 / total
+}
+
+// haversineMeters 两点球面距离（米）。
+func haversineMeters(lng1, lat1, lng2, lat2 float64) float64 {
+	const earthR = 6371000.0
+	rad := math.Pi / 180
+	dLat := (lat2 - lat1) * rad
+	dLng := (lng2 - lng1) * rad
+	a := math.Sin(dLat/2)*math.Sin(dLat/2) +
+		math.Cos(lat1*rad)*math.Cos(lat2*rad)*math.Sin(dLng/2)*math.Sin(dLng/2)
+	return 2 * earthR * math.Atan2(math.Sqrt(a), math.Sqrt(1-a))
+}
+
+// nearbyLimit 附近点位返回条数上限。
+const nearbyLimit = 20
+
+// NearbyPoints 附近点位：按当前定位对「我今日未完成任务涉及的点位」按距离升序推荐（找点辅助）。
+// 注意：民用 GPS 精度 5~20m，楼内密集点位无法区分，仅供人工点选——打卡凭证校验（扫码/NFC/围栏）照常。
+// 返回 {list: [...]}；ai_enabled 由控制器层透出（配置归 checkin 服务管，同 TaskDetail 模式）。
+func (s *MPService) NearbyPoints(inspectorID string, lng, lat float64) (gin.H, *errs.Error) {
+	if lng < -180 || lng > 180 || lat < -90 || lat > 90 || (lng == 0 && lat == 0) {
+		return nil, errs.ErrParam.WithMsg("定位坐标非法")
+	}
+	today := time.Now().Format("2006-01-02")
+	var tasks []insmodel.InspectionTask
+	if err := s.db.Where("inspector_id = ? AND task_date = ? AND status IN ?", inspectorID, today,
+		[]string{insmodel.TaskPending, insmodel.TaskDoing, insmodel.TaskOverdue}).Find(&tasks).Error; err != nil {
+		return nil, errs.ErrInternal
+	}
+	if len(tasks) == 0 {
+		return gin.H{"list": []gin.H{}}, nil
+	}
+	// 批量预载：计划名（Unscoped，已删除计划的任务仍可读）、任务点位快照、点位、楼栋、我的打卡集合
+	planIDs := make([]string, 0, len(tasks))
+	taskIDs := make([]string, 0, len(tasks))
+	pointIDSet := map[string]struct{}{}
+	taskPointIDs := make(map[string][]string, len(tasks))
+	for i := range tasks {
+		t := &tasks[i]
+		planIDs = append(planIDs, t.PlanID)
+		taskIDs = append(taskIDs, t.ID)
+		var plan insmodel.InspectionPlan
+		if err := s.db.Unscoped().First(&plan, "id = ?", t.PlanID).Error; err != nil {
+			continue
+		}
+		ids := insmodel.TaskPointIDs(t, &plan)
+		taskPointIDs[t.ID] = []string(ids)
+		for _, pid := range ids {
+			pointIDSet[pid] = struct{}{}
+		}
+	}
+	planNames := map[string]string{}
+	{
+		var plans []insmodel.InspectionPlan
+		s.db.Unscoped().Select("id", "name").Where("id IN ?", planIDs).Find(&plans)
+		for _, p := range plans {
+			planNames[p.ID] = p.Name
+		}
+	}
+	ptIDs := make([]string, 0, len(pointIDSet))
+	for pid := range pointIDSet {
+		ptIDs = append(ptIDs, pid)
+	}
+	ptByID := map[string]*insmodel.InspectionPoint{}
+	buildingIDSet := map[string]struct{}{}
+	if len(ptIDs) > 0 {
+		var pts []insmodel.InspectionPoint
+		s.db.Where("id IN ?", ptIDs).Find(&pts)
+		for i := range pts {
+			ptByID[pts[i].ID] = &pts[i]
+			if pts[i].BuildingID != nil && *pts[i].BuildingID != "" {
+				buildingIDSet[*pts[i].BuildingID] = struct{}{}
+			}
+		}
+	}
+	buildingNames := map[string]string{}
+	if len(buildingIDSet) > 0 {
+		bIDs := make([]string, 0, len(buildingIDSet))
+		for id := range buildingIDSet {
+			bIDs = append(bIDs, id)
+		}
+		var bs []insmodel.Building
+		s.db.Select("id", "name").Where("id IN ?", bIDs).Find(&bs)
+		for _, b := range bs {
+			buildingNames[b.ID] = b.Name
+		}
+	}
+	checkedSet := map[string]bool{} // task_id|point_id
+	{
+		var recs []insmodel.CheckinRecord
+		s.db.Select("task_id", "point_id").Where("task_id IN ? AND superseded_by IS NULL", taskIDs).Find(&recs)
+		for _, r := range recs {
+			checkedSet[r.TaskID+"|"+r.PointID] = true
+		}
+	}
+	type entry struct {
+		row  gin.H
+		dist float64
+	}
+	entries := make([]entry, 0, len(pointIDSet))
+	for i := range tasks {
+		t := &tasks[i]
+		for _, pid := range taskPointIDs[t.ID] {
+			pt, ok := ptByID[pid]
+			if !ok || (pt.Longitude == 0 && pt.Latitude == 0) {
+				continue // 点位无坐标（导入留空待现场刷新）无法算距离，不出现在附近列表
+			}
+			d := haversineMeters(lng, lat, pt.Longitude, pt.Latitude)
+			buildingName := ""
+			if pt.BuildingID != nil {
+				buildingName = buildingNames[*pt.BuildingID]
+			}
+			entries = append(entries, entry{row: gin.H{
+				"task_id": t.ID, "plan_name": planNames[t.PlanID], "patrol_type": t.PatrolType,
+				"point_id": pt.ID, "point_name": pt.Name, "building_name": buildingName,
+				"distance": int(d + 0.5),
+				"checked": checkedSet[t.ID+"|"+pid],
+				"credential": pt.Credential, "require_fence": pt.RequireFence,
+				"task_status": t.Status,
+			}, dist: d})
+		}
+	}
+	sort.SliceStable(entries, func(i, j int) bool {
+		// 未打卡优先，同状态下按距离升序
+		ci, cj := entries[i].row["checked"].(bool), entries[j].row["checked"].(bool)
+		if ci != cj {
+			return !ci
+		}
+		return entries[i].dist < entries[j].dist
+	})
+	out := make([]gin.H, 0, nearbyLimit)
+	for i := 0; i < len(entries) && i < nearbyLimit; i++ {
+		out = append(out, entries[i].row)
+	}
+	return gin.H{"list": out}, nil
 }

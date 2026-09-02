@@ -359,6 +359,9 @@ type CheckinRecord struct {
 	Longitude       *float64         `gorm:"type:numeric(10,7)" json:"longitude"`
 	Latitude        *float64         `gorm:"type:numeric(10,7)" json:"latitude"`
 	DistanceToPoint *float64         `gorm:"type:numeric(10,2)" json:"distance_to_point"`
+	// Altitude/Accuracy 定位辅助信息（米，可空）：仅作参考展示——消费级 GPS 海拔误差 ±20~50m，不参与任何校验/判定
+	Altitude *float64 `gorm:"type:numeric(10,2)" json:"altitude"`
+	Accuracy *float64 `gorm:"type:numeric(10,2)" json:"accuracy"`
 	CheckinType     string `gorm:"size:16" json:"checkin_type"` // qrcode/fence/nfc/offline（offline=离线补传，唯一事实来源）
 	Result          string `gorm:"size:16" json:"result"`
 	Remark          string `gorm:"size:512" json:"remark"`

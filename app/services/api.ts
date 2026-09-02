@@ -137,6 +137,9 @@ export type TaskPoint = {
     checkin_time: string
     checkin_type: string
     distance_to_point: number | null
+    /** 海拔/定位精度（米，可空；仅参考展示） */
+    altitude?: number | null
+    accuracy?: number | null
     /** normal/abnormal */
     result: string
     is_suspect: boolean
@@ -193,6 +196,9 @@ export type CheckinReqPayload = {
   nfc_id?: string
   longitude: number
   latitude: number
+  /** 可选：海拔/定位精度（米，仅参考展示，不参与校验） */
+  altitude?: number
+  accuracy?: number
   /** YYYY-MM-DD HH:mm:ss（timefmt.Layout） */
   client_time: string
   /** normal/abnormal=巡检员逐项填报（auto 代判已下线，逐项识别走 ai_confirmed 流程） */
@@ -778,6 +784,31 @@ export function apiPointByCode(code: string): Promise<PointByCode> {
           }))
         })
       })
+      .catch(reject)
+  })
+}
+
+/** 附近点位行（GET /points/nearby）：今日任务点位按距离升序，未打卡优先 */
+export type NearbyPoint = {
+  task_id: string
+  plan_name: string
+  patrol_type: string
+  point_id: string
+  point_name: string
+  building_name: string
+  /** 与我的距离（米） */
+  distance: number
+  checked: boolean
+  credential: string
+  require_fence: boolean
+  task_status: string
+}
+
+/** 附近点位 GET /points/nearby?longitude&latitude（找点辅助：GPS 只能定位到楼栋级，楼内仍需扫码/NFC 确认） */
+export function apiNearbyPoints(longitude: number, latitude: number): Promise<{ list: NearbyPoint[]; ai_enabled: boolean }> {
+  return new Promise((resolve, reject) => {
+    httpGet<{ list: NearbyPoint[]; ai_enabled: boolean }>('/points/nearby?longitude=' + longitude + '&latitude=' + latitude)
+      .then((d) => resolve({ list: d?.list ?? [], ai_enabled: d?.ai_enabled ?? false }))
       .catch(reject)
   })
 }

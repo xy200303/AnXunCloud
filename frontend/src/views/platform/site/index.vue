@@ -50,8 +50,11 @@
             <el-tag :type="platformTag(row.platform)">{{ platformLabel(row.platform) }}</el-tag>
           </template>
         </el-table-column>
-        <el-table-column label="版本" width="110">
-          <template #default="{ row }">{{ row.version || '--' }}</template>
+        <el-table-column label="版本" width="150">
+          <template #default="{ row }">
+            {{ row.version || '--' }}
+            <el-tag v-if="row.force_update" type="danger" size="small" effect="plain" style="margin-left: 6px">强制</el-tag>
+          </template>
         </el-table-column>
         <el-table-column prop="name" label="文件名" min-width="200" show-overflow-tooltip />
         <el-table-column label="大小" width="110">
@@ -90,6 +93,13 @@
         </el-form-item>
         <el-form-item label="备注">
           <el-input v-model="uploadForm.note" placeholder="选填，如更新内容说明" />
+        </el-form-item>
+        <el-form-item v-if="uploadForm.platform !== 'wechat_mp'" label="更新方式">
+          <el-radio-group v-model="uploadForm.force">
+            <el-radio :value="false">弱更新</el-radio>
+            <el-radio :value="true">强制更新</el-radio>
+          </el-radio-group>
+          <div class="form-tip">弱更新：App 弹窗可「以后再说」；强制更新：弹窗不可跳过，必须更新后才能使用</div>
         </el-form-item>
         <el-form-item label="文件" required>
           <el-upload
@@ -206,7 +216,7 @@ const uploadPercent = ref(0)
 const uploadRef = ref<UploadInstance>()
 const fileList = ref<UploadFile[]>([])
 const chosenFile = ref<File | null>(null)
-const uploadForm = reactive({ platform: 'android', version: '', note: '' })
+const uploadForm = reactive({ platform: 'android', version: '', note: '', force: false })
 
 const acceptExt = computed(() => {
   return { android: '.apk', harmony: '.hap', ios: '.ipa', wechat_mp: '.png,.jpg,.jpeg' }[uploadForm.platform] || ''
@@ -221,6 +231,7 @@ function openUpload() {
   uploadForm.platform = 'android'
   uploadForm.version = ''
   uploadForm.note = ''
+  uploadForm.force = false
   fileList.value = []
   chosenFile.value = null
   uploadPercent.value = 0
@@ -250,6 +261,7 @@ async function handleUpload() {
   form.append('platform', uploadForm.platform)
   form.append('version', uploadForm.version.trim())
   form.append('note', uploadForm.note.trim())
+  form.append('force', uploadForm.force ? 'true' : 'false')
   form.append('file', chosenFile.value)
   uploading.value = true
   uploadPercent.value = 0
@@ -293,5 +305,10 @@ onMounted(() => {
   margin-top: 10px;
   font-size: $font-size-aux;
   color: $color-text-secondary;
+}
+.form-tip {
+  font-size: $font-size-aux;
+  color: $color-text-secondary;
+  line-height: 1.5;
 }
 </style>

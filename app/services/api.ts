@@ -1721,6 +1721,11 @@ export function apiReviewReject(id: string, reason: string): Promise<null> {
   return httpPost<null>('/inspection/review/' + id + '/reject', { reason: reason }, true)
 }
 
+/** 修改本人密码 PUT /password {old_password,new_password}（8–32 位含字母数字，新旧不可相同） */
+export function apiChangePassword(oldPwd: string, newPwd: string): Promise<null> {
+  return httpPut<null>('/password', { old_password: oldPwd, new_password: newPwd }, true)
+}
+
 /** 点位列表 GET /inspection/points（支持类型/凭证/楼栋过滤） */
 export function apiPointList(
   page: number,

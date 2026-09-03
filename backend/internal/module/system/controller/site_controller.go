@@ -81,7 +81,9 @@ func (ctl *SiteController) Upload(c *gin.Context) {
 	rel, be := ctl.svc.UploadRelease(
 		middleware.CurrentUserID(c),
 		c.PostForm("platform"), c.PostForm("version"), c.PostForm("note"),
-		filepath.Base(fh.Filename), fh.Size, f,
+		filepath.Base(fh.Filename), fh.Size,
+		c.PostForm("force") == "true" || c.PostForm("force") == "1",
+		f,
 	)
 	if be != nil {
 		response.Fail(c, be)
@@ -100,6 +102,20 @@ func (ctl *SiteController) Delete(c *gin.Context) {
 }
 
 // ========== 官网公开接口 ==========
+
+// LatestApp GET /api/public/app/latest?platform=android（App 启动/手动检查更新；返回最新版本与强制标记）
+func (ctl *SiteController) LatestApp(c *gin.Context) {
+	rel, be := ctl.svc.LatestReleaseInfo(c.Query("platform"))
+	if be != nil {
+		response.Fail(c, be)
+		return
+	}
+	response.OK(c, gin.H{
+		"version": rel.Version, "force_update": rel.ForceUpdate, "note": rel.Note,
+		"size": rel.Size, "download_url": "/api/public/download/app/" + rel.ID,
+		"released_at": rel.CreatedAt,
+	})
+}
 
 // Download GET /api/public/download/app/:id（安装包附件下载 / 小程序码图片内联预览）
 func (ctl *SiteController) Download(c *gin.Context) {

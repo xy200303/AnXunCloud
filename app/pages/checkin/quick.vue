@@ -594,12 +594,8 @@ export default {
       uni.showToast({ title: '处理中，请稍候…', icon: 'none' })
       return true
     }
-    // 点位完成过渡页（1.2s 自动推进）/ 任务完成页：放行返回直接退出
-    if (this.phase == 'taskDone' || this.phase == 'pointDone') return false
-    // 返回 = 退出巡检（甲方口径）：拦截并弹确认；确认在 modal 回调里走 exitWizard，
-    // 不在 onBackPress 同步上下文手动 navigateBack（会被抑制，造成"返回卡死退不出"）
-    this.confirmExit()
-    return true
+    // 返回 = 直接退出巡检（不弹确认；已拍内容在云端草稿，下次可断点续检）
+    return false
   },
   watch: {
     /** 遮罩看门狗：任何链路异常导致遮罩超过 75s（> 请求 30s / 上传 60s 超时）时强制解除，防永久卡死 */
@@ -1172,9 +1168,9 @@ export default {
       if (this.curPoint != null && this.curPoint.require_fence && !this.fenceOk) return
       this.submitPoint()
     },
-    /** 底部「上一项」点击：回退一项（不跨点位）；兜底到本点位第一步时走退出确认（正常不会到这，起点按钮已隐藏） */
+    /** 底部「上一项」点击：回退一项（不跨点位）；兜底到本点位第一步时直接退出（正常不会到这，起点按钮已隐藏） */
     onPrevTap() {
-      if (!this.prevStep()) this.confirmExit()
+      if (!this.prevStep()) this.exitWizard()
     },
     /**
      * 手动填写本点位：跳逐项填写表单（redirectTo 替换向导；向导进度在云端草稿，重进可续）。
@@ -1191,26 +1187,10 @@ export default {
       if (preNo != '') url += '&no=' + encodeURIComponent(preNo)
       uni.redirectTo({ url: url })
     },
-    /** 导航栏返回键：与系统返回同口径——退出巡检 */
+    /** 导航栏返回键：与系统返回同口径——直接退出巡检（已拍内容在云端草稿，下次可续） */
     onBackTap() {
       if (this.overlayMsg != '' || this.submitting) return
-      if (this.phase == 'taskDone' || this.phase == 'pointDone') {
-        this.exitWizard()
-        return
-      }
-      this.confirmExit()
-    },
-    /** 退出确认：已拍内容已持久化（云端草稿/逐项落库），下次可断点续检 */
-    confirmExit() {
-      uni.showModal({
-        title: '退出巡检',
-        content: '已拍内容会保留，下次可继续',
-        confirmText: '退出',
-        cancelText: '继续巡检',
-        success: (r) => {
-          if (r.confirm) this.exitWizard()
-        }
-      })
+      this.exitWizard()
     },
     /**
      * 回退：上一项 → 到场确认。只在当前点位内部回退，永不跨点位——

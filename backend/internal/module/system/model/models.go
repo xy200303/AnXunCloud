@@ -431,8 +431,10 @@ type AppRelease struct {
 	Name      string    `gorm:"size:255" json:"name"`
 	Size      int64     `json:"size"`
 	Note      string    `gorm:"size:255" json:"note"`
-	CreatedAt time.Time `gorm:"index:idx_app_release_platform,priority:2,sort:desc" json:"created_at"`
-	UpdatedAt time.Time `json:"updated_at"`
+	// ForceUpdate 强制更新标记：true=App 启动弹窗不可跳过；false=弱更新可「以后再说」
+	ForceUpdate bool      `gorm:"not null;default:false" json:"force_update"`
+	CreatedAt   time.Time `gorm:"index:idx_app_release_platform,priority:2,sort:desc" json:"created_at"`
+	UpdatedAt   time.Time `json:"updated_at"`
 }
 
 func (AppRelease) TableName() string { return "app_release" }

@@ -40,13 +40,13 @@
         <text  hover-class="hover-dim" class="row-text" :style="{ color: colors.textRegular }">手写签名</text>
         <text  hover-class="hover-dim" class="row-arrow" :style="{ color: colors.textSecondary }">{{ signatureText }} ></text>
       </view>
-      <view  hover-class="hover-dim" class="row" @click="todo">
+      <view  hover-class="hover-dim" class="row" @click="goPassword">
         <text  hover-class="hover-dim" class="row-text" :style="{ color: colors.textRegular }">修改密码</text>
         <text  hover-class="hover-dim" class="row-arrow" :style="{ color: colors.textSecondary }">></text>
       </view>
-      <view  hover-class="hover-dim" class="row" @click="todo">
+      <view  hover-class="hover-dim" class="row" @click="goAbout">
         <text  hover-class="hover-dim" class="row-text" :style="{ color: colors.textRegular }">关于安巡云</text>
-        <text  hover-class="hover-dim" class="row-arrow" :style="{ color: colors.textSecondary }">v1.0.0(100)</text>
+        <text  hover-class="hover-dim" class="row-arrow" :style="{ color: colors.textSecondary }">v{{ appVersion }} ></text>
       </view>
     </view>
 
@@ -72,14 +72,23 @@ import SignaturePad from '@/components/SignaturePad.vue'
 
 type ProfileData = {
   colors: ColorTokens
+  /** 安装包版本号（App 端取 plus.runtime，其他端回落默认值） */
+  appVersion: string
 }
 
 export default {
   components: { SignaturePad },
   data(): ProfileData {
     return {
-      colors: Colors
+      colors: Colors,
+      appVersion: '1.0.0'
     }
+  },
+  onLoad() {
+    // #ifdef APP-PLUS
+    const rt: any = plus.runtime
+    if (rt != null && rt.version != null && rt.version != '') this.appVersion = rt.version
+    // #endif
   },
   computed: {
     name(): string {
@@ -159,8 +168,13 @@ export default {
     }
   },
   methods: {
-    todo() {
-      uni.showToast({ title: '后续里程碑交付', icon: 'none' })
+    /** 修改密码页 */
+    goPassword() {
+      uni.navigateTo({ url: '/pages/profile/password' })
+    },
+    /** 关于页 */
+    goAbout() {
+      uni.navigateTo({ url: '/pages/profile/about' })
     },
     /** 更换头像：选图 → 上传（scene=avatar）→ PUT /profile 写 avatar → 刷新资料 */
     changeAvatar() {

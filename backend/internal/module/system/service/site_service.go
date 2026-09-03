@@ -109,7 +109,8 @@ func (s *SiteService) ListReleases() ([]model.AppRelease, *errs.Error) {
 }
 
 // UploadRelease 上传发布物：流式落盘（scene=app）+ 登记 upload_file 元数据 + 建发布记录。
-func (s *SiteService) UploadRelease(userID, platform, version, note, filename string, size int64, r io.Reader) (*model.AppRelease, *errs.Error) {
+// force=强制更新标记（App 启动检查更新时强制弹窗不可跳过）。
+func (s *SiteService) UploadRelease(userID, platform, version, note, filename string, size int64, force bool, r io.Reader) (*model.AppRelease, *errs.Error) {
 	rule, ok := releasePlatforms[platform]
 	if !ok {
 		return nil, errs.ErrParam.WithMsg("platform 取值非法（android/harmony/ios/wechat_mp）")
@@ -144,6 +145,7 @@ func (s *SiteService) UploadRelease(userID, platform, version, note, filename st
 	rel := &model.AppRelease{
 		Platform: platform, Version: version,
 		Name: filename, Size: size, Note: strings.TrimSpace(note),
+		ForceUpdate: force,
 	}
 	err = s.db.Transaction(func(tx *gorm.DB) error {
 		meta := model.UploadFile{
@@ -188,6 +190,18 @@ func (s *SiteService) LatestReleases() map[string]model.AppRelease {
 		}
 	}
 	return out
+}
+
+// LatestReleaseInfo App 检查更新：某平台最新一条发布物（版本/强制标记/备注/下载地址）。
+func (s *SiteService) LatestReleaseInfo(platform string) (*model.AppRelease, *errs.Error) {
+	if _, ok := releasePlatforms[platform]; !ok || platform == "wechat_mp" {
+		return nil, errs.ErrParam.WithMsg("platform 取值非法（android/harmony/ios）")
+	}
+	var rel model.AppRelease
+	if err := s.db.Where("platform = ?", platform).Order("created_at DESC").First(&rel).Error; err != nil {
+		return nil, errs.ErrNotFound.WithMsg("该平台暂未发布版本")
+	}
+	return &rel, nil
 }
 
 // ReleaseFile 按 ID 取发布物（公开下载用）。

@@ -124,6 +124,9 @@ func registerSiteRoutes(r *gin.Engine, cfg *config.Config, siteSvc *systemsvc.Si
 	// 发布物文件下载（安装包附件 / 小程序码图片）
 	r.GET("/api/public/download/app/:id", siteCtl.Download)
 
+	// App 检查更新（最新版本/强制标记/下载地址）
+	r.GET("/api/public/app/latest", siteCtl.LatestApp)
+
 	// 下载页二维码（内容为官网下载页地址，手机扫码打开 /download 再点下载，兼容性最好）
 	r.GET("/api/public/download/qr", func(c *gin.Context) {
 		png, err := qrcode.Encode(baseURL+"/download", qrcode.Medium, 256)

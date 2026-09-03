@@ -105,6 +105,9 @@
     </view>
 
     <view class="tabbar-space"></view>
+
+    <!-- 版本更新弹窗（启动自动检查；强制更新不可跳过） -->
+    <UpdateDialog ref="updDialog" />
   </view>
 </template>
 
@@ -114,6 +117,8 @@ import { apiTasksToday, TodayTask } from '@/services/api'
 import { offlineCount, syncOfflineCheckins } from '@/utils/offline'
 import { useMessageStore } from '@/stores/message'
 import { doNfc } from '@/utils/scan'
+import { fetchLatestRelease } from '@/utils/update'
+import UpdateDialog from '@/components/UpdateDialog.vue'
 
 /** 巡查类型文案（内置回落：后端未透传 patrol_type_label 时使用；新类型如 fire 以字典 label 为准） */
 function patrolTextOf(t: string): string {
@@ -219,6 +224,7 @@ function toTaskView(t: TodayTask): TaskView {
 }
 
 export default {
+  components: { UpdateDialog },
   data(): TodayData {
     return {
       colors: Colors,
@@ -278,6 +284,12 @@ export default {
   },
   onLoad() {
     this.load()
+    // 启动自动检查更新（静默：有更新才弹窗；页面实例常驻，onLoad 只触发一次）
+    fetchLatestRelease().then((rel) => {
+      if (rel == null) return
+      const dlg: any = this.$refs.updDialog
+      if (dlg != null) dlg.open(rel)
+    })
   },
   onShow() {
     // 打卡返回后刷新进度 + 离线队列计数；有网时自动补传（sync 内部判网/单飞）

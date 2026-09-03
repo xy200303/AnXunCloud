@@ -50,10 +50,11 @@ type InspectionReport struct {
 	ManagerRemark    string        `gorm:"size:512" json:"manager_remark"`
 	RejectReason     string        `gorm:"size:512" json:"reject_reason"`
 	// 主管/经理签字时的手写签名图快照（巡检员快照在 InspectorSigned 元素内）
-	SupervisorSignatureID string `gorm:"type:uuid" json:"supervisor_signature_id"`
-	ManagerSignatureID    string `gorm:"type:uuid" json:"manager_signature_id"`
-	SealFileID string         `gorm:"type:uuid" json:"seal_file_id"`
-	FileID     string         `gorm:"type:uuid" json:"file_id"`
+	// default:null——空串走数据库 DEFAULT NULL，避免 '' 插入 uuid 列报错（00032 迁移后这些列是 uuid）
+	SupervisorSignatureID string `gorm:"type:uuid;default:null" json:"supervisor_signature_id"`
+	ManagerSignatureID    string `gorm:"type:uuid;default:null" json:"manager_signature_id"`
+	SealFileID string         `gorm:"type:uuid;default:null" json:"seal_file_id"`
+	FileID     string         `gorm:"type:uuid;default:null" json:"file_id"`
 	CreatedAt   time.Time      `json:"created_at"`
 	UpdatedAt   time.Time      `json:"updated_at"`
 	DeletedAt   gorm.DeletedAt `json:"-"`

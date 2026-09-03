@@ -27,4 +27,8 @@ DELETE FROM approval_flow WHERE tenant_id IS NOT NULL OR project_id IS NOT NULL;
 DELETE FROM sys_user WHERE username <> 'admin';
 DELETE FROM tenant WHERE code <> 'default';
 
+-- casbin 用户→角色绑定：只留 admin 的（角色权限 p 规则全部保留）
+DELETE FROM casbin_rule WHERE ptype = 'g'
+  AND v0 <> 'user:' || (SELECT id FROM sys_user WHERE username = 'admin');
+
 COMMIT;

@@ -311,8 +311,9 @@ func (s *PlanService) syncActiveTasks(tx *gorm.DB, p *model.InspectionPlan) erro
 		}
 		if len(pointIDs) > 0 {
 			// 与任务生成口径一致：均分模式按任务日期+巡检员切块后同步
+			// IDArray 包装：裸 []string 进 Updates 会被 pgx 编码成 record 而非 jsonb（42804）
 			taskPoints := model.SplitPointsForDate(p, pointIDs, task.TaskDate, task.InspectorID)
-			updates["point_ids"] = taskPoints
+			updates["point_ids"] = types.IDArray(taskPoints)
 			updates["total_points"] = len(taskPoints)
 			var donePoints int64
 			if err := tx.Model(&model.CheckinRecord{}).

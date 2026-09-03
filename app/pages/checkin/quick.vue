@@ -2019,6 +2019,7 @@ export default {
 /* 底部「上一项」（返回键=退出巡检，回退只走这个按钮） */
 .prev-link {
   display: flex;
+  flex-direction: row;
   justify-content: center;
   padding: 28rpx 0 12rpx;
 }

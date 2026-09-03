@@ -238,8 +238,11 @@ func seedMenus(tx *gorm.DB) (map[string]string, error) {
 			}},
 			{title: "品牌官网", path: "/platform/site", icon: "Platform", typ: model.MenuTypeMenu, perms: "system:site:list", sort: 5, children: []menuSeed{
 				{title: "保存页面配置", typ: model.MenuTypeButton, perms: "system:site:update", sort: 1},
-				{title: "上传发布物", typ: model.MenuTypeButton, perms: "system:site:upload", sort: 2},
-				{title: "删除发布物", typ: model.MenuTypeButton, perms: "system:site:delete", sort: 3},
+			}},
+			// 应用发布（App 安装包/小程序码 + 强制更新标记）：自 00036 起从「品牌官网」拆出独立菜单
+			{title: "应用发布", path: "/platform/releases", icon: "Iphone", typ: model.MenuTypeMenu, perms: "system:site:list", sort: 6, children: []menuSeed{
+				{title: "上传发布物", typ: model.MenuTypeButton, perms: "system:site:upload", sort: 1},
+				{title: "删除发布物", typ: model.MenuTypeButton, perms: "system:site:delete", sort: 2},
 			}},
 			// 岗位模板库（方案第三章）：平台模板岗位 + 平台默认槽位绑定，仅作开通租户时的初始拷贝源
 			{title: "岗位模板库", path: "/platform/post-templates", icon: "CopyDocument", typ: model.MenuTypeMenu, perms: "platform:post:list", sort: 6, children: []menuSeed{

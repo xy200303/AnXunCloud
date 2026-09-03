@@ -160,7 +160,10 @@ func (s *StaffService) enabledPostDict(communityID string) (map[string]sysmodel.
 }
 
 // ListPostDict 编制表单岗位下拉：小区所属租户的启用岗位（含业务线，按 line+sort 排序）。
-func (s *StaffService) ListPostDict(communityID string) ([]gin.H, *errs.Error) {
+func (s *StaffService) ListPostDict(c *gin.Context, communityID string) ([]gin.H, *errs.Error) {
+	if be := middleware.CheckCommunity(s.db, c, communityID); be != nil {
+		return nil, be
+	}
 	tid := middleware.CommunityTenantID(s.db, communityID)
 	if tid == nil {
 		return nil, errs.ErrCommunityNotExist
@@ -510,13 +513,19 @@ func uniqueStrings(ids []string) []string {
 // ---------- 审批链配置（项目级覆盖；扩展方案 §3） ----------
 
 // GetReviewFlow 项目审核链视图（来源 project/tenant/platform/default）。
-func (s *StaffService) GetReviewFlow(projectID string) (gin.H, *errs.Error) {
+func (s *StaffService) GetReviewFlow(c *gin.Context, projectID string) (gin.H, *errs.Error) {
+	if be := middleware.CheckCommunity(s.db, c, projectID); be != nil {
+		return nil, be
+	}
 	steps, source := ResolveFlowWithSource(s.db, projectID, sysmodel.FlowCheckinReview)
 	return gin.H{"flow_code": sysmodel.FlowCheckinReview, "steps": steps, "source": source}, nil
 }
 
 // SaveReviewFlow 保存项目级审核链覆盖（upsert project_id 行）。
-func (s *StaffService) SaveReviewFlow(projectID string, steps types.FlowStepArray) *errs.Error {
+func (s *StaffService) SaveReviewFlow(c *gin.Context, projectID string, steps types.FlowStepArray) *errs.Error {
+	if be := middleware.CheckCommunity(s.db, c, projectID); be != nil {
+		return be
+	}
 	if be := ValidateFlowSteps(s.db, steps); be != nil {
 		return be
 	}

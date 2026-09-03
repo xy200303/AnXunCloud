@@ -350,7 +350,7 @@ func (s *StatsService) Export(c *gin.Context, req *dto.ExportReq) (gin.H, *errs.
 		}
 	case "operation_log", "login_log":
 		// 日志导出（前端日志管理页导出按钮）
-		title, lbe := s.exportLogs(f, sheet, writeRow, req)
+		title, lbe := s.exportLogs(c, f, sheet, writeRow, req)
 		if lbe != nil {
 			return nil, lbe
 		}
@@ -490,18 +490,22 @@ func (s *StatsService) pointName(id string) string {
 	return name
 }
 
-// exportLogs 导出操作/登录日志（时间范围内，上限 5 万行）。
-func (s *StatsService) exportLogs(f *excelize.File, sheet string, writeRow func(int, ...any), req *dto.ExportReq) (string, *errs.Error) {
+// exportLogs 导出操作/登录日志（时间范围内，上限 5 万行；按租户上下文过滤，与日志列表同口径）。
+func (s *StatsService) exportLogs(c *gin.Context, f *excelize.File, sheet string, writeRow func(int, ...any), req *dto.ExportReq) (string, *errs.Error) {
 	start := req.StartDate + " 00:00:00"
 	_, endDate, be := parseRange(req.StartDate, req.EndDate)
 	if be != nil {
 		return "", be
 	}
+	tenantID, tbe := middleware.EffectiveTenantID(c, s.db)
+	if tbe != nil {
+		return "", tbe
+	}
 	end := endDate.AddDate(0, 0, 1).Format("2006-01-02 15:04:05")
 	const logExportMax = 50000
 	if req.ReportType == "operation_log" {
 		var rows []sysmodel.SysOperationLog
-		if err := s.db.Where("created_at >= ? AND created_at < ?", start, end).
+		if err := s.db.Where("tenant_id = ? AND created_at >= ? AND created_at < ?", tenantID, start, end).
 			Order("created_at DESC").Limit(logExportMax).Find(&rows).Error; err != nil {
 			return "", errs.ErrInternal
 		}
@@ -513,7 +517,7 @@ func (s *StatsService) exportLogs(f *excelize.File, sheet string, writeRow func(
 		return "操作日志", nil
 	}
 	var rows []sysmodel.SysLoginLog
-	if err := s.db.Where("created_at >= ? AND created_at < ?", start, end).
+	if err := s.db.Where("tenant_id = ? AND created_at >= ? AND created_at < ?", tenantID, start, end).
 		Order("created_at DESC").Limit(logExportMax).Find(&rows).Error; err != nil {
 		return "", errs.ErrInternal
 	}

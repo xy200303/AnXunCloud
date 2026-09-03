@@ -544,6 +544,10 @@ func (s *PointService) BatchCreate(c *gin.Context, req *dto.PointBatchReq) (*dto
 	if count == 0 {
 		return nil, errs.ErrCommunityNotExist
 	}
+	tenantID := middleware.CommunityTenantID(s.db, req.CommunityID)
+	if tenantID == nil {
+		return nil, errs.ErrCommunityNotExist
+	}
 	if !validPointType(s.db, req.Type) {
 		return nil, errs.ErrParam.WithMsg("type 须为字典 point_type 的启用项")
 	}
@@ -557,7 +561,7 @@ func (s *PointService) BatchCreate(c *gin.Context, req *dto.PointBatchReq) (*dto
 	if tid == nil {
 		return nil, errs.ErrParam.WithMsg("点位必须绑定检查项模板")
 	}
-	s.db.Model(&model.CheckTemplate{}).Where("id = ?", *tid).Count(&count)
+	s.db.Model(&model.CheckTemplate{}).Where("id = ? AND (tenant_id IS NULL OR tenant_id = ?)", *tid, *tenantID).Count(&count)
 	if count == 0 {
 		return nil, errs.ErrParam.WithMsg("template_id 对应的检查项模板不存在")
 	}
@@ -601,7 +605,6 @@ func (s *PointService) BatchCreate(c *gin.Context, req *dto.PointBatchReq) (*dto
 	if total := len(buildings) * (unitTo - unitFrom + 1) * (req.FloorTo - req.FloorFrom + 1) * perFloor; total > pointBatchMaxCount {
 		return nil, errs.ErrParam.WithMsg(fmt.Sprintf("单次最多批量生成 %d 个点位（当前展开 %d 个）", pointBatchMaxCount, total))
 	}
-	tenantID := middleware.CommunityTenantID(s.db, req.CommunityID)
 	result := &dto.PointBatchResult{Skipped: []dto.PointBatchSkip{}}
 	for _, b := range buildings {
 		for unit := unitFrom; unit <= unitTo; unit++ {
@@ -752,19 +755,17 @@ func (s *PointService) Import(c *gin.Context, r io.Reader) (*dto.PointImportResu
 	// 租户隔离（P3）：非超管仅解析本租户小区，避免按名称跨租户写入；
 	// 超管未指定租户时允许解析全部租户，显式指定租户时收窄，失败直接报错返回
 	commByName := map[string][]string{}
+	var importTenantID string // 解析出的租户上下文（模板映射复用同一口径）
 	{
 		q := s.db.Select("id", "name")
 		if identity := middleware.CurrentIdentity(c); identity != nil {
-			if identity.SuperAdmin {
-				tid, be := middleware.ExplicitTenantID(c, s.db)
-				if be != nil {
-					return nil, "", be
-				}
-				if tid != "" {
-					q = q.Where("tenant_id = ?", tid)
-				}
-			} else {
-				q = q.Where("tenant_id = ?", identity.TenantID)
+			tid, be := middleware.TenantScopeOrDefault(c, s.db)
+			if be != nil {
+				return nil, "", be
+			}
+			importTenantID = tid
+			if tid != "" {
+				q = q.Where("tenant_id = ?", tid)
 			}
 		}
 		var comms []sysmodel.Community
@@ -793,7 +794,11 @@ func (s *PointService) Import(c *gin.Context, r io.Reader) (*dto.PointImportResu
 	templateByName := map[string]string{}
 	{
 		var ts []model.CheckTemplate
-		s.db.Select("id", "name").Where("status = ?", sysmodel.StatusEnabled).Find(&ts)
+		tq := s.db.Select("id", "name").Where("status = ?", sysmodel.StatusEnabled)
+		if importTenantID != "" {
+			tq = tq.Where("tenant_id = ?", importTenantID) // 模板与小区同租户口径（v22 起模板按租户隔离）
+		}
+		tq.Find(&ts)
 		for _, t := range ts {
 			templateByName[t.Name] = t.ID
 		}

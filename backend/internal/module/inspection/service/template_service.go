@@ -7,6 +7,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 
+	"anxuncloud/internal/middleware"
 	"anxuncloud/internal/module/inspection/dto"
 	"anxuncloud/internal/module/inspection/model"
 	sysmodel "anxuncloud/internal/module/system/model"
@@ -18,7 +19,10 @@ import (
 	"anxuncloud/internal/pkg/types"
 )
 
-// TemplateService 检查项模板服务（模板全局共享，不做小区数据权限）。
+// TemplateService 检查项模板服务。
+// v22 起模板按租户隔离（tenant_id 直挂，不走 community 链）：列表/详情/编辑/删除均以租户上下文收口
+// （非超管=本人租户；超管=所选租户，缺省默认租户，见 middleware.TenantScopeOrDefault）。
+// tenant_id 为 NULL 的历史行视为平台全局行：列表仅超管在默认租户上下文不可见——实际仅超管可改，各租户列表不出现。
 // v18 起检查项存 check_template_item 独立表；对外 items JSON 结构不变（新增 requirement 字段）。
 type TemplateService struct {
 	db *gorm.DB
@@ -26,9 +30,16 @@ type TemplateService struct {
 
 func NewTemplateService(db *gorm.DB) *TemplateService { return &TemplateService{db: db} }
 
-// List 模板分页列表。
-func (s *TemplateService) List(q *dto.TemplateListQuery) (*response.Page, *errs.Error) {
+// List 模板分页列表（按租户上下文隔离；tenant_id 为 NULL 的历史全局行不出现在租户列表）。
+func (s *TemplateService) List(c *gin.Context, q *dto.TemplateListQuery) (*response.Page, *errs.Error) {
 	db := s.db.Model(&model.CheckTemplate{})
+	tid, be := middleware.TenantScopeOrDefault(c, s.db)
+	if be != nil {
+		return nil, be
+	}
+	if tid != "" {
+		db = db.Where("tenant_id = ?", tid)
+	}
 	if q.Name != "" {
 		db = db.Where("name LIKE ?", "%"+q.Name+"%")
 	}
@@ -99,13 +110,20 @@ func templateItemViews(items []model.CheckTemplateItem) []gin.H {
 }
 
 // Create 新增模板（模板 + 项行同事务写入）。
-func (s *TemplateService) Create(req *dto.TemplateSaveReq) (string, *errs.Error) {
+func (s *TemplateService) Create(c *gin.Context, req *dto.TemplateSaveReq) (string, *errs.Error) {
+	tid, be := middleware.TenantScopeOrDefault(c, s.db)
+	if be != nil {
+		return "", be
+	}
 	t := model.CheckTemplate{
 		Name:      strings.TrimSpace(req.Name),
 		PointType: req.PointType,
 		Sort:      req.Sort,
 		Status:    sysmodel.StatusEnabled,
 		Remark:    req.Remark,
+	}
+	if tid != "" {
+		t.TenantID = &tid // 租户归属（v22 起新建模板必有租户）
 	}
 	if req.Status != nil {
 		t.Status = sysmodel.StatusStr(*req.Status)
@@ -116,20 +134,32 @@ func (s *TemplateService) Create(req *dto.TemplateSaveReq) (string, *errs.Error)
 	return t.ID, nil
 }
 
-// Detail 模板详情。
-func (s *TemplateService) Detail(id string) (gin.H, *errs.Error) {
+// loadOwned 加载模板并校验租户归属（tenant_id 直挂行，无 community 链；越权按不存在口径）。
+func (s *TemplateService) loadOwned(c *gin.Context, id string) (*model.CheckTemplate, *errs.Error) {
 	var t model.CheckTemplate
 	if err := s.db.First(&t, "id = ?", id).Error; err != nil {
 		return nil, errs.ErrNotFound
 	}
-	return templateItem(&t, s.loadItems([]string{id})[id]), nil
+	if be := middleware.CheckTenantRow(c, s.db, t.TenantID); be != nil {
+		return nil, errs.ErrNotFound
+	}
+	return &t, nil
+}
+
+// Detail 模板详情。
+func (s *TemplateService) Detail(c *gin.Context, id string) (gin.H, *errs.Error) {
+	t, be := s.loadOwned(c, id)
+	if be != nil {
+		return nil, be
+	}
+	return templateItem(t, s.loadItems([]string{id})[id]), nil
 }
 
 // Update 修改模板自身字段（检查项由项级接口单独维护）。
-func (s *TemplateService) Update(id string, req *dto.TemplateSaveReq) *errs.Error {
-	var t model.CheckTemplate
-	if err := s.db.First(&t, "id = ?", id).Error; err != nil {
-		return errs.ErrNotFound
+func (s *TemplateService) Update(c *gin.Context, id string, req *dto.TemplateSaveReq) *errs.Error {
+	t, be := s.loadOwned(c, id)
+	if be != nil {
+		return be
 	}
 	updates := map[string]any{
 		"name": strings.TrimSpace(req.Name), "point_type": req.PointType,
@@ -138,17 +168,17 @@ func (s *TemplateService) Update(id string, req *dto.TemplateSaveReq) *errs.Erro
 	if req.Status != nil {
 		updates["status"] = sysmodel.StatusStr(*req.Status)
 	}
-	if err := s.db.Model(&t).Updates(updates).Error; err != nil {
+	if err := s.db.Model(t).Updates(updates).Error; err != nil {
 		return errs.ErrInternal
 	}
 	return nil
 }
 
 // Delete 删除模板；被点位引用时拒绝并提示引用数量。
-func (s *TemplateService) Delete(id string) *errs.Error {
-	var t model.CheckTemplate
-	if err := s.db.First(&t, "id = ?", id).Error; err != nil {
-		return errs.ErrNotFound
+func (s *TemplateService) Delete(c *gin.Context, id string) *errs.Error {
+	t, be := s.loadOwned(c, id)
+	if be != nil {
+		return be
 	}
 	var count int64
 	s.db.Model(&model.InspectionPoint{}).Where("template_id = ?", id).Count(&count)
@@ -156,7 +186,7 @@ func (s *TemplateService) Delete(id string) *errs.Error {
 		return errs.ErrParam.WithMsg(fmt.Sprintf("模板已被 %d 个点位引用，不可删除", count))
 	}
 	err := s.db.Transaction(func(tx *gorm.DB) error {
-		if err := tx.Delete(&t).Error; err != nil {
+		if err := tx.Delete(t).Error; err != nil {
 			return err
 		}
 		// 模板软删，级联删除不触发，项行显式清除
@@ -194,10 +224,9 @@ func itemRowView(it *model.CheckTemplateItem) gin.H {
 }
 
 // Items 模板检查项列表（按 sort 升序）。
-func (s *TemplateService) Items(templateID string) ([]gin.H, *errs.Error) {
-	var t model.CheckTemplate
-	if err := s.db.First(&t, "id = ?", templateID).Error; err != nil {
-		return nil, errs.ErrNotFound
+func (s *TemplateService) Items(c *gin.Context, templateID string) ([]gin.H, *errs.Error) {
+	if _, be := s.loadOwned(c, templateID); be != nil {
+		return nil, be
 	}
 	var rows []model.CheckTemplateItem
 	if err := s.db.Where("template_id = ?", templateID).Order("sort ASC, id ASC").Find(&rows).Error; err != nil {
@@ -211,10 +240,9 @@ func (s *TemplateService) Items(templateID string) ([]gin.H, *errs.Error) {
 }
 
 // AddItem 新增一个检查项；sort 缺省时追加到末尾。
-func (s *TemplateService) AddItem(templateID string, req *dto.TemplateItemSaveReq) (string, *errs.Error) {
-	var t model.CheckTemplate
-	if err := s.db.First(&t, "id = ?", templateID).Error; err != nil {
-		return "", errs.ErrNotFound
+func (s *TemplateService) AddItem(c *gin.Context, templateID string, req *dto.TemplateItemSaveReq) (string, *errs.Error) {
+	if _, be := s.loadOwned(c, templateID); be != nil {
+		return "", be
 	}
 	if be := validateItem(req.Name, req.PhotoRequired); be != nil {
 		return "", be
@@ -262,7 +290,10 @@ func (s *TemplateService) findItem(templateID, itemID string) (*model.CheckTempl
 }
 
 // UpdateItem 修改一个检查项；sort 缺省保持不变。
-func (s *TemplateService) UpdateItem(templateID, itemID string, req *dto.TemplateItemSaveReq) *errs.Error {
+func (s *TemplateService) UpdateItem(c *gin.Context, templateID, itemID string, req *dto.TemplateItemSaveReq) *errs.Error {
+	if _, be := s.loadOwned(c, templateID); be != nil {
+		return be
+	}
 	row, be := s.findItem(templateID, itemID)
 	if be != nil {
 		return be
@@ -303,7 +334,10 @@ func (s *TemplateService) UpdateItem(templateID, itemID string, req *dto.Templat
 }
 
 // DeleteItem 删除一个检查项（历史打卡记录已快照进 checkin_record_item，不受影响）。
-func (s *TemplateService) DeleteItem(templateID, itemID string) *errs.Error {
+func (s *TemplateService) DeleteItem(c *gin.Context, templateID, itemID string) *errs.Error {
+	if _, be := s.loadOwned(c, templateID); be != nil {
+		return be
+	}
 	row, be := s.findItem(templateID, itemID)
 	if be != nil {
 		return be

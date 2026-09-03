@@ -60,6 +60,53 @@ func ExplicitTenantID(c *gin.Context, db *gorm.DB) (string, *errs.Error) {
 	return tid, nil
 }
 
+// TenantScopeOrDefault 解析「租户上下文」（tenant_id 直挂表用，如检查项模板，不走 community 链）：
+// 非超管固定本人租户；超管按显式 tenant_id，缺省 = 默认租户（与 EffectiveTenantID 同规）。
+// 返回 "" 表示无法解析（默认租户缺失的异常库），由调用方决定放行或拒绝。
+func TenantScopeOrDefault(c *gin.Context, db *gorm.DB) (string, *errs.Error) {
+	identity := CurrentIdentity(c)
+	if identity == nil {
+		return "", nil
+	}
+	if !identity.SuperAdmin {
+		return identity.TenantID, nil
+	}
+	tid, be := ExplicitTenantID(c, db)
+	if be != nil {
+		return "", be
+	}
+	if tid == "" {
+		if err := db.Model(&model.Tenant{}).Select("id").Where("code = ?", model.DefaultTenantCode).
+			Limit(1).Pluck("id", &tid).Error; err != nil {
+			return "", errs.ErrInternal
+		}
+	}
+	return tid, nil
+}
+
+// CheckTenantRow 校验 tenant_id 直挂行（无 community 链）的租户归属，越权返回 40302（不暴露存在性）。
+// tenant_id 为 NULL 的历史遗留全局行仅超管可修改，避免租户间互相改动。
+func CheckTenantRow(c *gin.Context, db *gorm.DB, rowTenantID *string) *errs.Error {
+	identity := CurrentIdentity(c)
+	if identity == nil {
+		return nil
+	}
+	if rowTenantID == nil || *rowTenantID == "" {
+		if identity.SuperAdmin {
+			return nil
+		}
+		return errs.ErrDataScope
+	}
+	tid, be := TenantScopeOrDefault(c, db)
+	if be != nil {
+		return errs.ErrDataScope
+	}
+	if tid == "" || *rowTenantID != tid {
+		return errs.ErrDataScope
+	}
+	return nil
+}
+
 // EffectiveTenantID 系统管理（租户级）「租户上下文」解析（《管理后台信息架构与菜单归位方案》第二章）：
 //   - 非超管：固定本人租户（请求参数一律忽略）；
 //   - 超管：优先 ?tenant_id=（或 X-Tenant-Id 头），缺省 = 默认租户；

@@ -95,7 +95,7 @@ func (ctl *StaffController) Delete(c *gin.Context) {
 
 // PostDict 编制表单岗位下拉（GET /post-dict?community_id=）。
 func (ctl *StaffController) PostDict(c *gin.Context) {
-	items, be := ctl.svc.ListPostDict(c.Query("community_id"))
+	items, be := ctl.svc.ListPostDict(c, c.Query("community_id"))
 	write(c, items, be)
 }
 
@@ -132,7 +132,7 @@ func (ctl *StaffController) GetReviewFlow(c *gin.Context) {
 		response.Fail(c, be)
 		return
 	}
-	data, be := ctl.svc.GetReviewFlow(id)
+	data, be := ctl.svc.GetReviewFlow(c, id)
 	write(c, data, be)
 }
 
@@ -150,5 +150,5 @@ func (ctl *StaffController) SaveReviewFlow(c *gin.Context) {
 		response.Fail(c, be)
 		return
 	}
-	write(c, nil, ctl.svc.SaveReviewFlow(id, req.Steps))
+	write(c, nil, ctl.svc.SaveReviewFlow(c, id, req.Steps))
 }

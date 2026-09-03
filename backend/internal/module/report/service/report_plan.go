@@ -227,6 +227,10 @@ func (s *ReportService) UpdateReportPlan(c *gin.Context, id string, req *dto.Rep
 	if err := s.db.First(&p, "id = ?", id).Error; err != nil {
 		return nil, errs.ErrNotFound
 	}
+	// 现有行归属校验（防跨租户劫持：只校验请求体新小区不足以守住存量行）
+	if be := middleware.CheckCommunity(s.db, c, p.CommunityID); be != nil {
+		return nil, be
+	}
 	cfg, be := s.validateReportPlanReq(c, req)
 	if be != nil {
 		return nil, be

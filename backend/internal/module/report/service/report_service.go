@@ -1205,12 +1205,30 @@ func (s *ReportService) loadPhoto(fileID string) ([]byte, string, error) {
 
 // RebuildPDF 用当前模板重渲染报告 PDF 并覆盖归档文件（状态/签字/统计数据保持不变）。
 // 供模板升级后人工刷新存量报告：local 覆盖 file_key 对应本地文件；云存储重新保存并回写 file_key。
-func (s *ReportService) RebuildPDF(reportID string) error {
+func (s *ReportService) RebuildPDF(c *gin.Context, reportID string) *errs.Error {
+	// 归属校验（getWithScope：community 链数据权限），越权按不存在口径
+	r, be := s.getWithScope(c, reportID)
+	if be != nil {
+		return be
+	}
+	if err := s.rebuildPDF(r); err != nil {
+		return errs.ErrInternal.WithMsg(err.Error())
+	}
+	return nil
+}
+
+// RebuildPDFByID 免鉴权重渲染（仅运维工具 rebuild_manual_test 使用，HTTP 入口一律走 RebuildPDF）。
+func (s *ReportService) RebuildPDFByID(reportID string) error {
 	var r model.InspectionReport
 	if err := s.db.First(&r, "id = ?", reportID).Error; err != nil {
 		return err
 	}
-	data, err := pdf.GenerateMonthly(s.pdfData(&r))
+	return s.rebuildPDF(&r)
+}
+
+// rebuildPDF 渲染并覆盖归档文件的主体（无鉴权，调用方负责）。
+func (s *ReportService) rebuildPDF(r *model.InspectionReport) error {
+	data, err := pdf.GenerateMonthly(s.pdfData(r))
 	if err != nil {
 		return err
 	}
@@ -1219,7 +1237,7 @@ func (s *ReportService) RebuildPDF(reportID string) error {
 			if err := os.WriteFile(s.store.LocalPath(f.StorageKey), data, 0o644); err != nil {
 				return err
 			}
-			logger.L.Info("月报 PDF 重渲染完成", zap.String("report_id", reportID), zap.String("file_id", r.FileID))
+			logger.L.Info("月报 PDF 重渲染完成", zap.String("report_id", r.ID), zap.String("file_id", r.FileID))
 			return nil
 		}
 	}
@@ -1228,10 +1246,10 @@ func (s *ReportService) RebuildPDF(reportID string) error {
 		return err
 	}
 	fid := systemsvc.RegisterGeneratedFile(s.db, s.store, r.Title+".pdf", "application/pdf", storage.MD5Hex(data), key, url)
-	if err := s.db.Model(&r).Update("file_id", fid).Error; err != nil {
+	if err := s.db.Model(r).Update("file_id", fid).Error; err != nil {
 		return err
 	}
-	logger.L.Info("月报 PDF 重渲染完成", zap.String("report_id", reportID), zap.String("file_id", fid))
+	logger.L.Info("月报 PDF 重渲染完成", zap.String("report_id", r.ID), zap.String("file_id", fid))
 	return nil
 }
 

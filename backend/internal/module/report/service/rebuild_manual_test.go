@@ -44,7 +44,7 @@ func TestRebuildPDFManual(t *testing.T) {
 	}
 	configSvc := systemsvc.NewConfigService(db, rdb)
 	svc := NewReportService(db, rdb, storage.New(cfg.Upload, cfg.OSS, cfg.COS, cfg.App.BaseURL), configSvc.Get, notify.New(db, nil))
-	if err := svc.RebuildPDF(id); err != nil {
+	if err := svc.RebuildPDFByID(id); err != nil {
 		t.Fatalf("重渲染失败: %v", err)
 	}
 	t.Logf("报告 %s 归档 PDF 已用新模板重渲染", id)

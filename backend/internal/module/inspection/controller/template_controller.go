@@ -26,7 +26,7 @@ func (ctl *TemplateController) List(c *gin.Context) {
 		response.Fail(c, be)
 		return
 	}
-	page, be := ctl.templates.List(&q)
+	page, be := ctl.templates.List(c, &q)
 	write(c, page, be)
 }
 
@@ -36,7 +36,7 @@ func (ctl *TemplateController) Create(c *gin.Context) {
 		response.Fail(c, be)
 		return
 	}
-	id, be := ctl.templates.Create(&req)
+	id, be := ctl.templates.Create(c, &req)
 	write(c, gin.H{"id": id}, be)
 }
 
@@ -46,7 +46,7 @@ func (ctl *TemplateController) Detail(c *gin.Context) {
 		response.Fail(c, be)
 		return
 	}
-	data, be := ctl.templates.Detail(id)
+	data, be := ctl.templates.Detail(c, id)
 	write(c, data, be)
 }
 
@@ -61,7 +61,7 @@ func (ctl *TemplateController) Update(c *gin.Context) {
 		response.Fail(c, be)
 		return
 	}
-	write(c, nil, ctl.templates.Update(id, &req))
+	write(c, nil, ctl.templates.Update(c, id, &req))
 }
 
 func (ctl *TemplateController) Delete(c *gin.Context) {
@@ -70,7 +70,7 @@ func (ctl *TemplateController) Delete(c *gin.Context) {
 		response.Fail(c, be)
 		return
 	}
-	write(c, nil, ctl.templates.Delete(id))
+	write(c, nil, ctl.templates.Delete(c, id))
 }
 
 // ========== 项级粒度接口 ==========
@@ -89,7 +89,7 @@ func (ctl *TemplateController) ListItems(c *gin.Context) {
 		response.Fail(c, be)
 		return
 	}
-	data, be := ctl.templates.Items(id)
+	data, be := ctl.templates.Items(c, id)
 	write(c, data, be)
 }
 
@@ -104,7 +104,7 @@ func (ctl *TemplateController) CreateItem(c *gin.Context) {
 		response.Fail(c, be)
 		return
 	}
-	itemID, be := ctl.templates.AddItem(id, &req)
+	itemID, be := ctl.templates.AddItem(c, id, &req)
 	write(c, gin.H{"id": itemID}, be)
 }
 
@@ -124,7 +124,7 @@ func (ctl *TemplateController) UpdateItem(c *gin.Context) {
 		response.Fail(c, be)
 		return
 	}
-	write(c, nil, ctl.templates.UpdateItem(id, itemID, &req))
+	write(c, nil, ctl.templates.UpdateItem(c, id, itemID, &req))
 }
 
 func (ctl *TemplateController) DeleteItem(c *gin.Context) {
@@ -138,5 +138,5 @@ func (ctl *TemplateController) DeleteItem(c *gin.Context) {
 		response.Fail(c, be)
 		return
 	}
-	write(c, nil, ctl.templates.DeleteItem(id, itemID))
+	write(c, nil, ctl.templates.DeleteItem(c, id, itemID))
 }

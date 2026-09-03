@@ -92,8 +92,8 @@ func (ctl *ReportController) Generate(c *gin.Context) {
 
 // Rebuild POST /reports/:id/rebuild（模板升级后用当前模板重渲染 PDF 并覆盖归档，状态/签字留痕不变）
 func (ctl *ReportController) Rebuild(c *gin.Context) {
-	if err := ctl.svc.RebuildPDF(c.Param("id")); err != nil {
-		response.Fail(c, errs.ErrInternal.WithMsg("重渲染失败"))
+	if be := ctl.svc.RebuildPDF(c, c.Param("id")); be != nil {
+		response.Fail(c, be)
 		return
 	}
 	response.OKMsg(c, "已按当前模板重新生成", nil)

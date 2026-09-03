@@ -197,6 +197,8 @@ type ReviewListQuery struct {
 	InspectorID string `form:"inspector_id"`
 	StartTime   string `form:"start_time"`
 	EndTime     string `form:"end_time"`
+	// ID 精确查单条（App 消息深链直达详情用；与其他过滤条件叠加）
+	ID string `form:"id"`
 }
 
 type ReviewRejectReq struct {

@@ -178,6 +178,17 @@ func (ctl *MPController) CheckinItems(c *gin.Context) {
 	write(c, data, be)
 }
 
+// CheckinBrief GET /checkins/:id（本人打卡记录摘要：消息深链定位记录卡用）
+func (ctl *MPController) CheckinBrief(c *gin.Context) {
+	id, be := pathID(c)
+	if be != nil {
+		response.Fail(c, be)
+		return
+	}
+	data, be := ctl.mp.CheckinBrief(uid(c), id)
+	write(c, data, be)
+}
+
 // SubmitAIItemJob POST /checkin/ai-item-jobs（逐项 AI 识别：提交单个检查项照片，异步识别）
 func (ctl *MPController) SubmitAIItemJob(c *gin.Context) {
 	var req dto.AIItemJobReq

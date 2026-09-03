@@ -66,6 +66,9 @@ func (s *ReviewService) List(c *gin.Context, q *dto.ReviewListQuery) (*response.
 	if be != nil {
 		return nil, be
 	}
+	if q.ID != "" {
+		db = db.Where("id = ?", q.ID)
+	}
 	var total int64
 	if err := db.Count(&total).Error; err != nil {
 		return nil, errs.ErrInternal

@@ -716,6 +716,22 @@ func (s *MPService) CheckinItems(inspectorID, checkinID string) ([]gin.H, *errs.
 	return out, nil
 }
 
+// CheckinBrief 本人打卡记录摘要（GET /checkins/:id）：消息深链定位记录卡用，
+// 只透出 task_id/point_id/审核状态等最小字段；非本人记录按「不存在」口径返回（防枚举）。
+func (s *MPService) CheckinBrief(inspectorID, checkinID string) (gin.H, *errs.Error) {
+	var rec insmodel.CheckinRecord
+	if err := s.db.Select("id", "inspector_id", "task_id", "point_id", "audit_status").First(&rec, "id = ?", checkinID).Error; err != nil {
+		return nil, errs.ErrNotFound
+	}
+	if rec.InspectorID != inspectorID {
+		return nil, errs.ErrNotFound.WithMsg("打卡记录不存在或不属于当前巡检员")
+	}
+	return gin.H{
+		"id": rec.ID, "task_id": rec.TaskID, "point_id": rec.PointID,
+		"audit_status": rec.AuditStatus,
+	}, nil
+}
+
 // ========== 消息 ==========
 
 // Messages 消息列表 + 未读数。

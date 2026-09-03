@@ -1677,10 +1677,11 @@ export function apiTaskRemind(id: string): Promise<null> {
   return httpPost<null>('/inspection/tasks/' + id + '/remind', null, true)
 }
 
-/** 打卡审核记录 GET /inspection/review/records */
-export function apiReviewRecords(page: number, pageSize: number, auditStatus: string): Promise<ReviewRecordsPage> {
+/** 打卡审核记录 GET /inspection/review/records（id 精确查单条：消息深链直达详情用） */
+export function apiReviewRecords(page: number, pageSize: number, auditStatus: string, id?: string): Promise<ReviewRecordsPage> {
   let path = '/inspection/review/records?page=' + page + '&page_size=' + pageSize
   if (auditStatus != '') path += '&audit_status=' + auditStatus
+  if (id != null && id != '') path += '&id=' + encodeURIComponent(id)
   return new Promise<ReviewRecordsPage>((resolve, reject) => {
     httpGet<any>(path)
       .then((d) => {
@@ -1690,6 +1691,21 @@ export function apiReviewRecords(page: number, pageSize: number, auditStatus: st
           page: d?.page ?? page,
           page_size: d?.page_size ?? pageSize
         })
+      })
+      .catch(reject)
+  })
+}
+
+/** 本人打卡记录摘要 GET /checkins/:id（消息深链：打回提醒定位记录卡） */
+export function apiCheckinBrief(id: string): Promise<{ id: string; task_id: string; point_id: string; audit_status: string }> {
+  return new Promise((resolve, reject) => {
+    httpGet<any>('/checkins/' + encodeURIComponent(id))
+      .then((d) => {
+        if (d == null) {
+          reject(new Error('打卡记录响应异常'))
+          return
+        }
+        resolve({ id: d.id ?? '', task_id: d.task_id ?? '', point_id: d.point_id ?? '', audit_status: d.audit_status ?? '' })
       })
       .catch(reject)
   })

@@ -343,6 +343,7 @@ func New(cfg *config.Config, db *gorm.DB, rdb *redis.Client) (*gin.Engine, *insp
 			mpAuth.GET("/checkin/item-drafts", mpCtl.ItemDrafts)              // 逐项过程草稿（断点恢复）
 			mpAuth.POST("/checkin/item-drafts/manual", mpCtl.SaveManualDraft) // 手动项选择落草稿
 			mpAuth.POST("/checkin/item-drafts/photo-abnormal", mpCtl.SavePhotoItemAbnormalDraft) // 拍照项异常逃生入口
+			mpAuth.GET("/checkins/:id", mpCtl.CheckinBrief) // 本人打卡摘要（消息深链定位记录卡）
 			mpAuth.GET("/checkins/:id/items", mpCtl.CheckinItems) // 本人打卡逐项 AI 结论
 			mpAuth.POST("/upload/sts", mpCtl.STS)
 			mpAuth.POST("/upload/local", mpCtl.Local) // local 模式上传
@@ -385,6 +386,7 @@ func New(cfg *config.Config, db *gorm.DB, rdb *redis.Client) (*gin.Engine, *insp
 			appAuth.GET("/checkin/item-drafts", mpCtl.ItemDrafts)              // 逐项过程草稿（断点恢复）
 			appAuth.POST("/checkin/item-drafts/manual", mpCtl.SaveManualDraft) // 手动项选择落草稿
 			appAuth.POST("/checkin/item-drafts/photo-abnormal", mpCtl.SavePhotoItemAbnormalDraft) // 拍照项异常逃生入口
+			appAuth.GET("/checkins/:id", mpCtl.CheckinBrief) // 本人打卡摘要（消息深链定位记录卡）
 			appAuth.GET("/checkins/:id/items", mpCtl.CheckinItems) // 本人打卡逐项 AI 结论
 			appAuth.POST("/upload/sts", mpCtl.STS)
 			appAuth.POST("/upload/local", mpCtl.Local)

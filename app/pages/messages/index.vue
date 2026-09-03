@@ -86,7 +86,7 @@
 
 <script lang="ts">
 import { Colors, ColorTokens } from '@/utils/theme'
-import { apiMessages, apiMarkMessageRead, apiAnnouncements, MessageItem, AnnouncementItem } from '@/services/api'
+import { apiMessages, apiMarkMessageRead, apiAnnouncements, apiCheckinBrief, MessageItem, AnnouncementItem } from '@/services/api'
 import { useMessageStore } from '@/stores/message'
 import { syncBadge } from '@/utils/push'
 
@@ -107,10 +107,11 @@ type MessagesData = {
   notices: AnnouncementItem[]
 }
 
-/** 消息类型展示（对齐后端 SysMessage 写入点：report 月报 / checkin_audit 打卡审核 / announcement 公告） */
+/** 消息类型展示（对齐后端 SysMessage 写入点：report 月报 / checkin_audit 打卡审核 / task 任务（派单/逾期） / announcement 公告） */
 function typeTextOf(t: string): string {
   if (t == 'report') return '月报'
   if (t == 'checkin_audit') return '审核'
+  if (t == 'task') return '任务'
   if (t == 'announcement' || t == 'notice') return '公告'
   return '系统'
 }
@@ -118,6 +119,7 @@ function typeTextOf(t: string): string {
 function typeColorOf(t: string): string {
   if (t == 'report') return Colors.warning
   if (t == 'checkin_audit') return Colors.danger
+  if (t == 'task') return Colors.warning
   if (t == 'announcement' || t == 'notice') return Colors.success
   return Colors.info
 }
@@ -207,7 +209,8 @@ export default {
           uni.showToast({ title: e.message, icon: 'none' })
         })
     },
-    /** 点击单条：标记已读 + 按 biz_id 深链（待签→报告详情；无映射→toast 内容） */
+    /** 点击单条：标记已读 + 按类型深链（task→任务详情 / report→报告详情 / announcement→公告详情 /
+     *  checkin_audit→打回进记录卡、审核提醒进审核详情；无映射→弹完整内容） */
     onTap(m: MessageItem) {
       if (!m.is_read) {
         apiMarkMessageRead(m.id)
@@ -220,6 +223,11 @@ export default {
           .catch((_e: any) => {})
       }
       const biz = m.biz_id
+      if (m.type == 'task' && biz != null && biz != '') {
+        // 任务类消息（派单/逾期提醒）：biz_id = 任务 ID，直达任务详情（逾期任务可从详情进向导补拍）
+        uni.navigateTo({ url: '/pages/tasks/detail?id=' + encodeURIComponent(biz) })
+        return
+      }
       if (m.type == 'report' && biz != null && biz != '') {
         uni.navigateTo({ url: '/pages/reports/detail?id=' + encodeURIComponent(biz) })
         return
@@ -234,12 +242,30 @@ export default {
         return
       }
       if (m.type == 'checkin_audit') {
-        // 巡检员收到「打卡被打回」：直接带他去今日任务补巡（tabBar 页须用 switchTab）
+        // 巡检员收到「打卡被打回」：biz_id = 打卡记录 ID，查摘要定位任务/点位，直达记录卡（可修改重交）
         if (m.title.indexOf('打回') >= 0) {
+          if (biz != null && biz != '') {
+            apiCheckinBrief(biz)
+              .then((b) => {
+                uni.navigateTo({
+                  url:
+                    '/pages/checkin/record?task_id=' + encodeURIComponent(b.task_id) +
+                    '&point_id=' + encodeURIComponent(b.point_id)
+                })
+              })
+              .catch((e: Error) => {
+                uni.showToast({ title: e.message, icon: 'none' })
+              })
+            return
+          }
           uni.switchTab({ url: '/pages/tasks/today' })
           return
         }
-        // AI 转人工等管理侧提醒：App 无审核页，展示完整内容
+        // 管理侧审核提醒（待执行审核 / AI 转人工）：biz_id = 打卡记录 ID，直达审核页并弹出该记录详情
+        if (biz != null && biz != '') {
+          uni.navigateTo({ url: '/pages/admin/review?id=' + encodeURIComponent(biz) })
+          return
+        }
         uni.showModal({ title: m.title, content: m.content, showCancel: false, confirmText: '知道了' })
         return
       }

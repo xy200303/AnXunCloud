@@ -194,6 +194,8 @@ type ReviewData = {
   rejecting: boolean
   rejectReason: string
   acting: boolean
+  /** 消息深链带入的记录 ID：首屏加载后自动打开该记录详情 */
+  focusId: string
 }
 
 function typeTextOf(t: string): string {
@@ -228,7 +230,8 @@ export default {
       detail: null,
       rejecting: false,
       rejectReason: '',
-      acting: false
+      acting: false,
+      focusId: ''
     }
   },
   computed: {
@@ -246,7 +249,8 @@ export default {
       return (this.detail.photos ?? []).map(photoUrl)
     }
   },
-  onLoad() {
+  onLoad(options: any) {
+    this.focusId = options && options.id ? String(options.id) : ''
     this.reload()
   },
   onPullDownRefresh() {
@@ -286,6 +290,7 @@ export default {
           this.loadingMore = false
           this.loaded = true
           uni.stopPullDownRefresh()
+          if (!append) this.openFocus()
         })
         .catch((e: Error) => {
           this.loading = false
@@ -295,6 +300,21 @@ export default {
           uni.stopPullDownRefresh()
           if (this.loaded || append) uni.showToast({ title: e.message, icon: 'none' })
         })
+    },
+    /** 消息深链：按 id 精确查该记录（不带状态过滤，任何审核态都能开）并直接弹出详情 */
+    openFocus() {
+      if (this.focusId == '') return
+      const id = this.focusId
+      this.focusId = ''
+      apiReviewRecords(1, 1, '', id)
+        .then((res) => {
+          if (res.list.length == 0) {
+            uni.showToast({ title: '该记录不在你的审核范围内', icon: 'none' })
+            return
+          }
+          this.openDetail(res.list[0])
+        })
+        .catch(() => {})
     },
     openDetail(r: ReviewRecord) {
       this.detail = r

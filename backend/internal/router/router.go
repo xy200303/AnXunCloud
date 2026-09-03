@@ -399,6 +399,7 @@ func New(cfg *config.Config, db *gorm.DB, rdb *redis.Client) (*gin.Engine, *insp
 			appAuth.GET("/announcements/:id", mpCtl.AnnouncementDetail)
 
 			// ===== 管理功能（App 端）：复用 PC 控制器 + 同一套权限点，入口由 App 按 perms 显隐 =====
+			appAuth.GET("/tenants", middleware.RequirePerm("tenant:list"), tenantCtl.List) // 超管「当前公司」切换的租户列表
 			appAuth.GET("/dashboard", statsCtl.Dashboard)
 			appAuth.GET("/communities/tree", middleware.RequirePerm("community:list", "inspection:point:list"), communityCtl.Tree)
 			appAuth.GET("/system/users", middleware.RequirePerm("system:user:list"), userCtl.List)

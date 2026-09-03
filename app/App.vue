@@ -1,6 +1,7 @@
 <script lang="ts">
 import { getAccessToken } from '@/utils/storage'
 import { useAuthStore } from '@/stores/auth'
+import { useTenantStore } from '@/stores/tenant'
 import { launchCheckinScan, resolvePointCode } from '@/utils/scan'
 import { startGlobalListener, platformOf } from '@/utils/nfc'
 import { syncOfflineCheckins } from '@/utils/offline'
@@ -10,6 +11,7 @@ export default {
   onLaunch: function () {
     // 恢复缓存的用户信息（token 由 request 层直接从 storage 读）
     useAuthStore().restore()
+    useTenantStore().load() // 超管「当前公司」上下文恢复
     // 原生 tabBar 中央扫码按钮（midButton）点击 → 直接拉起系统扫码，无中间页
     uni.onTabBarMidButtonTap(() => {
       if (getAccessToken() == '') return

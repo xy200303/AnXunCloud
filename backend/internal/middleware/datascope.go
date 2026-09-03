@@ -67,7 +67,7 @@ func ManagedProjectIDs(db *gorm.DB, userID string) ([]string, error) {
 
 // ApplyCommunityFilter 为查询追加项目（小区）数据权限过滤。
 // column 为含表前缀的字段名，如 "inspection_task.community_id"。
-// 无 identity（调度/内部调用）放行；超管未指定租户时按平台级查询，显式指定租户时收窄，
+// 无 identity（调度/内部调用）放行；超管按租户上下文收窄（未指定 = 默认租户，与 EffectiveTenantID 同规），
 // 解析失败按空结果（1=0）处理并记日志（宁可拒不可放）；非超管先加租户边界
 // （data_scope=all 也只是「本租户全部项目」，不得跨租户）；
 // project 档按可见项目过滤；self 档或无可见项目返回空结果（1=0）。
@@ -86,7 +86,13 @@ func ApplyCommunityFilter(db *gorm.DB, c *gin.Context, column string) *gorm.DB {
 			return db.Where("1 = 0")
 		}
 		if tid == "" {
-			return db
+			// 缺省 = 默认租户（与 EffectiveTenantID 同规：前端「当前公司=默认租户」时不带 X-Tenant-Id，
+			// 业务列表应与系统管理页一致按所选租户隔离，不再平台级全量）
+			clean.Model(&model.Tenant{}).Select("id").Where("code = ?", model.DefaultTenantCode).
+				Limit(1).Pluck("id", &tid)
+			if tid == "" {
+				return db // 默认租户缺失（异常库）：回落平台级放行，避免全库误锁
+			}
 		}
 		sub := db.Session(&gorm.Session{NewDB: true}).Model(&model.Community{}).
 			Select("id").Where("tenant_id = ?", tid)
@@ -108,7 +114,7 @@ func ApplyCommunityFilter(db *gorm.DB, c *gin.Context, column string) *gorm.DB {
 }
 
 // CheckCommunity 校验当前用户是否有权访问指定项目数据，越权返回 40302。
-// 无 identity（调度/内部调用）放行；超管未指定租户时允许访问任意租户小区，
+// 无 identity（调度/内部调用）放行；超管未指定租户时按默认租户校验（与 ApplyCommunityFilter 同规），
 // 显式指定租户时校验小区归属该租户；
 // 不一致或小区不存在一律按越权处理（不暴露存在性）；
 // 非超管先校验小区归属本租户（data_scope=all 不得跨租户），再按数据范围校验。
@@ -132,7 +138,11 @@ func CheckCommunity(db *gorm.DB, c *gin.Context, communityID string) *errs.Error
 		if t == nil {
 			return errs.ErrDataScope
 		}
-		// 未指定租户时为平台级操作；指定租户时必须匹配。
+		// 缺省 = 默认租户（同 ApplyCommunityFilter）：解析不出默认租户（异常库）才回落平台级放行
+		if tid == "" {
+			clean.Model(&model.Tenant{}).Select("id").Where("code = ?", model.DefaultTenantCode).
+				Limit(1).Pluck("id", &tid)
+		}
 		if tid != "" && *t != tid {
 			return errs.ErrDataScope
 		}

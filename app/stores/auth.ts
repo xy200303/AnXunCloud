@@ -14,6 +14,7 @@ import {
   clearAuthStorage
 } from '@/utils/storage'
 import { bindPushDevice, unbindPushDevice, syncBadge, setAppBadge } from '@/utils/push'
+import { useTenantStore } from '@/stores/tenant'
 
 function loadCachedUser(): UserInfo | null {
   const raw = uni.getStorageSync(KEY_USER_INFO) as string
@@ -109,6 +110,7 @@ export const useAuthStore = defineStore('auth', {
       this.refreshToken = ''
       this.userInfo = null
       clearAuthStorage()
+      useTenantStore().clear() // 租户上下文随登出清除（超管当前公司选择不跨账号残留）
       // 登出清零图标角标（App 端生效，其他端静默跳过）
       setAppBadge(0)
       uni.reLaunch({ url: '/pages/login/index' })

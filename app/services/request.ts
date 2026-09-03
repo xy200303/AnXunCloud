@@ -16,6 +16,7 @@ import {
   saveTokens,
   clearAuthStorage
 } from '@/utils/storage'
+import { currentTenantId } from '@/stores/tenant'
 
 // ---- baseURL：按端 + 环境切换 ------------------------------------------------
 // 本地默认 dev；当前开发/测试与正式 API 域名一致，保留 prod 开关便于后续环境拆分。
@@ -60,6 +61,11 @@ function httpRaw(
     const header: Record<string, string> = { 'Content-Type': 'application/json' }
     if (token != '') {
       header['Authorization'] = 'Bearer ' + token
+    }
+    // 超管租户上下文（当前公司）：选中后逐请求注入，后端按所选租户隔离数据
+    const tenantId = currentTenantId()
+    if (tenantId != '') {
+      header['X-Tenant-Id'] = tenantId
     }
     uni.request({
       url: url,

@@ -1696,6 +1696,18 @@ export function apiReviewRecords(page: number, pageSize: number, auditStatus: st
   })
 }
 
+/** 租户列表 GET /tenants（超管「当前公司」切换用；tenant:list 权限点，非超管 403） */
+export function apiTenants(): Promise<Array<{ id: string; name: string; code: string }>> {
+  return new Promise((resolve, reject) => {
+    httpGet<any>('/tenants?page=1&page_size=100')
+      .then((d) => {
+        const list = d != null && d.list != null ? d.list : []
+        resolve(list.map((t: any) => ({ id: t.id ?? '', name: t.name ?? '', code: t.code ?? '' })))
+      })
+      .catch(reject)
+  })
+}
+
 /** 本人打卡记录摘要 GET /checkins/:id（消息深链：打回提醒定位记录卡） */
 export function apiCheckinBrief(id: string): Promise<{ id: string; task_id: string; point_id: string; audit_status: string }> {
   return new Promise((resolve, reject) => {

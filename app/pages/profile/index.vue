@@ -16,6 +16,10 @@
     <!-- 管理功能（按权限点显隐；全部无权限时整个区块不显示） -->
     <view v-if="showAdmin" class="card menu-card" :style="{ backgroundColor: colors.bgCard }">
       <text class="menu-group-title" :style="{ color: colors.textSecondary }">管理功能</text>
+      <view v-if="isSuperAdmin"  hover-class="hover-dim" class="row" @click="switchTenant">
+        <text  hover-class="hover-dim" class="row-text" :style="{ color: colors.textRegular }">当前公司</text>
+        <text  hover-class="hover-dim" class="row-arrow" :style="{ color: colors.primary }">{{ currentTenantName }} ></text>
+      </view>
       <view v-if="canDashboard"  hover-class="hover-dim" class="row" @click="goAdmin('/pages/admin/dashboard')">
         <text  hover-class="hover-dim" class="row-text" :style="{ color: colors.textRegular }">今日看板</text>
         <text  hover-class="hover-dim" class="row-arrow" :style="{ color: colors.textSecondary }">></text>
@@ -64,9 +68,10 @@
 
 <script lang="ts">
 import { Colors, ColorTokens } from '@/utils/theme'
-import { apiUploadLocal, apiUpdateProfile } from '@/services/api'
+import { apiUploadLocal, apiUpdateProfile, apiTenants } from '@/services/api'
 import { withFileToken } from '@/utils/fileurl'
 import { useAuthStore } from '@/stores/auth'
+import { useTenantStore } from '@/stores/tenant'
 import { toAbsUrl } from '@/utils/url'
 import SignaturePad from '@/components/SignaturePad.vue'
 
@@ -158,6 +163,16 @@ export default {
     /** 管理区块整体显隐：任一入口可见即显示 */
     showAdmin(): boolean {
       return this.canDashboard || this.canReview || this.canPointManage
+    },
+    /** 是否超级管理员（「当前公司」切换入口仅超管可见） */
+    isSuperAdmin(): boolean {
+      const u = useAuthStore().userInfo
+      return u != null && u.roles.indexOf('super_admin') >= 0
+    },
+    /** 当前公司名（未选择 = 默认租户） */
+    currentTenantName(): string {
+      const t = useTenantStore().tenantName
+      return t != '' ? t : '默认租户'
     }
   },
   onShow() {
@@ -171,6 +186,32 @@ export default {
     /** 修改密码页 */
     goPassword() {
       uni.navigateTo({ url: '/pages/profile/password' })
+    },
+    /** 超管切换「当前公司」：拉租户列表 → 选择器 → 写租户上下文（后续请求按所选租户隔离） */
+    switchTenant() {
+      uni.showLoading({ title: '加载中…', mask: true })
+      apiTenants()
+        .then((list) => {
+          uni.hideLoading()
+          if (list.length == 0) {
+            uni.showToast({ title: '暂无公司', icon: 'none' })
+            return
+          }
+          uni.showActionSheet({
+            itemList: list.map((t) => t.name),
+            success: (r) => {
+              const t = list[r.tapIndex]
+              if (t == null) return
+              useTenantStore().set(t.id, t.name)
+              uni.showToast({ title: '已切换到「' + t.name + '」', icon: 'none' })
+            },
+            fail: (_e: any) => {}
+          })
+        })
+        .catch((e: Error) => {
+          uni.hideLoading()
+          uni.showToast({ title: e.message, icon: 'none' })
+        })
     },
     /** 关于页 */
     goAbout() {

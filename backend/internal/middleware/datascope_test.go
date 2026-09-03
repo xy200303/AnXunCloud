@@ -14,10 +14,12 @@ import (
 )
 
 const (
-	datascopeTenantA    = "11111111-1111-1111-1111-111111111111"
-	datascopeTenantB    = "22222222-2222-2222-2222-222222222222"
-	datascopeCommunityA = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
-	datascopeCommunityB = "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"
+	datascopeTenantA          = "11111111-1111-1111-1111-111111111111"
+	datascopeTenantB          = "22222222-2222-2222-2222-222222222222"
+	datascopeTenantDefault    = "33333333-3333-3333-3333-333333333333"
+	datascopeCommunityA       = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
+	datascopeCommunityB       = "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"
+	datascopeCommunityDefault = "cccccccc-cccc-cccc-cccc-cccccccccccc"
 )
 
 func newDataScopeTestDB(t *testing.T) *gorm.DB {
@@ -33,10 +35,12 @@ func newDataScopeTestDB(t *testing.T) *gorm.DB {
 	tenants := []sysmodel.Tenant{
 		{Code: "tenant-a", Name: "租户A", Status: sysmodel.StatusEnabled},
 		{Code: "tenant-b", Name: "租户B", Status: sysmodel.StatusEnabled},
+		{Code: sysmodel.DefaultTenantCode, Name: "默认租户", Status: sysmodel.StatusEnabled},
 	}
+	tenantIDs := []string{datascopeTenantA, datascopeTenantB, datascopeTenantDefault}
 	for i := range tenants {
 		tenant := &tenants[i]
-		tenant.ID = []string{datascopeTenantA, datascopeTenantB}[i]
+		tenant.ID = tenantIDs[i]
 		if err := db.Create(tenant).Error; err != nil {
 			t.Fatalf("创建租户失败: %v", err)
 		}
@@ -44,9 +48,11 @@ func newDataScopeTestDB(t *testing.T) *gorm.DB {
 	communities := []sysmodel.Community{
 		{TenantID: datascopeTenantA, Name: "小区A", Status: sysmodel.StatusEnabled},
 		{TenantID: datascopeTenantB, Name: "小区B", Status: sysmodel.StatusEnabled},
+		{TenantID: datascopeTenantDefault, Name: "默认小区", Status: sysmodel.StatusEnabled},
 	}
 	communities[0].ID = datascopeCommunityA
 	communities[1].ID = datascopeCommunityB
+	communities[2].ID = datascopeCommunityDefault
 	for _, community := range communities {
 		if err := db.Create(&community).Error; err != nil {
 			t.Fatalf("创建小区失败: %v", err)
@@ -63,20 +69,24 @@ func superAdminContext(path string) *gin.Context {
 	return c
 }
 
+// 超管未指定租户（前端「当前公司=默认租户」不带 X-Tenant-Id）：按默认租户隔离（与 EffectiveTenantID 同规）
 func TestSuperAdminCommunityScopeWithoutTenantContext(t *testing.T) {
 	db := newDataScopeTestDB(t)
 	c := superAdminContext("/api/app/communities/tree")
 
 	var count int64
 	ApplyCommunityFilter(db.Model(&sysmodel.Community{}), c, "id").Count(&count)
-	if count != 2 {
-		t.Fatalf("超级管理员未指定租户时应看到全部小区，实际 %d", count)
+	if count != 1 {
+		t.Fatalf("超级管理员未指定租户时应只看到默认租户小区，实际 %d", count)
 	}
-	if be := CheckCommunity(db, c, datascopeCommunityA); be != nil {
-		t.Fatalf("超级管理员未指定租户时访问租户A小区不应被拒绝: %v", be)
+	if be := CheckCommunity(db, c, datascopeCommunityDefault); be != nil {
+		t.Fatalf("超级管理员访问默认租户小区不应被拒绝: %v", be)
 	}
-	if be := CheckCommunity(db, c, datascopeCommunityB); be != nil {
-		t.Fatalf("超级管理员未指定租户时访问租户B小区不应被拒绝: %v", be)
+	if be := CheckCommunity(db, c, datascopeCommunityA); be == nil {
+		t.Fatal("超级管理员未指定租户时不应访问租户A小区（缺省=默认租户）")
+	}
+	if be := CheckCommunity(db, c, datascopeCommunityB); be == nil {
+		t.Fatal("超级管理员未指定租户时不应访问租户B小区（缺省=默认租户）")
 	}
 }
 

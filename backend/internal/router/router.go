@@ -332,6 +332,7 @@ func New(cfg *config.Config, db *gorm.DB, rdb *redis.Client) (*gin.Engine, *insp
 		mpAuth := mp.Group("", middleware.Auth(db, sess, jwtm, authsvc.ChannelApp)) // v21 起与 App 共用 app 通道会话
 		{
 			mpAuth.GET("/tasks/today", mpCtl.TodayTasks)
+			mpAuth.GET("/tasks/history", mpCtl.HistoryTasks)
 			mpAuth.GET("/tasks/:id", mpCtl.TaskDetail)
 			mpAuth.GET("/points/by-code/:code", mpCtl.PointByCode)
 			mpAuth.GET("/points/nearby", mpCtl.NearbyPoints)
@@ -373,6 +374,7 @@ func New(cfg *config.Config, db *gorm.DB, rdb *redis.Client) (*gin.Engine, *insp
 			appAuth.PUT("/password", middleware.OperLog(db, "system", "change_password"), userCtl.ChangePassword)
 			// 任务 / 打卡 / 上传（复用 mp 控制器）
 			appAuth.GET("/tasks/today", mpCtl.TodayTasks)
+			appAuth.GET("/tasks/history", mpCtl.HistoryTasks)
 			appAuth.GET("/tasks/:id", mpCtl.TaskDetail)
 			appAuth.GET("/points/by-code/:code", mpCtl.PointByCode)
 			appAuth.GET("/points/nearby", mpCtl.NearbyPoints)

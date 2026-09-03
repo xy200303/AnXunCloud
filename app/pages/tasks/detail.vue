@@ -61,8 +61,7 @@
         </view>
       </view>
 
-      <!-- 手动模式入口（弱化文字链，给熟手留后路） -->
-      <text v-if="aiEnabled && hasUnchecked" class="manual-link" :style="{ color: colors.textSecondary }" @click="goManual">手动模式（逐项填写）</text>
+      <!-- 手动模式入口已移至向导内「手动填写本点位」（按点位进入，不再从首项开始） -->
       <view v-if="visiblePoints.length < sortedPoints.length" class="load-more">
         <text class="load-more-text" :style="{ color: colors.textSecondary }">上拉加载更多（{{ visiblePoints.length }}/{{ sortedPoints.length }}）</text>
       </view>
@@ -493,13 +492,6 @@ export default {
 .quick-btn-text {
   font-size: 44rpx;
   font-weight: 700;
-}
-
-/* 手动模式入口（弱化文字链） */
-.manual-link {
-  font-size: 26rpx;
-  text-align: center;
-  padding: 24rpx;
 }
 
 .load-more {

@@ -92,6 +92,13 @@
       }
     },
     {
+      "path": "pages/tasks/history",
+      "style": {
+        "navigationBarTitleText": "历史任务",
+        "enablePullDownRefresh": true
+      }
+    },
+    {
       "path": "pages/checkin/form",
       "style": {
         "navigationBarTitleText": "巡检打卡"

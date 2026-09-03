@@ -48,7 +48,6 @@
       <view class="summary">
         <text class="summary-date" :style="{ color: colors.textSecondary }">{{ date }}</text>
         <view class="summary-right">
-          <text class="nearby-link" :style="{ color: colors.primary }" @click="goNearby">附近点位</text>
           <text class="summary-progress" :style="{ color: colors.primary }">{{ donePoints }}/{{ totalPoints }}</text>
         </view>
       </view>
@@ -237,7 +236,8 @@ export default {
       menuOpen: false,
       plusItems: [
         { key: 'nearby', label: '附近点位', icon: '◎' },
-        { key: 'nfc', label: 'NFC 识别', icon: '≋' }
+        { key: 'nfc', label: 'NFC 识别', icon: '≋' },
+        { key: 'history', label: '历史任务', icon: '◷' }
       ] as Array<{ key: string; label: string; icon: string }>
     }
   },
@@ -307,6 +307,11 @@ export default {
       if (key == 'nfc') {
         // iOS 手动触发入口（CoreNFC 必须用户明确触发）；Android/鸿蒙同样可用
         doNfc()
+        return
+      }
+      if (key == 'history') {
+        // 历史任务回看（逾期任务可进详情补拍）
+        uni.navigateTo({ url: '/pages/tasks/history' })
         return
       }
     },
@@ -486,12 +491,6 @@ export default {
 .summary-right {
   flex-direction: row;
   align-items: center;
-}
-
-.nearby-link {
-  font-size: 26rpx;
-  margin-right: 24rpx;
-  padding: 4rpx 16rpx;
 }
 
 .summary-date {

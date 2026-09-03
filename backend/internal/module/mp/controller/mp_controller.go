@@ -79,6 +79,12 @@ func (ctl *MPController) TodayTasks(c *gin.Context) {
 	write(c, data, be)
 }
 
+// HistoryTasks GET /tasks/history?date=YYYY-MM-DD（历史任务回看，逾期任务补拍入口）
+func (ctl *MPController) HistoryTasks(c *gin.Context) {
+	data, be := ctl.mp.HistoryTasks(uid(c), c.Query("date"))
+	write(c, data, be)
+}
+
 // PointByCode GET /points/by-code/:code（扫码/NFC 定位任务）
 func (ctl *MPController) PointByCode(c *gin.Context) {
 	code := c.Param("code")

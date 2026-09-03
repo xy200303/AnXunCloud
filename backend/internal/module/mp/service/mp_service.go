@@ -490,9 +490,21 @@ func (s *MPService) patrolTypeLabels(values ...string) map[string]string {
 
 // TodayTasks 今日任务列表 + 总进度（进行中排最前）。
 func (s *MPService) TodayTasks(inspectorID string) (gin.H, *errs.Error) {
-	today := time.Now().Format("2006-01-02")
+	return s.tasksByDate(inspectorID, time.Now().Format("2006-01-02"))
+}
+
+// HistoryTasks 历史任务列表（按日期回看；逾期任务可从详情进向导/表单补拍）。
+func (s *MPService) HistoryTasks(inspectorID, date string) (gin.H, *errs.Error) {
+	if _, err := time.ParseInLocation("2006-01-02", date, time.Local); err != nil {
+		return nil, errs.ErrParam.WithMsg("date 格式应为 YYYY-MM-DD")
+	}
+	return s.tasksByDate(inspectorID, date)
+}
+
+// tasksByDate 指定日期任务列表 + 总进度（进行中排最前；今日/历史共用）。
+func (s *MPService) tasksByDate(inspectorID, date string) (gin.H, *errs.Error) {
 	var tasks []insmodel.InspectionTask
-	if err := s.db.Where("inspector_id = ? AND task_date = ?", inspectorID, today).
+	if err := s.db.Where("inspector_id = ? AND task_date = ?", inspectorID, date).
 		Order("CASE WHEN status = 'doing' THEN 0 ELSE 1 END, id ASC").Find(&tasks).Error; err != nil {
 		return nil, errs.ErrInternal
 	}
@@ -527,14 +539,14 @@ func (s *MPService) TodayTasks(inspectorID string) (gin.H, *errs.Error) {
 			"id": t.ID, "plan_name": planName, "community_name": s.commName(t.CommunityID),
 			"patrol_type": t.PatrolType, // 巡查类型透出，app 端按类型分组展示
 			"patrol_type_label": typeLabels[t.PatrolType], // 字典 label（App 直接展示，不再硬编码映射）
-			"task_date": today, "time_window": timeWindow, "round_name": t.RoundName, "status": t.Status,
+			"task_date": date, "time_window": timeWindow, "round_name": t.RoundName, "status": t.Status,
 			"total_points": t.TotalPoints, "done_points": t.DonePoints,
 			"progress": progressOf(t.DonePoints, t.TotalPoints),
 			"started_at": timefmt.TP(t.StartedAt),
 		})
 	}
 	return gin.H{
-		"date": today, "total_points": totalPts, "done_points": donePts,
+		"date": date, "total_points": totalPts, "done_points": donePts,
 		"progress": progressOf(donePts, totalPts), "tasks": items,
 	}, nil
 }

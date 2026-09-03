@@ -734,8 +734,18 @@ export function apiUpdateProfile(name: string, phone: string, signatureFileID?: 
 
 /** 今日任务 GET /tasks/today */
 export function apiTasksToday(): Promise<TodayTasks> {
+  return tasksByDate('/tasks/today')
+}
+
+/** 历史任务 GET /tasks/history?date=YYYY-MM-DD（逾期任务可进详情补拍） */
+export function apiTasksHistory(date: string): Promise<TodayTasks> {
+  return tasksByDate('/tasks/history?date=' + encodeURIComponent(date))
+}
+
+/** 按日期任务列表（今日/历史共用响应结构） */
+function tasksByDate(path: string): Promise<TodayTasks> {
   return new Promise<TodayTasks>((resolve, reject) => {
-    httpGet<TodayTasks>('/tasks/today')
+    httpGet<TodayTasks>(path)
       .then((d) => {
         if (d == null) {
           reject(new Error('任务响应异常'))

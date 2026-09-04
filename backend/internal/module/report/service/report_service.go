@@ -363,7 +363,7 @@ func statsRecords(st types.JSONMap) ([]gin.H, bool) {
 }
 
 // reportRecords 报告打卡明细首页：stats.records 快照（旧报告）优先；否则实时查前 detailRecordsLimit 条
-//（完整分页明细走 PagedRecords，详情接口不再整包返回；快照路径同样截断，避免旧报告整包几千条冗余传输）。
+// （完整分页明细走 PagedRecords，详情接口不再整包返回；快照路径同样截断，避免旧报告整包几千条冗余传输）。
 func (s *ReportService) reportRecords(r *model.InspectionReport) []gin.H {
 	if rows, ok := statsRecords(r.Stats); ok {
 		if len(rows) > detailRecordsLimit {
@@ -978,8 +978,14 @@ func (s *ReportService) SignInspector(c *gin.Context, id string, req *dto.Inspec
 		}
 		updates["status"] = newStatus
 	}
-	if err := s.db.Model(r).Updates(updates).Error; err != nil {
+	result := s.db.Model(&model.InspectionReport{}).
+		Where("id = ? AND status = ? AND updated_at = ?", r.ID, model.StatusPendingInspector, r.UpdatedAt).
+		Updates(updates)
+	if result.Error != nil {
 		return nil, errs.ErrInternal
+	}
+	if result.RowsAffected != 1 {
+		return nil, errs.ErrReportStatusNotAllowed.WithMsg("报告已被其他人更新，请刷新后重试")
 	}
 	if allSigned && newStatus == model.StatusApproved {
 		go s.archivePDF(r.ID)
@@ -1042,8 +1048,18 @@ func (s *ReportService) sign(c *gin.Context, id string, req *dto.SignReq, expect
 			"supervisor_by":    nil, "supervisor_at": nil, "supervisor_remark": "",
 			"supervisor_signature_id": nil,
 		}
-		if err := s.db.Model(r).Updates(updates).Error; err != nil {
+		if expectStatus == model.StatusPendingManager {
+			updates["manager_by"] = nil
+			updates["manager_at"] = nil
+			updates["manager_remark"] = ""
+			updates["manager_signature_id"] = nil
+		}
+		result := s.db.Model(&model.InspectionReport{}).Where("id = ? AND status = ?", r.ID, expectStatus).Updates(updates)
+		if result.Error != nil {
 			return nil, errs.ErrInternal
+		}
+		if result.RowsAffected != 1 {
+			return nil, errs.ErrReportStatusNotAllowed
 		}
 		// 通知已签巡检员重新确认
 		for _, e := range signed {
@@ -1074,8 +1090,12 @@ func (s *ReportService) sign(c *gin.Context, id string, req *dto.SignReq, expect
 				updates["seal_file_id"] = sealID
 			}
 		}
-		if err := s.db.Model(r).Updates(updates).Error; err != nil {
+		result := s.db.Model(&model.InspectionReport{}).Where("id = ? AND status = ?", r.ID, expectStatus).Updates(updates)
+		if result.Error != nil {
 			return nil, errs.ErrInternal
+		}
+		if result.RowsAffected != 1 {
+			return nil, errs.ErrReportStatusNotAllowed
 		}
 		if len(r.ManagerIDs) > 0 {
 			for _, uid := range r.ManagerIDs {
@@ -1096,8 +1116,12 @@ func (s *ReportService) sign(c *gin.Context, id string, req *dto.SignReq, expect
 		if sealID := s.activeSealID(r.CommunityID); sealID != "" {
 			updates["seal_file_id"] = sealID
 		}
-		if err := s.db.Model(r).Updates(updates).Error; err != nil {
+		result := s.db.Model(&model.InspectionReport{}).Where("id = ? AND status = ?", r.ID, expectStatus).Updates(updates)
+		if result.Error != nil {
 			return nil, errs.ErrInternal
+		}
+		if result.RowsAffected != 1 {
+			return nil, errs.ErrReportStatusNotAllowed
 		}
 		go s.archivePDF(r.ID)
 		return gin.H{"status": model.StatusApproved}, nil

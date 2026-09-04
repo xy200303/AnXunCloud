@@ -123,12 +123,20 @@ func New(cfg *config.Config, db *gorm.DB, rdb *redis.Client) (*gin.Engine, *insp
 	// signature/seal/export 由 /api/files 鉴权提供，store.URL 已按前缀分流）
 	r.GET("/healthz", func(c *gin.Context) { response.OK(c, gin.H{"status": "up"}) })
 	r.GET("/uploads/*key", func(c *gin.Context) {
+		c.Header("X-Content-Type-Options", "nosniff")
 		key := strings.TrimPrefix(c.Param("key"), "/")
-		if key == "" || strings.Contains(key, "..") || storage.IsProtectedKey(key) {
+		if key == "" || strings.Contains(key, "..") || strings.ContainsAny(key, `\:`) || storage.IsProtectedKey(key) {
 			c.JSON(404, gin.H{"code": 40400, "message": "资源不存在或已删除", "data": nil})
 			return
 		}
-		c.File(filepath.Join(cfg.Upload.LocalDir, filepath.FromSlash(key)))
+		root := filepath.Clean(cfg.Upload.LocalDir)
+		path := filepath.Join(root, filepath.FromSlash(key))
+		rel, err := filepath.Rel(root, path)
+		if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(os.PathSeparator)) {
+			c.JSON(404, gin.H{"code": 40400, "message": "资源不存在或已删除", "data": nil})
+			return
+		}
+		c.File(path)
 	})
 
 	// 短链接公开入口（免登录）：H5 点位信息页 + 脱敏摘要 API
@@ -338,13 +346,13 @@ func New(cfg *config.Config, db *gorm.DB, rdb *redis.Client) (*gin.Engine, *insp
 			mpAuth.GET("/points/nearby", mpCtl.NearbyPoints)
 			mpAuth.POST("/checkin", mpCtl.Checkin)
 			mpAuth.POST("/checkin/offline-sync", mpCtl.OfflineSync)
-			mpAuth.POST("/checkin/ai-item-jobs", mpCtl.SubmitAIItemJob) // 逐项 AI 识别：提交
-			mpAuth.GET("/checkin/ai-item-jobs", mpCtl.AIItemJobs)       // 逐项 AI 识别：批量轮询结果
-			mpAuth.GET("/checkin/item-drafts", mpCtl.ItemDrafts)              // 逐项过程草稿（断点恢复）
-			mpAuth.POST("/checkin/item-drafts/manual", mpCtl.SaveManualDraft) // 手动项选择落草稿
+			mpAuth.POST("/checkin/ai-item-jobs", mpCtl.SubmitAIItemJob)                          // 逐项 AI 识别：提交
+			mpAuth.GET("/checkin/ai-item-jobs", mpCtl.AIItemJobs)                                // 逐项 AI 识别：批量轮询结果
+			mpAuth.GET("/checkin/item-drafts", mpCtl.ItemDrafts)                                 // 逐项过程草稿（断点恢复）
+			mpAuth.POST("/checkin/item-drafts/manual", mpCtl.SaveManualDraft)                    // 手动项选择落草稿
 			mpAuth.POST("/checkin/item-drafts/photo-abnormal", mpCtl.SavePhotoItemAbnormalDraft) // 拍照项异常逃生入口
-			mpAuth.GET("/checkins/:id", mpCtl.CheckinBrief) // 本人打卡摘要（消息深链定位记录卡）
-			mpAuth.GET("/checkins/:id/items", mpCtl.CheckinItems) // 本人打卡逐项 AI 结论
+			mpAuth.GET("/checkins/:id", mpCtl.CheckinBrief)                                      // 本人打卡摘要（消息深链定位记录卡）
+			mpAuth.GET("/checkins/:id/items", mpCtl.CheckinItems)                                // 本人打卡逐项 AI 结论
 			mpAuth.POST("/upload/sts", mpCtl.STS)
 			mpAuth.POST("/upload/local", mpCtl.Local) // local 模式上传
 			mpAuth.GET("/messages", mpCtl.Messages)
@@ -381,13 +389,13 @@ func New(cfg *config.Config, db *gorm.DB, rdb *redis.Client) (*gin.Engine, *insp
 			appAuth.GET("/points/nearby", mpCtl.NearbyPoints)
 			appAuth.POST("/checkin", mpCtl.Checkin)
 			appAuth.POST("/checkin/offline-sync", mpCtl.OfflineSync)
-			appAuth.POST("/checkin/ai-item-jobs", mpCtl.SubmitAIItemJob) // 逐项 AI 识别：提交
-			appAuth.GET("/checkin/ai-item-jobs", mpCtl.AIItemJobs)       // 逐项 AI 识别：批量轮询结果
-			appAuth.GET("/checkin/item-drafts", mpCtl.ItemDrafts)              // 逐项过程草稿（断点恢复）
-			appAuth.POST("/checkin/item-drafts/manual", mpCtl.SaveManualDraft) // 手动项选择落草稿
+			appAuth.POST("/checkin/ai-item-jobs", mpCtl.SubmitAIItemJob)                          // 逐项 AI 识别：提交
+			appAuth.GET("/checkin/ai-item-jobs", mpCtl.AIItemJobs)                                // 逐项 AI 识别：批量轮询结果
+			appAuth.GET("/checkin/item-drafts", mpCtl.ItemDrafts)                                 // 逐项过程草稿（断点恢复）
+			appAuth.POST("/checkin/item-drafts/manual", mpCtl.SaveManualDraft)                    // 手动项选择落草稿
 			appAuth.POST("/checkin/item-drafts/photo-abnormal", mpCtl.SavePhotoItemAbnormalDraft) // 拍照项异常逃生入口
-			appAuth.GET("/checkins/:id", mpCtl.CheckinBrief) // 本人打卡摘要（消息深链定位记录卡）
-			appAuth.GET("/checkins/:id/items", mpCtl.CheckinItems) // 本人打卡逐项 AI 结论
+			appAuth.GET("/checkins/:id", mpCtl.CheckinBrief)                                      // 本人打卡摘要（消息深链定位记录卡）
+			appAuth.GET("/checkins/:id/items", mpCtl.CheckinItems)                                // 本人打卡逐项 AI 结论
 			appAuth.POST("/upload/sts", mpCtl.STS)
 			appAuth.POST("/upload/local", mpCtl.Local)
 			// 消息 / 公告

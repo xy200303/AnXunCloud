@@ -267,6 +267,9 @@ func (s *CheckinService) doCheckinLocked(ctx context.Context, inspectorID string
 	}
 	// 逐项 AI 识别确认提交：逐项采用识别队列带回的 AI 结论（服务端不再调大模型）
 	if req.AIConfirmed {
+		if be := s.validateConfirmedAI(req, checkItems); be != nil {
+			return nil, nil, be
+		}
 		s.applyConfirmedAI(&rec, checkItems, req)
 	}
 	// 审核与识别统一：audit_status 完全由识别状态推导。未经 AI 识别（同步判定关闭/离线补传）
@@ -512,6 +515,41 @@ func (s *CheckinService) applyConfirmedAI(rec *insmodel.CheckinRecord, items []i
 	}
 }
 
+// validateConfirmedAI 防止客户端伪造 ai_confirmed 结论：每个拍照项必须存在服务端已完成草稿，
+// 且草稿照片与本次提交照片逐项一致、结论为受支持的 AI 值。异常逃生草稿同样以服务端记录为准。
+func (s *CheckinService) validateConfirmedAI(req *dto.CheckinReq, items []insmodel.CheckinRecordItem) *errs.Error {
+	var drafts []insmodel.CheckinItemDraft
+	if err := s.db.Where("task_id = ? AND point_id = ? AND ai_status = ?", req.TaskID, req.PointID, insmodel.ItemDraftDone).Find(&drafts).Error; err != nil {
+		return errs.ErrInternal
+	}
+	draftByName := make(map[string]insmodel.CheckinItemDraft, len(drafts))
+	for _, draft := range drafts {
+		draftByName[draft.ItemName] = draft
+	}
+	for _, item := range items {
+		if item.JudgeType == ai.JudgeManual {
+			continue
+		}
+		draft, ok := draftByName[item.Name]
+		if !ok || draft.AIVerdict == nil {
+			return errs.ErrParam.WithMsg("检查项「" + item.Name + "」尚未完成 AI 识别")
+		}
+		if len(draft.FileIDs) != len(item.Photos) {
+			return errs.ErrParam.WithMsg("检查项「" + item.Name + "」照片与识别结果不一致，请重新识别")
+		}
+		for i := range draft.FileIDs {
+			if draft.FileIDs[i] != item.Photos[i] {
+				return errs.ErrParam.WithMsg("检查项「" + item.Name + "」照片与识别结果不一致，请重新识别")
+			}
+		}
+		verdict := *draft.AIVerdict
+		if verdict != ai.VerdictPass && verdict != ai.VerdictReview && verdict != ai.VerdictAbnormal {
+			return errs.ErrParam.WithMsg("检查项「" + item.Name + "」识别结论无效，请重新识别")
+		}
+	}
+	return nil
+}
+
 // checkMode 凭证与围栏校验：credential 决定凭证比对（qrcode 码值 / nfc 卡号 / none 免凭证），
 // require_fence 决定 GPS 距离硬校验；两者独立，同时启用则都须通过。
 func (s *CheckinService) checkMode(req *dto.CheckinReq, point *insmodel.InspectionPoint, distance float64) *errs.Error {
@@ -594,7 +632,12 @@ func (s *CheckinService) resolveCheckItems(req *dto.CheckinReq, point *insmodel.
 	}
 	items := make([]insmodel.CheckinRecordItem, 0, len(req.CheckItems))
 	files := map[string]sysmodel.UploadFile{}
+	seenItems := make(map[string]bool, len(req.CheckItems))
 	for i, it := range req.CheckItems {
+		if seenItems[it.Name] {
+			return nil, nil, errs.ErrParam.WithMsg("检查项「" + it.Name + "」重复提交")
+		}
+		seenItems[it.Name] = true
 		ti := tplByName[it.Name]
 		if ti == nil {
 			return nil, nil, errs.ErrParam.WithMsg("检查项「" + it.Name + "」不属于该点位模板")

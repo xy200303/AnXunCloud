@@ -96,7 +96,7 @@ export interface ReportDetail {
   manager_remark: string
   manager_signature_url?: string | null // 经理手写签名图（可空）
   reject_reason: string
-  file_key: string
+  file_id: string
   file_url: string | null
   created_at: string
   updated_at: string

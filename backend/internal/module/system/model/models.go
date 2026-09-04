@@ -414,6 +414,7 @@ type UploadFile struct {
 	WatermarkedURL string     `gorm:"size:512" json:"watermarked_url"`
 	Name           string     `gorm:"size:255" json:"name"`   // 原始文件名
 	MD5            string     `gorm:"size:64" json:"md5"`     // 内容摘要（完整性校验/去重）
+	Size           int64      `json:"size"`                    // 文件字节数
 	Storage        string     `gorm:"size:16" json:"storage"` // 存储驱动：local/oss/cos
 	ExifTime       *time.Time `json:"exif_time"`
 	CreatedAt      time.Time  `json:"created_at"`

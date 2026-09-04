@@ -64,6 +64,7 @@ func (ctl *FileController) STS(c *gin.Context) {
 
 // Download GET /api/files/*key（inline 预览；?download=1 强制附件下载，文件名为原始名称）
 func (ctl *FileController) Download(c *gin.Context) {
+	c.Header("X-Content-Type-Options", "nosniff")
 	data, redirect, name, mime, be := ctl.svc.Download(c, c.Param("key"))
 	if be != nil {
 		response.Fail(c, be)

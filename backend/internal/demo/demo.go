@@ -36,13 +36,13 @@ var demoAssetFiles = []string{
 
 // demoAssetByLabel 检查项 → 照片偏好（尽量贴近场景，未命中按标签哈希分配）。
 var demoAssetByLabel = map[string]string{
-	"消防通道畅通无阻": "corridor.jpg",
-	"灭火器压力正常":  "fireext.jpg",
-	"设备运行无异响":  "pump.jpg",
+	"消防通道畅通无阻":  "corridor.jpg",
+	"灭火器压力正常":   "fireext.jpg",
+	"设备运行无异响":   "pump.jpg",
 	"仪表读数在正常范围": "meter.jpg",
 	// 「消火栓及灭火器检查」模板项（租户 A 消防月检）
 	"灭火器在位且在有效期内": "fireext.jpg",
-	"消火栓箱完好无损坏":  "fireext.jpg",
+	"消火栓箱完好无损坏":   "fireext.jpg",
 	"手动报警按钮外观完好":  "corridor.jpg",
 }
 
@@ -144,7 +144,7 @@ func (d *demoSeeder) photo(tenantID, ownerID, label string) string {
 	rec := sysmodel.UploadFile{
 		TenantID: &tenantID, StorageKey: key, Scene: "checkin", UserID: ownerID,
 		MimeType: "image/jpeg", URL: url, WatermarkedURL: url,
-		Name: label + ".jpg", MD5: md5, Storage: d.store.DriverName(),
+		Name: label + ".jpg", MD5: md5, Size: int64(len(data)), Storage: d.store.DriverName(),
 	}
 	if err := d.db.Create(&rec).Error; err != nil {
 		return ""
@@ -213,7 +213,7 @@ func (d *demoSeeder) createPoint(tenantID, communityID string, buildingIDs []str
 		TenantID: &tenantID, CommunityID: communityID, Name: p.name, Type: p.typ,
 		QRCodeNo: fmt.Sprintf("P%06d", seq), Longitude: p.lng, Latitude: p.lat, FenceRadius: p.fence,
 		Credential: p.credential, RequireFence: false, // 演示数据不强制围栏，方便测试
-		Sort:       sort, Status: sysmodel.StatusEnabled, Remark: "演示点位（seed-demo 生成）",
+		Sort: sort, Status: sysmodel.StatusEnabled, Remark: "演示点位（seed-demo 生成）",
 	}
 	if templateID != "" {
 		pt.TemplateID = &templateID
@@ -300,7 +300,7 @@ func (d *demoSeeder) seedTenantA() error {
 	community := sysmodel.Community{
 		TenantID: tid, Name: "锦绣华庭", Address: "武汉市洪山区光谷大道 88 号",
 		ManagerID: &managerID,
-		Status: sysmodel.StatusEnabled, Remark: "演示小区（seed-demo 生成）",
+		Status:    sysmodel.StatusEnabled, Remark: "演示小区（seed-demo 生成）",
 	}
 	if err := d.db.Create(&community).Error; err != nil {
 		return err
@@ -391,7 +391,7 @@ var fireCheckItems = []demoTemplateItem{
 
 // fireUnit 楼栋单元定位（区域 + 楼栋号 + 单元号）。
 type fireUnit struct {
-	area     string
+	area      string
 	bld, unit int
 }
 
@@ -781,7 +781,7 @@ func (d *demoSeeder) seedTenantB() error {
 	community := sysmodel.Community{
 		TenantID: tid, Name: "金源世纪城", Address: "武汉市江夏区藏龙大道 12 号",
 		ManagerID: &managerID,
-		Status: sysmodel.StatusEnabled, Remark: "演示小区（seed-demo 生成）",
+		Status:    sysmodel.StatusEnabled, Remark: "演示小区（seed-demo 生成）",
 	}
 	if err := d.db.Create(&community).Error; err != nil {
 		return err

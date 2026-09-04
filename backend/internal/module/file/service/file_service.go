@@ -3,6 +3,7 @@
 package service
 
 import (
+	"bytes"
 	"io"
 	"path/filepath"
 	"strings"
@@ -75,7 +76,18 @@ func (s *FileService) Upload(c *gin.Context, scene, filename string, size int64,
 		return nil, errs.ErrUploadTooLarge
 	}
 	uid := middleware.CurrentUserID(c)
-	key, url, data, md5, err := s.store.Save(scene, uid, ext, r)
+	if be := s.upload.AuthorizeScene(uid, scene); be != nil {
+		return nil, be
+	}
+	data, err := io.ReadAll(io.LimitReader(r, s.store.MaxFileSize()+1))
+	if err != nil || int64(len(data)) > s.store.MaxFileSize() {
+		return nil, errs.ErrUploadTooLarge
+	}
+	tenantID := s.upload.UserTenantID(uid)
+	if existing, ok := s.upload.FindReusable(scene, storage.MD5Hex(data), int64(len(data)), tenantID); ok {
+		return gin.H{"file_id": existing.ID, "url": existing.URL, "name": existing.Name, "md5": existing.MD5}, nil
+	}
+	key, url, storedData, md5, err := s.store.Save(scene, uid, ext, bytes.NewReader(data))
 	if err != nil {
 		return nil, errs.ErrInternal
 	}
@@ -85,12 +97,12 @@ func (s *FileService) Upload(c *gin.Context, scene, filename string, size int64,
 	}
 	var exifTime *time.Time
 	if ext == "jpg" || ext == "jpeg" {
-		exifTime = exifutil.ReadShotTimeBytes(data)
+		exifTime = exifutil.ReadShotTimeBytes(storedData)
 	}
 	rec := sysmodel.UploadFile{
-		StorageKey: key, Scene: scene, UserID: uid,
+		TenantID: tenantID, StorageKey: key, Scene: scene, UserID: uid,
 		MimeType: mime, URL: url, ExifTime: exifTime,
-		Name: filepath.Base(filename), MD5: md5, Storage: s.store.DriverName(),
+		Name: filepath.Base(filename), MD5: md5, Size: int64(len(data)), Storage: s.store.DriverName(),
 	}
 	if err := s.db.Create(&rec).Error; err != nil {
 		return nil, errs.ErrInternal
@@ -115,7 +127,7 @@ func (s *FileService) Download(c *gin.Context, key string) (data []byte, redirec
 	}
 	mime = rec.MimeType
 	if mime == "" {
-	mime = mimeByExt(strings.TrimPrefix(strings.ToLower(filepath.Ext(rec.StorageKey)), "."))
+		mime = mimeByExt(strings.TrimPrefix(strings.ToLower(filepath.Ext(rec.StorageKey)), "."))
 	}
 	fileKey := rec.StorageKey
 	if s.store.IsLocal() {
@@ -180,6 +192,10 @@ func (s *FileService) checkRead(c *gin.Context, rec *sysmodel.UploadFile) *errs.
 			return nil
 		}
 		return allow("system:signasset:list", "report:list", "report:download")
+	case "checkin", "avatar", "notice":
+		if rec.TenantID != nil && *rec.TenantID != "" && *rec.TenantID != id.TenantID {
+			return errs.ErrDataScope
+		}
 	}
 	return nil
 }

@@ -128,7 +128,7 @@ import { usePatrolTypes } from '@/composables/usePatrolTypes'
 import type { CommunityItem } from '@/api/biz-types'
 
 const communities = ref<CommunityItem[]>([])
-const { groups: patrolTypeGroups } = usePatrolTypes()
+const { patrolTypeGroups } = usePatrolTypes()
 
 const loading = ref(false)
 const list = ref<ReportPlan[]>([])
@@ -258,7 +258,8 @@ async function handleDelete(row: ReportPlan) {
 }
 
 onMounted(async () => {
-  communities.value = await listCommunities()
+  const data = await listCommunities({ page: 1, page_size: 100, status: 1 })
+  communities.value = data.list
   fetchList()
 })
 </script>

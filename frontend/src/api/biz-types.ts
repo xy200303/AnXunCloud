@@ -247,7 +247,7 @@ export interface TaskItem {
 
 export interface CheckinPhoto {
   item: string
-  file_key?: string
+  file_id: string
   url: string
   watermarked_url?: string | null
   exif_time?: string

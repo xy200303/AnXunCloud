@@ -22,7 +22,7 @@ export function uploadImage(file: File, scene: string) {
   })
 }
 
-// 本地存储模式下静态目录为 /uploads（后端 r.Static("/uploads", ...)），file_key 即相对路径
+// 本地存储模式下静态目录为 /uploads（后端 r.Static("/uploads", ...)）。
 export function fileUrl(fileKey: string) {
   return fileKey ? `/uploads/${fileKey}` : ''
 }

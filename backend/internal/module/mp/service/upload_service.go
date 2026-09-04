@@ -1,6 +1,7 @@
 package service
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -14,6 +15,7 @@ import (
 	"anxuncloud/internal/config"
 	"anxuncloud/internal/module/mp/dto"
 	sysmodel "anxuncloud/internal/module/system/model"
+	"anxuncloud/internal/pkg/authz"
 	"anxuncloud/internal/pkg/errs"
 	"anxuncloud/internal/pkg/exifutil"
 	"anxuncloud/internal/pkg/storage"
@@ -32,7 +34,7 @@ func NewUploadService(db *gorm.DB, store *storage.Storage, up config.UploadConfi
 	return &UploadService{db: db, store: store, cfg: up, oss: oss}
 }
 
-func (s *UploadService) userTenantID(userID string) *string {
+func (s *UploadService) UserTenantID(userID string) *string {
 	var user struct {
 		TenantID *string `gorm:"column:tenant_id"`
 	}
@@ -44,6 +46,9 @@ func (s *UploadService) userTenantID(userID string) *string {
 
 // STS 申请直传凭证。local 模式返回本地上传入口；云存储模式走临时凭证。
 func (s *UploadService) STS(userID string, req *dto.STSReq) (gin.H, *errs.Error) {
+	if be := s.AuthorizeScene(userID, req.Scene); be != nil {
+		return nil, be
+	}
 	// 预校验类型与大小
 	for _, f := range req.Files {
 		if _, be := s.store.CheckExt(f.Name); be != nil {
@@ -103,7 +108,14 @@ func (s *UploadService) SaveLocal(userID string, scene, filename string, size in
 	if size > s.store.MaxFileSize() {
 		return nil, errs.ErrUploadTooLarge
 	}
-	key, url, data, md5, err := s.store.Save(scene, userID, ext, r)
+	data, err := io.ReadAll(io.LimitReader(r, s.store.MaxFileSize()+1))
+	if err != nil || int64(len(data)) > s.store.MaxFileSize() {
+		return nil, errs.ErrUploadTooLarge
+	}
+	if existing, ok := s.FindReusable(scene, storage.MD5Hex(data), int64(len(data)), s.UserTenantID(userID)); ok {
+		return gin.H{"file_id": existing.ID, "url": existing.URL}, nil
+	}
+	key, url, data, md5, err := s.store.Save(scene, userID, ext, bytes.NewReader(data))
 	if err != nil {
 		return nil, errs.ErrInternal
 	}
@@ -113,9 +125,9 @@ func (s *UploadService) SaveLocal(userID string, scene, filename string, size in
 		exifTime = exifutil.ReadShotTimeBytes(data)
 	}
 	rec := sysmodel.UploadFile{
-		TenantID: s.userTenantID(userID), StorageKey: key, Scene: scene, UserID: userID,
+		TenantID: s.UserTenantID(userID), StorageKey: key, Scene: scene, UserID: userID,
 		MimeType: "image/" + ext, URL: url, ExifTime: exifTime,
-		Name: filepath.Base(filename), MD5: md5, Storage: s.store.DriverName(),
+		Name: filepath.Base(filename), MD5: md5, Size: int64(len(data)), Storage: s.store.DriverName(),
 	}
 	if err := s.db.Create(&rec).Error; err != nil {
 		return nil, errs.ErrInternal
@@ -130,6 +142,9 @@ func (s *UploadService) SaveAdminLocal(userID string, scene, filename string, si
 	default:
 		return nil, errs.ErrParam.WithMsg("scene 取值非法")
 	}
+	if be := s.AuthorizeScene(userID, scene); be != nil {
+		return nil, be
+	}
 	var ext string
 	var be *errs.Error
 	if scene == "notice" {
@@ -143,7 +158,14 @@ func (s *UploadService) SaveAdminLocal(userID string, scene, filename string, si
 	if size > s.store.MaxFileSize() {
 		return nil, errs.ErrUploadTooLarge
 	}
-	key, url, _, md5, err := s.store.Save(scene, userID, ext, r)
+	data, err := io.ReadAll(io.LimitReader(r, s.store.MaxFileSize()+1))
+	if err != nil || int64(len(data)) > s.store.MaxFileSize() {
+		return nil, errs.ErrUploadTooLarge
+	}
+	if existing, ok := s.FindReusable(scene, storage.MD5Hex(data), int64(len(data)), s.UserTenantID(userID)); ok {
+		return gin.H{"file_id": existing.ID, "url": existing.URL}, nil
+	}
+	key, url, _, md5, err := s.store.Save(scene, userID, ext, bytes.NewReader(data))
 	if err != nil {
 		return nil, errs.ErrInternal
 	}
@@ -152,14 +174,51 @@ func (s *UploadService) SaveAdminLocal(userID string, scene, filename string, si
 		mime = "application/octet-stream"
 	}
 	rec := sysmodel.UploadFile{
-		TenantID: s.userTenantID(userID), StorageKey: key, Scene: scene, UserID: userID,
+		TenantID: s.UserTenantID(userID), StorageKey: key, Scene: scene, UserID: userID,
 		MimeType: mime, URL: url,
-		Name: filepath.Base(filename), MD5: md5, Storage: s.store.DriverName(),
+		Name: filepath.Base(filename), MD5: md5, Size: int64(len(data)), Storage: s.store.DriverName(),
 	}
 	if err := s.db.Create(&rec).Error; err != nil {
 		return nil, errs.ErrInternal
 	}
 	return gin.H{"file_id": rec.ID, "url": url}, nil
+}
+
+// FindReusable 查找同场景、同租户下内容相同的已登记文件。
+// 租户条件用于避免复用记录后触发下载权限串租户；空租户只匹配空租户记录。
+func (s *UploadService) FindReusable(scene, md5 string, size int64, tenantID *string) (*sysmodel.UploadFile, bool) {
+	if md5 == "" || size < 0 {
+		return nil, false
+	}
+	var existing sysmodel.UploadFile
+	query := s.db.Where("scene = ? AND md5 = ? AND size = ?", scene, md5, size)
+	if tenantID == nil {
+		query = query.Where("tenant_id IS NULL")
+	} else {
+		query = query.Where("tenant_id = ?", *tenantID)
+	}
+	if query.Order("created_at ASC").First(&existing).Error != nil {
+		return nil, false
+	}
+	return &existing, true
+}
+
+func (s *UploadService) AuthorizeScene(userID, scene string) *errs.Error {
+	if scene != "seal" && scene != "notice" {
+		return nil
+	}
+	perms := []string{"system:signasset:create"}
+	if scene == "notice" {
+		perms = []string{"system:notice:create", "system:notice:update"}
+	}
+	ok, err := authz.EnforceAny(userID, perms...)
+	if err != nil {
+		return errs.ErrInternal
+	}
+	if !ok {
+		return errs.ErrNoPerm
+	}
+	return nil
 }
 
 // noticeImageExts 公告附件中按图片处理的扩展名（App 端缩略图预览）。
@@ -233,7 +292,7 @@ func (s *UploadService) Callback(c *gin.Context, body []byte) (int, any) {
 		rec := sysmodel.UploadFile{
 			TenantID: &tenantID, StorageKey: form.Object, Scene: form.Scene, UserID: form.UID,
 			MimeType: form.MimeType, URL: s.store.URL(form.Object),
-			Name: filepath.Base(form.Name), MD5: strings.Trim(form.ETag, `"`), Storage: s.store.DriverName(),
+			Name: filepath.Base(form.Name), MD5: strings.Trim(form.ETag, `"`), Size: form.Size, Storage: s.store.DriverName(),
 		}
 		if rec.Scene == "" {
 			rec.Scene = "checkin"

@@ -2,7 +2,7 @@ module anxuncloud
 
 go 1.26
 
-toolchain go1.26.5
+toolchain go1.26.6
 
 require (
 	github.com/casbin/casbin/v3 v3.11.0

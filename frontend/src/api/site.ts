@@ -13,7 +13,7 @@ export interface AppRelease {
   id: string
   platform: string // android / harmony / ios / wechat_mp
   version: string
-  file_key: string
+  file_id: string
   name: string
   size: number
   note: string

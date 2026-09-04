@@ -36,7 +36,10 @@ type localDriver struct {
 func (d *localDriver) Name() string { return "local" }
 
 func (d *localDriver) Put(key string, r io.Reader) error {
-	path := filepath.Join(d.dir, filepath.FromSlash(key))
+	path, err := safeLocalPath(d.dir, key)
+	if err != nil {
+		return err
+	}
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return err
 	}
@@ -50,7 +53,24 @@ func (d *localDriver) Put(key string, r io.Reader) error {
 }
 
 func (d *localDriver) Read(key string) ([]byte, error) {
-	return os.ReadFile(filepath.Join(d.dir, filepath.FromSlash(key)))
+	path, err := safeLocalPath(d.dir, key)
+	if err != nil {
+		return nil, err
+	}
+	return os.ReadFile(path)
+}
+
+func safeLocalPath(root, key string) (string, error) {
+	if key == "" || strings.ContainsAny(key, `\:`) {
+		return "", fmt.Errorf("invalid storage key")
+	}
+	root = filepath.Clean(root)
+	path := filepath.Join(root, filepath.FromSlash(key))
+	rel, err := filepath.Rel(root, path)
+	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(os.PathSeparator)) {
+		return "", fmt.Errorf("storage path escapes root")
+	}
+	return path, nil
 }
 
 func (d *localDriver) URL(key string) string {

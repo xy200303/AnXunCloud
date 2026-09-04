@@ -56,7 +56,7 @@ func main() {
 		logger.L.Warn("微信 mock 登录已开启：mock:<手机号> 可直接登录任意已开户账号，仅限开发联调，严禁带到生产")
 	}
 	if cfg.Env == "prod" && cfg.Admin.Password == "Admin@123" {
-		logger.L.Warn("生产环境仍使用默认超管密码，请尽快修改 ADMIN_PASSWORD")
+		logger.L.Fatal("生产环境禁止使用默认超管密码，请配置 ADMIN_PASSWORD")
 	}
 	if cfg.Env == "prod" && (len(cfg.JWT.Secret) < 32 || strings.Contains(strings.ToLower(cfg.JWT.Secret), "change")) {
 		logger.L.Fatal("生产环境 JWT_SECRET 不符合安全要求，请配置至少 32 位随机密钥")
@@ -79,8 +79,13 @@ func main() {
 	engine, scheduler := router.New(cfg, db, rdb)
 	scheduler.Start() // 每日任务生成 / 逾期翻转 / 分区滚动
 	srv := &http.Server{
-		Addr:    fmt.Sprintf(":%d", cfg.Server.Port),
-		Handler: engine,
+		Addr:              fmt.Sprintf(":%d", cfg.Server.Port),
+		Handler:           engine,
+		ReadHeaderTimeout: 10 * time.Second,
+		ReadTimeout:       60 * time.Second,
+		WriteTimeout:      120 * time.Second,
+		IdleTimeout:       120 * time.Second,
+		MaxHeaderBytes:    1 << 20,
 	}
 
 	go func() {

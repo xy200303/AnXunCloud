@@ -139,7 +139,7 @@ import { onMounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox, type FormInstance, type FormRules, type UploadRequestOptions } from 'element-plus'
 import { Search, Refresh, Plus, RefreshRight, ArrowDown, Paperclip, Close, Upload } from '@element-plus/icons-vue'
 import { listNotices, createNotice, updateNotice, deleteNotice } from '@/api/notice'
-import { uploadImage, fileUrl } from '@/api/upload'
+import { uploadImage } from '@/api/upload'
 import { useUserStore } from '@/store/user'
 import type { NoticeAttachment, NoticeItem } from '@/api/biz-types'
 
@@ -204,8 +204,8 @@ async function handleAttachUpload(opt: UploadRequestOptions) {
   attachUploading.value = true
   try {
     const file = opt.file as File
-    const { file_key, url } = await uploadImage(file, 'notice')
-    form.attachments.push({ name: file.name, url: url || fileUrl(file_key) })
+    const { url } = await uploadImage(file, 'notice')
+    form.attachments.push({ name: file.name, url })
   } catch {
     ElMessage.warning('附件上传失败，请重试')
   } finally {

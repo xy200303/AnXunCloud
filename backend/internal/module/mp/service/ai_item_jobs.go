@@ -28,10 +28,11 @@ import (
 )
 
 const (
-	aiItemQueueKey = "ai:item:queue" // 逐项识别任务队列（list）
-	aiItemJobPfx   = "ai:item:job:"  // 逐项识别结果 hash 前缀
-	aiItemJobTTL   = 2 * time.Hour   // 结果保留时长（过期按"任务已过期"处理）
-	aiItemMaxQuery = 20              // 单次批量查询上限
+	aiItemQueueKey = "ai:item:queue"      // 逐项识别任务队列（list）
+	aiItemWorkKey  = "ai:item:processing" // worker 处理中任务（list）
+	aiItemJobPfx   = "ai:item:job:"       // 逐项识别结果 hash 前缀
+	aiItemJobTTL   = 2 * time.Hour        // 结果保留时长（过期按"任务已过期"处理）
+	aiItemMaxQuery = 20                   // 单次批量查询上限
 )
 
 // aiItemJobPayload 队列任务载荷（point/item 上下文入队时快照，worker 不再查库）。
@@ -174,6 +175,20 @@ func (s *CheckinService) AIItemJobs(ctx context.Context, inspectorID, idsRaw str
 
 // StartAIItemWorkers 启动逐项识别队列消费 worker（N=ai.worker_concurrency，默认 4；服务启动时读取一次）。
 func (s *CheckinService) StartAIItemWorkers() {
+	// 上次进程异常退出时，处理中列表里的任务尚未确认完成，先放回待处理队列。
+	for {
+		raw, err := s.rdb.RPopLPush(context.Background(), aiItemWorkKey, aiItemQueueKey).Result()
+		if err == redis.Nil {
+			break
+		}
+		if err != nil {
+			logger.L.Warn("恢复逐项识别任务失败", zap.Error(err))
+			break
+		}
+		if raw == "" {
+			break
+		}
+	}
 	n := s.cfgInt("ai.worker_concurrency", 4)
 	for i := 0; i < n; i++ {
 		go s.aiItemWorker(i)
@@ -190,7 +205,7 @@ func (s *CheckinService) aiItemWorker(idx int) {
 	}()
 	ctx := context.Background()
 	for {
-		res, err := s.rdb.BLPop(ctx, 5*time.Second, aiItemQueueKey).Result()
+		res, err := s.rdb.BRPopLPush(ctx, aiItemQueueKey, aiItemWorkKey, 5*time.Second).Result()
 		if err == redis.Nil {
 			continue
 		}
@@ -199,7 +214,18 @@ func (s *CheckinService) aiItemWorker(idx int) {
 			time.Sleep(time.Second)
 			continue
 		}
-		s.processAIItemJob(ctx, res[1])
+		raw := res
+		func() {
+			defer func() {
+				if r := recover(); r != nil {
+					logger.L.Error("逐项识别任务 panic，将重回队列", zap.Int("worker", idx), zap.Any("panic", r))
+					_ = s.rdb.LPush(ctx, aiItemQueueKey, raw).Err()
+					_ = s.rdb.LRem(ctx, aiItemWorkKey, 1, raw).Err()
+				}
+			}()
+			s.processAIItemJob(ctx, raw)
+			_ = s.rdb.LRem(ctx, aiItemWorkKey, 1, raw).Err()
+		}()
 	}
 }
 

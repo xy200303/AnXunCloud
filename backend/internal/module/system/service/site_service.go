@@ -151,7 +151,7 @@ func (s *SiteService) UploadRelease(userID, platform, version, note, filename st
 		meta := model.UploadFile{
 			StorageKey: key, Scene: "app", UserID: userID,
 			MimeType: mime, URL: s.store.URL(key), Name: filename, MD5: md5hex,
-			Storage: s.store.DriverName(),
+			Size: size, Storage: s.store.DriverName(),
 		}
 		if err := tx.Create(&meta).Error; err != nil {
 			return err

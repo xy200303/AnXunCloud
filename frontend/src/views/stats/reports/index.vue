@@ -778,7 +778,7 @@ async function handlePadSave(file: File, saveForLater: boolean) {
       await updateProfile({
         name: userStore.info?.name || '',
         phone: userStore.info?.phone || '',
-        signature_file_id: file_key
+        signature_file_id: file_id
       })
       await userStore.fetchInfo()
       sigKey = ''

@@ -352,7 +352,14 @@
       />
       <el-form ref="generateFormRef" :model="generateForm" :rules="generateRules" label-width="98px">
         <el-form-item label="小区" prop="community_id">
-          <el-select v-model="generateForm.community_id" placeholder="请选择小区" style="width: 100%" @change="loadCandidates">
+          <el-select
+            v-model="generateForm.community_id"
+            placeholder="请选择小区"
+            :loading="communitiesLoading"
+            no-data-text="当前租户暂无可用小区"
+            style="width: 100%"
+            @change="loadCandidates"
+          >
             <el-option v-for="c in communities" :key="c.id" :label="c.name" :value="c.id" />
           </el-select>
         </el-form-item>
@@ -495,6 +502,7 @@ const loading = ref(false)
 const list = ref<ReportItem[]>([])
 const total = ref(0)
 const communities = ref<CommunityItem[]>([])
+const communitiesLoading = ref(false)
 
 const statusOptions: { label: string; value: ReportStatus }[] = [
   { label: '待巡检员确认', value: 'pending_inspector' },
@@ -550,10 +558,19 @@ function handleReset() {
   handleSearch()
 }
 
+async function loadCommunities() {
+  communitiesLoading.value = true
+  try {
+    const data = await listCommunities({ page: 1, page_size: 100, status: 1 })
+    communities.value = data.list
+  } finally {
+    communitiesLoading.value = false
+  }
+}
+
 onMounted(async () => {
   fetchList()
-  const cData = await listCommunities({ page: 1, page_size: 100, status: 1 })
-  communities.value = cData.list
+  await loadCommunities()
 })
 
 // ===== 详情抽屉 =====

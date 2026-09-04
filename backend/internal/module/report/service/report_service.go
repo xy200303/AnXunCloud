@@ -247,7 +247,7 @@ const recordsSnapshotLimit = 3000
 const detailRecordsLimit = 100
 
 // collectRecords 收集该小区该期间打卡记录明细（按打卡时间正序；patrolType 非空只取该类型），供 stats.records 快照存储。
-// 字段：打卡时间/巡检员姓名/点位名称/打卡方式/距点位距离/结果/疑似标记/审核状态/照片 file_key 列表。
+// 字段：打卡时间/巡检员姓名/点位名称/打卡方式/距点位距离/结果/疑似标记/审核状态/照片 file_id 列表。
 // 超出 recordsSnapshotLimit 截断（取最早 N 条；PDF 明细表数据源是实时查询不受影响，此处仅报告详情快照）。
 func (s *ReportService) collectRecords(communityID string, start, end time.Time, patrolType string) []gin.H {
 	var recs []insmodel.CheckinRecord
@@ -416,7 +416,7 @@ func (s *ReportService) PagedRecords(c *gin.Context, id string, q *dto.ReportRec
 	return &response.Page{List: s.recordsWithURLs(s.recordRows(recs)), Total: total, Page: q.Page, PageSize: q.PageSize}, nil
 }
 
-// recordsWithURLs 明细行 photo_ids 转 photos[{file_id,file_key,url}]，供详情接口输出。
+// recordsWithURLs 明细行 photo_ids 转 photos[{file_id,url}]，供详情接口输出。
 func (s *ReportService) recordsWithURLs(rows []gin.H) []gin.H {
 	// 汇总全部 photo_ids 一次批量解析（消除逐行 ByIDs 的 N+1）
 	allKeys := make([]string, 0, 64)
@@ -574,7 +574,7 @@ func (s *ReportService) Detail(c *gin.Context, id string) (gin.H, *errs.Error) {
 	proxyBy := map[string][2]string{}
 	for _, e := range r.InspectorSigned {
 		signedBy[e.UserID] = e.SignedAt
-		signedSig[e.UserID] = e.SignatureKey
+		signedSig[e.UserID] = e.SignatureFileID
 		if e.ProxyBy != "" {
 			proxyBy[e.UserID] = [2]string{e.ProxyName, e.ProxyReason}
 		}
@@ -939,7 +939,7 @@ func (s *ReportService) SignInspector(c *gin.Context, id string, req *dto.Inspec
 	}
 	entry := types.SignEntry{
 		UserID: targetUID, Name: targetName, SignedAt: timefmt.T(time.Now()),
-		SignatureKey: sigKey, AssetID: sigAssetID, // 签名图+资产快照：防止后续换签名影响历史报告
+		SignatureFileID: sigKey, AssetID: sigAssetID, // 签名图+资产快照：防止后续换签名影响历史报告
 	}
 	if proxy != nil {
 		entry.ProxyBy, entry.ProxyName, entry.ProxyReason = proxy.ProxyBy, proxy.ProxyName, proxy.ProxyReason
@@ -1128,7 +1128,7 @@ func (s *ReportService) sign(c *gin.Context, id string, req *dto.SignReq, expect
 	}
 }
 
-// PDF 返回报告 PDF 字节与文件名；file_key 已归档则直接读归档文件，否则即时生成临时版。
+// PDF 返回报告 PDF 字节与文件名；file_id 已归档则直接读归档文件，否则即时生成临时版。
 // 访问控制（路由层不再挂权限点，由此处统一判定）：持 report:download 权限，
 // 或为报告相关人（应签巡检员/指定主管/经理签字人）——巡检员有权查看自己参与的完整报告。
 func (s *ReportService) PDF(c *gin.Context, id string) ([]byte, string, *errs.Error) {
@@ -1253,7 +1253,7 @@ func (s *ReportService) loadPhoto(fileID string) ([]byte, string, error) {
 }
 
 // RebuildPDF 用当前模板重渲染报告 PDF 并覆盖归档文件（状态/签字/统计数据保持不变）。
-// 供模板升级后人工刷新存量报告：local 覆盖 file_key 对应本地文件；云存储重新保存并回写 file_key。
+// 供模板升级后人工刷新存量报告：local 覆盖 file_id 对应对象；云存储重新保存并回写 file_id。
 func (s *ReportService) RebuildPDF(c *gin.Context, reportID string) *errs.Error {
 	// 归属校验（getWithScope：community 链数据权限），越权按不存在口径
 	r, be := s.getWithScope(c, reportID)
@@ -1302,7 +1302,7 @@ func (s *ReportService) rebuildPDF(r *model.InspectionReport) error {
 	return nil
 }
 
-// archivePDF 终审后异步生成 PDF 并归档（回写 file_key）。
+// archivePDF 终审后异步生成 PDF 并归档（回写 file_id）。
 func (s *ReportService) archivePDF(reportID string) {
 	var r model.InspectionReport
 	if err := s.db.First(&r, "id = ?", reportID).Error; err != nil {

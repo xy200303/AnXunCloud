@@ -106,7 +106,7 @@ import {
 import { getTaskDetail } from '@/api/task'
 import PhotoViewer from '@/components/PhotoViewer.vue'
 import type { TaskDetail, TaskPointDetail, CheckinPhoto } from '@/api/biz-types'
-import { patrolTypeLabel } from '@/api/biz-types'
+import { usePatrolTypes } from '@/composables/usePatrolTypes'
 
 const route = useRoute()
 const loading = ref(false)
@@ -114,6 +114,7 @@ const loadError = ref(false)
 const detail = ref<TaskDetail | null>(null)
 const pointsPage = ref(1)
 const timelineLoading = ref(false)
+const { patrolTypeLabel } = usePatrolTypes()
 
 async function fetchDetail(page: number) {
   const d = await getTaskDetail(String(route.params.id), page)

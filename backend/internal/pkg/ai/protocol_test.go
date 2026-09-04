@@ -88,7 +88,7 @@ func TestProtocolOpenAIChat(t *testing.T) {
 	defer srv.Close()
 
 	res, err := newMockClient(srv.URL, "openai_chat").ReviewCheckin(context.Background(), ReviewInput{
-		PointName: "配电房",
+		PointName:  "配电房",
 		ItemPhotos: []ItemPhoto{{Name: "灭火器在位", Photos: []PhotoRef{{URL: "http://example.com/a.jpg"}}}},
 	})
 	if err != nil {
@@ -104,10 +104,10 @@ func TestProtocolOpenAIResponses(t *testing.T) {
 			t.Errorf("Authorization=%q，期望 Bearer test-key", auth)
 		}
 		var body struct {
-			Model            string `json:"model"`
-			Instructions     string `json:"instructions"`
-			MaxOutputTokens  int    `json:"max_output_tokens"`
-			Input            []struct {
+			Model           string `json:"model"`
+			Instructions    string `json:"instructions"`
+			MaxOutputTokens int    `json:"max_output_tokens"`
+			Input           []struct {
 				Role    string           `json:"role"`
 				Content []map[string]any `json:"content"`
 			} `json:"input"`
@@ -147,7 +147,7 @@ func TestProtocolOpenAIResponses(t *testing.T) {
 	defer srv.Close()
 
 	res, err := newMockClient(srv.URL, "openai_responses").ReviewCheckin(context.Background(), ReviewInput{
-		PointName: "配电房",
+		PointName:  "配电房",
 		ItemPhotos: []ItemPhoto{{Name: "灭火器在位", Photos: []PhotoRef{{URL: "http://example.com/a.jpg"}}}},
 	})
 	if err != nil {
@@ -209,7 +209,7 @@ func TestProtocolGemini(t *testing.T) {
 	defer srv.Close()
 
 	res, err := newMockClient(srv.URL, "gemini").ReviewCheckin(context.Background(), ReviewInput{
-		PointName: "配电房",
+		PointName:  "配电房",
 		ItemPhotos: []ItemPhoto{{Name: "灭火器在位", Photos: []PhotoRef{{URL: srv.URL + "/img.jpg"}}}},
 	})
 	if err != nil {
@@ -274,7 +274,7 @@ func TestProtocolClaude(t *testing.T) {
 	defer srv.Close()
 
 	res, err := newMockClient(srv.URL, "claude").ReviewCheckin(context.Background(), ReviewInput{
-		PointName: "配电房",
+		PointName:  "配电房",
 		ItemPhotos: []ItemPhoto{{Name: "灭火器在位", Photos: []PhotoRef{{URL: srv.URL + "/img.jpg"}}}},
 	})
 	if err != nil {
@@ -325,17 +325,9 @@ func TestParseReviewNewFormat(t *testing.T) {
 	}
 }
 
-// TestParseReviewLegacyFormat 旧格式（无 quality 字段）向后兼容：Quality.Pass 视为 true。
-func TestParseReviewLegacyFormat(t *testing.T) {
-	res, err := parseReview(`{"verdict":"pass","reason":"照片清晰，无异常","items":[{"name":"消防枪头在位","verdict":"pass","reason":"在位"}]}`)
-	if err != nil {
-		t.Fatalf("解析失败: %v", err)
-	}
-	if !res.Quality.Pass || res.Quality.Issue != "" {
-		t.Errorf("旧格式 quality 应默认 pass: %+v", res.Quality)
-	}
-	if len(res.Items) != 1 || res.Items[0].Reading != "" {
-		t.Errorf("逐项结论异常: %+v", res.Items)
+func TestParseReviewRejectsMissingQuality(t *testing.T) {
+	if _, err := parseReview(`{"verdict":"pass","reason":"照片清晰，无异常","items":[{"name":"消防枪头在位","verdict":"pass","reason":"在位"}]}`); err == nil {
+		t.Fatal("缺少 quality 字段应报错")
 	}
 }
 

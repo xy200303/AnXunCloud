@@ -138,7 +138,7 @@ type Client struct {
 // Option 可选装配项。
 type Option func(*Client)
 
-// WithStorage 注入存储抽象（local 模式从 URL 反推 file_key 读本地文件转 base64）。
+// WithStorage 注入存储抽象（local 模式从 URL 反推内部存储键，读取本地文件转 base64）。
 func WithStorage(s *storage.Storage) Option {
 	return func(c *Client) { c.store = s }
 }
@@ -336,8 +336,7 @@ func judgeInstruction(jt string, cfg map[string]any) string {
 // jsonRe 从模型输出中提取首个 JSON 对象（容错 Markdown 代码块/前后杂文本）。
 var jsonRe = regexp.MustCompile(`\{[\s\S]*\}`)
 
-// parseReview 解析模型输出；整体 verdict 非 pass/review 视为 error；
-// quality 缺失（旧格式）视为 pass；items 逐项结论容错解析（缺失/非法项跳过，不影响整体结论）。
+// parseReview 解析模型输出；模型必须返回完整的质量与逐项结论。
 func parseReview(content string) (*ReviewResult, error) {
 	m := jsonRe.FindString(content)
 	if m == "" {
@@ -360,18 +359,20 @@ func parseReview(content string) (*ReviewResult, error) {
 	if err := json.Unmarshal([]byte(m), &v); err != nil {
 		return nil, fmt.Errorf("JSON 解析失败: %w", err)
 	}
+	if v.Quality == nil || v.Quality.Pass == nil {
+		return nil, fmt.Errorf("缺少 quality 质量结论")
+	}
 	if v.Verdict != VerdictPass && v.Verdict != VerdictReview {
 		return nil, fmt.Errorf("非法 verdict: %q", v.Verdict)
 	}
-	res := &ReviewResult{Verdict: v.Verdict, Reason: v.Reason, Quality: QualityResult{Pass: true}}
-	if v.Quality != nil && v.Quality.Pass != nil {
-		res.Quality.Pass = *v.Quality.Pass
-		res.Quality.Issue = v.Quality.Issue
+	if len(v.Items) == 0 {
+		return nil, fmt.Errorf("缺少 items 逐项结论")
 	}
+	res := &ReviewResult{Verdict: v.Verdict, Reason: v.Reason, Quality: QualityResult{Pass: *v.Quality.Pass, Issue: v.Quality.Issue}}
 	for _, it := range v.Items {
 		name := strings.TrimSpace(it.Name)
 		if name == "" || (it.Verdict != VerdictPass && it.Verdict != VerdictReview && it.Verdict != VerdictAbnormal) {
-			continue // 非法逐项结论跳过，不报错
+			return nil, fmt.Errorf("非法 items 逐项结论")
 		}
 		res.Items = append(res.Items, ItemVerdict{Name: name, Verdict: it.Verdict, Reason: it.Reason, Reading: strings.TrimSpace(it.Reading)})
 	}

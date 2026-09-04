@@ -161,14 +161,13 @@ const (
 	PhotoReqRequired = "required" // 必拍（合格也须 ≥1 张该项照片）
 )
 
-
 // SignEntry 报告签字留痕（inspection_report.inspector_signed JSONB）。
 type SignEntry struct {
 	UserID   string `json:"user_id"`
 	Name     string `json:"name"`
 	SignedAt string `json:"signed_at"`
-	// SignatureKey 签字时的手写签名图快照（空=未设置签名，PDF 回退打印姓名）
-	SignatureKey string `json:"signature_file_key,omitempty"`
+	// SignatureFileID 签字时的手写签名图快照（空=未设置签名，PDF 回退打印姓名）
+	SignatureFileID string `json:"signature_file_id,omitempty"`
 	// AssetID 签字时的签章资产 id（v16 起；可空，便于法律追溯定位版本）
 	AssetID string `json:"asset_id,omitempty"`
 	// 代签留痕（三字段同时非空表示代签：UserID/Name 为被代签巡检员，签名图取代签人本人资产——代签人对该次确认负责）

@@ -147,17 +147,15 @@ func (s *TaskService) loadCounters(tasks []model.InspectionTask) map[string]task
 
 func (s *TaskService) toItem(t *model.InspectionTask, cnt taskCounters) gin.H {
 	var plan model.InspectionPlan
-	planName, timeWindow := "", t.TimeWindow // 时段取任务快照优先（轮次任务），空回落计划
+	planName := ""
 	// Unscoped：计划已删除时仍需展示其名称（历史任务可追溯），标注「已删除」
 	if s.db.Unscoped().Select("name", "time_window", "deleted_at").First(&plan, "id = ?", t.PlanID).Error == nil {
 		planName = plan.Name
-		if timeWindow == "" {
-			timeWindow = plan.TimeWindow
-		}
 		if plan.DeletedAt.Valid {
 			planName += "（已删除）"
 		}
 	}
+	timeWindow := t.TimeWindow
 	commName, inspectorName := "", ""
 	var comm sysmodel.Community
 	if s.db.Select("name").First(&comm, "id = ?", t.CommunityID).Error == nil {
@@ -176,12 +174,12 @@ func (s *TaskService) toItem(t *model.InspectionTask, cnt taskCounters) gin.H {
 		"community_id": t.CommunityID, "community_name": commName,
 		"inspector_id": t.InspectorID, "inspector_name": inspectorName,
 		"patrol_type": t.PatrolType,
-		"task_date": t.TaskDate.Format("2006-01-02"), "time_window": timeWindow,
+		"task_date":   t.TaskDate.Format("2006-01-02"), "time_window": timeWindow,
 		"round_name": t.RoundName,
-		"status": t.Status, "total_points": t.TotalPoints, "done_points": t.DonePoints,
+		"status":     t.Status, "total_points": t.TotalPoints, "done_points": t.DonePoints,
 		"progress": progress, "abnormal_count": cnt.abnormal, "suspect_count": cnt.suspect,
 		"missing_count": t.TotalPoints - t.DonePoints,
-		"started_at": timefmt.TP(t.StartedAt), "finished_at": timefmt.TP(t.FinishedAt),
+		"started_at":    timefmt.TP(t.StartedAt), "finished_at": timefmt.TP(t.FinishedAt),
 	}
 }
 
@@ -211,7 +209,7 @@ func (s *TaskService) Detail(c *gin.Context, id string) (gin.H, *errs.Error) {
 		byPoint[checkins[i].PointID] = &checkins[i]
 	}
 	// 任务点位名单：以任务快照为准（by_point_types 圈选/轮次任务均落快照；不回落计划名单）
-	pointIDs := model.TaskPointIDs(&t, &plan)
+	pointIDs := model.TaskPointIDs(&t)
 	// 项级进度派生：过程草稿按点位聚合（done=已有结论[含手动项]，recognizing=AI 识别中，failed=识别失败待重拍）；
 	// 总项数取点位模板当前项数（观测层数据，模板中途变更只影响展示，不影响正式记录）
 	var drafts []model.CheckinItemDraft
@@ -366,9 +364,9 @@ func (s *TaskService) Detail(c *gin.Context, id string) (gin.H, *errs.Error) {
 			"id": t.ID, "plan_name": planName, "community_name": commName,
 			"inspector_id": t.InspectorID, "inspector_name": inspectorName,
 			"patrol_type": t.PatrolType,
-			"task_date": t.TaskDate.Format("2006-01-02"), "time_window": model.TaskTimeWindow(&t, &plan),
+			"task_date":   t.TaskDate.Format("2006-01-02"), "time_window": model.TaskTimeWindow(&t),
 			"round_name": t.RoundName,
-			"status": t.Status, "total_points": t.TotalPoints, "done_points": t.DonePoints,
+			"status":     t.Status, "total_points": t.TotalPoints, "done_points": t.DonePoints,
 			"progress": progress, "started_at": timefmt.TP(t.StartedAt), "finished_at": timefmt.TP(t.FinishedAt),
 		},
 		"points":       points,
@@ -391,7 +389,7 @@ func checkinBrief(db *gorm.DB, ck *model.CheckinRecord) gin.H {
 		"longitude": ck.Longitude, "latitude": ck.Latitude,
 		"result": ck.Result, "is_suspect": ck.IsSuspect, "suspect_reason": ck.SuspectReason,
 		"remark": ck.Remark, "photos": RecordFlatPhotos(db, ck.ID),
-		"check_items": briefItemViews(db, ck.ID),
+		"check_items":  briefItemViews(db, ck.ID),
 		"audit_status": ck.AuditStatus, "audit_by": ck.AuditBy,
 		"audit_at": timefmt.TP(ck.AuditAt), "audit_remark": ck.AuditRemark,
 		"ai_verdict": ck.AIVerdict, "ai_reason": ck.AIReason,
@@ -522,17 +520,17 @@ func (s *TaskService) CheckinList(c *gin.Context, q *dto.CheckinListQuery) (*res
 		r := &rows[i]
 		list = append(list, gin.H{
 			"id": r.ID, "task_id": r.TaskID, "point_id": r.PointID,
-			"point_name":     pointName(s.db, r.PointID),
-			"community_name": commName(s.db, r.CommunityID),
+			"point_name":      pointName(s.db, r.PointID),
+			"community_name":  commName(s.db, r.CommunityID),
 			"exception_types": exceptionTypesOf(s.db, r.ID),
-			"inspector_id": r.InspectorID, "inspector_name": userName(s.db, r.InspectorID),
+			"inspector_id":    r.InspectorID, "inspector_name": userName(s.db, r.InspectorID),
 			"checkin_time": timefmt.T(r.CheckinTime), "checkin_type": r.CheckinType,
 			"distance_to_point": distanceOrNil(r), "result": r.Result,
 			"is_suspect": r.IsSuspect, "photo_count": RecordPhotoCount(s.db, r.ID),
 			"audit_status": r.AuditStatus, "audit_step": r.AuditStep,
 			"current_step_name": s.currentStepName(flows, r),
 			"ai_verdict":        r.AIVerdict, "ai_reason": r.AIReason,
-			"force_submit":      r.ForceSubmit,
+			"force_submit": r.ForceSubmit,
 		})
 	}
 	return &response.Page{List: list, Total: total, Page: q.Page, PageSize: q.PageSize}, nil
@@ -582,7 +580,7 @@ func (s *TaskService) CheckinDetail(c *gin.Context, id string) (gin.H, *errs.Err
 			"exif_check": exifCheck(&r, exif, s.cfgInt("inspection.exif_deviation_seconds", 300)),
 		})
 	}
-		// 逐项结果带照片 URL（photos 存 file_id；优先水印图）；v18 起读 checkin_record_item 快照表
+	// 逐项结果带照片 URL（photos 存 file_id；优先水印图）；v18 起读 checkin_record_item 快照表
 	var recItems []model.CheckinRecordItem
 	s.db.Where("record_id = ?", r.ID).Order("sort ASC").Find(&recItems)
 	checkItems := make([]gin.H, 0, len(recItems))
@@ -599,7 +597,7 @@ func (s *TaskService) CheckinDetail(c *gin.Context, id string) (gin.H, *errs.Err
 		"id": r.ID, "task_id": r.TaskID, "plan_name": planName,
 		"point_id": r.PointID, "point_name": pointName(s.db, r.PointID),
 		"community_name": commName(s.db, r.CommunityID),
-		"inspector_id": r.InspectorID, "inspector_name": userName(s.db, r.InspectorID),
+		"inspector_id":   r.InspectorID, "inspector_name": userName(s.db, r.InspectorID),
 		"checkin_time": timefmt.T(r.CheckinTime), "client_time": timefmt.TP(r.ClientTime),
 		"checkin_type": r.CheckinType, "longitude": r.Longitude, "latitude": r.Latitude,
 		"distance_to_point": distanceOrNil(&r), "result": r.Result, "remark": r.Remark,
@@ -609,8 +607,8 @@ func (s *TaskService) CheckinDetail(c *gin.Context, id string) (gin.H, *errs.Err
 		"audit_at": timefmt.TP(r.AuditAt), "audit_remark": r.AuditRemark,
 		"ai_verdict": r.AIVerdict, "ai_reason": r.AIReason,
 		"ai_quality_pass": r.AIQualityPass, "ai_quality_issue": r.AIQualityIssue,
-		"force_submit":    r.ForceSubmit,
-		"created_at": timefmt.T(r.CreatedAt),
+		"force_submit": r.ForceSubmit,
+		"created_at":   timefmt.T(r.CreatedAt),
 	}, nil
 }
 

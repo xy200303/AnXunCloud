@@ -54,6 +54,10 @@ func (s *FileService) STS(userID string, req *mpdto.STSReq) (gin.H, *errs.Error)
 	return s.upload.STS(userID, req)
 }
 
+func (s *FileService) Preflight(userID string, req *mpdto.STSReq) (gin.H, *errs.Error) {
+	return s.upload.Preflight(userID, req)
+}
+
 // Upload 统一上传（multipart：file + scene）。登记 upload_file 元数据（name/md5/storage）。
 func (s *FileService) Upload(c *gin.Context, scene, filename string, size int64, r io.Reader) (gin.H, *errs.Error) {
 	if !uploadScenes[scene] {
@@ -119,8 +123,7 @@ func (s *FileService) Download(c *gin.Context, key string) (data []byte, redirec
 	}
 	rec, err := uploadfile.ByID(s.db, key)
 	if err != nil {
-		// 兼容未登记的历史文件：按扩展名推断，仍走 scene 前缀判定
-		rec = sysmodel.UploadFile{StorageKey: key, Scene: sceneOfKey(key), Name: filepath.Base(key)}
+		return nil, "", "", "", errs.ErrNotFound
 	}
 	if be := s.checkRead(c, &rec); be != nil {
 		return nil, "", "", "", be
@@ -139,14 +142,6 @@ func (s *FileService) Download(c *gin.Context, key string) (data []byte, redirec
 	}
 	// 云存储：重定向到对象访问地址（后续接 COS 签名 URL 在此扩展）
 	return nil, s.store.URL(fileKey), rec.Name, mime, nil
-}
-
-// sceneOfKey 从 file_key 第一段推断 scene（兼容未登记记录）。
-func sceneOfKey(key string) string {
-	if i := strings.IndexByte(key, '/'); i > 0 {
-		return key[:i]
-	}
-	return ""
 }
 
 // checkRead 按 scene 的读权限规则：

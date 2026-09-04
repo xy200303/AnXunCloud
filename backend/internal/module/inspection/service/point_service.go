@@ -114,7 +114,7 @@ func (s *PointService) toItem(p *model.InspectionPoint) gin.H {
 		"template_id": p.TemplateID, "template_name": templateName,
 		"longitude": p.Longitude, "latitude": p.Latitude,
 		"fence_radius": p.FenceRadius, "credential": p.Credential, "require_fence": p.RequireFence,
-		"sort":                 p.Sort, "status": sysmodel.StatusInt(p.Status), "created_at": timefmt.T(p.CreatedAt),
+		"sort": p.Sort, "status": sysmodel.StatusInt(p.Status), "created_at": timefmt.T(p.CreatedAt),
 	}
 }
 
@@ -127,17 +127,17 @@ func (s *PointService) Create(c *gin.Context, req *dto.PointSaveReq) (string, st
 		return "", "", be
 	}
 	p := model.InspectionPoint{
-		TenantID:    middleware.CommunityTenantID(s.db, req.CommunityID), // 冗余列（=所属小区租户）
-		CommunityID: req.CommunityID,
-		BuildingID:  req.BuildingID,
-		Name:        req.Name,
-		Type:        req.Type,
-		TemplateID:  templatePtr(req.TemplateID),
-		NfcID:       normalizeNfcID(req.NfcID),
-		Longitude:   req.Longitude,
-		Latitude:    req.Latitude,
-		FenceRadius: s.fenceRadius(req.FenceRadius),
-		Credential:  credentialOrDefault(req.Credential),
+		TenantID:     middleware.CommunityTenantID(s.db, req.CommunityID), // 冗余列（=所属小区租户）
+		CommunityID:  req.CommunityID,
+		BuildingID:   req.BuildingID,
+		Name:         req.Name,
+		Type:         req.Type,
+		TemplateID:   templatePtr(req.TemplateID),
+		NfcID:        normalizeNfcID(req.NfcID),
+		Longitude:    req.Longitude,
+		Latitude:     req.Latitude,
+		FenceRadius:  s.fenceRadius(req.FenceRadius),
+		Credential:   credentialOrDefault(req.Credential),
 		RequireFence: req.RequireFence,
 		Sort:         req.Sort,
 		Status:       sysmodel.StatusEnabled,
@@ -292,8 +292,7 @@ func (s *PointService) MapPoints(c *gin.Context, communityID string) ([]gin.H, *
 }
 
 // QRCodeBatch 批量生成二维码并打包 zip 下载。
-// 码内容为短链接 {APP_BASE_URL}/p/{code}：外来人员用微信/相机扫码直接打开点位信息公开页；
-// 巡检端扫码后由客户端提取编号（兼容旧版纯编号二维码，见 app/utils/scan.ts extractPointCode）。
+// 码内容为短链接 {APP_BASE_URL}/p/{code}：外来人员用微信/相机扫码直接打开点位信息公开页。
 func (s *PointService) QRCodeBatch(c *gin.Context, req *dto.QRCodeBatchReq) (gin.H, *errs.Error) {
 	if len(req.PointIDs) > 200 {
 		return nil, errs.ErrParam.WithMsg("单次最多生成 200 个点位二维码")

@@ -8,8 +8,7 @@ export interface MessageItem {
   content: string
   type: string
   biz_id: string | null
-  // 后端实际返回布尔；宽松兼容 0/1
-  is_read: boolean | number
+  is_read: boolean
   created_at: string
 }
 

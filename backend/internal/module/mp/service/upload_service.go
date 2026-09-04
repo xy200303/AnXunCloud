@@ -2,6 +2,7 @@ package service
 
 import (
 	"bytes"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -75,18 +76,50 @@ func (s *UploadService) STS(userID string, req *dto.STSReq) (gin.H, *errs.Error)
 		return nil, errs.ErrSTSFailed
 	}
 	return gin.H{
-		"access_key_id":     creds.AccessKeyID,
-		"access_key_secret": creds.AccessKeySecret,
-		"security_token":    creds.SecurityToken,
-		"expiration":        creds.Expiration.Format(timefmt.Layout),
-		"expire_seconds":    s.oss.ExpireSeconds,
-		"bucket":            s.oss.Bucket,
-		"endpoint":          "https://" + s.oss.Endpoint,
-		"dir":               dir,
-		"callback_url":      s.store.CallbackURL(),
-		"max_file_size":     s.store.MaxFileSize(),
-		"allowed_types":     s.store.AllowedTypes(),
+		"access_key_id":      creds.AccessKeyID,
+		"access_key_secret":  creds.AccessKeySecret,
+		"security_token":     creds.SecurityToken,
+		"expiration":         creds.Expiration.Format(timefmt.Layout),
+		"expire_seconds":     s.oss.ExpireSeconds,
+		"bucket":             s.oss.Bucket,
+		"endpoint":           "https://" + s.oss.Endpoint,
+		"dir":                dir,
+		"callback_url":       s.store.CallbackURL(),
+		"callback_body_type": "application/json",
+		"callback_body":      `{"bucket":"${bucket}","object":"${object}","size":"${size}","mimeType":"${mimeType}","etag":"${etag}","x:name":"${x:name}","x:uid":"${x:uid}","x:scene":"${x:scene}","x:md5":"${x:md5}"}`,
+		"callback_vars":      gin.H{"x:uid": userID, "x:scene": req.Scene},
+		"max_file_size":      s.store.MaxFileSize(),
+		"allowed_types":      s.store.AllowedTypes(),
 	}, nil
+}
+
+// Preflight 上传前预检：客户端提交摘要后，服务端返回同租户同场景下可直接复用的文件。
+func (s *UploadService) Preflight(userID string, req *dto.STSReq) (gin.H, *errs.Error) {
+	if be := s.AuthorizeScene(userID, req.Scene); be != nil {
+		return nil, be
+	}
+	tenantID := s.UserTenantID(userID)
+	files := make([]gin.H, 0, len(req.Files))
+	for _, f := range req.Files {
+		if _, be := s.store.CheckExt(f.Name); be != nil {
+			return nil, be
+		}
+		if f.Size <= 0 || f.Size > s.store.MaxFileSize() {
+			return nil, errs.ErrUploadTooLarge
+		}
+		md5hex := strings.ToLower(strings.TrimSpace(f.MD5))
+		if decoded, err := hex.DecodeString(md5hex); err != nil || len(decoded) != 16 {
+			return nil, errs.ErrParam.WithMsg("files.md5 必须是 32 位十六进制摘要")
+		}
+		item := gin.H{"name": filepath.Base(f.Name), "size": f.Size, "md5": md5hex, "reused": false}
+		if existing, ok := s.FindReusable(req.Scene, md5hex, f.Size, tenantID); ok {
+			item["reused"] = true
+			item["file_id"] = existing.ID
+			item["url"] = existing.URL
+		}
+		files = append(files, item)
+	}
+	return gin.H{"files": files}, nil
 }
 
 func storageDir(store *storage.Storage, scene string, uid string) string {
@@ -293,6 +326,12 @@ func (s *UploadService) Callback(c *gin.Context, body []byte) (int, any) {
 		md5hex := strings.ToLower(strings.TrimSpace(form.MD5))
 		if md5hex == "" {
 			md5hex = strings.ToLower(strings.Trim(form.ETag, `"`))
+		}
+		if form.MD5 != "" {
+			data, err := s.store.ReadFile(form.Object)
+			if err != nil || int64(len(data)) != form.Size || storage.MD5Hex(data) != md5hex {
+				return 400, gin.H{"Status": "MD5Mismatch"}
+			}
 		}
 		if existing, ok := s.FindReusable(form.Scene, md5hex, form.Size, &tenantID); ok {
 			if err := s.store.Delete(form.Object); err != nil {

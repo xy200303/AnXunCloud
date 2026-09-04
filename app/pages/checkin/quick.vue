@@ -284,7 +284,7 @@ import {
   TaskPoint
 } from '@/services/api'
 import { isNfcSupported, readCardOnce, toastNfcUnavailable } from '@/utils/nfc'
-import { resolvePointCode } from '@/utils/scan'
+import { extractPointCode, resolvePointCode } from '@/utils/scan'
 import { getLocationGcj02 } from '@/utils/geo'
 import { playVoice } from '@/utils/voice'
 import { compressForUpload } from '@/utils/image'
@@ -376,16 +376,6 @@ function fmtDateTime(d: Date): string {
     d.getFullYear() + '-' + pad2(d.getMonth() + 1) + '-' + pad2(d.getDate()) +
     ' ' + pad2(d.getHours()) + ':' + pad2(d.getMinutes()) + ':' + pad2(d.getSeconds())
   )
-}
-
-/** 二维码内容归一化：兼容短链接贴纸（/p/{code}）与早期 scheme 前缀（与 form.vue / 后端 normalizeQRCode 一致） */
-function normalizeCode(v: string): string {
-  const prefix = 'inspection://checkin?no='
-  let s = (v || '').trim()
-  if (s.indexOf(prefix) == 0) s = s.substring(prefix.length)
-  const m = s.match(/\/p\/([A-Za-z0-9]+)\/?(?:[?#].*)?$/)
-  if (m != null) s = m[1]
-  return s
 }
 
 /** 由点位模板生成向导项初始状态 */
@@ -572,7 +562,7 @@ export default {
     this.pointIdParam = options && options.point_id ? String(options.point_id) : ''
     this.modify = options != null && options.mode == 'modify'
     if (options && options.no) {
-      this.preVerifiedNo = normalizeCode(String(options.no))
+      this.preVerifiedNo = String(options.no).trim()
     }
     const sys = uni.getSystemInfoSync()
     this.statusBarHeight = sys.statusBarHeight != null ? sys.statusBarHeight : 0
@@ -888,7 +878,11 @@ export default {
       uni.scanCode({
         onlyFromCamera: true, // 禁相册选图防代扫
         success: (res) => {
-          const code = normalizeCode(res.result)
+          const code = extractPointCode(res.result)
+          if (code == '') {
+            uni.showToast({ title: '请扫描新版点位二维码', icon: 'none' })
+            return
+          }
           if (this.curPoint != null && this.curPoint.qrcode_no != '' && code != this.curPoint.qrcode_no) {
             uni.showToast({ title: '二维码与本点位不匹配', icon: 'none' })
             return

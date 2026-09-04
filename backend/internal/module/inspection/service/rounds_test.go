@@ -77,27 +77,25 @@ func TestPlanDailyMinRounds(t *testing.T) {
 
 // TestTaskPointIDs 任务点位名单：以任务快照为准（不回落计划名单——计划后续编辑不应改变已生成任务的名单口径）。
 func TestTaskPointIDs(t *testing.T) {
-	plan := &model.InspectionPlan{PointIDs: types.IDArray{"p1", "p2"}}
 	task := &model.InspectionTask{}
-	if got := model.TaskPointIDs(task, plan); len(got) != 0 {
+	if got := model.TaskPointIDs(task); len(got) != 0 {
 		t.Fatalf("空快照应为空名单（不回落计划）: %v", got)
 	}
 	task.PointIDs = types.IDArray{"p3"}
-	if got := model.TaskPointIDs(task, plan); len(got) != 1 || got[0] != "p3" {
+	if got := model.TaskPointIDs(task); len(got) != 1 || got[0] != "p3" {
 		t.Fatalf("快照非空应读快照: %v", got)
 	}
 }
 
-// TestTaskTimeWindow 任务时段：快照优先（轮次任务），空回落计划 time_window。
+// TestTaskTimeWindow 任务时段：只读取任务快照。
 func TestTaskTimeWindow(t *testing.T) {
-	plan := &model.InspectionPlan{TimeWindow: "08:00-20:00"}
 	task := &model.InspectionTask{}
-	if got := model.TaskTimeWindow(task, plan); got != "08:00-20:00" {
-		t.Fatalf("空快照应回落计划时段: %q", got)
+	if got := model.TaskTimeWindow(task); got != "" {
+		t.Fatalf("空快照应为空: %q", got)
 	}
 	task.TimeWindow = "22:00-02:00"
-	if got := model.TaskTimeWindow(task, plan); got != "22:00-02:00" {
-		t.Fatalf("快照非空应优先读快照: %q", got)
+	if got := model.TaskTimeWindow(task); got != "22:00-02:00" {
+		t.Fatalf("应读取任务快照: %q", got)
 	}
 }
 

@@ -114,8 +114,8 @@ func (s *PlanService) toItem(p *model.InspectionPlan) gin.H {
 		"start_date": p.StartDate.Format("2006-01-02"), "end_date": endDate,
 		"time_window": p.TimeWindow, "status": sysmodel.StatusInt(p.Status),
 		"selection_mode": p.SelectionMode, "point_types": p.PointTypes,
-		"assign_mode":   p.AssignMode,
-		"created_at":    timefmt.T(p.CreatedAt),
+		"assign_mode": p.AssignMode,
+		"created_at":  timefmt.T(p.CreatedAt),
 	}
 }
 
@@ -635,7 +635,7 @@ func (s *PlanService) GenerateForDate(ctx context.Context, date time.Time) (int,
 		if s.routeOptimize() {
 			pointIDs = OrderPointsByRoute(s.db, pointIDs)
 		}
-		// 轮次展开：配了 rounds 每轮 × 每人一个任务（round_name/time_window 快照进任务列）；未配维持单任务现状
+		// 轮次展开：配了 rounds 每轮 × 每人一个任务；所有任务均固化执行时段。
 		rounds := model.PlanRounds(p.CycleConfig)
 		if len(rounds) == 0 {
 			rounds = []model.Round{{}}
@@ -659,6 +659,10 @@ func (s *PlanService) GenerateForDate(ctx context.Context, date time.Time) (int,
 				if len(taskPoints) == 0 {
 					continue
 				}
+				timeWindow := rd.Window
+				if timeWindow == "" {
+					timeWindow = p.TimeWindow
+				}
 				task := model.InspectionTask{
 					TenantID:    p.TenantID, // 冗余列随计划快照（=所属小区租户）
 					PlanID:      p.ID,
@@ -667,7 +671,7 @@ func (s *PlanService) GenerateForDate(ctx context.Context, date time.Time) (int,
 					PatrolType:  p.PatrolType, // 巡查类型随任务快照，计划更新会同步未完成任务
 					TaskDate:    date,
 					RoundName:   rd.Name,
-					TimeWindow:  rd.Window,
+					TimeWindow:  timeWindow,
 					PointIDs:    taskPoints,
 					Status:      model.TaskPending,
 					TotalPoints: len(taskPoints),

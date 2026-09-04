@@ -488,7 +488,7 @@ func seedConfigs(tx *gorm.DB) error {
 		{Key: "site.address", Name: "公司地址", Value: "", ConfigGroup: "site", Remark: "官网联系区块与结构化数据展示，留空不显示"},
 		{Key: "site.icp", Name: "ICP 备案号", Value: "", ConfigGroup: "site", Remark: "官网页脚展示（如 鄂ICP备2024xxxxxx号-1），留空不显示"},
 		{Key: "auth.register_enabled", Name: "开放注册开关", Value: "false", ConfigGroup: "security", Remark: "开启后登录页显示注册入口，注册需选择所属公司"},
-		// 公章自 v16 起由 sign_asset 签章资产表管理，不再使用 report.seal_file_key 配置项
+		// 公章由 sign_asset 签章资产表管理，不使用报告配置项保存文件引用
 	}
 	for i := range configs {
 		// OnConflict 跳过：同名配置项已存在（历史库/迁移补丁）时跳过，保证可重复执行

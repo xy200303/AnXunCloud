@@ -24,9 +24,9 @@ import (
 	"anxuncloud/internal/pkg/logger"
 	"anxuncloud/internal/pkg/notify"
 	"anxuncloud/internal/pkg/storage"
-	"anxuncloud/internal/pkg/uploadfile"
 	"anxuncloud/internal/pkg/timefmt"
 	"anxuncloud/internal/pkg/types"
+	"anxuncloud/internal/pkg/uploadfile"
 	"anxuncloud/internal/pkg/watermark"
 
 	"go.uber.org/zap"
@@ -167,12 +167,12 @@ func (s *CheckinService) doCheckinLocked(ctx context.Context, inspectorID string
 	if task.Status == insmodel.TaskDone {
 		return nil, nil, errs.ErrDuplicateCheckin.WithMsg("任务已完成")
 	}
-	// 点位须属于该任务路线（任务点位快照优先，空回落计划名单——兼容存量任务）
+	// 点位须属于任务生成时固化的路线快照。
 	var plan insmodel.InspectionPlan
 	if err := s.db.First(&plan, "id = ?", task.PlanID).Error; err != nil {
 		return nil, nil, errs.ErrTaskNotOwned
 	}
-	if !insmodel.TaskPointIDs(&task, &plan).Contains(req.PointID) {
+	if !insmodel.TaskPointIDs(&task).Contains(req.PointID) {
 		return nil, nil, errs.ErrTaskNotOwned.WithMsg("点位不属于该任务")
 	}
 	var point insmodel.InspectionPoint
@@ -555,7 +555,7 @@ func (s *CheckinService) validateConfirmedAI(req *dto.CheckinReq, items []insmod
 func (s *CheckinService) checkMode(req *dto.CheckinReq, point *insmodel.InspectionPoint, distance float64) *errs.Error {
 	switch point.Credential {
 	case insmodel.CredentialQRCode:
-		if normalizeQRCode(req.QRCodeNo) != point.QRCodeNo {
+		if strings.TrimSpace(req.QRCodeNo) != point.QRCodeNo {
 			return errs.ErrQRCodeMismatch
 		}
 	case insmodel.CredentialNFC:
@@ -564,7 +564,7 @@ func (s *CheckinService) checkMode(req *dto.CheckinReq, point *insmodel.Inspecti
 		}
 	case insmodel.CredentialAny:
 		// 任一：二维码或 NFC 匹配其一即通过（NFC 仅当点位录了卡号才可比）
-		qrOK := point.QRCodeNo != "" && normalizeQRCode(req.QRCodeNo) == point.QRCodeNo
+		qrOK := point.QRCodeNo != "" && strings.TrimSpace(req.QRCodeNo) == point.QRCodeNo
 		nfcOK := nfcMatch(req.NFCID, point.NfcID)
 		if !qrOK && !nfcOK {
 			return errs.ErrQRCodeMismatch.WithMsg("凭证校验失败：请扫描点位二维码或读取 NFC 标签")
@@ -576,25 +576,11 @@ func (s *CheckinService) checkMode(req *dto.CheckinReq, point *insmodel.Inspecti
 	return nil
 }
 
-// nfcMatch NFC 卡号比对：双侧统一大写去空白后等值（兼容存量小写录入），空串不匹配。
+// nfcMatch NFC 卡号按统一入库格式精确比对，空串不匹配。
 func nfcMatch(reqID, pointID string) bool {
-	a := strings.ToUpper(strings.TrimSpace(reqID))
-	b := strings.ToUpper(strings.TrimSpace(pointID))
+	a := strings.TrimSpace(reqID)
+	b := strings.TrimSpace(pointID)
 	return a != "" && b != "" && a == b
-}
-
-// normalizeQRCode 扫码内容归一化：兼容短链接贴纸（{站点源}/p/{code}）与早期 scheme 前缀（inspection://checkin?no=XXX），返回裸编号。
-func normalizeQRCode(v string) string {
-	s := strings.TrimSpace(v)
-	s = strings.TrimPrefix(s, "inspection://checkin?no=")
-	if i := strings.LastIndex(s, "/p/"); i >= 0 {
-		s = s[i+3:]
-		if j := strings.IndexAny(s, "?#"); j >= 0 {
-			s = s[:j]
-		}
-		s = strings.TrimRight(s, "/")
-	}
-	return s
 }
 
 // resolveCheckItems 检查项模板校验并生成逐项快照行（v18 起写 checkin_record_item）：

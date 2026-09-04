@@ -80,11 +80,11 @@ type UserDetail struct {
 	Status    int      `json:"status"`
 	IsBuiltin bool     `json:"is_builtin"`
 	// 手写签名图（月报签字栏用）
-	SignatureFileKey string `json:"signature_file_key"`
-	SignatureURL     string `json:"signature_url"`
-	LastLoginAt      string `json:"last_login_at"`
-	CreatedAt        string `json:"created_at"`
-	UpdatedAt        string `json:"updated_at"`
+	SignatureFileID string `json:"signature_file_id"`
+	SignatureURL    string `json:"signature_url"`
+	LastLoginAt     string `json:"last_login_at"`
+	CreatedAt       string `json:"created_at"`
+	UpdatedAt       string `json:"updated_at"`
 }
 
 // ImportResult 导入结果。

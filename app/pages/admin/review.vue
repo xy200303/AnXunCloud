@@ -324,10 +324,9 @@ export default {
       this.rejecting = false
       this.rejectReason = ''
     },
-    /** 检查项照片：后端已按文件 ID 解析 URL，旧数据再回退存储路径。 */
+    /** 检查项照片由后端按文件 ID 解析为可访问 URL。 */
     itemPhotoUrls(it: { photos: string[]; photo_urls?: string[] }): string[] {
-      if ((it.photo_urls ?? []).length > 0) return (it.photo_urls ?? []).map(toAbsUrl)
-      return (it.photos ?? []).map((key) => toAbsUrl('/uploads/' + key))
+      return (it.photo_urls ?? []).map(toAbsUrl)
     },
     preview(urls: string[], idx: number) {
       uni.previewImage({ urls: urls, current: urls[idx] })

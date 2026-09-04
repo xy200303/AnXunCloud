@@ -62,7 +62,13 @@
           <el-input v-model="form.name" placeholder="如：综合月报（每月1日）" maxlength="64" />
         </el-form-item>
         <el-form-item label="小区" prop="community_id">
-          <el-select v-model="form.community_id" placeholder="选择小区" style="width: 100%">
+          <el-select
+            v-model="form.community_id"
+            placeholder="选择小区"
+            :loading="communitiesLoading"
+            no-data-text="当前租户暂无可用小区"
+            style="width: 100%"
+          >
             <el-option v-for="c in communities" :key="c.id" :label="c.name" :value="c.id" />
           </el-select>
         </el-form-item>
@@ -128,6 +134,7 @@ import { usePatrolTypes } from '@/composables/usePatrolTypes'
 import type { CommunityItem } from '@/api/biz-types'
 
 const communities = ref<CommunityItem[]>([])
+const communitiesLoading = ref(false)
 const { patrolTypeGroups } = usePatrolTypes()
 
 const loading = ref(false)
@@ -257,9 +264,18 @@ async function handleDelete(row: ReportPlan) {
   fetchList()
 }
 
+async function loadCommunities() {
+  communitiesLoading.value = true
+  try {
+    const data = await listCommunities({ page: 1, page_size: 100, status: 1 })
+    communities.value = data.list
+  } finally {
+    communitiesLoading.value = false
+  }
+}
+
 onMounted(async () => {
-  const data = await listCommunities({ page: 1, page_size: 100, status: 1 })
-  communities.value = data.list
+  await loadCommunities()
   fetchList()
 })
 </script>

@@ -152,7 +152,7 @@ import { onBeforeRouteLeave, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox, type FormInstance, type FormRules, type InputInstance } from 'element-plus'
 import { useUserStore } from '@/store/user'
 import { updateProfile, updatePassword, getMyLoginLogs, type MyLoginLog } from '@/api/user'
-import { uploadImage, fileUrl, withFileToken } from '@/api/upload'
+import { uploadImage, withFileToken } from '@/api/upload'
 import SignaturePad from '@/components/SignaturePad.vue'
 import { resetRouterState } from '@/router'
 
@@ -161,8 +161,11 @@ const userStore = useUserStore()
 
 const info = computed(() => userStore.info)
 const avatarText = computed(() => userStore.name.slice(0, 1) || '用')
-// 头像 URL：avatar 存上传接口返回的 url（本地存储为 /uploads 静态路径）
-const avatarUrl = computed(() => (info.value?.avatar ? fileUrl(info.value.avatar) : ''))
+// 头像 URL：avatar 保存 upload_file.id，通过统一文件接口读取。
+const avatarUrl = computed(() => {
+  const fileID = info.value?.avatar || ''
+  return fileID ? withFileToken('/api/files/' + fileID) : ''
+})
 const activeTab = ref('profile')
 
 // ===== 头像更换（选择即上传，成功后刷新 store） =====
@@ -172,8 +175,8 @@ async function handleAvatarUpload(opt: { file: File }) {
   if (uploadingAvatar.value) return
   uploadingAvatar.value = true
   try {
-    const { url } = await uploadImage(opt.file, 'avatar')
-    await updateProfile({ name: info.value?.name || '', phone: info.value?.phone || '', avatar: url })
+    const { file_id } = await uploadImage(opt.file, 'avatar')
+    await updateProfile({ name: info.value?.name || '', phone: info.value?.phone || '', avatar: file_id })
     await userStore.fetchInfo()
     ElMessage.success('头像已更新')
   } catch {

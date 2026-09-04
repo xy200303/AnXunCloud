@@ -62,6 +62,21 @@ func (ctl *FileController) STS(c *gin.Context) {
 	response.OK(c, data)
 }
 
+// Preflight POST /api/files/preflight（上传前摘要预检）
+func (ctl *FileController) Preflight(c *gin.Context) {
+	var req mpdto.STSReq
+	if be := bind.JSON(c, &req); be != nil {
+		response.Fail(c, be)
+		return
+	}
+	data, be := ctl.svc.Preflight(middleware.CurrentUserID(c), &req)
+	if be != nil {
+		response.Fail(c, be)
+		return
+	}
+	response.OK(c, data)
+}
+
 // Download GET /api/files/*key（inline 预览；?download=1 强制附件下载，文件名为原始名称）
 func (ctl *FileController) Download(c *gin.Context) {
 	c.Header("X-Content-Type-Options", "nosniff")

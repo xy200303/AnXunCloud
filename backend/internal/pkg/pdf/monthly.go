@@ -32,8 +32,8 @@ type SignInfo struct {
 	Name   string
 	Time   string
 	Remark string
-	// SignatureKey 签字时的手写签名图快照 file_key（空回退打印姓名）
-	SignatureKey string
+	// SignatureFileID 签字时的手写签名图 file_id 快照（空回退打印姓名）
+	SignatureFileID string
 }
 
 // SummaryRow 本月检查汇总表行（按点位类型一行）。
@@ -68,18 +68,18 @@ type DetailTable struct {
 
 // LedgerRow 问题清单及整改台账行（v2 模板：一条异常打卡记录一行）。
 type LedgerRow struct {
-	Date          string   // 日期（异常打卡日）
-	Problem       string   // 故障/问题描述（异常备注）
-	ProblemPhotos []string // 问题照片 file_key（渲染取首张）
-	FixText       string   // 处理情况（异常打卡的复核结论）
-	FixPhotos     []string // 整改后照片 file_key（渲染取首张）
-	Inspector     string   // 检查人（打卡巡检员）
+	Date            string   // 日期（异常打卡日）
+	Problem         string   // 故障/问题描述（异常备注）
+	ProblemPhotoIDs []string // 问题照片 file_id（渲染取首张）
+	FixText         string   // 处理情况（异常打卡的复核结论）
+	FixPhotoIDs     []string // 整改后照片 file_id（渲染取首张）
+	Inspector       string   // 检查人（打卡巡检员）
 }
 
-// PhotoCell 现场照片单元（标注 + 图片 file_key）。
+// PhotoCell 现场照片单元（标注 + 图片 file_id）。
 type PhotoCell struct {
-	Label string // 小标注：检查项名（逐项照片）或"全景"（记录级照片）
-	Key   string // 图片 file_key（经 ImageLoader 加载）
+	Label  string // 小标注：检查项名（逐项照片）或"全景"（记录级照片）
+	FileID string // 图片 file_id（经 ImageLoader 加载）
 }
 
 // PhotoGroup 分项检查照片分组（v2：一个设施类别一组）。
@@ -96,7 +96,7 @@ type MonthlyReportData struct {
 	CompanyName   string   // 管理单位落款（空则封面留白 / 页尾 XX物业服务中心）
 	Approved      bool     // 已终审（公章与报告日期仅终审后展示）
 	ApproveDate   string   // 终审日期 YYYY-MM-DD
-	SealKey       string   // 公章图 file_key（仅 Approved 时嵌入）
+	SealFileID    string   // 公章图 file_id（仅 Approved 时嵌入）
 	TypeNames     []string // 设施类别（该小区有点位的类型中文名）
 	Summary       []SummaryRow
 	Details       []DetailTable
@@ -106,9 +106,9 @@ type MonthlyReportData struct {
 	InspectorSigns []SignInfo
 	Supervisor     SignInfo
 	Manager        SignInfo
-	// ImageLoader 按 file_key 加载图片字节与类型（JPG/PNG）；nil 则跳过签名图/公章。
+	// ImageLoader 按 file_id 加载图片字节与类型（JPG/PNG）；nil 则跳过签名图/公章。
 	// 单张加载失败返回 error，PDF 侧跳过该张，不影响整体生成。
-	ImageLoader func(fileKey string) (data []byte, imgType string, err error)
+	ImageLoader func(fileID string) (data []byte, imgType string, err error)
 }
 
 // GenerateMonthly 生成月度巡检报告 PDF（A4 纵向，内嵌 Noto Sans SC 中文字体）。
@@ -384,8 +384,8 @@ func renderCover(p *gofpdf.Fpdf, d MonthlyReportData) {
 	p.CellFormat(labelW2+valueW2, 6, "（加盖公章）", "", 1, "C", false, 0, "")
 
 	// 公章：仅终审通过且配置了公章图时嵌入（约 35mm 宽，覆盖在日期区域上方）
-	if d.Approved && d.SealKey != "" {
-		if name, w, h, ok := registerImage(p, d.ImageLoader, d.SealKey, "seal", 35, 35); ok {
+	if d.Approved && d.SealFileID != "" {
+		if name, w, h, ok := registerImage(p, d.ImageLoader, d.SealFileID, "seal", 35, 35); ok {
 			p.ImageOptions(name, blockX+labelW2+valueW2-w+6, infoY+2*lineH-h/2+1, w, h, false, gofpdf.ImageOptions{ReadDpi: true}, 0, "")
 		}
 	}
@@ -435,7 +435,7 @@ func renderPhotoAppendix(p *gofpdf.Fpdf, d MonthlyReportData) {
 			regs := make([]reg, len(cells))
 			rowH := 0.0
 			for i, cell := range cells {
-				n, w, h, ok := registerImage(p, d.ImageLoader, cell.Key, fmt.Sprintf("site-%d-%d-%d", gi, row, i), photoImgMaxW, photoImgMaxH)
+				n, w, h, ok := registerImage(p, d.ImageLoader, cell.FileID, fmt.Sprintf("site-%d-%d-%d", gi, row, i), photoImgMaxW, photoImgMaxH)
 				regs[i] = reg{n, w, h, ok}
 				if ok && h > rowH {
 					rowH = h
@@ -520,7 +520,7 @@ func renderSignCell(p *gofpdf.Fpdf, d MonthlyReportData, col int, x, y, w, avail
 			continue // 未签字留白
 		}
 		uniq := fmt.Sprintf("sign-%d-%d", col, idx)
-		if name, iw, ih, ok := registerImage(p, d.ImageLoader, s.SignatureKey, uniq, 34, 13); ok {
+		if name, iw, ih, ok := registerImage(p, d.ImageLoader, s.SignatureFileID, uniq, 34, 13); ok {
 			p.ImageOptions(name, x+(w-iw)/2, curY, iw, ih, false, gofpdf.ImageOptions{ReadDpi: true}, 0, "")
 			curY += ih + 1
 		} else {
@@ -825,11 +825,11 @@ func renderIssueLedger(p *gofpdf.Fpdf, d MonthlyReportData) {
 			drawText(4, row.FixText)
 			xProblemPhoto := margin + issueLedgerWidths[0] + issueLedgerWidths[1] + issueLedgerWidths[2]
 			xFixPhoto := xProblemPhoto + issueLedgerWidths[3] + issueLedgerWidths[4]
-			if len(row.ProblemPhotos) > 0 {
-				drawIssueLedgerPhoto(p, d, row.ProblemPhotos[0], fmt.Sprintf("issue-ledger-p-%d", idx), xProblemPhoto, y0, issueLedgerWidths[3], h)
+			if len(row.ProblemPhotoIDs) > 0 {
+				drawIssueLedgerPhoto(p, d, row.ProblemPhotoIDs[0], fmt.Sprintf("issue-ledger-p-%d", idx), xProblemPhoto, y0, issueLedgerWidths[3], h)
 			}
-			if len(row.FixPhotos) > 0 {
-				drawIssueLedgerPhoto(p, d, row.FixPhotos[0], fmt.Sprintf("issue-ledger-f-%d", idx), xFixPhoto, y0, issueLedgerWidths[5], h)
+			if len(row.FixPhotoIDs) > 0 {
+				drawIssueLedgerPhoto(p, d, row.FixPhotoIDs[0], fmt.Sprintf("issue-ledger-f-%d", idx), xFixPhoto, y0, issueLedgerWidths[5], h)
 			}
 			p.SetY(y0 + h)
 		}

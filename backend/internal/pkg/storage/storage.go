@@ -47,13 +47,13 @@ func New(up config.UploadConfig, oss config.OSSConfig, cos config.COSConfig, bas
 // DriverName 当前存储驱动名（local/oss/cos）。
 func (s *Storage) DriverName() string { return s.driver.Name() }
 
-// ReadFile 按 file_key 读取文件字节（统一文件层用；本地读盘，云存储走 HTTP）。
+// ReadFile 按内部存储键读取文件字节（统一文件层用；本地读盘，云存储走 HTTP）。
 func (s *Storage) ReadFile(fileKey string) ([]byte, error) { return s.driver.Read(fileKey) }
 
 // Delete 删除对象，直传去重命中时用于清理刚上传的重复对象。
 func (s *Storage) Delete(fileKey string) error { return s.driver.Delete(fileKey) }
 
-// PutBytes 按 file_key 写入字节（服务端生成内容回写：水印图等）。
+// PutBytes 按内部存储键写入字节（服务端生成内容回写：水印图等）。
 // 本地/COS 可用；OSS 暂不支持服务端写入（返回驱动错误，调用方降级跳过）。
 func (s *Storage) PutBytes(fileKey string, data []byte) error {
 	return s.driver.Put(fileKey, bytes.NewReader(data))
@@ -90,13 +90,13 @@ func (s *Storage) URL(fileKey string) string {
 	return s.driver.URL(fileKey)
 }
 
-// LocalPath file_key 对应的本地路径（仅 local 模式有效）。
+// LocalPath 返回内部存储键对应的本地路径（仅 local 模式有效）。
 func (s *Storage) LocalPath(fileKey string) string {
 	return filepath.Join(s.cfg.LocalDir, filepath.FromSlash(fileKey))
 }
 
 // Save 保存上传文件：按驱动分发（local 写盘 / cos 签名直写 / oss 走 STS 直传不经此路径）。
-// 返回 file_key、访问 URL、内容字节与 MD5（EXIF 解析与元数据登记由调用方完成）。
+// 返回内部存储键、访问 URL、内容字节与 MD5（EXIF 解析与元数据登记由调用方完成）。
 func (s *Storage) Save(scene string, uid string, ext string, r io.Reader) (string, string, []byte, string, error) {
 	key := s.NewFileKey(scene, uid, ext)
 	data, err := io.ReadAll(io.LimitReader(r, s.cfg.MaxFileSize+1))

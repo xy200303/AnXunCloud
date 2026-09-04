@@ -8,8 +8,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/redis/go-redis/v9"
 	"github.com/gin-gonic/gin"
+	"github.com/redis/go-redis/v9"
 	"gorm.io/gorm"
 
 	"anxuncloud/internal/middleware"
@@ -36,7 +36,7 @@ type AuthService struct {
 	sess   *session.Store
 	jwtm   *jwtutil.Manager
 	getCfg func(key string) (string, bool) // 读取系统参数（config:all 缓存）
-	store  *storage.Storage                // 签名图 file_key → URL
+	store  *storage.Storage                // 签名图存储键 → URL
 }
 
 // NewAuthService 构造认证服务。
@@ -264,15 +264,15 @@ func (s *AuthService) Info(identity *middleware.Identity) (*dto.InfoResp, *errs.
 		projects = append(projects, dto.ProjectBrief{ID: pid})
 	}
 	resp := &dto.InfoResp{
-		ID:           user.ID,
-		Username:     user.Username,
-		Name:         user.Name,
-		Phone:        user.Phone,
-		Avatar:       user.Avatar,
-		Projects:     projects,
-		DataScope:    model.ScopeProject,
-		Roles:        []dto.RoleBrief{},
-		Perms:        []string{},
+		ID:        user.ID,
+		Username:  user.Username,
+		Name:      user.Name,
+		Phone:     user.Phone,
+		Avatar:    user.Avatar,
+		Projects:  projects,
+		DataScope: model.ScopeProject,
+		Roles:     []dto.RoleBrief{},
+		Perms:     []string{},
 	}
 	// 所属公司（租户名）与在职编制（小区 + 岗位名），个人中心展示用
 	if user.TenantID != "" {

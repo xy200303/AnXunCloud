@@ -35,7 +35,7 @@ const exportMaxRows = 10000
 type UserService struct {
 	db           *gorm.DB
 	killSessions func(ctx context.Context, userID string)
-	store        *storage.Storage  // 签名图 file_key → URL
+	store        *storage.Storage  // 签名图存储路径 → URL
 	signAssets   *SignAssetService // v16 起签名走签章资产表
 }
 
@@ -318,10 +318,12 @@ func (s *UserService) Detail(id string, op *middleware.Identity) (*dto.UserDetai
 	}
 	// 签名取当前 active 签章资产（sign_asset 表）
 	if s.signAssets != nil {
-		key, _ := s.signAssets.ActiveSignature(id)
-		d.SignatureFileKey = key
-		if key != "" && s.store != nil {
-			d.SignatureURL = s.store.URL(key)
+		fileID, _ := s.signAssets.ActiveSignature(id)
+		d.SignatureFileID = fileID
+		if fileID != "" && s.store != nil {
+			if f, err := uploadfile.ByID(s.db, fileID); err == nil {
+				d.SignatureURL = s.store.URL(f.StorageKey)
+			}
 		}
 	}
 	if u.Openid != nil {
@@ -778,8 +780,8 @@ func uniqueStrings(ids []string) []string {
 }
 
 // UpdateProfile 修改当前用户基本资料（姓名、手机号；手机号全局唯一校验）。
-// sigKey 为 nil 表示不改动签名；空串表示移除签名；其余为手写签名图 file_key。
-// avatar 为 nil 表示不改动头像；空串表示清除头像；其余为头像 URL（上传接口返回的 url）。
+// sigKey 为 nil 表示不改动签名；空串表示移除签名；其余为手写签名图 file_id。
+// avatar 为 nil 表示不改动头像；空串表示清除头像；其余为 upload_file.id。
 // v16 起签名写入签章资产表（创建/替换当前用户的 user_signature 资产），不再写 sys_user 列。
 func (s *UserService) UpdateProfile(uid string, name, phone string, sigKey *string, avatar *string) *errs.Error {
 	var u model.SysUser
@@ -813,12 +815,27 @@ func (s *UserService) UpdateProfile(uid string, name, phone string, sigKey *stri
 	}
 	updates := map[string]any{"name": name, "phone": phone}
 	if avatar != nil {
-		updates["avatar"] = strings.TrimSpace(*avatar)
+		value := strings.TrimSpace(*avatar)
+		if value != "" {
+			f, err := uploadfile.ByID(s.db, value)
+			if err != nil || f.Scene != "avatar" || !sameTenantFile(f.TenantID, u.TenantID) {
+				return errs.ErrPhotoNotUploaded
+			}
+			value = f.ID
+		}
+		updates["avatar"] = value
 	}
 	if err := s.db.Model(&u).Updates(updates).Error; err != nil {
 		return errs.ErrInternal
 	}
 	return nil
+}
+
+func sameTenantFile(fileTenantID *string, userTenantID string) bool {
+	if fileTenantID == nil || userTenantID == "" {
+		return fileTenantID == nil && userTenantID == ""
+	}
+	return *fileTenantID == userTenantID
 }
 
 // ChangePassword 修改当前用户密码：校验旧密码，新密码强度同创建规则；

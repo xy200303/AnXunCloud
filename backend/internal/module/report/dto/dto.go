@@ -24,9 +24,9 @@ type ReportRecordsQuery struct {
 // （start_date/end_date 同时提供时优先于 period，此时 period 仅作展示兜底，可传空）。
 type GenerateReq struct {
 	CommunityID string `json:"community_id" binding:"required"`
-	Period      string `json:"period"` // YYYY-MM（未给日期范围时必填）
-	StartDate   string `json:"start_date"` // 任意期间起（含，YYYY-MM-DD）
-	EndDate     string `json:"end_date"`   // 任意期间止（含，YYYY-MM-DD）
+	Period      string `json:"period"`      // YYYY-MM（未给日期范围时必填）
+	StartDate   string `json:"start_date"`  // 任意期间起（含，YYYY-MM-DD）
+	EndDate     string `json:"end_date"`    // 任意期间止（含，YYYY-MM-DD）
 	DetailMode  string `json:"detail_mode"` // 明细策略：full/abnormal（缺省 full）
 	// 巡查类型：空=综合月报（现状）；非空=该类型专项检查报告（须为字典 patrol_type 的启用项）
 	PatrolType string `json:"patrol_type"`
@@ -37,19 +37,19 @@ type GenerateReq struct {
 }
 
 // SignReq 主管/经理签批请求（action=approve 通过 / reject 驳回，驳回 reason 必填）。
-// signature_file_key：未配置手写签名时随请求提交的一次性签名（须本人 scene=signature 上传文件，仅本次签字快照用）。
+// signature_file_id：未配置手写签名时随请求提交的一次性签名（须本人 scene=signature 上传文件，仅本次签字快照用）。
 type SignReq struct {
-	Remark           string `json:"remark"`
-	Action           string `json:"action" binding:"required,oneof=approve reject"`
-	Reason           string `json:"reason"`
+	Remark          string `json:"remark"`
+	Action          string `json:"action" binding:"required,oneof=approve reject"`
+	Reason          string `json:"reason"`
 	SignatureFileID string `json:"signature_file_id"`
 }
 
 // InspectorSignReq 巡检员确认请求：空 body 为本人确认；proxy_for 非空为代签（须 report:sign:proxy 权限，reason 必填）。
-// signature_file_key 同 SignReq（本人签/代签人均可用一次性签名）。
+// signature_file_id 同 SignReq（本人签/代签人均可用一次性签名）。
 type InspectorSignReq struct {
-	ProxyFor         string `json:"proxy_for"`
-	Reason           string `json:"reason"`
+	ProxyFor        string `json:"proxy_for"`
+	Reason          string `json:"reason"`
 	SignatureFileID string `json:"signature_file_id"`
 }
 
@@ -63,6 +63,6 @@ type ReportPlanReq struct {
 	CycleConfig map[string]any `json:"cycle_config"`
 	GenTime     string         `json:"gen_time" binding:"required"` // HH:MM
 	DetailMode  string         `json:"detail_mode"`                 // 明细策略：full=全量点位 / abnormal=仅异常点位（缺省 full）
-	Status      string         `json:"status"`      // 更新时可传 enabled/disabled
+	Status      string         `json:"status"`                      // 更新时可传 enabled/disabled
 	Remark      string         `json:"remark" binding:"max=255"`
 }

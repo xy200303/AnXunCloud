@@ -30,19 +30,19 @@ func (s *ReportService) pdfData(r *model.InspectionReport) pdf.MonthlyReportData
 		TitleLine:     s.reportTitleLine(r),
 		CompanyName:   s.cfgString("report.company_name"),
 		Approved:      r.Status == model.StatusApproved,
-		ImageLoader: func(key string) ([]byte, string, error) {
-			data, tp, err := s.loadPhoto(key)
+		ImageLoader: func(fileID string) ([]byte, string, error) {
+			data, tp, err := s.loadPhoto(fileID)
 			if err != nil {
-				logger.L.Warn("月报图片加载失败，已跳过", zap.String("file_key", key), zap.String("report_id", r.ID), zap.Error(err))
+				logger.L.Warn("月报图片加载失败，已跳过", zap.String("file_id", fileID), zap.String("report_id", r.ID), zap.Error(err))
 			}
 			return data, tp, err
 		},
 	}
 	if d.Approved {
 		// 公章：优先用终审时固化的快照；存量报告无快照回退报告所属租户当前 active 公章资产
-		d.SealKey = r.SealFileID
-		if d.SealKey == "" {
-			d.SealKey = s.activeSealID(r.CommunityID)
+		d.SealFileID = r.SealFileID
+		if d.SealFileID == "" {
+			d.SealFileID = s.activeSealID(r.CommunityID)
 		}
 		if r.ManagerAt != nil {
 			d.ApproveDate = r.ManagerAt.Format("2006-01-02")
@@ -244,7 +244,7 @@ func (s *ReportService) pdfData(r *model.InspectionReport) pdf.MonthlyReportData
 				for _, ci := range itemsByRec[rec.ID] {
 					for _, ref := range ci.Photos {
 						if f, err := uploadfile.ByID(s.db, ref); err == nil {
-							group.Cells = append(group.Cells, pdf.PhotoCell{Label: base + "·" + ci.Name, Key: f.ID})
+							group.Cells = append(group.Cells, pdf.PhotoCell{Label: base + "·" + ci.Name, FileID: f.ID})
 						}
 					}
 				}
@@ -274,7 +274,7 @@ func (s *ReportService) pdfData(r *model.InspectionReport) pdf.MonthlyReportData
 		for _, ci := range itemsByRec[rec.ID] {
 			for _, ref := range ci.Photos {
 				if f, err := uploadfile.ByID(s.db, ref); err == nil {
-					row.ProblemPhotos = append(row.ProblemPhotos, f.ID)
+					row.ProblemPhotoIDs = append(row.ProblemPhotoIDs, f.ID)
 				}
 			}
 		}
@@ -289,7 +289,7 @@ func (s *ReportService) pdfData(r *model.InspectionReport) pdf.MonthlyReportData
 	proxyNameBy := map[string]string{}
 	for _, e := range r.InspectorSigned {
 		signedBy[e.UserID] = e.SignedAt
-		sigBy[e.UserID] = e.SignatureKey
+		sigBy[e.UserID] = e.SignatureFileID
 		if e.ProxyName != "" {
 			proxyNameBy[e.UserID] = e.ProxyName
 		}
@@ -300,7 +300,7 @@ func (s *ReportService) pdfData(r *model.InspectionReport) pdf.MonthlyReportData
 			name += "（" + pn + "代签）" // 代签必须显式标注；原因留在系统留痕，不挤签字栏
 		}
 		d.InspectorSigns = append(d.InspectorSigns, pdf.SignInfo{
-			Name: name, Time: signedBy[uid], SignatureKey: sigBy[uid],
+			Name: name, Time: signedBy[uid], SignatureFileID: sigBy[uid],
 		})
 	}
 	// 已签但不在应签名单的（如超管代签）追加展示
@@ -309,19 +309,19 @@ func (s *ReportService) pdfData(r *model.InspectionReport) pdf.MonthlyReportData
 			continue
 		}
 		d.InspectorSigns = append(d.InspectorSigns, pdf.SignInfo{
-			Name: e.Name, Time: e.SignedAt, SignatureKey: e.SignatureKey,
+			Name: e.Name, Time: e.SignedAt, SignatureFileID: e.SignatureFileID,
 		})
 	}
 	if r.SupervisorBy != nil {
 		d.Supervisor = pdf.SignInfo{
 			Name: s.userName(*r.SupervisorBy), Time: timefmt.TP(r.SupervisorAt),
-			Remark: r.SupervisorRemark, SignatureKey: r.SupervisorSignatureID,
+			Remark: r.SupervisorRemark, SignatureFileID: r.SupervisorSignatureID,
 		}
 	}
 	if r.ManagerBy != nil {
 		d.Manager = pdf.SignInfo{
 			Name: s.userName(*r.ManagerBy), Time: timefmt.TP(r.ManagerAt),
-			Remark: r.ManagerRemark, SignatureKey: r.ManagerSignatureID,
+			Remark: r.ManagerRemark, SignatureFileID: r.ManagerSignatureID,
 		}
 	}
 	return d
@@ -330,7 +330,7 @@ func (s *ReportService) pdfData(r *model.InspectionReport) pdf.MonthlyReportData
 // photoGroupMaxCells 单个设施类别照片上限（防单组撑爆版面）。
 const photoGroupMaxCells = 48
 
-// patrolPointIDs 该小区该期间内指定巡查类型任务覆盖的点位集合（任务点位快照优先，空快照回落计划名单，兼容存量任务）。
+// patrolPointIDs 该小区该期间内指定巡查类型任务覆盖的点位集合（以任务点位快照为准）。
 func (s *ReportService) patrolPointIDs(communityID string, start, end time.Time, patrolType string) map[string]bool {
 	var tasks []insmodel.InspectionTask
 	s.db.Select("id", "plan_id", "point_ids").
@@ -338,27 +338,9 @@ func (s *ReportService) patrolPointIDs(communityID string, start, end time.Time,
 			communityID, start.Format("2006-01-02"), end.Format("2006-01-02"), patrolType).
 		Find(&tasks)
 	set := map[string]bool{}
-	planIDSet := map[string]bool{}
 	for i := range tasks {
-		if len(tasks[i].PointIDs) > 0 {
-			for _, pid := range tasks[i].PointIDs {
-				set[pid] = true
-			}
-		} else {
-			planIDSet[tasks[i].PlanID] = true
-		}
-	}
-	if len(planIDSet) > 0 {
-		ids := make([]string, 0, len(planIDSet))
-		for id := range planIDSet {
-			ids = append(ids, id)
-		}
-		var plans []insmodel.InspectionPlan
-		s.db.Select("id", "point_ids").Where("id IN ?", ids).Find(&plans)
-		for _, p := range plans {
-			for _, pid := range p.PointIDs {
-				set[pid] = true
-			}
+		for _, pid := range tasks[i].PointIDs {
+			set[pid] = true
 		}
 	}
 	return set

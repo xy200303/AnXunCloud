@@ -159,6 +159,7 @@ func New(cfg *config.Config, db *gorm.DB, rdb *redis.Client) (*gin.Engine, *insp
 	files := r.Group("/api/files", middleware.AuthAny(db, sess, jwtm, authsvc.ChannelAdmin, authsvc.ChannelApp, mpsvc.ChannelMP))
 	{
 		files.POST("", fileCtl.Upload)
+		files.POST("/preflight", fileCtl.Preflight)
 		files.POST("/sts", fileCtl.STS)
 		files.GET("/*key", fileCtl.Download)
 	}
@@ -354,6 +355,7 @@ func New(cfg *config.Config, db *gorm.DB, rdb *redis.Client) (*gin.Engine, *insp
 			mpAuth.GET("/checkins/:id", mpCtl.CheckinBrief)                                      // 本人打卡摘要（消息深链定位记录卡）
 			mpAuth.GET("/checkins/:id/items", mpCtl.CheckinItems)                                // 本人打卡逐项 AI 结论
 			mpAuth.POST("/upload/sts", mpCtl.STS)
+			mpAuth.POST("/upload/preflight", mpCtl.Preflight)
 			mpAuth.POST("/upload/local", mpCtl.Local) // local 模式上传
 			mpAuth.GET("/messages", mpCtl.Messages)
 			mpAuth.PUT("/messages/:id/read", mpCtl.MarkRead)
@@ -397,6 +399,7 @@ func New(cfg *config.Config, db *gorm.DB, rdb *redis.Client) (*gin.Engine, *insp
 			appAuth.GET("/checkins/:id", mpCtl.CheckinBrief)                                      // 本人打卡摘要（消息深链定位记录卡）
 			appAuth.GET("/checkins/:id/items", mpCtl.CheckinItems)                                // 本人打卡逐项 AI 结论
 			appAuth.POST("/upload/sts", mpCtl.STS)
+			appAuth.POST("/upload/preflight", mpCtl.Preflight)
 			appAuth.POST("/upload/local", mpCtl.Local)
 			// 消息 / 公告
 			appAuth.GET("/messages", mpCtl.Messages)

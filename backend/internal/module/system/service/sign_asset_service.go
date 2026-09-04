@@ -295,14 +295,14 @@ func (s *SignAssetService) ActiveSealID(tenantID *string) string {
 func (s *SignAssetService) sha256Of(fileKey string) string {
 	data, err := s.readFile(fileKey)
 	if err != nil {
-		logger.L.Warn("签章文件读取失败，sha256 置空", zap.String("file_key", fileKey), zap.Error(err))
+		logger.L.Warn("签章文件读取失败，sha256 置空", zap.String("storage_key", fileKey), zap.Error(err))
 		return ""
 	}
 	sum := sha256.Sum256(data)
 	return hex.EncodeToString(sum[:])
 }
 
-// readFile 按 file_key 读文件字节（local 读本地目录；云存储 HTTP 下载）。
+// readFile 按存储键读文件字节（local 读本地目录；云存储 HTTP 下载）。
 func (s *SignAssetService) readFile(fileKey string) ([]byte, error) {
 	if s.store.IsLocal() {
 		return os.ReadFile(s.store.LocalPath(fileKey))

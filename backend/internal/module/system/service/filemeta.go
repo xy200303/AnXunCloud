@@ -22,7 +22,7 @@ func RegisterGeneratedFile(db *gorm.DB, store *storage.Storage, filename, mime, 
 		Name: filename, MD5: md5, Storage: store.DriverName(),
 	}
 	if err := db.Create(&rec).Error; err != nil {
-		logger.L.Warn("生成文件登记 upload_file 失败", zap.String("file_key", key), zap.Error(err))
+		logger.L.Warn("生成文件登记 upload_file 失败", zap.String("storage_key", key), zap.Error(err))
 	}
 	return rec.ID
 }

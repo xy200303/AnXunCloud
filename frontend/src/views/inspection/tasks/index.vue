@@ -18,7 +18,7 @@
         </el-form-item>
         <el-form-item label="巡查类型">
           <el-select v-model="query.patrol_type" placeholder="全部" clearable style="width: 140px" @change="fetchList">
-            <el-option v-for="o in PATROL_TYPE_OPTIONS" :key="o.value" :label="o.label" :value="o.value" />
+            <el-option v-for="o in patrolTypes" :key="o.value" :label="o.label" :value="o.value" />
           </el-select>
         </el-form-item>
         <el-form-item>
@@ -109,7 +109,7 @@ import { listTasks, generateTasks, type TaskQuery } from '@/api/task'
 import { listCommunities } from '@/api/community'
 import { listUsers } from '@/api/user'
 import type { TaskItem, CommunityItem } from '@/api/biz-types'
-import { PATROL_TYPE_OPTIONS, patrolTypeLabel } from '@/api/biz-types'
+import { usePatrolTypes } from '@/composables/usePatrolTypes'
 import type { UserItem } from '@/api/types'
 
 const router = useRouter()
@@ -119,6 +119,7 @@ const total = ref(0)
 const communities = ref<CommunityItem[]>([])
 const inspectors = ref<UserItem[]>([])
 const activeTab = ref('all')
+const { patrolTypes, patrolTypeLabel } = usePatrolTypes()
 
 const query = reactive<TaskQuery>({ page: 1, page_size: 20, task_date: '', community_id: undefined, inspector_id: undefined, patrol_type: '' })
 

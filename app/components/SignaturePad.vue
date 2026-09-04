@@ -1,5 +1,5 @@
 <template>
-  <!-- 手写签名板：canvas 自绘（旧版 canvas API，四端兼容），导出白底 PNG 临时路径 -->
+  <!-- 手写签名板：canvas 自绘，导出白底 PNG 临时路径 -->
   <view v-if="show" class="pad-mask" :style="{ backgroundColor: colors.mask }" @touchmove.stop.prevent="noop">
     <view class="pad-panel" :style="{ backgroundColor: colors.bgCard, borderRadius: radiusSheet }">
       <view class="pad-head">

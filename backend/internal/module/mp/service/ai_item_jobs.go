@@ -72,7 +72,7 @@ func (s *CheckinService) SubmitAIItemJob(ctx context.Context, inspectorID string
 	if err := s.db.First(&plan, "id = ?", task.PlanID).Error; err != nil {
 		return nil, errs.ErrTaskNotOwned
 	}
-	if !insmodel.TaskPointIDs(&task, &plan).Contains(req.PointID) {
+	if !insmodel.TaskPointIDs(&task).Contains(req.PointID) {
 		return nil, errs.ErrTaskNotOwned.WithMsg("点位不属于该任务")
 	}
 	var point insmodel.InspectionPoint
@@ -351,7 +351,7 @@ func (s *CheckinService) SaveManualDraft(ctx context.Context, inspectorID string
 	if err := s.db.First(&plan, "id = ?", task.PlanID).Error; err != nil {
 		return nil, errs.ErrTaskNotOwned
 	}
-	if !insmodel.TaskPointIDs(&task, &plan).Contains(req.PointID) {
+	if !insmodel.TaskPointIDs(&task).Contains(req.PointID) {
 		return nil, errs.ErrTaskNotOwned.WithMsg("点位不属于该任务")
 	}
 	var point insmodel.InspectionPoint
@@ -401,7 +401,7 @@ func (s *CheckinService) SavePhotoItemAbnormalDraft(ctx context.Context, inspect
 	if err := s.db.First(&plan, "id = ?", task.PlanID).Error; err != nil {
 		return nil, errs.ErrTaskNotOwned
 	}
-	if !insmodel.TaskPointIDs(&task, &plan).Contains(req.PointID) {
+	if !insmodel.TaskPointIDs(&task).Contains(req.PointID) {
 		return nil, errs.ErrTaskNotOwned.WithMsg("点位不属于该任务")
 	}
 	var point insmodel.InspectionPoint

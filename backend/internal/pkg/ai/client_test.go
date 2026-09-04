@@ -7,11 +7,9 @@ import (
 
 // TestParseReviewWithItems 逐项结论：整体 + 逐项均解析；非法逐项跳过不报错。
 func TestParseReviewWithItems(t *testing.T) {
-	res, err := parseReview(`{"verdict":"review","reason":"保险销疑似脱落","items":[
+	res, err := parseReview(`{"quality":{"pass":true},"verdict":"review","reason":"保险销疑似脱落","items":[
 		{"name":"压力表指针在绿区","verdict":"pass","reason":"指针在绿区"},
-		{"name":"保险销完好","verdict":"review","reason":"保险销缺失"},
-		{"name":"","verdict":"pass","reason":"无名项跳过"},
-		{"name":"喷管无龟裂","verdict":"maybe","reason":"非法结论跳过"}
+		{"name":"保险销完好","verdict":"review","reason":"保险销缺失"}
 	]}`)
 	if err != nil {
 		t.Fatalf("解析失败: %v", err)
@@ -30,17 +28,13 @@ func TestParseReviewWithItems(t *testing.T) {
 	}
 }
 
-// TestParseReviewWithoutItems 模型未返回逐项结论：Items 为空，不报错（旧输出格式兼容）。
-func TestParseReviewWithoutItems(t *testing.T) {
-	res, err := parseReview("前置杂文本```json\n{\"verdict\":\"pass\",\"reason\":\"照片清晰，无异常\"}\n```")
-	if err != nil {
-		t.Fatalf("解析失败: %v", err)
+// TestParseReviewRequiresCompleteContract 缺失质量或逐项结论必须拒绝，避免错误放行。
+func TestParseReviewRequiresCompleteContract(t *testing.T) {
+	if _, err := parseReview(`{"verdict":"pass","reason":"照片清晰","items":[{"name":"检查项","verdict":"pass"}]}`); err == nil {
+		t.Fatal("缺少质量结论应报错")
 	}
-	if res.Verdict != VerdictPass {
-		t.Errorf("verdict=%q，期望 pass", res.Verdict)
-	}
-	if len(res.Items) != 0 {
-		t.Errorf("逐项结论应为空: %+v", res.Items)
+	if _, err := parseReview(`{"quality":{"pass":true},"verdict":"pass","reason":"照片清晰"}`); err == nil {
+		t.Fatal("缺少逐项结论应报错")
 	}
 }
 
@@ -121,4 +115,3 @@ func TestBuildMessagesItemHints(t *testing.T) {
 		t.Errorf("无标准要求/识别要点的项不应追加标注：%s", joined)
 	}
 }
-

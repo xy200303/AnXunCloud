@@ -17,8 +17,8 @@ export const CODE_CHECKIN_LOCKED = 43109
 
 // ---- 类型定义（与后端 JSON 蛇形字段对齐；ID 字段全系统 v2 起为 UUIDv7 string） ----
 
-/** 后端 /profile roles 元素：对象（{id, code, name}）或纯字符串 code，两种均兼容 */
-export type RoleEntry = string | { id?: string; code?: string; name?: string }
+/** 后端 /profile roles 元素。 */
+export type RoleEntry = { id: string; code: string; name: string }
 
 export type UserInfo = {
   id: string
@@ -593,9 +593,7 @@ export function toUserInfo(raw: RawUser): UserInfo {
     avatar: raw.avatar ?? '',
     signature_url: raw.signature_url ?? '',
     perms: (raw.perms ?? []).map((p) => String(p)),
-    roles: (raw.roles ?? [])
-      .map((r) => (typeof r == 'string' ? r : r.code ?? ''))
-      .filter((c) => c != ''),
+    roles: (raw.roles ?? []).map((r) => r.code).filter((code) => code != ''),
     projects: (raw.projects ?? []).map((p) => ({ id: toId(p.id), name: p.name })),
     tenant_name: raw.tenant_name ?? '',
     staffs: (raw.staffs ?? []).map((s) => ({

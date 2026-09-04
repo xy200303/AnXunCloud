@@ -42,9 +42,9 @@ type CheckinReq struct {
 	// Altitude/Accuracy 定位辅助信息（米，可空，仅参考展示不参与校验）；<=0 视为未提供
 	Altitude   float64 `json:"altitude"`
 	Accuracy   float64 `json:"accuracy"`
-	ClientTime  string  `json:"client_time" binding:"required"`
-	Result      string  `json:"result" binding:"required,oneof=normal abnormal"`
-	Remark      string  `json:"remark"`
+	ClientTime string  `json:"client_time" binding:"required"`
+	Result     string  `json:"result" binding:"required,oneof=normal abnormal"`
+	Remark     string  `json:"remark"`
 	// Force 重拍次数用尽后的强制提交：跳过同步 AI 判定直接落库，转人工复核
 	Force bool `json:"force"`
 	// AIConfirmed 逐项 AI 识别确认提交：采纳 check_items 逐项带回的 AI 结论，跳过服务端同步 AI 判定
@@ -54,9 +54,9 @@ type CheckinReq struct {
 
 // AIItemJobReq 逐项 AI 识别任务提交（单个检查项恰好 1 张照片，异步识别后轮询取结果）。
 type AIItemJobReq struct {
-	TaskID   string   `json:"task_id" binding:"required"`
-	PointID  string   `json:"point_id" binding:"required"`
-	Name     string   `json:"name" binding:"required"`                 // 检查项名（须属于该点位模板项）
+	TaskID  string   `json:"task_id" binding:"required"`
+	PointID string   `json:"point_id" binding:"required"`
+	Name    string   `json:"name" binding:"required"` // 检查项名（须属于该点位模板项）
 	FileIDs []string `json:"file_ids" binding:"required,len=1"`
 }
 
@@ -88,6 +88,7 @@ type STSReq struct {
 	Files []struct {
 		Name string `json:"name" binding:"required"`
 		Size int64  `json:"size"`
+		MD5  string `json:"md5"`
 	} `json:"files" binding:"required,min=1,max=6"`
 }
 

@@ -14,14 +14,6 @@ export interface PatrolTypeGroup {
   options: PatrolTypeOption[]
 }
 
-// 字典读取失败时回落到存量 4 类，保持旧版行为（dict-options 免权限，正常不会走到）
-const FALLBACK: PatrolTypeOption[] = [
-  { value: 'safety', label: '安全巡查', category: 'daily_patrol' },
-  { value: 'equipment', label: '设备设施专项', category: 'special' },
-  { value: 'environment', label: '环境巡查', category: 'special' },
-  { value: 'building', label: '楼栋巡查', category: 'special' }
-]
-
 // 模块级缓存：字典项极少变动，整个会话加载一次即可
 const options = ref<PatrolTypeOption[]>([])
 let loadingPromise: Promise<void> | null = null
@@ -29,15 +21,11 @@ let loadingPromise: Promise<void> | null = null
 function ensureLoaded() {
   if (options.value.length) return
   if (!loadingPromise) {
-    // silent + 失败回落：兜底保持旧版 4 类行为
     loadingPromise = listDictOptions('patrol_type', true)
       .then((list) => {
         options.value = (list || []).map((x) => ({ value: x.value, label: x.label, category: x.attrs?.category || '' }))
-        if (!options.value.length) options.value = FALLBACK
       })
-      .catch(() => {
-        options.value = FALLBACK
-      })
+      .catch(() => {})
   }
 }
 

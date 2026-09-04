@@ -134,6 +134,7 @@
 import { Colors, ColorTokens } from '@/utils/theme'
 import { apiTaskDetail, apiCheckin, apiCheckinItems, apiUploadLocal, TaskPoint, CheckinResult, CheckinItemAI, CheckinReqPayload } from '@/services/api'
 import { isNfcSupported, readCardOnce, toastNfcUnavailable } from '@/utils/nfc'
+import { extractPointCode } from '@/utils/scan'
 import { getLocationGcj02 } from '@/utils/geo'
 import { compressForUpload } from '@/utils/image'
 import { enqueueOfflineCheckin, uuidv7, NETWORK_ERR_PREFIX, OfflinePhoto } from '@/utils/offline'
@@ -205,16 +206,6 @@ function fmtDateTime(d: Date): string {
   )
 }
 
-/** 二维码内容归一化：兼容短链接贴纸（/p/{code}）与早期 scheme 前缀（与后端 normalizeQRCode 一致） */
-function normalizeCode(v: string): string {
-  const prefix = 'inspection://checkin?no='
-  let s = (v || '').trim()
-  if (s.indexOf(prefix) == 0) s = s.substring(prefix.length)
-  const m = s.match(/\/p\/([A-Za-z0-9]+)\/?(?:[?#].*)?$/)
-  if (m != null) s = m[1]
-  return s
-}
-
 export default {
   data(): FormData {
     return {
@@ -272,7 +263,7 @@ export default {
     this.pointId = options && options.point_id ? String(options.point_id) : ''
     // 扫码进入时带来的二维码编号，视为已核验凭证
     if (options && options.no) {
-      this.scannedNo = normalizeCode(String(options.no))
+      this.scannedNo = String(options.no).trim()
     }
     this.load()
   },
@@ -353,7 +344,11 @@ export default {
       uni.scanCode({
         onlyFromCamera: true, // 禁相册选图防代扫
         success: (res) => {
-          const code = normalizeCode(res.result)
+          const code = extractPointCode(res.result)
+          if (code == '') {
+            uni.showToast({ title: '请扫描新版点位二维码', icon: 'none' })
+            return
+          }
           if (this.point != null && this.point.qrcode_no != '' && code != this.point.qrcode_no) {
             uni.showToast({ title: '二维码与本点位不匹配', icon: 'none' })
             return

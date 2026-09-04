@@ -156,7 +156,7 @@ func (ctl *ReportController) SignManager(c *gin.Context) {
 	write(c, data, be)
 }
 
-// PDF GET /reports/:id/pdf（已归档走 file_key，未终审即时生成临时版）
+// PDF GET /reports/:id/pdf（已归档走 file_id，未终审即时生成临时版）
 func (ctl *ReportController) PDF(c *gin.Context) {
 	id, be := pathID(c)
 	if be != nil {

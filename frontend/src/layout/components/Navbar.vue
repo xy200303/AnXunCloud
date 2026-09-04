@@ -109,7 +109,7 @@ import { usePermissionStore } from '@/store/permission'
 import { resetRouterState } from '@/router'
 import type { RouteMenu } from '@/api/types'
 import { listMessages, markMessageRead, type MessageItem } from '@/api/message'
-import { fileUrl } from '@/api/upload'
+import { withFileToken } from '@/api/upload'
 import PasswordDialog from '@/components/PasswordDialog.vue'
 import TenantContextBar from '@/components/TenantContextBar.vue'
 import { useSimpleMode } from '@/composables/useSimpleMode'
@@ -126,8 +126,11 @@ const { simple, setSimple } = useSimpleMode()
 const passwordVisible = ref(false)
 
 const avatarText = computed(() => userStore.name.slice(0, 1) || '用')
-// 头像 URL：avatar 存 file_key，拼 /uploads 静态路由；无头像回退姓氏文字
-const avatarUrl = computed(() => (userStore.info?.avatar ? fileUrl(userStore.info.avatar) : ''))
+// 头像 URL：avatar 保存 upload_file.id；无头像时显示姓氏文字。
+const avatarUrl = computed(() => {
+  const fileID = userStore.info?.avatar || ''
+  return fileID ? withFileToken('/api/files/' + fileID) : ''
+})
 
 // ===== 消息通知 =====
 const messageVisible = ref(false)
@@ -174,7 +177,7 @@ onUnmounted(() => {
 // 点击消息：标记已读（局部更新角标），不再跳转业务详情
 async function handleMessageClick(msg: MessageItem) {
   if (!msg.is_read) {
-    msg.is_read = 1
+    msg.is_read = true
     unreadCount.value = Math.max(0, unreadCount.value - 1)
     markMessageRead(msg.id).catch(() => {})
   }
@@ -184,7 +187,7 @@ async function handleMessageClick(msg: MessageItem) {
 async function handleReadAll() {
   try {
     await markMessageRead('0')
-    messages.value.forEach((m) => (m.is_read = 1))
+    messages.value.forEach((m) => (m.is_read = true))
     unreadCount.value = 0
   } catch {
     // 静默：接口未上线时不打扰

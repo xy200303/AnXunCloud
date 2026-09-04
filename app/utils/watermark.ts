@@ -1,5 +1,5 @@
 /**
- * 拍照水印烧录（旧版 canvas API，App 端可用）。
+ * 拍照水印烧录（canvas API，App 端可用）。
  *
  * 用法：页面模板放一个屏外隐藏 canvas（canvas-id 与尺寸由数据驱动），
  * 拍完照后调 burnWatermark 得到烧录后的临时文件路径再展示/上传。

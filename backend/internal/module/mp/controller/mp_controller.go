@@ -85,7 +85,7 @@ func (ctl *MPController) HistoryTasks(c *gin.Context) {
 	write(c, data, be)
 }
 
-// PointByCode GET /points/by-code/:code（扫码/NFC 定位任务）
+// PointByCode GET /points/by-code/:code（二维码编号或 NFC UID 定位任务）
 func (ctl *MPController) PointByCode(c *gin.Context) {
 	code := c.Param("code")
 	if code == "" {
@@ -244,6 +244,17 @@ func (ctl *MPController) STS(c *gin.Context) {
 		return
 	}
 	data, be := ctl.upload.STS(uid(c), &req)
+	write(c, data, be)
+}
+
+// Preflight POST /upload/preflight（上传前摘要预检）
+func (ctl *MPController) Preflight(c *gin.Context) {
+	var req dto.STSReq
+	if be := bind.JSON(c, &req); be != nil {
+		response.Fail(c, be)
+		return
+	}
+	data, be := ctl.upload.Preflight(uid(c), &req)
 	write(c, data, be)
 }
 

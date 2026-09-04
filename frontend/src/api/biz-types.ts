@@ -148,18 +148,6 @@ export interface PointForm {
 // 巡查类型（字典 patrol_type 驱动，attrs.category 分大类；任务生成时从计划快照）
 export type PatrolType = string
 
-// 兼容旧页面的硬编码兜底选项（新入口一律走 usePatrolTypes 字典）
-export const PATROL_TYPE_OPTIONS: { value: string; label: string }[] = [
-  { value: 'safety', label: '安全巡查' },
-  { value: 'equipment', label: '设备设施专项' },
-  { value: 'environment', label: '环境巡查' },
-  { value: 'building', label: '楼栋巡查' }
-]
-
-export function patrolTypeLabel(t: string) {
-  return PATROL_TYPE_OPTIONS.find((o) => o.value === t)?.label || t || '安全巡查'
-}
-
 // 巡更轮次（cycle_config.rounds，仅 daily/weekly；window 允许跨零点，起止相等非法）
 export interface PlanRound {
   name: string

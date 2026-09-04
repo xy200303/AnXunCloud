@@ -1,5 +1,4 @@
-// 管理端图片上传（手写签名、公章等）
-// 后端上传接口并行开发中：未就绪时调用方需优雅降级（不阻断页面）
+// 管理端文件上传（头像、手写签名、公章、公告附件）。
 import { request } from '@/utils/request'
 import { getToken } from '@/utils/auth'
 
@@ -22,13 +21,7 @@ export function uploadImage(file: File, scene: string) {
   })
 }
 
-// 本地存储模式下静态目录为 /uploads（后端 r.Static("/uploads", ...)）。
-export function fileUrl(fileKey: string) {
-  return fileKey ? `/uploads/${fileKey}` : ''
-}
-
-// 统一文件层地址附带登录态：/api/files 需鉴权，而 <img>/el-image/直链下载无法带请求头，
-// 由 AuthAny 中间件的 ?token= 查询参数兜底。仅 /api/files/ 形式的地址需要拼接，/uploads/* 内容图无需处理。
+// 统一文件层地址附带登录态：图片组件无法直接附加请求头，因此通过 token 查询参数鉴权。
 export function withFileToken(url: string) {
   if (!url || !url.includes('/api/files/')) return url
   const t = getToken()

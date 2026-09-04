@@ -91,7 +91,7 @@ func (d *localDriver) URL(key string) string {
 	return d.baseURL + "/uploads/" + key
 }
 
-// IsProtectedKey 敏感场景的 file_key 判定（signature/seal/export 前缀，读需鉴权）。
+// IsProtectedKey 判断内部存储键是否属于敏感场景（signature/seal/export 前缀，读需鉴权）。
 func IsProtectedKey(key string) bool {
 	return strings.HasPrefix(key, "signature/") || strings.HasPrefix(key, "seal/") || strings.HasPrefix(key, "export/")
 }
@@ -114,7 +114,20 @@ func (d *ossDriver) Put(_ string, _ io.Reader) error {
 }
 
 func (d *ossDriver) Read(key string) ([]byte, error) {
-	resp, err := d.httpc.Get(d.URL(key))
+	if key == "" || strings.ContainsAny(key, `\\:`) || strings.Contains(key, "..") {
+		return nil, fmt.Errorf("invalid storage key")
+	}
+	u := &url.URL{Scheme: "https", Host: d.bucket + "." + d.endpoint, Path: "/" + strings.TrimPrefix(key, "/")}
+	req, err := http.NewRequest(http.MethodGet, u.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+	if d.accessKeyID != "" && d.accessKeySecret != "" {
+		now := time.Now().UTC().Format(http.TimeFormat)
+		req.Header.Set("Date", now)
+		req.Header.Set("Authorization", d.authorization(http.MethodGet, key, now))
+	}
+	resp, err := d.httpc.Do(req)
 	if err != nil {
 		return nil, err
 	}
@@ -125,16 +138,20 @@ func (d *ossDriver) Read(key string) ([]byte, error) {
 	return io.ReadAll(io.LimitReader(resp.Body, 64<<20))
 }
 
+func (d *ossDriver) authorization(method, key, date string) string {
+	resource := "/" + d.bucket + "/" + strings.TrimPrefix(key, "/")
+	stringToSign := method + "\n\n\n" + date + "\n" + resource
+	h := hmac.New(sha1.New, []byte(d.accessKeySecret))
+	_, _ = h.Write([]byte(stringToSign))
+	return "OSS " + d.accessKeyID + ":" + base64.StdEncoding.EncodeToString(h.Sum(nil))
+}
+
 func (d *ossDriver) Delete(key string) error {
 	if key == "" || strings.ContainsAny(key, `\\:`) || strings.Contains(key, "..") {
 		return fmt.Errorf("invalid storage key")
 	}
 	now := time.Now().UTC().Format(http.TimeFormat)
-	resource := "/" + d.bucket + "/" + strings.TrimPrefix(key, "/")
-	stringToSign := "DELETE\n\n\n" + now + "\n" + resource
-	h := hmac.New(sha1.New, []byte(d.accessKeySecret))
-	_, _ = h.Write([]byte(stringToSign))
-	authorization := "OSS " + d.accessKeyID + ":" + base64.StdEncoding.EncodeToString(h.Sum(nil))
+	authorization := d.authorization(http.MethodDelete, key, now)
 	u := &url.URL{Scheme: "https", Host: d.bucket + "." + d.endpoint, Path: "/" + strings.TrimPrefix(key, "/")}
 	req, err := http.NewRequest(http.MethodDelete, u.String(), nil)
 	if err != nil {

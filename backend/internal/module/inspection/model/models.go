@@ -124,27 +124,27 @@ func (Building) TableName() string { return "building" }
 // InspectionPoint 巡检点位
 type InspectionPoint struct {
 	types.UUIDModel
-	TenantID           *string           `gorm:"type:uuid" json:"tenant_id"` // 冗余列（=所属小区租户）
-	CommunityID        string            `gorm:"type:uuid" json:"community_id"`
-	BuildingID         *string           `gorm:"type:uuid" json:"building_id"`
-	UnitNo             *int              `json:"unit_no"` // 单元号（NULL=不分单元/非楼栋点位）
-	Floor              *int              `json:"floor"`   // 楼层（负数=地下层，-1 即 B1；NULL=非楼栋点位）
-	Name               string            `gorm:"size:128" json:"name"`
-	Type               string            `gorm:"size:32" json:"type"`
-	QRCodeNo           string            `gorm:"column:qrcode_no;size:64" json:"qrcode_no"`
-	NfcID              string            `gorm:"size:64" json:"nfc_id"`
-	TemplateID   *string `gorm:"type:uuid" json:"template_id"`
-	Longitude    float64 `gorm:"type:numeric(10,7)" json:"longitude"`
-	Latitude     float64 `gorm:"type:numeric(10,7)" json:"latitude"`
-	FenceRadius  int     `json:"fence_radius"`
-	Credential   string  `gorm:"size:16" json:"credential"` // qrcode/nfc/none/any（任一：扫码或 NFC）
-	RequireFence bool    `json:"require_fence"`
-	Sort         int     `json:"sort"`
-	Status             string            `gorm:"size:16" json:"status"`
-	Remark             string            `gorm:"size:255" json:"remark"`
-	CreatedAt          time.Time         `json:"created_at"`
-	UpdatedAt          time.Time         `json:"updated_at"`
-	DeletedAt          gorm.DeletedAt    `json:"-"`
+	TenantID     *string        `gorm:"type:uuid" json:"tenant_id"` // 冗余列（=所属小区租户）
+	CommunityID  string         `gorm:"type:uuid" json:"community_id"`
+	BuildingID   *string        `gorm:"type:uuid" json:"building_id"`
+	UnitNo       *int           `json:"unit_no"` // 单元号（NULL=不分单元/非楼栋点位）
+	Floor        *int           `json:"floor"`   // 楼层（负数=地下层，-1 即 B1；NULL=非楼栋点位）
+	Name         string         `gorm:"size:128" json:"name"`
+	Type         string         `gorm:"size:32" json:"type"`
+	QRCodeNo     string         `gorm:"column:qrcode_no;size:64" json:"qrcode_no"`
+	NfcID        string         `gorm:"size:64" json:"nfc_id"`
+	TemplateID   *string        `gorm:"type:uuid" json:"template_id"`
+	Longitude    float64        `gorm:"type:numeric(10,7)" json:"longitude"`
+	Latitude     float64        `gorm:"type:numeric(10,7)" json:"latitude"`
+	FenceRadius  int            `json:"fence_radius"`
+	Credential   string         `gorm:"size:16" json:"credential"` // qrcode/nfc/none/any（任一：扫码或 NFC）
+	RequireFence bool           `json:"require_fence"`
+	Sort         int            `json:"sort"`
+	Status       string         `gorm:"size:16" json:"status"`
+	Remark       string         `gorm:"size:255" json:"remark"`
+	CreatedAt    time.Time      `json:"created_at"`
+	UpdatedAt    time.Time      `json:"updated_at"`
+	DeletedAt    gorm.DeletedAt `json:"-"`
 }
 
 func (InspectionPoint) TableName() string { return "inspection_point" }
@@ -179,12 +179,12 @@ type InspectionPlan struct {
 	SelectionMode string            `gorm:"size:16;default:explicit" json:"selection_mode"`
 	PointTypes    types.StringArray `gorm:"type:jsonb" json:"point_types"` // 圈选点位类型（by_point_types 时必填）
 	// AssignMode 点位分配方式（all 默认 / split 按执行日均分）；default 标签让零值走 DB 默认值
-	AssignMode string `gorm:"size:16;default:all" json:"assign_mode"`
-	Status        string            `gorm:"size:16" json:"status"`
-	Remark        string            `gorm:"size:255" json:"remark"`
-	CreatedAt     time.Time         `json:"created_at"`
-	UpdatedAt     time.Time         `json:"updated_at"`
-	DeletedAt     gorm.DeletedAt    `json:"-"`
+	AssignMode string         `gorm:"size:16;default:all" json:"assign_mode"`
+	Status     string         `gorm:"size:16" json:"status"`
+	Remark     string         `gorm:"size:255" json:"remark"`
+	CreatedAt  time.Time      `json:"created_at"`
+	UpdatedAt  time.Time      `json:"updated_at"`
+	DeletedAt  gorm.DeletedAt `json:"-"`
 }
 
 func (InspectionPlan) TableName() string { return "inspection_plan" }
@@ -265,7 +265,7 @@ func PlanExecDays(p *InspectionPlan, date time.Time) (days []int, idx int) {
 }
 
 // SplitPointsForDate 均分模式（assign_mode=split）：把点位按「执行日数 × 巡检员数」连续切块
-//（点位名单已按路线优化排序，连续块 = 地理聚集，每人每天跑的距离最小），取 (date, inspectorID) 对应的一块。
+// （点位名单已按路线优化排序，连续块 = 地理聚集，每人每天跑的距离最小），取 (date, inspectorID) 对应的一块。
 // 非均分模式、date 非执行日或巡检员不在计划名单时原样返回。
 func SplitPointsForDate(p *InspectionPlan, pointIDs []string, date time.Time, inspectorID string) []string {
 	if p.AssignMode != AssignSplit {
@@ -315,10 +315,10 @@ type InspectionTask struct {
 	InspectorID string    `gorm:"type:uuid" json:"inspector_id"`
 	PatrolType  string    `gorm:"size:16" json:"patrol_type"` // 巡查类型（生成时从计划快照）
 	TaskDate    time.Time `gorm:"type:date" json:"task_date"`
-	// RoundName/TimeWindow 巡更轮次快照（非轮次任务为空；TimeWindow 空时展示/统计回落计划 time_window）
+	// RoundName/TimeWindow 巡更轮次和执行时段快照。
 	RoundName  string `gorm:"size:32" json:"round_name"`
 	TimeWindow string `gorm:"size:32" json:"time_window"`
-	// PointIDs 任务点位名单快照（生成时展开；计划更新会同步未完成任务，空则回落计划名单）
+	// PointIDs 任务点位名单快照（生成时展开；计划更新会同步未完成任务）。
 	PointIDs    types.IDArray  `gorm:"type:jsonb" json:"point_ids"`
 	Status      string         `gorm:"size:16" json:"status"`
 	TotalPoints int            `json:"total_points"`
@@ -332,48 +332,44 @@ type InspectionTask struct {
 
 func (InspectionTask) TableName() string { return "inspection_task" }
 
-// TaskPointIDs 任务点位名单：以任务快照为准（生成时固化；快照为空即无点位，
-// 不回落计划名单——计划后续编辑不应改变已生成任务的名单口径）。
-func TaskPointIDs(t *InspectionTask, p *InspectionPlan) types.IDArray {
+// TaskPointIDs 任务点位名单：以任务快照为唯一事实来源。
+func TaskPointIDs(t *InspectionTask) types.IDArray {
 	return t.PointIDs
 }
 
-// TaskTimeWindow 任务执行时段：任务快照优先（轮次任务），空则回落计划 time_window。
-func TaskTimeWindow(t *InspectionTask, p *InspectionPlan) string {
-	if t.TimeWindow != "" {
-		return t.TimeWindow
-	}
-	return p.TimeWindow
+// TaskTimeWindow 任务执行时段：以任务快照为唯一事实来源。
+func TaskTimeWindow(t *InspectionTask) string {
+	return t.TimeWindow
 }
 
 // CheckinRecord 打卡记录（按月分区；主键 id+created_at；id 支持客户端 UUIDv7 幂等写入）
 type CheckinRecord struct {
 	types.UUIDModel
-	TenantID        *string          `gorm:"type:uuid" json:"tenant_id"` // 冗余列（=所属小区租户，打卡时从任务带上）
-	TaskID          string           `gorm:"type:uuid" json:"task_id"`
-	PointID         string           `gorm:"type:uuid" json:"point_id"`
-	InspectorID     string           `gorm:"type:uuid" json:"inspector_id"`
-	CommunityID     string           `gorm:"type:uuid" json:"community_id"`
-	CheckinTime     time.Time        `json:"checkin_time"`
-	ClientTime      *time.Time       `json:"client_time"`
-	Longitude       *float64         `gorm:"type:numeric(10,7)" json:"longitude"`
-	Latitude        *float64         `gorm:"type:numeric(10,7)" json:"latitude"`
-	DistanceToPoint *float64         `gorm:"type:numeric(10,2)" json:"distance_to_point"`
+	TenantID        *string    `gorm:"type:uuid" json:"tenant_id"` // 冗余列（=所属小区租户，打卡时从任务带上）
+	TaskID          string     `gorm:"type:uuid" json:"task_id"`
+	PointID         string     `gorm:"type:uuid" json:"point_id"`
+	InspectorID     string     `gorm:"type:uuid" json:"inspector_id"`
+	CommunityID     string     `gorm:"type:uuid" json:"community_id"`
+	CheckinTime     time.Time  `json:"checkin_time"`
+	ClientTime      *time.Time `json:"client_time"`
+	Longitude       *float64   `gorm:"type:numeric(10,7)" json:"longitude"`
+	Latitude        *float64   `gorm:"type:numeric(10,7)" json:"latitude"`
+	DistanceToPoint *float64   `gorm:"type:numeric(10,2)" json:"distance_to_point"`
 	// Altitude/Accuracy 定位辅助信息（米，可空）：仅作参考展示——消费级 GPS 海拔误差 ±20~50m，不参与任何校验/判定
-	Altitude *float64 `gorm:"type:numeric(10,2)" json:"altitude"`
-	Accuracy *float64 `gorm:"type:numeric(10,2)" json:"accuracy"`
-	CheckinType     string `gorm:"size:16" json:"checkin_type"` // qrcode/fence/nfc/offline（offline=离线补传，唯一事实来源）
-	Result          string `gorm:"size:16" json:"result"`
-	Remark          string `gorm:"size:512" json:"remark"`
-	IsSuspect       bool   `json:"is_suspect"`
-	SuspectReason   string           `gorm:"size:255" json:"suspect_reason"`
-	AuditStatus     string           `gorm:"size:16" json:"audit_status"`
-	AuditStep       int16            `json:"audit_step"` // 审批链当前进度：已通过环节数（0=待第 1 环节，扩展方案 §3）
-	AuditBy         *string          `gorm:"type:uuid" json:"audit_by"`
-	AuditAt         *time.Time       `json:"audit_at"`
-	AuditRemark     string           `gorm:"size:512" json:"audit_remark"`
-	AIVerdict       string           `gorm:"size:16" json:"ai_verdict"`
-	AIReason        string           `gorm:"size:512" json:"ai_reason"`
+	Altitude      *float64   `gorm:"type:numeric(10,2)" json:"altitude"`
+	Accuracy      *float64   `gorm:"type:numeric(10,2)" json:"accuracy"`
+	CheckinType   string     `gorm:"size:16" json:"checkin_type"` // qrcode/fence/nfc/offline（offline=离线补传，唯一事实来源）
+	Result        string     `gorm:"size:16" json:"result"`
+	Remark        string     `gorm:"size:512" json:"remark"`
+	IsSuspect     bool       `json:"is_suspect"`
+	SuspectReason string     `gorm:"size:255" json:"suspect_reason"`
+	AuditStatus   string     `gorm:"size:16" json:"audit_status"`
+	AuditStep     int16      `json:"audit_step"` // 审批链当前进度：已通过环节数（0=待第 1 环节，扩展方案 §3）
+	AuditBy       *string    `gorm:"type:uuid" json:"audit_by"`
+	AuditAt       *time.Time `json:"audit_at"`
+	AuditRemark   string     `gorm:"size:512" json:"audit_remark"`
+	AIVerdict     string     `gorm:"size:16" json:"ai_verdict"`
+	AIReason      string     `gorm:"size:512" json:"ai_reason"`
 	// ForceSubmit 重拍次数用尽后强制提交（跳过同步 AI 判定，转人工复核）
 	ForceSubmit bool `json:"force_submit"`
 	// AIQualityPass/AIQualityIssue AI 照片质量判定（第一层）；AIQualityPass 为 NULL=未做质量判定
@@ -411,10 +407,10 @@ type CheckinRecordItem struct {
 	AIVerdict *string `gorm:"size:16" json:"ai_verdict"`
 	AIReason  *string `gorm:"size:512" json:"ai_reason"`
 	// AIReading AI 读取的表计读数文本（metric 类检查项；NULL=无读数）
-	AIReading *string   `gorm:"size:64" json:"ai_reading"`
-	ExceptionType string `gorm:"size:24;default:''" json:"exception_type"` // device_missing / unable_to_capture
-	Sort      int       `json:"sort"`
-	CreatedAt time.Time `json:"created_at"`
+	AIReading     *string   `gorm:"size:64" json:"ai_reading"`
+	ExceptionType string    `gorm:"size:24;default:''" json:"exception_type"` // device_missing / unable_to_capture
+	Sort          int       `json:"sort"`
+	CreatedAt     time.Time `json:"created_at"`
 }
 
 func (CheckinRecordItem) TableName() string { return "checkin_record_item" }
@@ -431,21 +427,21 @@ const (
 // 用途：断点恢复（换设备/清缓存也能拉回逐项进度）、后台查看正式提交前的识别过程。
 type CheckinItemDraft struct {
 	types.UUIDModel
-	TenantID     *string           `gorm:"type:uuid" json:"tenant_id"`
-	TaskID       string            `gorm:"type:uuid" json:"task_id"`
-	PointID      string            `gorm:"type:uuid" json:"point_id"`
-	InspectorID  string            `gorm:"type:uuid" json:"inspector_id"`
-	CommunityID  string            `gorm:"type:uuid" json:"community_id"`
-	ItemName     string            `gorm:"size:128" json:"item_name"`
-	JobID        string            `gorm:"size:64" json:"job_id"` // 识别队列 job（pending 恢复轮询用）
-	FileIDs      types.StringArray `gorm:"column:file_ids;type:jsonb" json:"file_ids"`
-	AIStatus     string            `gorm:"size:16" json:"ai_status"`
-	AIVerdict    *string           `gorm:"size:16" json:"ai_verdict"`
-	AIReason     *string           `gorm:"size:512" json:"ai_reason"`
-	AIReading    *string           `gorm:"size:64" json:"ai_reading"`
-	ExceptionType string           `gorm:"size:24;default:''" json:"exception_type"`
-	QualityPass  *bool             `json:"quality_pass"`
-	QualityIssue string            `gorm:"size:255" json:"quality_issue"`
+	TenantID      *string           `gorm:"type:uuid" json:"tenant_id"`
+	TaskID        string            `gorm:"type:uuid" json:"task_id"`
+	PointID       string            `gorm:"type:uuid" json:"point_id"`
+	InspectorID   string            `gorm:"type:uuid" json:"inspector_id"`
+	CommunityID   string            `gorm:"type:uuid" json:"community_id"`
+	ItemName      string            `gorm:"size:128" json:"item_name"`
+	JobID         string            `gorm:"size:64" json:"job_id"` // 识别队列 job（pending 恢复轮询用）
+	FileIDs       types.StringArray `gorm:"column:file_ids;type:jsonb" json:"file_ids"`
+	AIStatus      string            `gorm:"size:16" json:"ai_status"`
+	AIVerdict     *string           `gorm:"size:16" json:"ai_verdict"`
+	AIReason      *string           `gorm:"size:512" json:"ai_reason"`
+	AIReading     *string           `gorm:"size:64" json:"ai_reading"`
+	ExceptionType string            `gorm:"size:24;default:''" json:"exception_type"`
+	QualityPass   *bool             `json:"quality_pass"`
+	QualityIssue  string            `gorm:"size:255" json:"quality_issue"`
 	// ManualPass/ManualNote 手动确认项（感官项）的选择结果；NULL=非手动项/未选择
 	ManualPass *bool     `json:"manual_pass"`
 	ManualNote string    `gorm:"size:512" json:"manual_note"`

@@ -178,8 +178,8 @@ func (s *MPService) code2Session(code string) (string, *errs.Error) {
 	defer resp.Body.Close()
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, 8<<10))
 	var out struct {
-		OpenID string `json:"openid"`
-		ErrCode int   `json:"errcode"`
+		OpenID  string `json:"openid"`
+		ErrCode int    `json:"errcode"`
 	}
 	if err := json.Unmarshal(body, &out); err != nil || out.OpenID == "" || out.ErrCode != 0 {
 		return "", errs.ErrWxCodeInvalid
@@ -329,11 +329,11 @@ func (s *MPService) loginLog(userID *string, tenantID *string, username, ip, ua,
 
 // ========== 任务 ==========
 
-// PointByCode 扫码/NFC 定位：按二维码编号或 NFC ID 查点位，并匹配今日任务上下文（任务定位器，非凭证）。
+// PointByCode 任务定位：二维码编号与 NFC UID 分别精确匹配，并返回今日任务上下文（非打卡凭证）。
 func (s *MPService) PointByCode(inspectorID, code string) (gin.H, *errs.Error) {
 	var pt insmodel.InspectionPoint
-	// nfc_id 大小写不敏感（兼容存量小写录入；新写入库已统一大写）
-	if err := s.db.Where("qrcode_no = ? OR UPPER(nfc_id) = ?", code, strings.ToUpper(strings.TrimSpace(code))).First(&pt).Error; err != nil {
+	code = strings.TrimSpace(code)
+	if err := s.db.Where("qrcode_no = ? OR nfc_id = ?", code, code).First(&pt).Error; err != nil {
 		return nil, errs.ErrNotFound.WithMsg("未找到相关点位信息")
 	}
 	// 数据权限：先卡租户边界（非超管不得跨租户），再按数据范围/编制收窄
@@ -387,7 +387,7 @@ func (s *MPService) PointByCode(inspectorID, code string) (gin.H, *errs.Error) {
 		if s.db.Unscoped().Select("id", "name", "point_ids").First(&plan, "id = ?", t.PlanID).Error != nil {
 			continue
 		}
-		if !insmodel.TaskPointIDs(t, &plan).Contains(pt.ID) {
+		if !insmodel.TaskPointIDs(t).Contains(pt.ID) {
 			continue
 		}
 		checked := s.db.Where("task_id = ? AND point_id = ? AND superseded_by IS NULL", t.ID, pt.ID).
@@ -406,18 +406,18 @@ func (s *MPService) PointByCode(inspectorID, code string) (gin.H, *errs.Error) {
 			"id": pt.ID, "name": pt.Name, "qrcode_no": pt.QRCodeNo, "nfc_id": pt.NfcID,
 			"community_id": pt.CommunityID, "community_name": s.commName(pt.CommunityID),
 			"building_name": buildingName,
-			"credential": pt.Credential, "require_fence": pt.RequireFence,
+			"credential":    pt.Credential, "require_fence": pt.RequireFence,
 			"longitude": pt.Longitude, "latitude": pt.Latitude, "fence_radius": pt.FenceRadius,
 		},
 		"tasks": matched,
 	}, nil
 }
 
-// PublicPoint 短链接公开点位摘要（免登录：NFC 贴卡/扫码打开 H5 信息页的数据源）。
+// PublicPoint 短链接公开点位摘要（免登录扫码打开 H5 信息页的数据源）。
 // 脱敏原则：仅点位基础信息 + 巡检结果摘要，不出坐标、照片、凭证配置等敏感项。
 func (s *MPService) PublicPoint(code string) (gin.H, *errs.Error) {
 	var pt insmodel.InspectionPoint
-	if err := s.db.Where("qrcode_no = ? OR UPPER(nfc_id) = ?", code, strings.ToUpper(strings.TrimSpace(code))).First(&pt).Error; err != nil {
+	if err := s.db.Where("qrcode_no = ?", strings.TrimSpace(code)).First(&pt).Error; err != nil {
 		return nil, errs.ErrNotFound.WithMsg("未找到相关点位信息")
 	}
 	if pt.Status != "enabled" {
@@ -525,23 +525,20 @@ func (s *MPService) tasksByDate(inspectorID, date string) (gin.H, *errs.Error) {
 		totalPts += t.TotalPoints
 		donePts += t.DonePoints
 		var plan insmodel.InspectionPlan
-		planName, timeWindow := "", t.TimeWindow // 时段取任务快照优先（轮次任务），空回落计划
+		planName := ""
 		if s.db.Unscoped().Select("name", "time_window", "deleted_at").First(&plan, "id = ?", t.PlanID).Error == nil {
 			planName = plan.Name
-			if timeWindow == "" {
-				timeWindow = plan.TimeWindow
-			}
 			if plan.DeletedAt.Valid {
 				planName += "（已删除）"
 			}
 		}
 		items = append(items, gin.H{
 			"id": t.ID, "plan_name": planName, "community_name": s.commName(t.CommunityID),
-			"patrol_type": t.PatrolType, // 巡查类型透出，app 端按类型分组展示
+			"patrol_type":       t.PatrolType,             // 巡查类型透出，app 端按类型分组展示
 			"patrol_type_label": typeLabels[t.PatrolType], // 字典 label（App 直接展示，不再硬编码映射）
-			"task_date": date, "time_window": timeWindow, "round_name": t.RoundName, "status": t.Status,
+			"task_date":         date, "time_window": t.TimeWindow, "round_name": t.RoundName, "status": t.Status,
 			"total_points": t.TotalPoints, "done_points": t.DonePoints,
-			"progress": progressOf(t.DonePoints, t.TotalPoints),
+			"progress":   progressOf(t.DonePoints, t.TotalPoints),
 			"started_at": timefmt.TP(t.StartedAt),
 		})
 	}
@@ -572,7 +569,7 @@ func (s *MPService) TaskDetail(inspectorID, taskID string) (gin.H, *errs.Error) 
 		byPoint[checkins[i].PointID] = &checkins[i]
 	}
 	// 任务点位名单：以任务快照为准（生成时固化，不随计划后续编辑变化）
-	pointIDs := insmodel.TaskPointIDs(&task, &plan)
+	pointIDs := insmodel.TaskPointIDs(&task)
 	// 点位/楼栋一次批量预载（3900+ 点位任务逐点 First 会产生数千次 SQL），再按名单顺序组装。
 	// 注意 pointIDs 是 types.IDArray（实现了 driver.Valuer 会整体序列化为 JSON 字符串），必须显式转 []string 才能被 IN 展开。
 	var ptRows []insmodel.InspectionPoint
@@ -636,7 +633,7 @@ func (s *MPService) TaskDetail(inspectorID, taskID string) (gin.H, *errs.Error) 
 		points = append(points, gin.H{
 			"point_id": pt.ID, "point_name": pt.Name, "building_name": buildingName,
 			"sort": i + 1, "credential": pt.Credential, "require_fence": pt.RequireFence, "qrcode_no": pt.QRCodeNo,
-			"nfc_id": pt.NfcID,
+			"nfc_id":    pt.NfcID,
 			"longitude": pt.Longitude, "latitude": pt.Latitude, "fence_radius": pt.FenceRadius,
 			"my_checkin": myCheckin,
 		})
@@ -674,11 +671,11 @@ func (s *MPService) TaskDetail(inspectorID, taskID string) (gin.H, *errs.Error) 
 	}
 	return gin.H{
 		"id": task.ID, "plan_name": plan.Name, "community_name": s.commName(task.CommunityID),
-		"patrol_type": task.PatrolType, // 巡查类型透出，app 端按类型分组展示
+		"patrol_type":       task.PatrolType,                                      // 巡查类型透出，app 端按类型分组展示
 		"patrol_type_label": s.patrolTypeLabels(task.PatrolType)[task.PatrolType], // 字典 label（同 TodayTasks 口径）
-		"task_date": task.TaskDate.Format("2006-01-02"), "time_window": insmodel.TaskTimeWindow(&task, &plan),
+		"task_date":         task.TaskDate.Format("2006-01-02"), "time_window": insmodel.TaskTimeWindow(&task),
 		"round_name": task.RoundName,
-		"status": task.Status, "total_points": task.TotalPoints, "done_points": task.DonePoints,
+		"status":     task.Status, "total_points": task.TotalPoints, "done_points": task.DonePoints,
 		"progress": progressOf(task.DonePoints, task.TotalPoints), "points": points,
 	}, nil
 }
@@ -707,10 +704,10 @@ func (s *MPService) CheckinItems(inspectorID, checkinID string) ([]gin.H, *errs.
 		out = append(out, gin.H{
 			"name": it.Name, "pass": it.Pass,
 			"ai_verdict": strVal(it.AIVerdict), "ai_reason": strVal(it.AIReason),
-			"ai_reading": strVal(it.AIReading),
-			"note":       it.Note,
+			"ai_reading":     strVal(it.AIReading),
+			"note":           it.Note,
 			"exception_type": it.ExceptionType,
-			"photo_urls": inssvc.ItemPhotoURLs(s.db, it.Photos),
+			"photo_urls":     inssvc.ItemPhotoURLs(s.db, it.Photos),
 		})
 	}
 	return out, nil
@@ -841,7 +838,7 @@ func (s *MPService) NearbyPoints(inspectorID string, lng, lat float64) (gin.H, *
 		if err := s.db.Unscoped().First(&plan, "id = ?", t.PlanID).Error; err != nil {
 			continue
 		}
-		ids := insmodel.TaskPointIDs(t, &plan)
+		ids := insmodel.TaskPointIDs(t)
 		taskPointIDs[t.ID] = []string(ids)
 		for _, pid := range ids {
 			pointIDSet[pid] = struct{}{}
@@ -911,8 +908,8 @@ func (s *MPService) NearbyPoints(inspectorID string, lng, lat float64) (gin.H, *
 			entries = append(entries, entry{row: gin.H{
 				"task_id": t.ID, "plan_name": planNames[t.PlanID], "patrol_type": t.PatrolType,
 				"point_id": pt.ID, "point_name": pt.Name, "building_name": buildingName,
-				"distance": int(d + 0.5),
-				"checked": checkedSet[t.ID+"|"+pid],
+				"distance":   int(d + 0.5),
+				"checked":    checkedSet[t.ID+"|"+pid],
 				"credential": pt.Credential, "require_fence": pt.RequireFence,
 				"task_status": t.Status,
 			}, dist: d})

@@ -19,6 +19,8 @@ export interface ReportItem {
   inspector_signed_count: number
   supervisor_name: string | null
   manager_name: string | null
+  supervisor_signers?: string[]
+  manager_signers?: string[]
   has_file: boolean
   created_at: string
   updated_at: string

@@ -516,9 +516,32 @@ func (s *ReportService) List(c *gin.Context, q *dto.ReportListQuery) (*response.
 	if err := db.Omit("stats").Order("period DESC, id DESC").Offset(offset).Limit(limit).Find(&rows).Error; err != nil {
 		return nil, errs.ErrInternal
 	}
+	// 列表直接展示当前报告实际圈定的审核人，避免自动生成报告只能进入详情后才能确认审核路径。
+	signerIDSet := map[string]bool{}
+	for i := range rows {
+		for _, id := range rows[i].SupervisorIDs {
+			signerIDSet[id] = true
+		}
+		for _, id := range rows[i].ManagerIDs {
+			signerIDSet[id] = true
+		}
+	}
+	signerNames := s.userNamesOf(signerIDSet)
 	list := make([]gin.H, 0, len(rows))
 	for i := range rows {
 		r := &rows[i]
+		supervisorNames := make([]string, 0, len(r.SupervisorIDs))
+		for _, id := range r.SupervisorIDs {
+			if name := signerNames[id]; name != "" {
+				supervisorNames = append(supervisorNames, name)
+			}
+		}
+		managerNames := make([]string, 0, len(r.ManagerIDs))
+		for _, id := range r.ManagerIDs {
+			if name := signerNames[id]; name != "" {
+				managerNames = append(managerNames, name)
+			}
+		}
 		list = append(list, gin.H{
 			"id": r.ID, "community_id": r.CommunityID, "community_name": s.commName(r.CommunityID),
 			"period": r.Period, "title": r.Title, "status": r.Status,
@@ -529,6 +552,8 @@ func (s *ReportService) List(c *gin.Context, q *dto.ReportListQuery) (*response.
 			"inspector_signed_count": len(r.InspectorSigned),
 			"supervisor_name":        s.userNamePtr(r.SupervisorBy),
 			"manager_name":           s.userNamePtr(r.ManagerBy),
+			"supervisor_signers":     supervisorNames,
+			"manager_signers":        managerNames,
 			"has_file":               r.FileID != "",
 			"created_at":             timefmt.T(r.CreatedAt),
 			"updated_at":             timefmt.T(r.UpdatedAt),
@@ -702,14 +727,14 @@ func (s *ReportService) createReport(communityID, patrolType string, start, end 
 			"title": title, "status": initialStatus, "plan_id": inspectionPlanID,
 			"report_plan_id": reportPlanID, "period_start": start, "period_end": endOfDay,
 			"detail_mode": detailModeOr(detailMode),
-			"stats": stats, "inspector_ids": inspectorIDs,
+			"stats":       stats, "inspector_ids": inspectorIDs,
 			"inspector_signed": types.SignArray{},
 			"supervisor_ids":   supervisorIDs, "manager_ids": managerIDs,
 			"supervisor_by": nil, "supervisor_at": nil, "supervisor_remark": "",
 			"supervisor_signature_id": nil,
-			"manager_by":               nil, "manager_at": nil, "manager_remark": "",
+			"manager_by":              nil, "manager_at": nil, "manager_remark": "",
 			"manager_signature_id": nil,
-			"reject_reason":         "", "file_id": nil, "seal_file_id": nil,
+			"reject_reason":        "", "file_id": nil, "seal_file_id": nil,
 		}
 		if err := s.db.Model(&r).Updates(updates).Error; err != nil {
 			return nil, errs.ErrInternal

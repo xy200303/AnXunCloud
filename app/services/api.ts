@@ -317,7 +317,9 @@ export type ReportListItem = {
   inspector_total: number
   inspector_signed_count: number
   supervisor_name: string | null
-  manager_name: string | null
+	manager_name: string | null
+	supervisor_signers?: string[]
+	manager_signers?: string[]
   has_file: boolean
   created_at: string
   updated_at: string
@@ -1832,12 +1834,37 @@ export function apiDictOptions(typeCode: string): Promise<DictOption[]> {
   })
 }
 
-/** App 管理端手动生成报告 POST /reports/generate（须 report:generate 权限；签字人走槽位自动圈选） */
+export type ReportSignCandidate = {
+  id: string
+  name: string
+  has_signature: boolean
+}
+
+/** 生成报告时读取审核路径及可选签字人。默认名单由小区汇报线岗位推导。 */
+export function apiReportSignCandidates(communityId: string, patrolType?: string): Promise<{
+  users: ReportSignCandidate[]
+  default_supervisor_ids: string[]
+  default_manager_ids: string[]
+}> {
+  return new Promise((resolve, reject) => {
+    httpGet<{
+      users: ReportSignCandidate[]
+      default_supervisor_ids: string[]
+      default_manager_ids: string[]
+    }>('/reports/sign-candidates?community_id=' + encodeURIComponent(communityId) + (patrolType ? '&patrol_type=' + encodeURIComponent(patrolType) : ''))
+      .then((d) => resolve(d ?? { users: [], default_supervisor_ids: [], default_manager_ids: [] }))
+      .catch(reject)
+  })
+}
+
+/** App 管理端手动生成报告 POST /reports/generate（签字人可按候选名单调整） */
 export function apiReportGenerate(body: {
   community_id: string
   period: string
   patrol_type?: string
   detail_mode?: string
+  supervisor_ids?: string[]
+  manager_ids?: string[]
 }): Promise<{ id: string; title: string; status: string; regenerated: boolean }> {
   return new Promise((resolve, reject) => {
     httpPost<{ id: string; title: string; status: string; regenerated: boolean }>('/reports/generate', body as unknown as Record<string, any>)

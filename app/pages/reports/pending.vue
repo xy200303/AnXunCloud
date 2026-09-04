@@ -51,6 +51,9 @@
             巡检员已确认 {{ r.inspector_signed_count }}/{{ r.inspector_total }}
           </text>
         </view>
+        <text class="card-signers" :style="{ color: colors.textSecondary }">
+          审核路径：主管 {{ (r.supervisor_signers || []).join('、') || '跳过' }} → 经理 {{ (r.manager_signers || []).join('、') || '跳过' }}
+        </text>
         <text  hover-class="hover-dim" class="card-time" :style="{ color: colors.textSecondary }">生成时间 {{ r.created_at }}</text>
       </view>
     </view>
@@ -301,5 +304,12 @@ export default {
 .card-time {
   font-size: 24rpx;
   margin-top: 16rpx;
+}
+
+.card-signers {
+  display: block;
+  font-size: 24rpx;
+  line-height: 1.5;
+  margin-top: 12rpx;
 }
 </style>

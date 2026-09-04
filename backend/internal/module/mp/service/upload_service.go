@@ -257,6 +257,7 @@ func (s *UploadService) Callback(c *gin.Context, body []byte) (int, any) {
 		Size     int64  `json:"size,string"`
 		MimeType string `json:"mimeType"`
 		ETag     string `json:"etag"`   // OSS 回调携带（非分片上传即内容 MD5）
+		MD5      string `json:"x:md5"`  // 客户端可传真实内容 MD5（分片上传时使用）
 		Name     string `json:"x:name"` // 客户端自定义参数带回的原始文件名
 		UID      string `json:"x:uid"`
 		Scene    string `json:"x:scene"`
@@ -289,10 +290,20 @@ func (s *UploadService) Callback(c *gin.Context, body []byte) (int, any) {
 	s.db.Model(&sysmodel.UploadFile{}).Where("storage_key = ?", form.Object).Count(&count)
 	if count == 0 {
 		tenantID := user.TenantID
+		md5hex := strings.ToLower(strings.TrimSpace(form.MD5))
+		if md5hex == "" {
+			md5hex = strings.ToLower(strings.Trim(form.ETag, `"`))
+		}
+		if existing, ok := s.FindReusable(form.Scene, md5hex, form.Size, &tenantID); ok {
+			if err := s.store.Delete(form.Object); err != nil {
+				return 500, gin.H{"Status": "DuplicateCleanupFailed"}
+			}
+			return 200, gin.H{"Status": "OK", "file_id": existing.ID, "url": existing.URL}
+		}
 		rec := sysmodel.UploadFile{
 			TenantID: &tenantID, StorageKey: form.Object, Scene: form.Scene, UserID: form.UID,
 			MimeType: form.MimeType, URL: s.store.URL(form.Object),
-			Name: filepath.Base(form.Name), MD5: strings.Trim(form.ETag, `"`), Size: form.Size, Storage: s.store.DriverName(),
+			Name: filepath.Base(form.Name), MD5: md5hex, Size: form.Size, Storage: s.store.DriverName(),
 		}
 		if rec.Scene == "" {
 			rec.Scene = "checkin"

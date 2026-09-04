@@ -4,6 +4,7 @@ import (
 	"crypto/hmac"
 	"crypto/md5"
 	"crypto/sha1"
+	"encoding/base64"
 	"encoding/hex"
 	"fmt"
 	"io"
@@ -23,6 +24,7 @@ type Driver interface {
 	Name() string                      // local|oss|cos
 	Put(key string, r io.Reader) error // 服务端写入
 	Read(key string) ([]byte, error)   // 服务端读取（PDF 归档、照片内嵌等）
+	Delete(key string) error           // 删除对象（去重清理）
 	URL(key string) string             // 对外访问地址
 }
 
@@ -60,6 +62,14 @@ func (d *localDriver) Read(key string) ([]byte, error) {
 	return os.ReadFile(path)
 }
 
+func (d *localDriver) Delete(key string) error {
+	path, err := safeLocalPath(d.dir, key)
+	if err != nil {
+		return err
+	}
+	return os.Remove(path)
+}
+
 func safeLocalPath(root, key string) (string, error) {
 	if key == "" || strings.ContainsAny(key, `\:`) {
 		return "", fmt.Errorf("invalid storage key")
@@ -89,9 +99,11 @@ func IsProtectedKey(key string) bool {
 // ========== 阿里云 OSS 驱动 ==========
 
 type ossDriver struct {
-	bucket   string
-	endpoint string
-	httpc    *http.Client
+	bucket          string
+	endpoint        string
+	accessKeyID     string
+	accessKeySecret string
+	httpc           *http.Client
 }
 
 func (d *ossDriver) Name() string { return "oss" }
@@ -111,6 +123,35 @@ func (d *ossDriver) Read(key string) ([]byte, error) {
 		return nil, fmt.Errorf("OSS 读取失败: %s", resp.Status)
 	}
 	return io.ReadAll(io.LimitReader(resp.Body, 64<<20))
+}
+
+func (d *ossDriver) Delete(key string) error {
+	if key == "" || strings.ContainsAny(key, `\\:`) || strings.Contains(key, "..") {
+		return fmt.Errorf("invalid storage key")
+	}
+	now := time.Now().UTC().Format(http.TimeFormat)
+	resource := "/" + d.bucket + "/" + strings.TrimPrefix(key, "/")
+	stringToSign := "DELETE\n\n\n" + now + "\n" + resource
+	h := hmac.New(sha1.New, []byte(d.accessKeySecret))
+	_, _ = h.Write([]byte(stringToSign))
+	authorization := "OSS " + d.accessKeyID + ":" + base64.StdEncoding.EncodeToString(h.Sum(nil))
+	u := &url.URL{Scheme: "https", Host: d.bucket + "." + d.endpoint, Path: "/" + strings.TrimPrefix(key, "/")}
+	req, err := http.NewRequest(http.MethodDelete, u.String(), nil)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Date", now)
+	req.Header.Set("Authorization", authorization)
+	resp, err := d.httpc.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusNoContent && resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 4<<10))
+		return fmt.Errorf("OSS 删除失败: %s %s", resp.Status, strings.TrimSpace(string(body)))
+	}
+	return nil
 }
 
 func (d *ossDriver) URL(key string) string {
@@ -149,6 +190,10 @@ func (d *cosDriver) Read(key string) ([]byte, error) {
 		return nil, fmt.Errorf("COS 读取失败: %s", resp.Status)
 	}
 	return io.ReadAll(io.LimitReader(resp.Body, 64<<20))
+}
+
+func (d *cosDriver) Delete(_ string) error {
+	return fmt.Errorf("cos 驱动暂不支持服务端删除")
 }
 
 // Put 服务端签名直写（COS XML API Put Object，q-sign-algorithm=sha1 鉴权）。
@@ -232,7 +277,11 @@ func FileMD5(path string) string {
 func newDriver(up config.UploadConfig, oss config.OSSConfig, cos config.COSConfig, baseURL string) Driver {
 	switch up.Mode {
 	case "oss":
-		return &ossDriver{bucket: oss.Bucket, endpoint: oss.Endpoint, httpc: &http.Client{Timeout: 15 * time.Second}}
+		return &ossDriver{
+			bucket: oss.Bucket, endpoint: oss.Endpoint,
+			accessKeyID: oss.AccessKeyID, accessKeySecret: oss.AccessKeySecret,
+			httpc: &http.Client{Timeout: 15 * time.Second},
+		}
 	case "cos":
 		return &cosDriver{
 			secretID: cos.SecretID, secretKey: cos.SecretKey, bucket: cos.Bucket,

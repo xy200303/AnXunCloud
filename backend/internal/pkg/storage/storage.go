@@ -50,6 +50,9 @@ func (s *Storage) DriverName() string { return s.driver.Name() }
 // ReadFile 按 file_key 读取文件字节（统一文件层用；本地读盘，云存储走 HTTP）。
 func (s *Storage) ReadFile(fileKey string) ([]byte, error) { return s.driver.Read(fileKey) }
 
+// Delete 删除对象，直传去重命中时用于清理刚上传的重复对象。
+func (s *Storage) Delete(fileKey string) error { return s.driver.Delete(fileKey) }
+
 // PutBytes 按 file_key 写入字节（服务端生成内容回写：水印图等）。
 // 本地/COS 可用；OSS 暂不支持服务端写入（返回驱动错误，调用方降级跳过）。
 func (s *Storage) PutBytes(fileKey string, data []byte) error {
@@ -161,7 +164,7 @@ func (s *Storage) AssumeRole(dir string) (*STSCredentials, error) {
 		"RoleArn":          s.oss.RoleArn,
 		"RoleSessionName":  "pi-upload",
 		"DurationSeconds":  fmt.Sprintf("%d", expire),
-		"Policy": `{"Version":"1","Statement":[{"Effect":"Allow","Action":["oss:PutObject"],"Resource":["acs:oss:*:*:` + s.oss.Bucket + `/` + dir + `*"]}]}`,
+		"Policy":           `{"Version":"1","Statement":[{"Effect":"Allow","Action":["oss:PutObject"],"Resource":["acs:oss:*:*:` + s.oss.Bucket + `/` + dir + `*"]}]}`,
 	}
 	// 构造待签名字符串
 	keys := make([]string, 0, len(params))

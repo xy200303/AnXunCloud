@@ -36,10 +36,6 @@
 
     <!-- 功能入口 -->
     <view class="card menu-card" :style="{ backgroundColor: colors.bgCard }">
-      <view  hover-class="hover-dim" class="row" @click="goPendingReports">
-        <text  hover-class="hover-dim" class="row-text" :style="{ color: colors.textRegular }">月度报告</text>
-        <text  hover-class="hover-dim" class="row-arrow" :style="{ color: colors.textSecondary }">></text>
-      </view>
       <view  hover-class="hover-dim" class="row" @click="openSignaturePad">
         <text  hover-class="hover-dim" class="row-text" :style="{ color: colors.textRegular }">手写签名</text>
         <text  hover-class="hover-dim" class="row-arrow" :style="{ color: colors.textSecondary }">{{ signatureText }} ></text>
@@ -242,10 +238,6 @@ export default {
             })
         }
       })
-    },
-    goPendingReports() {
-      // 报告页是 tabBar 页，须用 switchTab
-      uni.switchTab({ url: '/pages/reports/pending' })
     },
     /** 管理入口跳转（入口显隐已按权限控制） */
     goAdmin(url: string) {

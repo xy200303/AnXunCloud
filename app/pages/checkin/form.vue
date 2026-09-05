@@ -95,6 +95,7 @@
               class="photo"
               :src="ph"
               mode="aspectFill"
+              lazy-load
               @longpress="removePhoto(it.photos, pi)"
             />
             <view

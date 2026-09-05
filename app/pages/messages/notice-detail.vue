@@ -42,6 +42,7 @@
             class="thumb"
             :src="img.absUrl"
             mode="aspectFill"
+            lazy-load
             @click="previewImage(i)"
           />
         </view>

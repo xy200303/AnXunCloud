@@ -52,6 +52,7 @@
           :src="it.photo_urls[0]"
           class="item-photo"
           mode="aspectFill"
+          lazy-load
           @click="preview(it)"
         />
         <text v-if="it.ai_reason != null && it.ai_reason != ''" class="item-ai" :style="{ color: colors.textSecondary }">{{ it.ai_reason }}</text>

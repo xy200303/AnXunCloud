@@ -61,7 +61,19 @@
       "path": "pages/reports/pending",
       "style": {
         "navigationBarTitleText": "月度报告",
-        "enablePullDownRefresh": true
+        "enablePullDownRefresh": true,
+        "app-plus": {
+          "titleNView": {
+            "buttons": [
+              {
+                "text": "+",
+                "fontSize": "30px",
+                "color": "#FFFFFF",
+                "width": "48px"
+              }
+            ]
+          }
+        }
       }
     },
     {

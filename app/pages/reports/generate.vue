@@ -3,24 +3,30 @@
     <view class="card" :style="{ backgroundColor: colors.bgCard, boxShadow: shadow }">
       <!-- 小区 -->
       <text class="label" :style="{ color: colors.textRegular }">小区</text>
-      <view class="picker-box" hover-class="hover-dim" :style="{ borderColor: colors.border }" @click="communityShow = true">
-        <text :style="{ color: communityId == '' ? colors.textSecondary : colors.textPrimary }">{{ communityText }}</text>
-        <text :style="{ color: colors.textSecondary }">›</text>
-      </view>
+      <picker mode="selector" :range="communityNames" :value="communityIndex" @change="onCommunityPick">
+        <view class="picker-box" hover-class="hover-dim" :style="{ borderColor: colors.border }">
+          <text :style="{ color: communityId == '' ? colors.textSecondary : colors.textPrimary }">{{ communityText }}</text>
+          <text :style="{ color: colors.textSecondary }">›</text>
+        </view>
+      </picker>
 
       <!-- 月份 -->
       <text class="label" :style="{ color: colors.textRegular }">报告月份</text>
-      <view class="picker-box" hover-class="hover-dim" :style="{ borderColor: colors.border }" @click="monthShow = true">
-        <text :style="{ color: period == '' ? colors.textSecondary : colors.textPrimary }">{{ period == '' ? '请选择月份' : periodText }}</text>
-        <text :style="{ color: colors.textSecondary }">›</text>
-      </view>
+      <picker mode="date" fields="month" :value="period" :start="monthStart" :end="monthEnd" @change="onMonthPick">
+        <view class="picker-box" hover-class="hover-dim" :style="{ borderColor: colors.border }">
+          <text :style="{ color: period == '' ? colors.textSecondary : colors.textPrimary }">{{ period == '' ? '请选择月份' : periodText }}</text>
+          <text :style="{ color: colors.textSecondary }">›</text>
+        </view>
+      </picker>
 
       <!-- 报告类型 -->
       <text class="label" :style="{ color: colors.textRegular }">报告类型</text>
-      <view class="picker-box" hover-class="hover-dim" :style="{ borderColor: colors.border }" @click="typeShow = true">
-        <text :style="{ color: colors.textPrimary }">{{ patrolTypeText }}</text>
-        <text :style="{ color: colors.textSecondary }">›</text>
-      </view>
+      <picker mode="selector" :range="typeNames" :value="typeIndex" @change="onTypePick">
+        <view class="picker-box" hover-class="hover-dim" :style="{ borderColor: colors.border }">
+          <text :style="{ color: colors.textPrimary }">{{ patrolTypeText }}</text>
+          <text :style="{ color: colors.textSecondary }">›</text>
+        </view>
+      </picker>
 
       <!-- 明细范围 -->
       <text class="label" :style="{ color: colors.textRegular }">明细范围</text>
@@ -59,69 +65,35 @@
       <text class="btn-big-text" :style="{ color: canSubmit ? colors.white : colors.textSecondary }">{{ submitting ? '生成中…' : '生成报告' }}</text>
     </view>
 
-    <!-- 小区选择 -->
-    <view v-if="communityShow" class="mask" :style="{ backgroundColor: colors.mask }" @click="communityShow = false">
-      <view class="sheet" :style="{ backgroundColor: colors.bgCard }" @click.stop="noop">
-        <view v-for="c in communities" :key="c.id" class="sheet-item" hover-class="hover-dim" @click="pickCommunity(c.id)">
-          <text :style="{ color: c.id == communityId ? colors.primary : colors.textPrimary }">{{ c.name }}</text>
-        </view>
-        <view class="sheet-item" hover-class="hover-dim" @click="communityShow = false">
-          <text :style="{ color: colors.textSecondary }">取消</text>
-        </view>
-      </view>
-    </view>
-
-    <!-- 月份选择 -->
-    <view v-if="monthShow" class="mask" :style="{ backgroundColor: colors.mask }" @click="monthShow = false">
-      <view class="sheet" :style="{ backgroundColor: colors.bgCard }" @click.stop="noop">
-        <view v-for="m in monthOptions" :key="m.value" class="sheet-item" hover-class="hover-dim" @click="pickMonth(m.value)">
-          <text :style="{ color: m.value == period ? colors.primary : colors.textPrimary }">{{ m.text }}</text>
-        </view>
-        <view class="sheet-item" hover-class="hover-dim" @click="monthShow = false">
-          <text :style="{ color: colors.textSecondary }">取消</text>
-        </view>
-      </view>
-    </view>
-
-    <!-- 类型选择 -->
-    <view v-if="typeShow" class="mask" :style="{ backgroundColor: colors.mask }" @click="typeShow = false">
-      <view class="sheet" :style="{ backgroundColor: colors.bgCard }" @click.stop="noop">
-        <view class="sheet-item" hover-class="hover-dim" @click="pickType('')">
-          <text :style="{ color: patrolType == '' ? colors.primary : colors.textPrimary }">综合（全部巡查类型）</text>
-        </view>
-        <view v-for="t in typeOptions" :key="t.value" class="sheet-item" hover-class="hover-dim" @click="pickType(t.value)">
-          <text :style="{ color: t.value == patrolType ? colors.primary : colors.textPrimary }">{{ t.label }}</text>
-        </view>
-        <view class="sheet-item" hover-class="hover-dim" @click="typeShow = false">
-          <text :style="{ color: colors.textSecondary }">取消</text>
-        </view>
-      </view>
-    </view>
-
     <!-- 审核人选择 -->
-    <view v-if="candidateShow" class="mask" :style="{ backgroundColor: colors.mask }" @click="candidateShow = false">
-      <view class="sheet" :style="{ backgroundColor: colors.bgCard }" @click.stop="noop">
+    <AppBottomSheet :visible="candidateShow" :mask-color="colors.mask" :background-color="colors.bgCard" @close="candidateShow = false">
         <view class="candidate-header">
           <text class="candidate-title" :style="{ color: colors.textPrimary }">{{ candidateRole == 'supervisor' ? '选择安全主管' : '选择物业经理' }}</text>
           <text class="candidate-clear" :style="{ color: colors.danger }" @click="clearCandidates">清空</text>
         </view>
         <view v-if="candidateLoading" class="candidate-empty"><text :style="{ color: colors.textSecondary }">加载中…</text></view>
-        <view v-else-if="candidateUsers.length == 0" class="candidate-empty"><text :style="{ color: colors.textSecondary }">暂无当前公司启用用户</text></view>
-        <view v-else v-for="u in candidateUsers" :key="u.id" class="candidate-item" hover-class="hover-dim" @click="toggleCandidate(u.id)">
-          <text :style="{ color: selectedCandidateIds.indexOf(u.id) >= 0 ? colors.primary : colors.textPrimary }">{{ selectedCandidateIds.indexOf(u.id) >= 0 ? '✓ ' : '○ ' }}{{ u.name }}</text>
-          <text v-if="!u.has_signature" class="candidate-warn" :style="{ color: colors.warning }">未配置签名</text>
+        <view v-else-if="candidateError != ''" class="candidate-empty" hover-class="hover-dim" @click="loadCandidates">
+          <text :style="{ color: colors.danger }">{{ candidateError }}</text>
         </view>
+        <view v-else-if="candidateUsers.length == 0" class="candidate-empty"><text :style="{ color: colors.textSecondary }">暂无当前公司启用用户</text></view>
+        <scroll-view v-else scroll-y class="candidate-scroll" :show-scrollbar="false">
+          <view v-for="u in candidateUsers" :key="u.id" class="candidate-item" hover-class="hover-dim" @click="toggleCandidate(u.id)">
+            <text :style="{ color: selectedCandidateIds.indexOf(u.id) >= 0 ? colors.primary : colors.textPrimary }">{{ selectedCandidateIds.indexOf(u.id) >= 0 ? '✓ ' : '○ ' }}{{ u.name }}</text>
+            <text v-if="!u.has_signature" class="candidate-warn" :style="{ color: colors.warning }">未配置签名</text>
+          </view>
+        </scroll-view>
         <view class="sheet-item" hover-class="hover-dim" @click="candidateShow = false"><text :style="{ color: colors.primary }">完成</text></view>
-      </view>
-    </view>
+    </AppBottomSheet>
   </view>
 </template>
 
 <script lang="ts">
 import { Colors, ColorTokens, ShadowCard } from '@/utils/theme'
 import { apiCommunityTree, apiDictOptions, apiReportGenerate, apiReportSignCandidates, DictOption, ReportSignCandidate } from '@/services/api'
+import AppBottomSheet from '@/components/AppBottomSheet.vue'
 
 export default {
+  components: { AppBottomSheet },
   data() {
     return {
       colors: Colors,
@@ -138,14 +110,13 @@ export default {
       candidateRole: 'supervisor' as 'supervisor' | 'manager',
       candidateShow: false,
       candidateLoading: false,
+      candidateError: '',
       candidatesLoaded: false,
+      candidateRequestId: 0,
       detailModes: [
         { value: 'full', label: '全部点位' },
         { value: 'abnormal', label: '仅异常点位' }
       ],
-      communityShow: false,
-      monthShow: false,
-      typeShow: false,
       submitting: false
     }
   },
@@ -158,20 +129,33 @@ export default {
       const c = this.communities.find((x) => x.id == this.communityId)
       return c != null ? c.name : '请选择小区'
     },
-    monthOptions(): Array<{ value: string; text: string }> {
-      // 最近 13 个月（当月在前）
-      const out = []
+    communityNames(): string[] {
+      return this.communities.map((community) => community.name)
+    },
+    communityIndex(): number {
+      const index = this.communities.findIndex((community) => community.id == this.communityId)
+      return index >= 0 ? index : 0
+    },
+    typeNames(): string[] {
+      return ['综合（全部巡查类型）'].concat(this.typeOptions.map((option) => option.label))
+    },
+    typeIndex(): number {
+      if (this.patrolType == '') return 0
+      const index = this.typeOptions.findIndex((option) => option.value == this.patrolType)
+      return index >= 0 ? index + 1 : 0
+    },
+    monthStart(): string {
       const now = new Date()
-      for (let i = 0; i < 13; i++) {
-        const d = new Date(now.getFullYear(), now.getMonth() - i, 1)
-        const v = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0')
-        out.push({ value: v, text: d.getFullYear() + ' 年 ' + (d.getMonth() + 1) + ' 月' })
-      }
-      return out
+      const d = new Date(now.getFullYear(), now.getMonth() - 12, 1)
+      return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-01'
+    },
+    monthEnd(): string {
+      const now = new Date()
+      return now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0') + '-01'
     },
     periodText(): string {
-      const m = this.monthOptions.find((x) => x.value == this.period)
-      return m != null ? m.text : this.period
+      const parts = this.period.split('-')
+      return parts.length == 2 ? parts[0] + ' 年 ' + Number(parts[1]) + ' 月' : this.period
     },
     patrolTypeText(): string {
       if (this.patrolType == '') return '综合（全部巡查类型）'
@@ -203,23 +187,29 @@ export default {
       .catch(() => {})
   },
   methods: {
-    noop() {},
-    pickCommunity(id: string) {
-      this.communityId = id
-      this.communityShow = false
+    onCommunityPick(event: any) {
+      const index = Number(event.detail.value)
+      const community = this.communities[index]
+      if (community == null || community.id == this.communityId) return
+      this.communityId = community.id
       this.loadCandidates()
     },
-    pickMonth(v: string) {
-      this.period = v
-      this.monthShow = false
+    onMonthPick(event: any) {
+      this.period = String(event.detail.value)
     },
-    pickType(v: string) {
-      this.patrolType = v
-      this.typeShow = false
+    onTypePick(event: any) {
+      const index = Number(event.detail.value)
+      const option = this.typeOptions[index - 1]
+      const nextType = index <= 0 || option == null ? '' : option.value
+      if (nextType == this.patrolType) return
+      this.patrolType = nextType
       this.loadCandidates()
     },
     async loadCandidates() {
+      const requestId = this.candidateRequestId + 1
+      this.candidateRequestId = requestId
       this.candidatesLoaded = false
+      this.candidateError = ''
       this.candidateUsers = []
       this.supervisorIds = []
       this.managerIds = []
@@ -227,16 +217,19 @@ export default {
       this.candidateLoading = true
       try {
         const d = await apiReportSignCandidates(this.communityId, this.patrolType || undefined)
+        if (requestId != this.candidateRequestId) return
         this.candidateUsers = d.users
         this.supervisorIds = d.default_supervisor_ids
         this.managerIds = d.default_manager_ids
         this.candidatesLoaded = true
       } catch {
+        if (requestId != this.candidateRequestId) return
         this.candidateUsers = []
         this.supervisorIds = []
         this.managerIds = []
+        this.candidateError = '加载失败，点击重试'
       } finally {
-        this.candidateLoading = false
+        if (requestId == this.candidateRequestId) this.candidateLoading = false
       }
     },
     openCandidates(role: 'supervisor' | 'manager') {
@@ -390,21 +383,9 @@ export default {
   font-weight: 600;
 }
 
-.mask {
-  position: fixed;
-  left: 0;
-  top: 0;
-  right: 0;
-  bottom: 0;
-  z-index: 99;
-  justify-content: flex-end;
-}
-
-.sheet {
-  border-radius: 24rpx 24rpx 0 0;
-  padding: 16rpx 0 48rpx;
-  max-height: 70vh;
-  overflow-y: auto;
+.candidate-scroll {
+  height: 52vh;
+  max-height: 720rpx;
 }
 
 .sheet-item {

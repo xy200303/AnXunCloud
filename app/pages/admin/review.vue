@@ -60,8 +60,14 @@
     </view>
 
     <!-- 详情弹层 -->
-    <view v-if="detail != null" class="mask" :style="{ backgroundColor: colors.mask }" @click="closeDetail">
-      <view class="sheet" :style="{ backgroundColor: colors.bgPage, borderTopLeftRadius: '32rpx', borderTopRightRadius: '32rpx' }" @click.stop="">
+    <AppBottomSheet
+      :visible="detail != null"
+      :mask-color="colors.mask"
+      :background-color="colors.bgPage"
+      height="80%"
+      @close="closeDetail"
+    >
+      <template v-if="detail != null">
         <scroll-view scroll-y class="sheet-scroll">
           <view class="sheet-head">
             <text class="sheet-title" :style="{ color: colors.textPrimary }">{{ detail.point_name }}</text>
@@ -109,6 +115,7 @@
                   class="photo"
                   :src="u"
                   mode="aspectFill"
+                  lazy-load
                   @click="preview(itemPhotoUrls(it), pi)"
                 />
               </view>
@@ -125,6 +132,7 @@
                 class="photo"
                 :src="u"
                 mode="aspectFill"
+                lazy-load
                 @click="preview(photoUrls, pi)"
               />
             </view>
@@ -149,8 +157,8 @@
             <text class="btn-half-text" :style="{ color: colors.white }">通过</text>
           </view>
         </view>
-      </view>
-    </view>
+      </template>
+    </AppBottomSheet>
 
     <!-- 驳回原因弹层 -->
     <view v-if="rejecting" class="mask mask-center" :style="{ backgroundColor: colors.mask }" @click="rejecting = false">
@@ -176,6 +184,7 @@
 import { Colors, ColorTokens } from '@/utils/theme'
 import { apiReviewRecords, apiReviewPass, apiReviewReject, ReviewRecord } from '@/services/api'
 import { toAbsUrl } from '@/utils/url'
+import AppBottomSheet from '@/components/AppBottomSheet.vue'
 
 const PAGE_SIZE = 20
 
@@ -211,6 +220,7 @@ function photoUrl(p: { url: string; watermarked_url: string }): string {
 }
 
 export default {
+  components: { AppBottomSheet },
   data(): ReviewData {
     return {
       colors: Colors,
@@ -523,10 +533,6 @@ export default {
   bottom: 0;
   justify-content: flex-end;
   z-index: 99;
-}
-
-.sheet {
-  height: 80%;
 }
 
 .sheet-scroll {

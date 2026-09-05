@@ -53,6 +53,7 @@
               class="sign-img"
               :src="withFileToken(p.signature_url)"
               mode="aspectFit"
+              lazy-load
               @click="previewImage(p.signature_url)"
             />
             <text v-else class="signer-state" :style="{ color: p.signed ? colors.success : colors.warning }">
@@ -77,6 +78,7 @@
                 class="sign-img"
                 :src="withFileToken(d.supervisor_signature_url)"
                 mode="aspectFit"
+                lazy-load
                 @click="previewImage(d.supervisor_signature_url)"
               />
               <text v-else class="signer-state" :style="{ color: colors.success }">已审批</text>
@@ -106,6 +108,7 @@
                 class="sign-img"
                 :src="withFileToken(d.manager_signature_url)"
                 mode="aspectFit"
+                lazy-load
                 @click="previewImage(d.manager_signature_url)"
               />
               <text v-else class="signer-state" :style="{ color: colors.success }">已终审</text>

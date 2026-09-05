@@ -14,10 +14,6 @@
         >{{ t.label }}</text>
         <view v-if="tab == t.key"  hover-class="hover-dim" class="tab-line" :style="{ backgroundColor: colors.primary }"></view>
       </view>
-      <!-- 管理端入口：手动生成报告（须 report:generate 权限） -->
-      <view v-if="canGenerate" class="tab gen-entry" hover-class="hover-dim" @click="goGenerate">
-        <text class="gen-entry-text" :style="{ color: colors.primary }">+ 生成报告</text>
-      </view>
     </view>
 
     <!-- 骨架屏 -->
@@ -63,6 +59,15 @@
       <text class="empty-title" :style="{ color: colors.textRegular }">{{ errorMsg }}</text>
       <text class="empty-retry" :style="{ color: colors.primary }" @click="load">重试</text>
     </view>
+
+    <view v-if="menuOpen" class="plus-mask" @click="menuOpen = false">
+      <view class="plus-menu" @click.stop>
+        <view v-if="canGenerate" hover-class="hover-dim" class="plus-item" @click="goGenerate">
+          <text hover-class="hover-dim" class="plus-item-icon" :style="{ color: colors.white }">＋</text>
+          <text hover-class="hover-dim" class="plus-item-text" :style="{ color: colors.white }">生成报告</text>
+        </view>
+      </view>
+    </view>
   </view>
 </template>
 
@@ -80,6 +85,7 @@ type PendingData = {
   loaded: boolean
   errorMsg: string
   list: ReportListItem[]
+  menuOpen: boolean
 }
 
 const TABS: { key: TabKey; label: string }[] = [
@@ -110,7 +116,8 @@ export default {
       loading: true,
       loaded: false,
       errorMsg: '',
-      list: [] as ReportListItem[]
+      list: [] as ReportListItem[],
+      menuOpen: false
     }
   },
   computed: {
@@ -142,8 +149,16 @@ export default {
   onPullDownRefresh() {
     this.load()
   },
+  onNavigationBarButtonTap() {
+    if (!this.canGenerate) {
+      uni.showToast({ title: '暂无生成报告权限', icon: 'none' })
+      return
+    }
+    this.menuOpen = !this.menuOpen
+  },
   methods: {
     goGenerate() {
+      this.menuOpen = false
       uni.navigateTo({ url: '/pages/reports/generate' })
     },
     switchTab(key: TabKey) {
@@ -208,17 +223,6 @@ export default {
 
 .tab-text {
   font-size: 30rpx;
-}
-
-.gen-entry {
-  margin-left: auto;
-  justify-content: center;
-  padding-right: 8rpx;
-}
-
-.gen-entry-text {
-  font-size: 28rpx;
-  font-weight: 600;
 }
 
 .tab-line {
@@ -311,5 +315,42 @@ export default {
   font-size: 24rpx;
   line-height: 1.5;
   margin-top: 12rpx;
+}
+
+.plus-mask {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 998;
+}
+
+.plus-menu {
+  position: absolute;
+  top: 8rpx;
+  right: 24rpx;
+  min-width: 280rpx;
+  background-color: #4c4c4c;
+  border-radius: 16rpx;
+  overflow: hidden;
+}
+
+.plus-item {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  padding: 28rpx 36rpx;
+}
+
+.plus-item-icon {
+  font-size: 34rpx;
+  margin-right: 20rpx;
+  width: 40rpx;
+  text-align: center;
+}
+
+.plus-item-text {
+  font-size: 30rpx;
 }
 </style>

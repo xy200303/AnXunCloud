@@ -91,68 +91,24 @@
 
       <!-- 逐项卡片步 -->
       <block v-if="phase == 'items' && curItem != null">
-        <!-- 拍照项 -->
-        <view v-if="curItemIsPhoto" class="item-card" :style="{ backgroundColor: colors.bgCard, boxShadow: shadow }">
-          <text class="item-name" :style="{ color: colors.textPrimary }">{{ curItem.name }}</text>
-          <text class="item-hint" :style="{ color: colors.textSecondary }">{{ curItem.requirement != '' ? curItem.requirement : '拍一张该项的照片' }}</text>
-          <!-- 未拍：虚线大框 -->
-          <view
-            v-if="curItem.status == 'todo' || curItem.status == 'failed'"
-             hover-class="hover-dim" class="shot-empty"
-            :style="{ borderColor: curItem.status == 'failed' ? colors.danger : colors.primary }"
-            @click="takePhoto"
-          >
-            <view class="cam-icon" :style="{ borderColor: curItem.status == 'failed' ? colors.danger : colors.primary }">
-              <view class="cam-lens" :style="{ borderColor: curItem.status == 'failed' ? colors.danger : colors.primary }"></view>
-            </view>
-            <text  hover-class="hover-dim" class="shot-empty-text" :style="{ color: curItem.status == 'failed' ? colors.danger : colors.primary }">{{ curItem.status == 'failed' ? '不合格，点这里重拍' : '点这里拍照' }}</text>
-          </view>
-          <!-- 已拍：缩略图 + 状态角标 -->
-          <block v-else>
-            <view class="shot-preview" :style="{ backgroundColor: colors.bgPage }" @click="previewCurPhoto">
-              <image v-if="curItem.photos.length > 0 && !curItem.img_error" :src="curItem.photos[0]" class="shot-img" mode="aspectFill" @error="curItem.img_error = true" />
-              <view v-else class="shot-img shot-img-fallback">
-                <text class="shot-img-fallback-text">照片加载失败，可重新拍</text>
-              </view>
-            </view>
-            <view  hover-class="hover-dim" class="btn-big shot-next" :style="{ backgroundColor: colors.success }" @click="nextStep">
-              <text  hover-class="hover-dim" class="btn-big-text" :style="{ color: colors.white }">下一项</text>
-            </view>
-            <view  hover-class="hover-dim" class="btn-outline reshot" :style="{ borderColor: colors.primary }" @click="takePhoto">
-              <text  hover-class="hover-dim" class="btn-outline-text" :style="{ color: colors.primary }">重新拍</text>
-            </view>
-          </block>
-          <text
-            v-if="curItem.status != 'recognizing'"
-            hover-class="hover-dim"
-            class="escape-link"
-            :style="{ color: curItem.exception_type != '' ? colors.danger : colors.warning }"
-            @click="reportPhotoItemMissing"
-          >{{ exceptionText(curItem.exception_type) }}</text>
-        </view>
-        <!-- 感官项 -->
-        <view v-else class="item-card" :style="{ backgroundColor: colors.bgCard, boxShadow: shadow }">
-          <text class="item-name" :style="{ color: colors.textPrimary }">{{ curItem.name }}</text>
-          <text class="item-hint" :style="{ color: colors.textSecondary }">{{ curItem.requirement != '' ? curItem.requirement : '这项正常吗？' }}</text>
-          <view  hover-class="hover-dim" class="btn-big btn-normal" :style="{ backgroundColor: colors.success }" @click="tapManualOk">
-            <text  hover-class="hover-dim" class="btn-big-text" :style="{ color: colors.white }">✓ 正常</text>
-          </view>
-          <view  hover-class="hover-dim" class="btn-big" :style="{ backgroundColor: colors.danger }" @click="tapManualAbnormal">
-            <text  hover-class="hover-dim" class="btn-big-text" :style="{ color: colors.white }">⚠ 有异常</text>
-          </view>
-          <block v-if="manualAbnormalOpen">
-            <textarea
-              v-model="manualNote"
-              class="manual-note"
-              :style="{ borderColor: colors.danger, color: colors.textPrimary, backgroundColor: colors.bgPage }"
-              placeholder="说说哪里不对劲（可不填）"
-              :maxlength="200"
-            />
-            <view  hover-class="hover-dim" class="btn-big" :style="{ backgroundColor: colors.danger }" @click="confirmManualAbnormal">
-              <text  hover-class="hover-dim" class="btn-big-text" :style="{ color: colors.white }">确认异常，下一项</text>
-            </view>
-          </block>
-        </view>
+        <QuickItemCard
+          :item="curItem"
+          :is-photo="curItemIsPhoto"
+          :manual-abnormal-open="manualAbnormalOpen"
+          :manual-note="manualNote"
+          :exception-label="curItemExceptionText"
+          :colors="colors"
+          :shadow="shadow"
+          @take-photo="takePhoto"
+          @preview-photo="previewCurPhoto"
+          @image-error="curItem.img_error = true"
+          @next="nextStep"
+          @report-missing="reportPhotoItemMissing"
+          @manual-ok="tapManualOk"
+          @manual-abnormal="tapManualAbnormal"
+          @update:manual-note="manualNote = $event"
+          @confirm-manual-abnormal="confirmManualAbnormal"
+        />
       </block>
 
       <!-- 点位收尾步 -->
@@ -182,49 +138,29 @@
 
       <!-- 补拍步（质量不合格 / 识别失败） -->
       <block v-if="phase == 'retake'">
-        <view class="banner" :style="{ backgroundColor: colors.danger }">
-          <text class="banner-text" :style="{ color: colors.white }">⚠ 这几项要重新拍</text>
-        </view>
-        <view v-for="(it, i) in retakeItems" :key="i" class="card retake-card" :style="{ backgroundColor: colors.bgCard, boxShadow: shadow }">
-          <image v-if="it.photos.length > 0 && !it.img_error" :src="it.photos[0]" class="retake-thumb" mode="aspectFill" @click="previewPhoto(it)" @error="it.img_error = true" />
-          <view class="retake-texts">
-            <text class="retake-name" :style="{ color: colors.textPrimary }">{{ it.name }}</text>
-            <text class="retake-issue" :style="{ color: colors.danger }">{{ retakeIssue(it) }}</text>
-          </view>
-          <view
-             hover-class="hover-dim" class="retake-btn"
-            :style="{ backgroundColor: it.status == 'recognizing' ? colors.info : colors.primary }"
-            @click="retakePhoto(it)"
-          >
-            <text  hover-class="hover-dim" class="retake-btn-text" :style="{ color: colors.white }">{{ it.status == 'recognizing' ? '检查中' : '重拍' }}</text>
-          </view>
-        </view>
-        <view  hover-class="hover-dim" class="btn-big" :style="{ backgroundColor: colors.success }" @click="submitPoint">
-          <text  hover-class="hover-dim" class="btn-big-text" :style="{ color: colors.white }">重新提交本点位</text>
-        </view>
+        <QuickIssuePanel
+          mode="retake"
+          :items="retakeItems"
+          :colors="colors"
+          :shadow="shadow"
+          @preview="previewPhoto"
+          @image-error="$event.img_error = true"
+          @retake="retakePhoto"
+          @confirm="submitPoint"
+        />
       </block>
 
       <!-- 异常确认步（红屏） -->
       <block v-if="phase == 'abnormal'">
-        <view class="banner" :style="{ backgroundColor: colors.danger }">
-          <text class="banner-text" :style="{ color: colors.white }">⚠ 发现 {{ abnormalItems.length }} 项异常</text>
-        </view>
-        <view v-for="(it, i) in abnormalItems" :key="i" class="card" :style="{ backgroundColor: colors.bgCard, boxShadow: shadow }">
-          <text class="abn-name" :style="{ color: colors.textPrimary }">{{ it.name }}</text>
-          <textarea
-            v-if="aiEditable"
-            class="abn-note"
-            :style="{ borderColor: colors.border, color: colors.textPrimary, backgroundColor: colors.bgPage }"
-            :value="it.note"
-            placeholder="补充说明（可不填）"
-            :maxlength="200"
-            @input="onAbnNoteInput(it, $event)"
-          />
-          <text v-else class="abn-reason" :style="{ color: colors.danger }">{{ it.note != '' ? it.note : 'AI 判断该项异常' }}</text>
-        </view>
-        <view  hover-class="hover-dim" class="btn-big" :style="{ backgroundColor: colors.danger }" @click="confirmAbnormalSubmit">
-          <text  hover-class="hover-dim" class="btn-big-text" :style="{ color: colors.white }">确认，去下一处</text>
-        </view>
+        <QuickIssuePanel
+          mode="abnormal"
+          :items="abnormalItems"
+          :ai-editable="aiEditable"
+          :colors="colors"
+          :shadow="shadow"
+          @update-note="onAbnNoteChange"
+          @confirm="confirmAbnormalSubmit"
+        />
       </block>
 
       <!-- 点位完成（绿勾，自动下一点位） -->
@@ -289,6 +225,8 @@ import { getLocationGcj02 } from '@/utils/geo'
 import { playVoice } from '@/utils/voice'
 import { compressForUpload } from '@/utils/image'
 import { WizardPointSnap, WizardItemSnap } from '@/utils/checkinWizard'
+import QuickItemCard from '@/components/QuickItemCard.vue'
+import QuickIssuePanel from '@/components/QuickIssuePanel.vue'
 
 /** 向导阶段：cred 凭证 / items 逐项 / gate 提交本点位 / retake 补拍 / abnormal 异常确认 / pointDone 点位完成 / taskDone 任务完成 */
 type Phase = 'cred' | 'items' | 'gate' | 'retake' | 'abnormal' | 'pointDone' | 'taskDone'
@@ -412,6 +350,7 @@ function freshPoint(p: TaskPoint): WizardPointSnap {
 }
 
 export default {
+  components: { QuickItemCard, QuickIssuePanel },
   data(): QuickData {
     return {
       colors: Colors,
@@ -476,6 +415,9 @@ export default {
     /** 当前项是否拍照项（judge_type != 'manual'；缺省按拍照项） */
     curItemIsPhoto(): boolean {
       return this.curItem != null && this.curItem.judge_type != 'manual'
+    },
+    curItemExceptionText(): string {
+      return this.curItem == null ? '设备不存在/无法检测，提交异常' : this.exceptionText(this.curItem.exception_type)
     },
     /** 点位序号（任务全部点位中的位置，1 起） */
     pointOrdinal(): number {
@@ -1366,8 +1308,8 @@ export default {
       if (it.status == 'failed') return it.quality_issue != '' ? it.quality_issue : '识别失败，请重拍'
       return it.quality_issue != '' ? it.quality_issue : '照片不合格'
     },
-    onAbnNoteInput(it: WizardItemSnap, e: any) {
-      it.note = e != null && e.detail != null ? String(e.detail.value) : ''
+    onAbnNoteChange(payload: { item: WizardItemSnap; value: string }) {
+      payload.item.note = payload.value
     },
     /** 异常确认：确认后真正 POST /checkin → 下一处 */
     confirmAbnormalSubmit() {
@@ -1732,127 +1674,6 @@ export default {
   font-weight: 700;
 }
 
-.btn-normal {
-  margin-top: 32rpx;
-}
-
-/* 逐项卡片 */
-.item-card {
-  border-radius: 24rpx;
-  padding: 48rpx 32rpx;
-  align-items: center;
-  margin-bottom: 24rpx;
-}
-
-.item-name {
-  font-size: 56rpx;
-  font-weight: 700;
-}
-
-.item-hint {
-  font-size: 34rpx;
-  text-align: center;
-  margin-top: 16rpx;
-  line-height: 48rpx;
-}
-
-/* 拍照项：未拍虚线大框 */
-.shot-empty {
-  width: 100%;
-  height: 360rpx;
-  border-radius: 24rpx;
-  border-width: 3rpx;
-  border-style: dashed;
-  align-items: center;
-  justify-content: center;
-  margin-top: 40rpx;
-}
-
-.cam-icon {
-  width: 120rpx;
-  height: 96rpx;
-  border-width: 6rpx;
-  border-style: solid;
-  border-radius: 20rpx;
-  align-items: center;
-  justify-content: center;
-}
-
-.cam-lens {
-  width: 40rpx;
-  height: 40rpx;
-  border-width: 6rpx;
-  border-style: solid;
-  border-radius: 20rpx;
-}
-
-.shot-empty-text {
-  font-size: 40rpx;
-  font-weight: 700;
-  margin-top: 24rpx;
-}
-
-.escape-link {
-  display: block;
-  font-size: 30rpx;
-  font-weight: 700;
-  margin: 30rpx 12rpx 8rpx;
-  padding: 22rpx 18rpx;
-  border: 2rpx solid currentColor;
-  border-radius: 14rpx;
-  text-align: center;
-  background-color: rgba(255, 150, 0, 0.1);
-}
-
-/* 拍照项：已拍预览 */
-.shot-preview {
-  width: 100%;
-  height: 480rpx;
-  border-radius: 20rpx;
-  margin-top: 40rpx;
-  overflow: hidden;
-  align-items: center;
-  justify-content: center;
-}
-
-.shot-img {
-  width: 100%;
-  height: 480rpx;
-}
-
-.shot-img-fallback {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background-color: #f2f3f5;
-}
-
-.shot-img-fallback-text {
-  font-size: 26rpx;
-  color: #969799;
-}
-
-.shot-next {
-  margin-top: 32rpx;
-}
-
-.reshot {
-  width: 100%;
-  margin-top: 8rpx;
-}
-
-.manual-note {
-  width: 100%;
-  height: 192rpx;
-  border-radius: 16rpx;
-  border-width: 2rpx;
-  border-style: solid;
-  padding: 24rpx;
-  font-size: 34rpx;
-  margin-top: 8rpx;
-  margin-bottom: 24rpx;
-}
-
 /* 收尾步 */
 .gate-card {
   align-items: center;
@@ -1888,84 +1709,6 @@ export default {
 .gate-sub {
   font-size: 30rpx;
   margin-top: 24rpx;
-}
-
-/* 阶段横幅（补拍 / 异常确认） */
-.banner {
-  border-radius: 24rpx;
-  padding: 32rpx;
-  margin-bottom: 24rpx;
-  align-items: center;
-}
-
-.banner-text {
-  font-size: 48rpx;
-  font-weight: 700;
-}
-
-/* 补拍列表 */
-.retake-card {
-  flex-direction: row;
-  align-items: center;
-  justify-content: space-between;
-}
-
-.retake-thumb {
-  width: 120rpx;
-  height: 120rpx;
-  border-radius: 16rpx;
-  margin-right: 24rpx;
-}
-
-.retake-texts {
-  flex: 1;
-}
-
-.retake-name {
-  font-size: 40rpx;
-  font-weight: 700;
-}
-
-.retake-issue {
-  font-size: 30rpx;
-  margin-top: 8rpx;
-}
-
-.retake-btn {
-  width: 160rpx;
-  height: 96rpx;
-  border-radius: 20rpx;
-  align-items: center;
-  justify-content: center;
-  margin-left: 24rpx;
-}
-
-.retake-btn-text {
-  font-size: 36rpx;
-  font-weight: 700;
-}
-
-/* 异常确认 */
-.abn-name {
-  font-size: 40rpx;
-  font-weight: 700;
-}
-
-.abn-reason {
-  font-size: 34rpx;
-  margin-top: 12rpx;
-  line-height: 48rpx;
-}
-
-.abn-note {
-  width: 100%;
-  height: 160rpx;
-  border-radius: 16rpx;
-  border-width: 2rpx;
-  border-style: solid;
-  padding: 24rpx;
-  font-size: 34rpx;
-  margin-top: 16rpx;
 }
 
 /* 完成页 */

@@ -444,6 +444,7 @@ func New(cfg *config.Config, db *gorm.DB, rdb *redis.Client) (*gin.Engine, *insp
 			appReports := appAuth.Group("/reports")
 			{
 				appReports.POST("/generate", middleware.RequirePerm("report:generate"), middleware.OperLog(db, "report", "generate"), reportCtl.Generate) // App 管理端手动生成报告
+				appReports.GET("/sign-candidates", middleware.RequirePerm("report:generate"), reportCtl.SignCandidates)
 				appReports.GET("", middleware.RequirePerm("report:list"), reportCtl.List)
 				appReports.GET("/:id/records", middleware.RequirePerm("report:list"), reportCtl.PagedRecords)
 				appReports.GET("/:id", middleware.RequirePerm("report:list"), reportCtl.Detail)

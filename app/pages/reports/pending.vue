@@ -71,10 +71,10 @@ type PendingData = {
   lastLoadedAt: number
 }
 
-const TABS: { key: TabKey; label: string }[] = [
-  { key: 'pending', label: '等待签字' },
-  { key: 'doing', label: '进行中' },
-  { key: 'done', label: '已完成' }
+const TABS: { value: TabKey; label: string }[] = [
+  { value: 'pending', label: '等待签字' },
+  { value: 'doing', label: '进行中' },
+  { value: 'done', label: '已完成' }
 ]
 
 /** 当前签字节点文案（对齐报告状态机） */
@@ -104,7 +104,7 @@ export default {
     }
   },
   computed: {
-    tabs(): { key: TabKey; label: string }[] {
+    tabs(): { value: TabKey; label: string }[] {
       return TABS
     },
     /** 管理端「生成报告」入口显隐（须 report:generate 权限） */

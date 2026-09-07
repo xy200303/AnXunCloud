@@ -53,14 +53,8 @@
     </AppListShell>
 
     <!-- 公告弹层：已发布公告列表，点击进入公告详情页 -->
-    <AppBottomSheet
-      :visible="noticeShow"
-      :mask-color="colors.mask"
-      :background-color="colors.bgCard"
-      height="75%"
-      @close="noticeShow = false"
-    >
-      <view class="notice-panel" :style="{ backgroundColor: colors.bgCard }">
+    <view v-if="noticeShow" class="notice-mask" :style="{ backgroundColor: colors.mask }" @click="noticeShow = false">
+      <view class="notice-panel" :style="{ backgroundColor: colors.bgCard }" @click.stop="noop">
         <view class="notice-head">
           <text class="notice-title" :style="{ color: colors.textPrimary }">公告</text>
           <text class="notice-close" :style="{ color: colors.textSecondary }" @click="noticeShow = false">关闭</text>
@@ -81,7 +75,7 @@
           </view>
         </scroll-view>
       </view>
-    </AppBottomSheet>
+    </view>
 
     <view class="tabbar-space"></view>
   </view>
@@ -94,7 +88,6 @@ import { useMessageStore } from '@/stores/message'
 import { syncBadge } from '@/utils/push'
 import AppListShell from '@/components/AppListShell.vue'
 import AppListFooter from '@/components/AppListFooter.vue'
-import AppBottomSheet from '@/components/AppBottomSheet.vue'
 
 const PAGE_SIZE = 20
 
@@ -132,7 +125,7 @@ function typeColorOf(t: string): string {
 }
 
 export default {
-  components: { AppListShell, AppListFooter, AppBottomSheet },
+  components: { AppListShell, AppListFooter },
   data(): MessagesData {
     return {
       colors: Colors,
@@ -412,10 +405,22 @@ export default {
   margin-top: 12rpx;
 }
 
-/* 公告弹层 */
+/* 公告居中弹窗 */
+.notice-mask {
+  position: fixed;
+  left: 0;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 998;
+  align-items: center;
+  justify-content: center;
+  padding: 48rpx;
+}
+
 .notice-panel {
-  flex: 1;
   width: 100%;
+  max-height: 70%;
   border-radius: 24rpx;
   padding: 32rpx;
 }
@@ -438,8 +443,7 @@ export default {
 }
 
 .notice-scroll {
-  flex: 1;
-  min-height: 0;
+  max-height: 800rpx;
 }
 
 .notice-empty {

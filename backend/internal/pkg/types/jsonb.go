@@ -161,7 +161,7 @@ const (
 	PhotoReqRequired = "required" // 必拍（合格也须 ≥1 张该项照片）
 )
 
-// SignEntry 报告签字留痕（inspection_report.inspector_signed JSONB）。
+// SignEntry 报告动态审核步骤签字留痕。
 type SignEntry struct {
 	UserID   string `json:"user_id"`
 	Name     string `json:"name"`
@@ -170,7 +170,7 @@ type SignEntry struct {
 	SignatureFileID string `json:"signature_file_id,omitempty"`
 	// AssetID 签字时的签章资产 id（v16 起；可空，便于法律追溯定位版本）
 	AssetID string `json:"asset_id,omitempty"`
-	// 代签留痕（三字段同时非空表示代签：UserID/Name 为被代签巡检员，签名图取代签人本人资产——代签人对该次确认负责）
+	// 代签留痕（三字段同时非空表示代签：UserID/Name 为被代签候选人，签名图取代签人本人资产）
 	ProxyBy     string `json:"proxy_by,omitempty"`
 	ProxyName   string `json:"proxy_name,omitempty"`
 	ProxyReason string `json:"proxy_reason,omitempty"`
@@ -194,6 +194,43 @@ func (a *SignArray) Scan(src any) error {
 	}
 	if data == nil {
 		*a = SignArray{}
+		return nil
+	}
+	return json.Unmarshal(data, a)
+}
+
+// ReportReviewStep 报告审核步骤快照。生成报告时固化流程、候选人和当前签字留痕，
+// 后续职责槽位配置变化不影响已生成报告的审核权限与历史展示。
+type ReportReviewStep struct {
+	Slot         string    `json:"slot"`
+	Name         string    `json:"name"`
+	Mode         string    `json:"mode,omitempty"` // any=任一候选人，all=全部候选人
+	CandidateIDs IDArray   `json:"candidate_ids"`
+	Signed       SignArray `json:"signed"`
+	SignerID     string    `json:"signer_id,omitempty"`
+	SignedAt     string    `json:"signed_at,omitempty"`
+	Remark       string    `json:"remark,omitempty"`
+	SignatureID  string    `json:"signature_id,omitempty"`
+}
+
+// ReportReviewStepArray 映射 inspection_report.review_steps JSONB。
+type ReportReviewStepArray []ReportReviewStep
+
+func (a ReportReviewStepArray) Value() (driver.Value, error) {
+	if a == nil {
+		return "[]", nil
+	}
+	b, err := json.Marshal(a)
+	return string(b), err
+}
+
+func (a *ReportReviewStepArray) Scan(src any) error {
+	data, err := toBytes(src)
+	if err != nil {
+		return err
+	}
+	if data == nil {
+		*a = ReportReviewStepArray{}
 		return nil
 	}
 	return json.Unmarshal(data, a)
@@ -246,6 +283,7 @@ func toBytes(src any) ([]byte, error) {
 type FlowStep struct {
 	Slot string `json:"slot"`
 	Name string `json:"name"`
+	Mode string `json:"mode,omitempty"` // any=任一候选人，all=全部候选人
 }
 
 // FlowStepArray 映射 jsonb 审批链环节数组。

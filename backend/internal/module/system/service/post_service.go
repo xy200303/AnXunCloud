@@ -430,3 +430,45 @@ func (s *PostService) SaveReviewFlow(tenantID *string, steps types.FlowStepArray
 	}
 	return nil
 }
+
+func (s *PostService) GetReportReviewFlow(tenantID *string) (gin.H, *errs.Error) {
+	var f model.ApprovalFlow
+	q := s.db.Where("flow_code = ?", model.FlowReportReview)
+	if tenantID == nil {
+		q = q.Where("tenant_id IS NULL AND project_id IS NULL")
+	} else {
+		q = q.Where("tenant_id = ? AND project_id IS NULL", *tenantID)
+	}
+	if err := q.First(&f).Error; err != nil {
+		return gin.H{"flow_code": model.FlowReportReview, "steps": communitysvc.DefaultReportReviewFlow(), "source": "default"}, nil
+	}
+	source := "tenant"
+	if tenantID == nil {
+		source = "platform"
+	}
+	return gin.H{"flow_code": model.FlowReportReview, "steps": f.Steps, "source": source}, nil
+}
+
+func (s *PostService) SaveReportReviewFlow(tenantID *string, steps types.FlowStepArray) *errs.Error {
+	if be := communitysvc.ValidateReportFlowSteps(s.db, steps); be != nil {
+		return be
+	}
+	var f model.ApprovalFlow
+	q := s.db.Where("flow_code = ?", model.FlowReportReview)
+	if tenantID == nil {
+		q = q.Where("tenant_id IS NULL AND project_id IS NULL")
+	} else {
+		q = q.Where("tenant_id = ? AND project_id IS NULL", *tenantID)
+	}
+	if err := q.First(&f).Error; err != nil {
+		f = model.ApprovalFlow{TenantID: tenantID, FlowCode: model.FlowReportReview, Steps: steps}
+		if err := s.db.Create(&f).Error; err != nil {
+			return errs.ErrInternal
+		}
+		return nil
+	}
+	if err := s.db.Model(&f).Update("steps", steps).Error; err != nil {
+		return errs.ErrInternal
+	}
+	return nil
+}

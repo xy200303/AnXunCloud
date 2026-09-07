@@ -36,6 +36,11 @@ type SignInfo struct {
 	SignatureFileID string
 }
 
+type ReviewSignGroup struct {
+	Name  string
+	Signs []SignInfo
+}
+
 // SummaryRow 本月检查汇总表行（按点位类型一行）。
 type SummaryRow struct {
 	TypeName    string  // 设施类别
@@ -102,10 +107,7 @@ type MonthlyReportData struct {
 	Details       []DetailTable
 	PhotoGroups   []PhotoGroup // 附件：分项检查照片（按设施类别分组）
 	Ledger        []LedgerRow
-	// 三级签字栏：巡检员确认名单（含时间）、安全负责人、物业经理
-	InspectorSigns []SignInfo
-	Supervisor     SignInfo
-	Manager        SignInfo
+	ReviewSigns []ReviewSignGroup
 	// ImageLoader 按 file_id 加载图片字节与类型（JPG/PNG）；nil 则跳过签名图/公章。
 	// 单张加载失败返回 error，PDF 侧跳过该张，不影响整体生成。
 	ImageLoader func(fileID string) (data []byte, imgType string, err error)
@@ -603,7 +605,7 @@ func renderLedgerIntroAndSign(p *gofpdf.Fpdf, d MonthlyReportData) {
 	}
 	intro := []string{
 		"本报告依据相关规定与物业服务合同编制，记录物业服务人对园区设施开展月度巡检、隐患登记和整改跟踪的情况。",
-		"巡检人员使用系统完成点位打卡和现场拍照；安全负责人核对巡检数据、影像资料和整改进度；物业经理对报告进行审批。所有资料留痕归档，可追溯核查。",
+		"巡检人员使用系统完成点位打卡和现场拍照；审核人员按配置的审核链核对巡检数据、影像资料和整改进度。所有资料留痕归档，可追溯核查。",
 		"检查覆盖" + coverage + "等设施与区域。",
 	}
 	boxY := p.GetY()
@@ -624,34 +626,26 @@ func renderLedgerSignTable(p *gofpdf.Fpdf, d MonthlyReportData) {
 	p.SetFont("noto", "B", 14)
 	p.CellFormat(contentW, 8, "2.签字审批栏", "", 1, "L", false, 0, "")
 	p.Ln(2)
-	const cellW, headerH, bodyH = 60.0, 12.0, 62.0
+	count := len(d.ReviewSigns)
+	if count == 0 { p.SetY(p.GetY()+8); return }
+	headerH, bodyH := 12.0, 62.0
+	cellW := contentW / float64(count)
 	x0, y0 := margin, p.GetY()
-	headers := []string{"巡检人签字\n（现场执行）", "安全负责人签字\n（审核复查）", "物业经理签字\n（审批）"}
 	p.SetFillColor(oliveHeader[0], oliveHeader[1], oliveHeader[2])
-	for idx, header := range headers {
+	for idx, group := range d.ReviewSigns {
 		x := x0 + float64(idx)*cellW
 		p.Rect(x, y0, cellW, headerH, "DF")
-		lines := strings.Split(header, "\n")
 		p.SetFont("noto", "B", 10)
 		p.SetXY(x, y0+1.5)
-		p.CellFormat(cellW, 4.5, lines[0], "", 0, "C", false, 0, "")
+		p.CellFormat(cellW, 4.5, group.Name, "", 0, "C", false, 0, "")
 		p.SetFont("noto", "", 8)
 		p.SetXY(x, y0+6.5)
-		p.CellFormat(cellW, 4, lines[1], "", 0, "C", false, 0, "")
+		p.CellFormat(cellW, 4, "审核签字", "", 0, "C", false, 0, "")
 		p.Rect(x, y0+headerH, cellW, bodyH, "D")
-	}
-	renderSignCell(p, d, 0, x0, y0+headerH, cellW, bodyH-11, d.InspectorSigns)
-	renderSignCell(p, d, 1, x0+cellW, y0+headerH, cellW, bodyH-11, []SignInfo{d.Supervisor})
-	renderSignCell(p, d, 2, x0+cellW*2, y0+headerH, cellW, bodyH-11, []SignInfo{d.Manager})
-	for idx, signs := range [][]SignInfo{d.InspectorSigns, {d.Supervisor}, {d.Manager}} {
-		date := signBarDate(signs)
-		if idx > 0 && len(signs) > 0 {
-			date = dateCN(signs[0].Time)
-		}
-		if date == "" {
-			date = "      年    月    日"
-		}
-		p.SetXY(x0+float64(idx)*cellW, y0+headerH+bodyH-8)
+		renderSignCell(p, d, idx, x, y0+headerH, cellW, bodyH-11, group.Signs)
+		date := signBarDate(group.Signs)
+		if date == "" { date = "      年    月    日" }
+		p.SetXY(x, y0+headerH+bodyH-8)
 		p.SetFont("noto", "", 9)
 		p.CellFormat(cellW, 5, date, "", 0, "C", false, 0, "")
 	}

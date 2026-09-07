@@ -878,7 +878,7 @@ func (d *demoSeeder) seedTenantB() error {
 		}
 	}
 
-	// 上月（报告期）真实工作量 + 月度报告（待巡检员确认）
+	// 上月（报告期）真实工作量 + 月度报告（动态审核中）
 	if err := d.seedReportsB(tid, cid, plan.ID, pointIDs, pointMeta, tplID, managerID, xjID); err != nil {
 		return err
 	}
@@ -1071,7 +1071,7 @@ func (d *demoSeeder) seedMonthWorkload(tid, cid string, o monthWorkload) (monthS
 	return st, nil
 }
 
-// seedReportsB 租户 B 上月报告：报告期真实工作量；报告待巡检员确认。
+// seedReportsB 租户 B 上月报告：报告期真实工作量；报告处于动态审核流程中。
 func (d *demoSeeder) seedReportsB(tid, cid, planID string, pointIDs []string, pointMeta map[string]demoPoint,
 	tplID, managerID, xjID string) error {
 	period := lastMonthPeriod()
@@ -1088,16 +1088,19 @@ func (d *demoSeeder) seedReportsB(tid, cid, planID string, pointIDs []string, po
 		return err
 	}
 
-	// 2) 报告：待巡检员确认（签字流程第一级；项目无安全主管，主管级自动跳过）
+	// 2) 报告：使用动态审核链示例（巡检员确认后由项目复核）
 	report := rptmodel.InspectionReport{
 		TenantID: &tid, CommunityID: cid, Period: period,
-		Title:           demoReportTitle("金源世纪城", period),
-		Status:          rptmodel.StatusPendingInspector,
-		Stats:           demoReportStats(st, 0, []any{}),
-		InspectorIDs:    types.IDArray{xjID},
-		InspectorSigned: types.SignArray{},
-		SupervisorIDs:   types.IDArray{},
-		ManagerIDs:      types.IDArray{managerID},
+		Title:        demoReportTitle("金源世纪城", period),
+		Status:       rptmodel.StatusPendingReview,
+		Stats:        demoReportStats(st, 0, []any{}),
+		InspectorIDs: types.IDArray{xjID},
+		ReviewSteps: types.ReportReviewStepArray{
+			{Slot: sysmodel.SlotReportInspector, Name: "巡检员确认", Mode: "all", CandidateIDs: types.IDArray{xjID}},
+			{Slot: sysmodel.SlotProjectReview, Name: "项目复核", Mode: "any", CandidateIDs: types.IDArray{managerID}},
+		},
+		ReviewStep:       0,
+		ReviewCurrentIDs: types.IDArray{xjID},
 	}
 	return d.db.Create(&report).Error
 }

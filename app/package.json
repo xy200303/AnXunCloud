@@ -1,8 +1,11 @@
 {
   "name": "anxun-app",
+  "version": "1.0.1",
   "private": true,
   "scripts": {
     "dev:h5": "uni -p h5",
+    "sync:version": "node scripts/sync-version.mjs",
+    "prebuild:h5": "npm run sync:version",
     "build:h5": "vite build"
   },
   "dependencies": {

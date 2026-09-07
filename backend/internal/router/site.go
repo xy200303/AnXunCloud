@@ -16,8 +16,8 @@ import (
 	"github.com/skip2/go-qrcode"
 
 	"anxuncloud/internal/config"
-	"anxuncloud/internal/module/system/model"
 	systemctl "anxuncloud/internal/module/system/controller"
+	"anxuncloud/internal/module/system/model"
 	systemsvc "anxuncloud/internal/module/system/service"
 	sitetpl "anxuncloud/internal/template"
 )

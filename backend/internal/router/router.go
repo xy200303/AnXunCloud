@@ -235,6 +235,8 @@ func New(cfg *config.Config, db *gorm.DB, rdb *redis.Client) (*gin.Engine, *insp
 		secured.PUT("/communities/:id/duty-bindings", middleware.RequirePerm("community:duty:edit"), middleware.OperLog(db, "community", "duty_binding_save"), staffCtl.SaveDutyBindings)
 		secured.GET("/communities/:id/review-flow", middleware.RequirePerm("community:staff:list"), staffCtl.GetReviewFlow)
 		secured.PUT("/communities/:id/review-flow", middleware.RequirePerm("community:duty:edit"), middleware.OperLog(db, "community", "review_flow_save"), staffCtl.SaveReviewFlow)
+		secured.GET("/communities/:id/report-review-flow", middleware.RequirePerm("community:staff:list"), staffCtl.GetReportReviewFlow)
+		secured.PUT("/communities/:id/report-review-flow", middleware.RequirePerm("community:duty:edit"), middleware.OperLog(db, "community", "report_review_flow_save"), staffCtl.SaveReportReviewFlow)
 
 		// 巡检管理：点位
 		points := secured.Group("/inspection/points")
@@ -305,7 +307,7 @@ func New(cfg *config.Config, db *gorm.DB, rdb *redis.Client) (*gin.Engine, *insp
 			stats.POST("/export", middleware.RequirePerm("stats:export"), middleware.OperLog(db, "stats", "export"), statsCtl.Export)
 		}
 
-		// 月度报告（三级电子确认签字 + PDF 归档）
+		// 月度报告（动态审核链签字 + PDF 归档）
 		reports := secured.Group("/reports")
 		{
 			reports.GET("", middleware.RequirePerm("report:list"), reportCtl.List)
@@ -320,10 +322,7 @@ func New(cfg *config.Config, db *gorm.DB, rdb *redis.Client) (*gin.Engine, *insp
 			reports.GET("/sign-candidates", middleware.RequirePerm("report:generate"), reportCtl.SignCandidates)
 			reports.GET("/:id/records", middleware.RequirePerm("report:list"), reportCtl.PagedRecords)
 			reports.GET("/:id", middleware.RequirePerm("report:list"), reportCtl.Detail)
-			reports.POST("/:id/sign-inspector", middleware.RequirePerm("report:sign:inspector", "report:sign:proxy"), middleware.OperLog(db, "report", "sign_inspector"), reportCtl.SignInspector)
-			// 主管/经理签字不挂权限点：授权以报告生成时圈定的名单成员身份为准（service 内校验）
-			reports.POST("/:id/sign-supervisor", middleware.OperLog(db, "report", "sign_supervisor"), reportCtl.SignSupervisor)
-			reports.POST("/:id/sign-manager", middleware.OperLog(db, "report", "sign_manager"), reportCtl.SignManager)
+			reports.POST("/:id/sign-step/:step", middleware.OperLog(db, "report", "sign_step"), reportCtl.SignStep)
 			reports.GET("/:id/pdf", reportCtl.PDF) // 权限在 service 内判定：report:download 或报告相关人
 		}
 	}
@@ -448,10 +447,7 @@ func New(cfg *config.Config, db *gorm.DB, rdb *redis.Client) (*gin.Engine, *insp
 				appReports.GET("", middleware.RequirePerm("report:list"), reportCtl.List)
 				appReports.GET("/:id/records", middleware.RequirePerm("report:list"), reportCtl.PagedRecords)
 				appReports.GET("/:id", middleware.RequirePerm("report:list"), reportCtl.Detail)
-				appReports.POST("/:id/sign-inspector", middleware.RequirePerm("report:sign:inspector", "report:sign:proxy"), middleware.OperLog(db, "report", "sign_inspector"), reportCtl.SignInspector)
-				// 主管/经理签字不挂权限点：同 PC，授权以报告名单成员身份为准
-				appReports.POST("/:id/sign-supervisor", middleware.OperLog(db, "report", "sign_supervisor"), reportCtl.SignSupervisor)
-				appReports.POST("/:id/sign-manager", middleware.OperLog(db, "report", "sign_manager"), reportCtl.SignManager)
+				appReports.POST("/:id/sign-step/:step", middleware.OperLog(db, "report", "sign_step"), reportCtl.SignStep)
 				appReports.GET("/:id/pdf", reportCtl.PDF)               // 同 PC：service 内判定（report:download 或报告相关人）
 				appReports.POST("/:id/pdf-ticket", reportCtl.PDFTicket) // 签发 web-view 预览用一次性 ticket
 			}
@@ -534,8 +530,12 @@ func registerSystemRoutes(sys *gin.RouterGroup, db *gorm.DB,
 	// 审批链管理（系统管理，租户上下文）与审批链模板（平台管理，仅超管）
 	sys.GET("/review-flow", middleware.RequirePerm("system:reviewflow:list"), postCtl.GetReviewFlow)
 	sys.PUT("/review-flow", middleware.RequirePerm("system:reviewflow:update"), middleware.OperLog(db, "system", "review_flow_save"), postCtl.SaveReviewFlow)
+	sys.GET("/report-review-flow", middleware.RequirePerm("system:reviewflow:list"), postCtl.GetReportReviewFlow)
+	sys.PUT("/report-review-flow", middleware.RequirePerm("system:reviewflow:update"), middleware.OperLog(db, "system", "report_review_flow_save"), postCtl.SaveReportReviewFlow)
 	sys.GET("/review-flow-template", middleware.RequirePerm("platform:reviewflow:list"), postTmplCtl.GetReviewFlow)
 	sys.PUT("/review-flow-template", middleware.RequirePerm("platform:reviewflow:update"), middleware.OperLog(db, "system", "review_flow_save"), postTmplCtl.SaveReviewFlow)
+	sys.GET("/report-review-flow-template", middleware.RequirePerm("platform:reviewflow:list"), postTmplCtl.GetReportReviewFlow)
+	sys.PUT("/report-review-flow-template", middleware.RequirePerm("platform:reviewflow:update"), middleware.OperLog(db, "system", "report_review_flow_save"), postTmplCtl.SaveReportReviewFlow)
 
 	// 岗位管理（系统管理，租户上下文）与岗位模板库（平台管理，仅超管）
 	posts := sys.Group("/posts")

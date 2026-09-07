@@ -7,6 +7,28 @@ import { startGlobalListener, platformOf } from '@/utils/nfc'
 import { syncOfflineCheckins } from '@/utils/offline'
 import { initPushClickListener, bindPushDevice, syncBadge } from '@/utils/push'
 
+function routeNfcCard(cardId: string) {
+  // 打卡页（连续巡检向导/手动表单）暴露了 onGlobalNfc 则交给页面处理：
+  // 向导内贴卡 = 页内核验 / 定位到该点位 / 已提交点位直接进入（修改模式）
+  const pages = getCurrentPages()
+  const cur: any = pages.length > 0 ? pages[pages.length - 1] : null
+  const vm = cur != null ? cur.$vm : null
+  if (vm != null && typeof vm.onGlobalNfc == 'function') {
+    vm.onGlobalNfc(cardId)
+    return
+  }
+  // 按卡片 UID 定位点位（后端 by-code 按 nfc_id 匹配；未备案的卡轻提示「未找到相关点位信息」）
+  resolvePointCode(cardId)
+}
+
+function ensureGlobalNfcListener() {
+  // #ifdef APP-PLUS
+  if (getAccessToken() != '' && platformOf() != 'ios') {
+    startGlobalListener(routeNfcCard)
+  }
+  // #endif
+}
+
 export default {
   onLaunch: function () {
     // 恢复缓存的用户信息（token 由 request 层直接从 storage 读）
@@ -40,24 +62,13 @@ export default {
     // NFC 全局前台识别（技术方案 §5.4）：App 打开任何页面贴标签自动定位任务。
     // 内部按运行时平台分流：Android 注册即听；鸿蒙自动启动无弹窗会话；iOS 忽略（走按钮触发）。
     // 注意：经典 uni-app 不支持 APP-HARMONY 条件编译，这里必须写 APP-PLUS。
-    if (getAccessToken() != '' && platformOf() != 'ios') {
-      startGlobalListener((cardId) => {
-        // 打卡页（连续巡检向导/手动表单）暴露了 onGlobalNfc 则交给页面处理：
-        // 向导内贴卡 = 页内核验 / 定位到该点位 / 已提交点位直接进入（修改模式）
-        const pages = getCurrentPages()
-        const cur: any = pages.length > 0 ? pages[pages.length - 1] : null
-        const vm = cur != null ? cur.$vm : null
-        if (vm != null && typeof vm.onGlobalNfc == 'function') {
-          vm.onGlobalNfc(cardId)
-          return
-        }
-        // 按卡片 UID 定位点位（后端 by-code 按 nfc_id 匹配；未备案的卡轻提示「未找到相关点位信息」）
-        resolvePointCode(cardId)
-      })
-    }
+    ensureGlobalNfcListener()
     // #endif
   },
   onShow: function () {
+    // Android 后台/冷启动由 NfcDispatchActivity 缓存卡片；回到前台时再次消费，
+    // 这样在 App 外碰卡并从系统候选列表选择安巡云后，可直接进入巡检点位。
+    ensureGlobalNfcListener()
     // 回到前台自动补传离线打卡（无网/有任务在执行时 sync 内部自判，单飞防并发）
     if (getAccessToken() == '') return
     syncOfflineCheckins().then((r) => {

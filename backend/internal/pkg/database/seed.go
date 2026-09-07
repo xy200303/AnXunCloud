@@ -153,7 +153,6 @@ func seedMenus(tx *gorm.DB) (map[string]string, error) {
 			{title: "数据导出", typ: model.MenuTypeButton, perms: "stats:export", sort: 4},
 			{title: "月度报告", path: "/stats/reports", icon: "Notebook", typ: model.MenuTypeMenu, perms: "report:list", sort: 5, children: []menuSeed{
 				{title: "生成报告", typ: model.MenuTypeButton, perms: "report:generate", sort: 1},
-				{title: "巡检员确认", typ: model.MenuTypeButton, perms: "report:sign:inspector", sort: 2},
 				{title: "下载PDF", typ: model.MenuTypeButton, perms: "report:download", sort: 5},
 				{title: "代签", typ: model.MenuTypeButton, perms: "report:sign:proxy", sort: 6},
 			}},
@@ -356,11 +355,8 @@ func seedRoleMenus(tx *gorm.DB, roleIDs, menuIDs map[string]string) error {
 	if err := assign(roleIDs["project_admin"], projectAdminMenuIDs); err != nil {
 		return err
 	}
-	// 一线人员授予「月度报告」菜单（report:list）+ 巡检员确认按钮（report:sign:inspector）：
-	// 月报三级签字的第一级"巡检员确认"要求应签巡检员本人调用（代签走 report:sign:proxy 留痕代签），
-	// 否则报告永远停在 pending_inspector。PC 后台报告页即为其确认入口（生成/下载/上级签字按钮无权限点自动隐藏）；
-	// 移动端调同一组签字接口，两端规则一致。
-	fieldStaffMenuKeys := []string{"report:list", "report:sign:inspector"}
+	// 一线人员可查看报告；具体审核权限由报告生成时固化的动态审核链和候选人名单控制。
+	fieldStaffMenuKeys := []string{"report:list"}
 	var fieldStaffMenuIDs []string
 	for _, key := range fieldStaffMenuKeys {
 		if id, ok := menuIDs[key]; ok {
@@ -572,16 +568,7 @@ func ensurePlatformRows(db *gorm.DB) error {
 		if err := seedConfigs(tx); err != nil { // OnConflict 幂等（新增配置项补入存量库）
 			return err
 		}
-		var n int64
-		if err := tx.Model(&model.ApprovalFlow{}).
-			Where("tenant_id IS NULL AND project_id IS NULL AND flow_code = ?", model.FlowCheckinReview).
-			Count(&n).Error; err != nil {
-			return err
-		}
-		if n == 0 {
-			return seedApprovalFlow(tx)
-		}
-		return nil
+		return seedApprovalFlow(tx)
 	})
 }
 
@@ -592,8 +579,6 @@ func seedDutyBindings(tx *gorm.DB) error {
 		slot  string
 		codes types.StringArray
 	}{
-		{model.SlotReportSignSupervisor, types.StringArray{"safety_supervisor"}},
-		{model.SlotReportSignManager, types.StringArray{"project_manager"}},
 		{model.SlotPatrolExecute, types.StringArray{"inspector"}},
 		{model.SlotPatrolReportLine, types.StringArray{"safety_supervisor"}},
 		// 汇报线业务线维度槽位（扩展方案 §2.4）：安全线不设默认（回落通用槽位），
@@ -616,13 +601,30 @@ func seedDutyBindings(tx *gorm.DB) error {
 }
 
 // seedApprovalFlow 预置平台默认审批链（approval_flow：tenant_id/project_id 均空 = 平台默认）。
-// 打卡审批流程默认单步「主管审核」（与链化前行为一致；租户可自行追加"项目经理复核"等环节）。
 func seedApprovalFlow(tx *gorm.DB) error {
-	flow := model.ApprovalFlow{
+	flows := []model.ApprovalFlow{{
 		FlowCode: model.FlowCheckinReview,
 		Steps: types.FlowStepArray{
 			{Slot: model.SlotPatrolReportLine, Name: "主管审核"},
 		},
+	}, {
+		FlowCode: model.FlowReportReview,
+		Steps: types.FlowStepArray{
+			{Slot: model.SlotReportInspector, Name: "巡检员确认", Mode: "all"},
+			{Slot: model.SlotPatrolReportLine, Name: "主管审核", Mode: "any"},
+			{Slot: model.SlotProjectReview, Name: "项目复核", Mode: "any"},
+		},
+	}}
+	for _, flow := range flows {
+		var count int64
+		if err := tx.Model(&model.ApprovalFlow{}).Where("tenant_id IS NULL AND project_id IS NULL AND flow_code = ?", flow.FlowCode).Count(&count).Error; err != nil {
+			return err
+		}
+		if count == 0 {
+			if err := tx.Create(&flow).Error; err != nil {
+				return err
+			}
+		}
 	}
-	return tx.Create(&flow).Error
+	return nil
 }

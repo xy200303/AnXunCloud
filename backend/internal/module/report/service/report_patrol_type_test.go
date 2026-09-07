@@ -3,7 +3,7 @@ package service
 import (
 	"testing"
 
-	sysmodel "anxuncloud/internal/module/system/model"
+	"anxuncloud/internal/pkg/types"
 )
 
 // TestReportTitle 综合月报标题保持现状格式（回归）；非法期间走兜底拼接。
@@ -38,21 +38,9 @@ func TestSpecialReportTitle(t *testing.T) {
 	}
 }
 
-// TestSupervisorSlot 主管级签字默认槽位：空类型=固定月报主管级槽位（综合月报维持现状）；
-// 非空=该类型汇报线槽位解析结果（patrol_report_line.<type> 或回落通用汇报线，由解析器决定）。
-func TestSupervisorSlot(t *testing.T) {
-	resolveCalled := false
-	resolve := func(pt string) string {
-		resolveCalled = true
-		return "patrol_report_line." + pt
-	}
-	if got := supervisorSlot("", resolve); got != sysmodel.SlotReportSignSupervisor {
-		t.Fatalf("空类型应走固定月报主管级槽位，实际 %s", got)
-	}
-	if resolveCalled {
-		t.Fatal("空类型不应调用汇报线解析器")
-	}
-	if got := supervisorSlot("fire", resolve); got != "patrol_report_line.fire" {
-		t.Fatalf("非空类型应走汇报线槽位，实际 %s", got)
+func TestReviewStepHelpers(t *testing.T) {
+	steps := types.ReportReviewStepArray{{CandidateIDs: types.IDArray{}}, {CandidateIDs: types.IDArray{"u1"}}}
+	if firstReviewStep(steps) != 1 || reviewStatus(steps, 1) != "pending_review" || len(reviewCurrentIDs(steps, 1)) != 1 {
+		t.Fatal("动态审核步骤辅助函数结果不符合预期")
 	}
 }

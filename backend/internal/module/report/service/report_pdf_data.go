@@ -10,7 +10,7 @@ import (
 	sysmodel "anxuncloud/internal/module/system/model"
 	"anxuncloud/internal/pkg/logger"
 	"anxuncloud/internal/pkg/pdf"
-	"anxuncloud/internal/pkg/timefmt"
+	"anxuncloud/internal/pkg/types"
 	"anxuncloud/internal/pkg/uploadfile"
 
 	"go.uber.org/zap"
@@ -44,8 +44,14 @@ func (s *ReportService) pdfData(r *model.InspectionReport) pdf.MonthlyReportData
 		if d.SealFileID == "" {
 			d.SealFileID = s.activeSealID(r.CommunityID)
 		}
-		if r.ManagerAt != nil {
-			d.ApproveDate = r.ManagerAt.Format("2006-01-02")
+		for i := len(r.ReviewSteps) - 1; i >= 0; i-- {
+			if len(r.ReviewSteps[i].Signed) > 0 {
+				d.ApproveDate = r.ReviewSteps[i].Signed[len(r.ReviewSteps[i].Signed)-1].SignedAt
+				if parsed, err := time.Parse("2006-01-02 15:04:05", d.ApproveDate); err == nil {
+					d.ApproveDate = parsed.Format("2006-01-02")
+				}
+				break
+			}
 		}
 	}
 
@@ -283,46 +289,25 @@ func (s *ReportService) pdfData(r *model.InspectionReport) pdf.MonthlyReportData
 		d.Ledger = append(d.Ledger, row)
 	}
 
-	// ===== 2.三级签字栏（含签名图快照） =====
-	signedBy := map[string]string{}
-	sigBy := map[string]string{}
-	proxyNameBy := map[string]string{}
-	for _, e := range r.InspectorSigned {
-		signedBy[e.UserID] = e.SignedAt
-		sigBy[e.UserID] = e.SignatureFileID
-		if e.ProxyName != "" {
-			proxyNameBy[e.UserID] = e.ProxyName
+	// ===== 2.动态审核链签字栏（含签名图快照） =====
+	for _, step := range r.ReviewSteps {
+		signs := make([]pdf.SignInfo, 0, len(step.CandidateIDs))
+		for _, uid := range step.CandidateIDs {
+			entry := types.SignEntry{}
+			found := false
+			for _, signed := range step.Signed {
+				if signed.UserID == uid {
+					entry, found = signed, true
+					break
+				}
+			}
+			name := s.userName(uid)
+			if found && entry.ProxyName != "" {
+				name += "（" + entry.ProxyName + "代签）"
+			}
+			signs = append(signs, pdf.SignInfo{Name: name, Time: entry.SignedAt, SignatureFileID: entry.SignatureFileID})
 		}
-	}
-	for _, uid := range r.InspectorIDs {
-		name := s.userName(uid)
-		if pn, ok := proxyNameBy[uid]; ok {
-			name += "（" + pn + "代签）" // 代签必须显式标注；原因留在系统留痕，不挤签字栏
-		}
-		d.InspectorSigns = append(d.InspectorSigns, pdf.SignInfo{
-			Name: name, Time: signedBy[uid], SignatureFileID: sigBy[uid],
-		})
-	}
-	// 已签但不在应签名单的（如超管代签）追加展示
-	for _, e := range r.InspectorSigned {
-		if r.InspectorIDs.Contains(e.UserID) {
-			continue
-		}
-		d.InspectorSigns = append(d.InspectorSigns, pdf.SignInfo{
-			Name: e.Name, Time: e.SignedAt, SignatureFileID: e.SignatureFileID,
-		})
-	}
-	if r.SupervisorBy != nil {
-		d.Supervisor = pdf.SignInfo{
-			Name: s.userName(*r.SupervisorBy), Time: timefmt.TP(r.SupervisorAt),
-			Remark: r.SupervisorRemark, SignatureFileID: r.SupervisorSignatureID,
-		}
-	}
-	if r.ManagerBy != nil {
-		d.Manager = pdf.SignInfo{
-			Name: s.userName(*r.ManagerBy), Time: timefmt.TP(r.ManagerAt),
-			Remark: r.ManagerRemark, SignatureFileID: r.ManagerSignatureID,
-		}
+		d.ReviewSigns = append(d.ReviewSigns, pdf.ReviewSignGroup{Name: step.Name, Signs: signs})
 	}
 	return d
 }

@@ -148,6 +148,32 @@ func (ctl *PostController) SaveReviewFlow(c *gin.Context) {
 	writePost(c, nil, ctl.svc.SaveReviewFlow(&tid, req.Steps))
 }
 
+func (ctl *PostController) GetReportReviewFlow(c *gin.Context) {
+	tid, be := middleware.EffectiveTenantID(c, ctl.db)
+	if be != nil {
+		response.Fail(c, be)
+		return
+	}
+	data, be := ctl.svc.GetReportReviewFlow(&tid)
+	writePost(c, data, be)
+}
+
+func (ctl *PostController) SaveReportReviewFlow(c *gin.Context) {
+	var req struct {
+		Steps types.FlowStepArray `json:"steps"`
+	}
+	if be := bind.JSON(c, &req); be != nil {
+		response.Fail(c, be)
+		return
+	}
+	tid, be := middleware.EffectiveTenantID(c, ctl.db)
+	if be != nil {
+		response.Fail(c, be)
+		return
+	}
+	writePost(c, nil, ctl.svc.SaveReportReviewFlow(&tid, req.Steps))
+}
+
 // PostTemplateController 岗位模板库接口（平台管理 /platform/post-templates，is_platform 仅超管）。
 // 作用域为 post_dict 的 tenant_id IS NULL 行；仅作开通租户的初始拷贝源，不参与租户实际业务。
 type PostTemplateController struct {
@@ -232,4 +258,19 @@ func (ctl *PostTemplateController) SaveReviewFlow(c *gin.Context) {
 		return
 	}
 	writePost(c, nil, ctl.svc.SaveReviewFlow(nil, req.Steps))
+}
+
+func (ctl *PostTemplateController) GetReportReviewFlow(c *gin.Context) {
+	data, be := ctl.svc.GetReportReviewFlow(nil)
+	writePost(c, data, be)
+}
+func (ctl *PostTemplateController) SaveReportReviewFlow(c *gin.Context) {
+	var req struct {
+		Steps types.FlowStepArray `json:"steps"`
+	}
+	if be := bind.JSON(c, &req); be != nil {
+		response.Fail(c, be)
+		return
+	}
+	writePost(c, nil, ctl.svc.SaveReportReviewFlow(nil, req.Steps))
 }

@@ -97,7 +97,7 @@ func (s *ReportService) RunDueReportPlans(now time.Time) (int, error) {
 		if !ok || label == p.LastPeriod {
 			continue
 		}
-		_, be := s.createReport(p.CommunityID, p.PatrolType, start, end, label, nil, nil, nil, &p.ID, detailModeOr(p.DetailMode))
+		_, be := s.createReport(p.CommunityID, p.PatrolType, start, end, label, nil, nil, &p.ID, detailModeOr(p.DetailMode))
 		upd := map[string]any{"last_period": label, "last_error": ""}
 		if be != nil {
 			// 已有同口径归档报告：视为本期已完成（记期间跳过）；其他错误记录待下轮重试
@@ -209,7 +209,7 @@ func (s *ReportService) CreateReportPlan(c *gin.Context, req *dto.ReportPlanReq)
 		return nil, be
 	}
 	p := model.ReportPlan{
-		TenantID: middleware.CommunityTenantID(s.db, req.CommunityID),
+		TenantID:    middleware.CommunityTenantID(s.db, req.CommunityID),
 		CommunityID: req.CommunityID, Name: req.Name, PatrolType: req.PatrolType,
 		CycleType: req.CycleType, CycleConfig: cfg, GenTime: req.GenTime,
 		Status: sysmodel.StatusEnabled, Remark: req.Remark,
@@ -281,7 +281,7 @@ func (s *ReportService) RunReportPlanNow(c *gin.Context, id string) (gin.H, *err
 	if !ok {
 		return nil, errs.ErrParam.WithMsg("今天不是该计划的生成日（" + cycleTextOf(&p) + "）")
 	}
-	out, be := s.createReport(p.CommunityID, p.PatrolType, start, end, label, nil, nil, nil, &p.ID, detailModeOr(p.DetailMode))
+	out, be := s.createReport(p.CommunityID, p.PatrolType, start, end, label, nil, nil, &p.ID, detailModeOr(p.DetailMode))
 	if be != nil {
 		return nil, be
 	}

@@ -107,7 +107,7 @@ func (s *NoticeService) Create(req *NoticeSaveReq, operatorID string, operatorNa
 	}
 	n := model.SysNotice{
 		TenantID: &tenantID,
-		Title: req.Title, Content: req.Content, Status: status,
+		Title:    req.Title, Content: req.Content, Status: status,
 		Attachments: toAttachmentArray(req.Attachments),
 		CreatedBy:   &operatorID, CreatedByName: operatorName,
 	}

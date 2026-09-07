@@ -1,4 +1,4 @@
-// Package service 月度巡检报告业务逻辑：生成/重算 + 三级电子确认签字 + PDF 归档。
+// Package service 月度巡检报告业务逻辑：生成/重算 + 动态审核链签字 + PDF 归档。
 package service
 
 import (
@@ -113,14 +113,99 @@ func specialReportTitle(commName, period, typeLabel string) string {
 	return fmt.Sprintf("%s%d年%d月%s专项检查报告", commName, t.Year(), int(t.Month()), label)
 }
 
-// supervisorSlot 主管级签字默认槽位（§3.4「签字名单怎么定」）：
-// patrolType 空=综合月报，维持固定「月报主管级签字」槽位；非空=该类型汇报线槽位
-// （resolve 为维度槽位解析器：patrol_report_line.<type> 有绑定即命中，否则回落通用 patrol_report_line）。
-func supervisorSlot(patrolType string, resolve func(patrolType string) string) string {
-	if patrolType == "" {
-		return sysmodel.SlotReportSignSupervisor
+// reportFlow 解析报告审核链。流程本身允许为空，空流程表示报告生成后直接归档。
+func (s *ReportService) reportFlow(communityID string) types.FlowStepArray {
+	return communitysvc.ResolveFlow(s.db, communityID, sysmodel.FlowReportReview)
+}
+
+func reportStepMode(step types.FlowStep) string {
+	if step.Mode == "all" {
+		return "all"
 	}
-	return resolve(patrolType)
+	return "any"
+}
+
+// resolveReportSteps 固化生成时的审核链和候选人，所有后续签字只依赖快照。
+func (s *ReportService) resolveReportSteps(communityID, patrolType string, inspectorIDs types.IDArray, picked []dto.GenerateSignStep) (types.ReportReviewStepArray, *errs.Error) {
+	flow := s.reportFlow(communityID)
+	steps := make(types.ReportReviewStepArray, 0, len(flow))
+	for _, configured := range flow {
+		slot := communitysvc.FlowStepSlot(s.db, communityID, patrolType, configured.Slot)
+		defaults := types.IDArray{}
+		if slot == sysmodel.SlotReportInspector {
+			defaults = inspectorIDs
+		} else {
+			defaults = communitysvc.SlotUserIDs(s.db, communityID, slot)
+		}
+		selected := defaults
+		if picked != nil {
+			selected = nil
+			found := false
+			for _, p := range picked {
+				if p.Slot != configured.Slot && p.Slot != slot {
+					continue
+				}
+				found = true
+				selected = types.IDArray(p.CandidateIDs)
+				break
+			}
+			if !found {
+				selected = defaults
+			}
+			allowed := map[string]bool{}
+			for _, id := range defaults {
+				allowed[id] = true
+			}
+			seen := map[string]bool{}
+			for _, id := range selected {
+				if !allowed[id] {
+					return nil, errs.ErrParam.WithMsg("审核人须属于对应审核环节候选人")
+				}
+				if seen[id] {
+					continue
+				}
+				seen[id] = true
+			}
+			selected = uniqueIDs(selected)
+		}
+		steps = append(steps, types.ReportReviewStep{Slot: slot, Name: configured.Name, Mode: reportStepMode(configured), CandidateIDs: selected, Signed: types.SignArray{}})
+	}
+	return steps, nil
+}
+
+func uniqueIDs(ids types.IDArray) types.IDArray {
+	out := make(types.IDArray, 0, len(ids))
+	seen := map[string]bool{}
+	for _, id := range ids {
+		if id != "" && !seen[id] {
+			seen[id] = true
+			out = append(out, id)
+		}
+	}
+	return out
+}
+
+func firstReviewStep(steps types.ReportReviewStepArray) int {
+	for i, step := range steps {
+		if len(step.CandidateIDs) > 0 {
+			return i
+		}
+	}
+	return len(steps)
+}
+
+func reviewStatus(steps types.ReportReviewStepArray, index int) string {
+	if index >= len(steps) {
+		return model.StatusApproved
+	}
+	return model.StatusPendingReview
+}
+
+func reviewCurrentIDs(steps types.ReportReviewStepArray, index int) types.IDArray {
+	if index < 0 || index >= len(steps) {
+		return types.IDArray{}
+	}
+	return steps[index].CandidateIDs
 }
 
 // scopeTaskType 任务查询叠加巡查类型过滤（空=综合口径全类型，不过滤）。
@@ -459,12 +544,12 @@ func (s *ReportService) recordsWithURLs(rows []gin.H) []gin.H {
 func (s *ReportService) List(c *gin.Context, q *dto.ReportListQuery) (*response.Page, *errs.Error) {
 	db := s.db.Model(&model.InspectionReport{})
 	if identity := middleware.CurrentIdentity(c); identity != nil && identity.ScopeSelf {
-		// self 档（纯一线岗位）：仅本人相关报告（三级签字名单任一含本人），且不得跨租户
+		// self 档（纯一线岗位）：仅本人相关报告，且不得跨租户
 		if identity.TenantID != "" {
 			db = db.Where("tenant_id = ?", identity.TenantID)
 		}
 		j := fmt.Sprintf(`["%s"]`, identity.UserID)
-		db = db.Where(`inspector_ids @> ?::jsonb OR supervisor_ids @> ?::jsonb OR manager_ids @> ?::jsonb`, j, j, j)
+		db = db.Where(`inspector_ids @> ?::jsonb OR review_current_ids @> ?::jsonb`, j, j)
 	} else {
 		db = middleware.ApplyCommunityFilter(db, c, "inspection_report.community_id")
 	}
@@ -483,26 +568,23 @@ func (s *ReportService) List(c *gin.Context, q *dto.ReportListQuery) (*response.
 	} else if q.PatrolType != "" {
 		db = db.Where("patrol_type = ?", q.PatrolType)
 	}
-	// 只看待我签：当前用户处于该报告当前级签字人名单内（巡检员级按应签名单，主管/经理级按指定名单）
+	// 只看待我签：当前用户处于该报告当前审核步骤候选人名单内
 	if q.PendingMine == "1" || q.PendingMine == "true" {
 		if identity := middleware.CurrentIdentity(c); identity != nil {
 			j := fmt.Sprintf(`["%s"]`, identity.UserID)
-			db = db.Where(`(status = 'pending_inspector' AND inspector_ids @> ?::jsonb)
-				OR (status = 'pending_supervisor' AND supervisor_ids @> ?::jsonb)
-				OR (status = 'pending_manager' AND manager_ids @> ?::jsonb)`, j, j, j)
+			db = db.Where(`status = ? AND review_current_ids @> ?::jsonb`, model.StatusPendingReview, j)
 		}
 	}
-	// 我签过的：三级任一签署留痕含当前用户。1/true 含已归档（签完不消失，可回看完整报告）；
+	// 我签过的：任意审核步骤签署留痕含当前用户。1/true 含已归档（签完不消失，可回看完整报告）；
 	// doing 只取流程未走完的（App「进行中」选项卡）。
 	if q.SignedMine != "" {
 		if identity := middleware.CurrentIdentity(c); identity != nil {
 			uid := identity.UserID
-			j := fmt.Sprintf(`[{"user_id":"%s"}]`, uid)
-			signedCond := `inspector_signed @> ?::jsonb OR supervisor_by = ? OR manager_by = ?`
+			signedCond := `review_steps @> ?::jsonb`
 			if q.SignedMine == "doing" {
-				db = db.Where(`status <> 'approved' AND (`+signedCond+`)`, j, uid, uid)
+				db = db.Where(`status <> 'approved' AND `+signedCond, fmt.Sprintf(`[{"signed":[{"user_id":"%s"}]}]`, uid))
 			} else if q.SignedMine == "1" || q.SignedMine == "true" {
-				db = db.Where(`status = 'approved' OR `+signedCond, j, uid, uid)
+				db = db.Where(`status = 'approved' OR `+signedCond, fmt.Sprintf(`[{"signed":[{"user_id":"%s"}]}]`, uid))
 			}
 		}
 	}
@@ -516,47 +598,41 @@ func (s *ReportService) List(c *gin.Context, q *dto.ReportListQuery) (*response.
 	if err := db.Omit("stats").Order("period DESC, id DESC").Offset(offset).Limit(limit).Find(&rows).Error; err != nil {
 		return nil, errs.ErrInternal
 	}
-	// 列表直接展示当前报告实际圈定的审核人，避免自动生成报告只能进入详情后才能确认审核路径。
+	// 列表直接展示当前报告实际圈定的审核链，避免自动生成报告只能进入详情后才能确认审核路径。
 	signerIDSet := map[string]bool{}
 	for i := range rows {
-		for _, id := range rows[i].SupervisorIDs {
-			signerIDSet[id] = true
-		}
-		for _, id := range rows[i].ManagerIDs {
-			signerIDSet[id] = true
+		for _, step := range rows[i].ReviewSteps {
+			for _, id := range step.CandidateIDs {
+				signerIDSet[id] = true
+			}
 		}
 	}
 	signerNames := s.userNamesOf(signerIDSet)
 	list := make([]gin.H, 0, len(rows))
 	for i := range rows {
 		r := &rows[i]
-		supervisorNames := make([]string, 0, len(r.SupervisorIDs))
-		for _, id := range r.SupervisorIDs {
-			if name := signerNames[id]; name != "" {
-				supervisorNames = append(supervisorNames, name)
+		reviewSteps := make([]gin.H, 0, len(r.ReviewSteps))
+		for _, step := range r.ReviewSteps {
+			names := make([]string, 0, len(step.CandidateIDs))
+			for _, id := range step.CandidateIDs {
+				if name := signerNames[id]; name != "" {
+					names = append(names, name)
+				}
 			}
-		}
-		managerNames := make([]string, 0, len(r.ManagerIDs))
-		for _, id := range r.ManagerIDs {
-			if name := signerNames[id]; name != "" {
-				managerNames = append(managerNames, name)
-			}
+			reviewSteps = append(reviewSteps, gin.H{"slot": step.Slot, "name": step.Name, "mode": step.Mode, "candidate_ids": step.CandidateIDs, "candidate_names": names, "signed": step.Signed})
 		}
 		list = append(list, gin.H{
 			"id": r.ID, "community_id": r.CommunityID, "community_name": s.commName(r.CommunityID),
 			"period": r.Period, "title": r.Title, "status": r.Status,
-			"patrol_type":            r.PatrolType,
-			"patrol_type_label":      s.patrolTypeLabel(r.PatrolType),
-			"plan_id":                r.PlanID,
-			"inspector_total":        len(r.InspectorIDs),
-			"inspector_signed_count": len(r.InspectorSigned),
-			"supervisor_name":        s.userNamePtr(r.SupervisorBy),
-			"manager_name":           s.userNamePtr(r.ManagerBy),
-			"supervisor_signers":     supervisorNames,
-			"manager_signers":        managerNames,
-			"has_file":               r.FileID != "",
-			"created_at":             timefmt.T(r.CreatedAt),
-			"updated_at":             timefmt.T(r.UpdatedAt),
+			"patrol_type":        r.PatrolType,
+			"patrol_type_label":  s.patrolTypeLabel(r.PatrolType),
+			"plan_id":            r.PlanID,
+			"review_steps":       reviewSteps,
+			"review_step":        r.ReviewStep,
+			"review_current_ids": r.ReviewCurrentIDs,
+			"has_file":           r.FileID != "",
+			"created_at":         timefmt.T(r.CreatedAt),
+			"updated_at":         timefmt.T(r.UpdatedAt),
 		})
 	}
 	return &response.Page{List: list, Total: total, Page: q.Page, PageSize: q.PageSize}, nil
@@ -568,30 +644,6 @@ func (s *ReportService) Detail(c *gin.Context, id string) (gin.H, *errs.Error) {
 	if be != nil {
 		return nil, be
 	}
-	// 应确认巡检员明细（补姓名、签字状态与签名图快照 URL；代签附带代签人与原因）
-	signedBy := map[string]string{}
-	signedSig := map[string]string{}
-	proxyBy := map[string][2]string{}
-	for _, e := range r.InspectorSigned {
-		signedBy[e.UserID] = e.SignedAt
-		signedSig[e.UserID] = e.SignatureFileID
-		if e.ProxyBy != "" {
-			proxyBy[e.UserID] = [2]string{e.ProxyName, e.ProxyReason}
-		}
-	}
-	inspectors := make([]gin.H, 0, len(r.InspectorIDs))
-	for _, uid := range r.InspectorIDs {
-		at, ok := signedBy[uid]
-		entry := gin.H{
-			"user_id": uid, "name": s.userName(uid), "signed": ok, "signed_at": at,
-			"signature_url": s.sigURL(signedSig[uid]),
-		}
-		if p, isProxy := proxyBy[uid]; isProxy {
-			entry["proxy_name"] = p[0]
-			entry["proxy_reason"] = p[1]
-		}
-		inspectors = append(inspectors, entry)
-	}
 	var fileURL any
 	fileID := r.FileID
 	if r.FileID != "" {
@@ -602,31 +654,19 @@ func (s *ReportService) Detail(c *gin.Context, id string) (gin.H, *errs.Error) {
 	return gin.H{
 		"id": r.ID, "community_id": r.CommunityID, "community_name": s.commName(r.CommunityID),
 		"period": r.Period, "title": r.Title, "status": r.Status, "stats": r.Stats,
-		"patrol_type":       r.PatrolType,
-		"patrol_type_label": s.patrolTypeLabel(r.PatrolType),
-		"plan_id":           r.PlanID,
-		"records":           s.recordsWithURLs(s.reportRecords(r)),
-		"inspector_ids":     r.InspectorIDs, "inspectors": inspectors,
-		"inspector_signed":         r.InspectorSigned,
-		"supervisor_ids":           r.SupervisorIDs,
-		"supervisors":              s.signerItems(r.SupervisorIDs, r.SupervisorBy),
-		"manager_ids":              r.ManagerIDs,
-		"managers":                 s.signerItems(r.ManagerIDs, r.ManagerBy),
-		"supervisor_by":            r.SupervisorBy,
-		"supervisor_name":          s.userNamePtr(r.SupervisorBy),
-		"supervisor_at":            timefmt.TP(r.SupervisorAt),
-		"supervisor_remark":        r.SupervisorRemark,
-		"supervisor_signature_url": s.sigURL(r.SupervisorSignatureID),
-		"manager_by":               r.ManagerBy,
-		"manager_name":             s.userNamePtr(r.ManagerBy),
-		"manager_at":               timefmt.TP(r.ManagerAt),
-		"manager_remark":           r.ManagerRemark,
-		"manager_signature_url":    s.sigURL(r.ManagerSignatureID),
-		"reject_reason":            r.RejectReason,
-		"file_id":                  fileID,
-		"file_url":                 fileURL,
-		"created_at":               timefmt.T(r.CreatedAt),
-		"updated_at":               timefmt.T(r.UpdatedAt),
+		"patrol_type":        r.PatrolType,
+		"patrol_type_label":  s.patrolTypeLabel(r.PatrolType),
+		"plan_id":            r.PlanID,
+		"records":            s.recordsWithURLs(s.reportRecords(r)),
+		"inspector_ids":      r.InspectorIDs,
+		"review_steps":       s.reviewStepItems(r.ReviewSteps),
+		"review_step":        r.ReviewStep,
+		"review_current_ids": r.ReviewCurrentIDs,
+		"reject_reason":      r.RejectReason,
+		"file_id":            fileID,
+		"file_url":           fileURL,
+		"created_at":         timefmt.T(r.CreatedAt),
+		"updated_at":         timefmt.T(r.UpdatedAt),
 	}, nil
 }
 
@@ -635,7 +675,7 @@ func (s *ReportService) Detail(c *gin.Context, id string) (gin.H, *errs.Error) {
 // 判重按 community_id+period+patrol_type，综合与专项可同月共存）；plan_id 仅溯源（须属于该小区）。
 // 签字人名单：req 未传（nil）取槽位默认名单（项目级槽位绑定 → 平台默认 → 编制在职成员）；
 // 专项报告主管级默认槽位换成该类型汇报线槽位（patrol_report_line.<type>，如 fire→工程主管）；
-// 显式传数组按名单（仅校验用户存在且启用），空数组该级跳过。
+// 显式传数组只能选择对应审核槽位候选人，空数组该级跳过。
 func (s *ReportService) Generate(c *gin.Context, req *dto.GenerateReq) (gin.H, *errs.Error) {
 	// 期间口径二选一：start_date+end_date（任意期间，报告计划/临时范围生成）或 period（月度）
 	var start, end time.Time
@@ -673,7 +713,7 @@ func (s *ReportService) Generate(c *gin.Context, req *dto.GenerateReq) (gin.H, *
 		planID = &req.PlanID
 	}
 	return s.createReport(req.CommunityID, req.PatrolType, start, end, label,
-		req.SupervisorIDs, req.ManagerIDs, planID, nil, req.DetailMode)
+		req.SignSteps, planID, nil, req.DetailMode)
 }
 
 // createReport 生成（或按 community+period+patrol_type 判重重算）一份报告并启动签字流。
@@ -681,20 +721,13 @@ func (s *ReportService) Generate(c *gin.Context, req *dto.GenerateReq) (gin.H, *
 // reportPlanID 溯源报告计划，均可空。返回 {id,title,status,regenerated}；
 // 已归档同口径报告报 ErrReportApproved。
 func (s *ReportService) createReport(communityID, patrolType string, start, end time.Time, label string,
-	supIDs, mgrIDs []string, inspectionPlanID, reportPlanID *string, detailMode string) (gin.H, *errs.Error) {
+	picked []dto.GenerateSignStep, inspectionPlanID, reportPlanID *string, detailMode string) (gin.H, *errs.Error) {
 	name := s.commName(communityID)
 	stats, inspectorIDs, be := s.buildStatsRange(communityID, start, end, patrolType)
 	if be != nil {
 		return nil, be
 	}
-	supSlot := supervisorSlot(patrolType, func(t string) string {
-		return communitysvc.ResolveReportLineSlot(s.db, communityID, t)
-	})
-	supervisorIDs, be := s.resolveSigners(communityID, supSlot, supIDs)
-	if be != nil {
-		return nil, be
-	}
-	managerIDs, be := s.resolveSigners(communityID, sysmodel.SlotReportSignManager, mgrIDs)
+	reviewSteps, be := s.resolveReportSteps(communityID, patrolType, inspectorIDs, picked)
 	if be != nil {
 		return nil, be
 	}
@@ -710,8 +743,9 @@ func (s *ReportService) createReport(communityID, patrolType string, start, end 
 			title = name + label + s.patrolTypeLabel(patrolType) + "检查报告"
 		}
 	}
-	// 首个有签字人的级别起签；某级无签字人自动跳过（不伪造通过），三级全空则直接归档、签字栏留空
-	initialStatus := firstSignStatus(inspectorIDs, supervisorIDs, managerIDs)
+	// 首个有签字人的级别起签；某级无签字人自动跳过，审核链全空则直接归档。
+	initialStep := firstReviewStep(reviewSteps)
+	initialStatus := reviewStatus(reviewSteps, initialStep)
 	endOfDay := end.Add(-time.Second)
 
 	var r model.InspectionReport
@@ -728,13 +762,9 @@ func (s *ReportService) createReport(communityID, patrolType string, start, end 
 			"report_plan_id": reportPlanID, "period_start": start, "period_end": endOfDay,
 			"detail_mode": detailModeOr(detailMode),
 			"stats":       stats, "inspector_ids": inspectorIDs,
-			"inspector_signed": types.SignArray{},
-			"supervisor_ids":   supervisorIDs, "manager_ids": managerIDs,
-			"supervisor_by": nil, "supervisor_at": nil, "supervisor_remark": "",
-			"supervisor_signature_id": nil,
-			"manager_by":              nil, "manager_at": nil, "manager_remark": "",
-			"manager_signature_id": nil,
-			"reject_reason":        "", "file_id": nil, "seal_file_id": nil,
+			"review_steps": reviewSteps, "review_step": initialStep,
+			"review_current_ids": reviewCurrentIDs(reviewSteps, initialStep),
+			"reject_reason":      "", "file_id": nil, "seal_file_id": nil,
 		}
 		if err := s.db.Model(&r).Updates(updates).Error; err != nil {
 			return nil, errs.ErrInternal
@@ -751,8 +781,8 @@ func (s *ReportService) createReport(communityID, patrolType string, start, end 
 		PeriodStart: &start, PeriodEnd: &endOfDay, Title: title,
 		TenantID: middleware.CommunityTenantID(s.db, communityID), // 冗余列（=所属小区租户）
 		Status:   initialStatus, Stats: stats,
-		InspectorIDs: inspectorIDs, InspectorSigned: types.SignArray{},
-		SupervisorIDs: supervisorIDs, ManagerIDs: managerIDs,
+		InspectorIDs: inspectorIDs,
+		ReviewSteps:  reviewSteps, ReviewStep: initialStep, ReviewCurrentIDs: reviewCurrentIDs(reviewSteps, initialStep),
 	}
 	if err := s.db.Create(&r).Error; err != nil {
 		return nil, errs.ErrInternal
@@ -780,63 +810,7 @@ func parseDateRange(startStr, endStr string) (time.Time, time.Time, *errs.Error)
 	return start, endD.AddDate(0, 0, 1), nil
 }
 
-// firstSignStatus 首个有签字人的签字级别；三级均无签字人返回 approved（签字栏留空直接归档，不伪造通过）。
-func firstSignStatus(inspectorIDs, supervisorIDs, managerIDs types.IDArray) string {
-	switch {
-	case len(inspectorIDs) > 0:
-		return model.StatusPendingInspector
-	case len(supervisorIDs) > 0:
-		return model.StatusPendingSupervisor
-	case len(managerIDs) > 0:
-		return model.StatusPendingManager
-	default:
-		return model.StatusApproved
-	}
-}
-
-// resolveSigners 生成报告时的签字人名单（名单制授权，设计方案 §5.3）：
-// picked 为 nil 时取槽位默认名单——duty_binding 槽位绑定（项目级覆盖 → 平台默认）→ 绑定岗位在该项目编制内的在职启用成员；
-// 槽位无绑定或无人员 → 该级为空（跳过）；显式名单仅校验用户存在且启用（授权以报告名单为准，不限角色/权限点/岗位，去重）；
-// picked 为空数组表示该级跳过（与 nil 区分）。
-func (s *ReportService) resolveSigners(communityID, slot string, picked []string) (types.IDArray, *errs.Error) {
-	if picked == nil {
-		return communitysvc.SlotUserIDs(s.db, communityID, slot), nil
-	}
-	if len(picked) == 0 {
-		return types.IDArray{}, nil
-	}
-	enabled := map[string]bool{}
-	var valid []string
-	tenantID := middleware.CommunityTenantID(s.db, communityID)
-	if tenantID == nil {
-		return nil, errs.ErrCommunityNotExist
-	}
-	if err := s.db.Model(&sysmodel.SysUser{}).
-		Where("id IN ? AND tenant_id = ? AND status = ?", picked, *tenantID, sysmodel.StatusEnabled).
-		Pluck("id", &valid).Error; err != nil {
-		return nil, errs.ErrInternal
-	}
-	for _, id := range valid {
-		enabled[id] = true
-	}
-	ids := make(types.IDArray, 0, len(picked))
-	seen := map[string]bool{}
-	for _, id := range picked {
-		if !enabled[id] {
-			return nil, errs.ErrParam.WithMsg("签字人须为存在且启用的用户")
-		}
-		if !seen[id] {
-			seen[id] = true
-			ids = append(ids, id)
-		}
-	}
-	return ids, nil
-}
-
-// SignCandidates 生成报告弹窗的签字人选项（名单制授权）：
-// default_supervisor_ids/default_manager_ids 为槽位默认名单（项目级覆盖 → 平台默认绑定 → 编制在职成员）；
-// patrolType 非空时主管级默认名单按该类型汇报线槽位取（同 Generate，§3.4）；
-// users 为全部启用用户（供生成时手动增删调整，授权以报告名单为准，不限岗位/权限点）。
+// SignCandidates 返回报告审核链及各步骤候选人。前端只展示后端解析结果，不自行推断岗位。
 func (s *ReportService) SignCandidates(c *gin.Context, communityID, patrolType string) (gin.H, *errs.Error) {
 	if be := middleware.CheckCommunity(s.db, c, communityID); be != nil {
 		return nil, be
@@ -844,24 +818,38 @@ func (s *ReportService) SignCandidates(c *gin.Context, communityID, patrolType s
 	if patrolType != "" && !s.validPatrolType(patrolType) {
 		return nil, errs.ErrParam.WithMsg("patrol_type 取值非法（须为字典 patrol_type 的启用项）")
 	}
-	supSlot := supervisorSlot(patrolType, func(t string) string {
-		return communitysvc.ResolveReportLineSlot(s.db, communityID, t)
-	})
-	defaultSupervisorIDs := communitysvc.SlotUserIDs(s.db, communityID, supSlot)
-	defaultManagerIDs := communitysvc.SlotUserIDs(s.db, communityID, sysmodel.SlotReportSignManager)
-	var users []sysmodel.SysUser
 	tenantID := middleware.CommunityTenantID(s.db, communityID)
 	if tenantID == nil {
 		return nil, errs.ErrCommunityNotExist
 	}
-	if err := s.db.Select("id", "name").
-		Where("tenant_id = ? AND status = ?", *tenantID, sysmodel.StatusEnabled).Order("id ASC").Find(&users).Error; err != nil {
-		return nil, errs.ErrInternal
+	loadUsers := func(ids types.IDArray) ([]sysmodel.SysUser, *errs.Error) {
+		if len(ids) == 0 {
+			return []sysmodel.SysUser{}, nil
+		}
+		var users []sysmodel.SysUser
+		if err := s.db.Select("id", "name").
+			Where("tenant_id = ? AND status = ? AND id IN ?", *tenantID, sysmodel.StatusEnabled, ids).
+			Order("id ASC").Find(&users).Error; err != nil {
+			return nil, errs.ErrInternal
+		}
+		return users, nil
+	}
+	flow := s.reportFlow(communityID)
+	steps := make([]gin.H, 0, len(flow))
+	for i, configured := range flow {
+		slot := communitysvc.FlowStepSlot(s.db, communityID, patrolType, configured.Slot)
+		ids := types.IDArray{}
+		if slot != sysmodel.SlotReportInspector {
+			ids = communitysvc.SlotUserIDs(s.db, communityID, slot)
+		}
+		users, be := loadUsers(ids)
+		if be != nil {
+			return nil, be
+		}
+		steps = append(steps, gin.H{"index": i, "slot": slot, "name": configured.Name, "mode": reportStepMode(configured), "users": s.candidateItems(users), "default_candidate_ids": ids})
 	}
 	return gin.H{
-		"users":                  s.candidateItems(users),
-		"default_supervisor_ids": defaultSupervisorIDs,
-		"default_manager_ids":    defaultManagerIDs,
+		"steps": steps,
 	}, nil
 }
 
@@ -889,21 +877,22 @@ func (s *ReportService) candidateItems(users []sysmodel.SysUser) []gin.H {
 	return items
 }
 
-// SignInspector 巡检员电子确认：inspector_signed 追加留痕；全员签完流转 pending_supervisor 并通知主管。
-// 代签（req.ProxyFor 非空）：须 report:sign:proxy 权限 + 代签原因必填；留痕记录被代签人，签名图取代签人本人资产（代签人对该次确认负责）。
-func (s *ReportService) SignInspector(c *gin.Context, id string, req *dto.InspectorSignReq) (gin.H, *errs.Error) {
+// SignStep 处理任意审核步骤的签字、代签和驳回。审核权限只来源于报告生成时固化的候选人快照。
+func (s *ReportService) SignStep(c *gin.Context, id string, step int, req *dto.SignReq) (gin.H, *errs.Error) {
 	r, be := s.getWithScope(c, id)
 	if be != nil {
 		return nil, be
 	}
-	if r.Status != model.StatusPendingInspector {
-		return nil, errs.ErrReportStatusNotAllowed.WithMsg("当前状态不可巡检员确认")
-	}
 	identity := middleware.CurrentIdentity(c)
-
-	// 确定被签人：默认本人；proxy_for 非空走代签
-	targetUID, targetName := identity.UserID, identity.Name
-	var proxy *types.SignEntry
+	if identity == nil {
+		return nil, errs.ErrNoPerm
+	}
+	if r.Status != model.StatusPendingReview || step != r.ReviewStep || step < 0 || step >= len(r.ReviewSteps) {
+		return nil, errs.ErrReportStatusNotAllowed
+	}
+	current := r.ReviewSteps[step]
+	targetUID := identity.UserID
+	targetName := identity.Name
 	if req.ProxyFor != "" {
 		if !identity.SuperAdmin {
 			ok, err := authz.EnforceAny(identity.UserID, "report:sign:proxy")
@@ -911,226 +900,101 @@ func (s *ReportService) SignInspector(c *gin.Context, id string, req *dto.Inspec
 				return nil, errs.ErrNoPerm
 			}
 		}
-		if !r.InspectorIDs.Contains(req.ProxyFor) {
-			return nil, errs.ErrParam.WithMsg("被代签人不在应签巡检员名单内")
+		if !current.CandidateIDs.Contains(req.ProxyFor) {
+			return nil, errs.ErrReportNotSigner
 		}
 		if req.Reason == "" {
 			return nil, errs.ErrParam.WithMsg("代签须填写代签原因")
 		}
-		targetUID = req.ProxyFor
-		targetName = s.userName(req.ProxyFor)
-		proxy = &types.SignEntry{ProxyBy: identity.UserID, ProxyName: identity.Name, ProxyReason: req.Reason}
-	} else if !r.InspectorIDs.Contains(identity.UserID) {
-		return nil, errs.ErrReportNotInspector
+		targetUID, targetName = req.ProxyFor, s.userName(req.ProxyFor)
+	} else if !current.CandidateIDs.Contains(identity.UserID) {
+		return nil, errs.ErrReportNotSigner
 	}
-	for _, e := range r.InspectorSigned {
-		if e.UserID == targetUID {
-			return nil, errs.ErrReportAlreadySigned
-		}
-	}
-	// 签名图：本人签用本人资产；代签用代签人资产。未配置签名时允许随请求传一次性签名文件
-	sigUID := identity.UserID
-	if proxy == nil {
-		sigUID = targetUID
-	}
-	sigKey, sigAssetID, sbe := s.resolveSignKey(sigUID, req.SignatureFileID)
-	if sbe != nil {
-		return nil, sbe
-	}
-	entry := types.SignEntry{
-		UserID: targetUID, Name: targetName, SignedAt: timefmt.T(time.Now()),
-		SignatureFileID: sigKey, AssetID: sigAssetID, // 签名图+资产快照：防止后续换签名影响历史报告
-	}
-	if proxy != nil {
-		entry.ProxyBy, entry.ProxyName, entry.ProxyReason = proxy.ProxyBy, proxy.ProxyName, proxy.ProxyReason
-	}
-	signed := append(types.SignArray{}, r.InspectorSigned...)
-	signed = append(signed, entry)
-	// 全部应签巡检员均已确认
-	allSigned := true
-	for _, uid := range r.InspectorIDs {
-		found := false
-		for _, e := range signed {
-			if e.UserID == uid {
-				found = true
-				break
-			}
-		}
-		if !found {
-			allSigned = false
-			break
-		}
-	}
-	updates := map[string]any{"inspector_signed": signed}
-	newStatus := r.Status
-	if allSigned {
-		// 流转下一签字级；空级别自动跳过（与 firstSignStatus 同口径），全空直接归档
-		newStatus = model.StatusPendingSupervisor
-		if len(r.SupervisorIDs) == 0 {
-			newStatus = model.StatusPendingManager
-			if len(r.ManagerIDs) == 0 {
-				newStatus = model.StatusApproved
-				updates["status"] = newStatus
-				if sealID := s.activeSealID(r.CommunityID); sealID != "" {
-					updates["seal_file_id"] = sealID
-				}
-			}
-		}
-		updates["status"] = newStatus
-	}
-	result := s.db.Model(&model.InspectionReport{}).
-		Where("id = ? AND status = ? AND updated_at = ?", r.ID, model.StatusPendingInspector, r.UpdatedAt).
-		Updates(updates)
-	if result.Error != nil {
-		return nil, errs.ErrInternal
-	}
-	if result.RowsAffected != 1 {
-		return nil, errs.ErrReportStatusNotAllowed.WithMsg("报告已被其他人更新，请刷新后重试")
-	}
-	if allSigned && newStatus == model.StatusApproved {
-		go s.archivePDF(r.ID)
-	}
-	if allSigned {
-		// 定向通知指定主管签字人（无签字人时该级本已跳过，不会走到这里仍保底校验）
-		for _, uid := range r.SupervisorIDs {
-			s.notify(uid, "report", "月报待主管审批",
-				fmt.Sprintf("「%s」全体巡检员已确认，请安全主管审批", r.Title), &r.ID)
-		}
-	}
-	return gin.H{"status": newStatus, "signed_count": len(signed), "inspector_total": len(r.InspectorIDs)}, nil
-}
-
-// SignSupervisor 主管签批（approve → pending_manager 通知超管；reject → 回退 pending_inspector）。
-func (s *ReportService) SignSupervisor(c *gin.Context, id string, req *dto.SignReq) (gin.H, *errs.Error) {
-	return s.sign(c, id, req, model.StatusPendingSupervisor)
-}
-
-// SignManager 经理终审（approve → approved + 异步 PDF 归档；reject → 回退 pending_inspector）。
-func (s *ReportService) SignManager(c *gin.Context, id string, req *dto.SignReq) (gin.H, *errs.Error) {
-	return s.sign(c, id, req, model.StatusPendingManager)
-}
-
-// sign 主管/经理共用签批逻辑。
-func (s *ReportService) sign(c *gin.Context, id string, req *dto.SignReq, expectStatus string) (gin.H, *errs.Error) {
-	r, be := s.getWithScope(c, id)
-	if be != nil {
-		return nil, be
-	}
-	if r.Status != expectStatus {
-		return nil, errs.ErrReportStatusNotAllowed
-	}
-	identity := middleware.CurrentIdentity(c)
-	now := time.Now()
-
-	// 指定签字人校验：主管/经理两级须在生成时圈定的名单内（超管不豁免，驳回同样受限）
-	if expectStatus == model.StatusPendingSupervisor && !r.SupervisorIDs.Contains(identity.UserID) {
-		return nil, errs.ErrReportNotSigner.WithMsg("你不在本报告安全主管签字人名单内")
-	}
-	if expectStatus == model.StatusPendingManager && !r.ManagerIDs.Contains(identity.UserID) {
-		return nil, errs.ErrReportNotSigner.WithMsg("你不在本报告物业经理签字人名单内")
-	}
-
 	if req.Action == "reject" {
 		if req.Reason == "" {
 			return nil, errs.ErrReportRejectReasonRequired
 		}
-		// 驳回回第一个有签字人的级别（清空巡检员确认重新签；经理驳回时同时清空主管签字痕迹，重走该级）
-		signed := types.SignArray{}
-		signed = append(signed, r.InspectorSigned...)
-		backStatus := firstSignStatus(r.InspectorIDs, r.SupervisorIDs, r.ManagerIDs)
-		if backStatus == model.StatusApproved { // 不可能驳回已归档报告，兜底
-			backStatus = expectStatus
+		steps := append(types.ReportReviewStepArray{}, r.ReviewSteps...)
+		for i := range steps {
+			steps[i].Signed = types.SignArray{}
 		}
+		first := firstReviewStep(steps)
 		updates := map[string]any{
-			"status":           backStatus,
-			"inspector_signed": types.SignArray{},
-			"reject_reason":    req.Reason,
-			"supervisor_by":    nil, "supervisor_at": nil, "supervisor_remark": "",
-			"supervisor_signature_id": nil,
+			"status":             reviewStatus(steps, first),
+			"review_steps":       steps,
+			"review_step":        first,
+			"review_current_ids": reviewCurrentIDs(steps, first),
+			"reject_reason":      req.Reason,
 		}
-		if expectStatus == model.StatusPendingManager {
-			updates["manager_by"] = nil
-			updates["manager_at"] = nil
-			updates["manager_remark"] = ""
-			updates["manager_signature_id"] = nil
-		}
-		result := s.db.Model(&model.InspectionReport{}).Where("id = ? AND status = ?", r.ID, expectStatus).Updates(updates)
+		result := s.db.Model(&model.InspectionReport{}).
+			Where("id = ? AND status = ? AND updated_at = ?", r.ID, model.StatusPendingReview, r.UpdatedAt).
+			Updates(updates)
 		if result.Error != nil {
 			return nil, errs.ErrInternal
 		}
 		if result.RowsAffected != 1 {
 			return nil, errs.ErrReportStatusNotAllowed
 		}
-		// 通知已签巡检员重新确认
-		for _, e := range signed {
-			s.notify(e.UserID, "report", "月报被驳回",
-				fmt.Sprintf("「%s」被驳回：%s，请重新确认", r.Title, req.Reason), &r.ID)
-		}
-		return gin.H{"status": backStatus}, nil
+		return gin.H{"status": updates["status"], "review_step": first}, nil
 	}
-
-	// 手写签名前置：优先已配置签名，否则用随请求提交的一次性签名文件；都没有则不允许通过签字
-	sigKey, _, sbe := s.resolveSignKey(identity.UserID, req.SignatureFileID)
+	for _, entry := range current.Signed {
+		if entry.UserID == targetUID {
+			return nil, errs.ErrReportAlreadySigned
+		}
+	}
+	sigKey, sigAssetID, sbe := s.resolveSignKey(identity.UserID, req.SignatureFileID)
 	if sbe != nil {
 		return nil, sbe
 	}
-
-	switch expectStatus {
-	case model.StatusPendingSupervisor:
-		updates := map[string]any{
-			"supervisor_by": identity.UserID, "supervisor_at": now, "supervisor_remark": req.Remark,
-			"supervisor_signature_id": sigKey,
-		}
-		// 经理级有签字人 → 流转终审并定向通知；无签字人 → 跳过终审直接归档（签字栏留空）
-		if len(r.ManagerIDs) > 0 {
-			updates["status"] = model.StatusPendingManager
-		} else {
-			updates["status"] = model.StatusApproved
-			if sealID := s.activeSealID(r.CommunityID); sealID != "" {
-				updates["seal_file_id"] = sealID
-			}
-		}
-		result := s.db.Model(&model.InspectionReport{}).Where("id = ? AND status = ?", r.ID, expectStatus).Updates(updates)
+	entry := types.SignEntry{UserID: targetUID, Name: targetName, SignedAt: timefmt.T(time.Now()), SignatureFileID: sigKey, AssetID: sigAssetID}
+	if req.ProxyFor != "" {
+		entry.ProxyBy, entry.ProxyName, entry.ProxyReason = identity.UserID, identity.Name, req.Reason
+	}
+	steps := append(types.ReportReviewStepArray{}, r.ReviewSteps...)
+	steps[step].Signed = append(types.SignArray{}, current.Signed...)
+	steps[step].Signed = append(steps[step].Signed, entry)
+	complete := current.Mode != "all" || len(steps[step].Signed) >= len(current.CandidateIDs)
+	if !complete { // all 模式尚未收齐
+		result := s.db.Model(&model.InspectionReport{}).Where("id = ? AND status = ? AND updated_at = ?", r.ID, model.StatusPendingReview, r.UpdatedAt).Updates(map[string]any{"review_steps": steps})
 		if result.Error != nil {
 			return nil, errs.ErrInternal
 		}
 		if result.RowsAffected != 1 {
 			return nil, errs.ErrReportStatusNotAllowed
 		}
-		if len(r.ManagerIDs) > 0 {
-			for _, uid := range r.ManagerIDs {
-				s.notify(uid, "report", "月报待经理终审",
-					fmt.Sprintf("「%s」主管已审批通过，请物业经理终审", r.Title), &r.ID)
-			}
-			return gin.H{"status": model.StatusPendingManager}, nil
-		}
-		go s.archivePDF(r.ID)
-		return gin.H{"status": model.StatusApproved}, nil
-	default: // pending_manager → approved
-		updates := map[string]any{
-			"status":     model.StatusApproved,
-			"manager_by": identity.UserID, "manager_at": now, "manager_remark": req.Remark,
-			"manager_signature_id": sigKey,
-		}
-		// 公章快照：固化终审时点的 active 公章（按报告小区所属租户取章），后续换章不影响已归档报告
+		return gin.H{"status": model.StatusPendingReview, "review_step": step, "signed_count": len(steps[step].Signed)}, nil
+	}
+	next := step + 1
+	for next < len(steps) && len(steps[next].CandidateIDs) == 0 {
+		next++
+	}
+	newStatus := reviewStatus(steps, next)
+	updates := map[string]any{"review_steps": steps, "review_step": next, "review_current_ids": reviewCurrentIDs(steps, next), "status": newStatus, "reject_reason": ""}
+	if newStatus == model.StatusApproved {
 		if sealID := s.activeSealID(r.CommunityID); sealID != "" {
 			updates["seal_file_id"] = sealID
 		}
-		result := s.db.Model(&model.InspectionReport{}).Where("id = ? AND status = ?", r.ID, expectStatus).Updates(updates)
-		if result.Error != nil {
-			return nil, errs.ErrInternal
-		}
-		if result.RowsAffected != 1 {
-			return nil, errs.ErrReportStatusNotAllowed
-		}
-		go s.archivePDF(r.ID)
-		return gin.H{"status": model.StatusApproved}, nil
 	}
+	result := s.db.Model(&model.InspectionReport{}).Where("id = ? AND status = ? AND updated_at = ?", r.ID, model.StatusPendingReview, r.UpdatedAt).Updates(updates)
+	if result.Error != nil {
+		return nil, errs.ErrInternal
+	}
+	if result.RowsAffected != 1 {
+		return nil, errs.ErrReportStatusNotAllowed
+	}
+	if newStatus == model.StatusApproved {
+		go s.archivePDF(r.ID)
+	} else {
+		for _, uid := range steps[next].CandidateIDs {
+			s.notify(uid, "report", "报告待审核", fmt.Sprintf("「%s」待你进行%s", r.Title, steps[next].Name), &r.ID)
+		}
+	}
+	return gin.H{"status": newStatus, "review_step": next, "signed_count": len(steps[step].Signed)}, nil
 }
 
 // PDF 返回报告 PDF 字节与文件名；file_id 已归档则直接读归档文件，否则即时生成临时版。
 // 访问控制（路由层不再挂权限点，由此处统一判定）：持 report:download 权限，
-// 或为报告相关人（应签巡检员/指定主管/经理签字人）——巡检员有权查看自己参与的完整报告。
+// 或为报告相关人（巡检参与人/动态审核链候选人）。
 func (s *ReportService) PDF(c *gin.Context, id string) ([]byte, string, *errs.Error) {
 	r, be := s.getWithScope(c, id)
 	if be != nil {
@@ -1142,7 +1006,7 @@ func (s *ReportService) PDF(c *gin.Context, id string) ([]byte, string, *errs.Er
 	return s.pdfBytes(r)
 }
 
-// checkPDFAccess PDF 访问判定：超管 / report:download 权限点 / 报告相关人（三级签字名单任一）。
+// checkPDFAccess PDF 访问判定：超管 / report:download 权限点 / 报告相关人。
 func (s *ReportService) checkPDFAccess(c *gin.Context, r *model.InspectionReport) *errs.Error {
 	identity := middleware.CurrentIdentity(c)
 	if identity == nil {
@@ -1155,7 +1019,7 @@ func (s *ReportService) checkPDFAccess(c *gin.Context, r *model.InspectionReport
 		return nil
 	}
 	uid := identity.UserID
-	if r.InspectorIDs.Contains(uid) || r.SupervisorIDs.Contains(uid) || r.ManagerIDs.Contains(uid) {
+	if r.InspectorIDs.Contains(uid) || reportContainsUser(r.ReviewSteps, uid) {
 		return nil
 	}
 	return errs.ErrNoPerm.WithMsg("仅报告相关人或有下载权限的账号可查看报告")
@@ -1332,7 +1196,7 @@ func (s *ReportService) notify(userID, msgType, title, content string, bizID *st
 	_ = s.notifier.Send(userID, msgType, title, content, bizID)
 }
 
-// getWithScope 取报告并做数据权限校验（self 档用户放宽到本人相关报告：三级签字名单任一含本人）。
+// getWithScope 取报告并做数据权限校验（self 档用户放宽到本人相关报告）。
 func (s *ReportService) getWithScope(c *gin.Context, id string) (*model.InspectionReport, *errs.Error) {
 	var r model.InspectionReport
 	if err := s.db.First(&r, "id = ?", id).Error; err != nil {
@@ -1341,13 +1205,27 @@ func (s *ReportService) getWithScope(c *gin.Context, id string) (*model.Inspecti
 	if be := middleware.CheckCommunity(s.db, c, r.CommunityID); be != nil {
 		if identity := middleware.CurrentIdentity(c); identity != nil && identity.ScopeSelf {
 			uid := identity.UserID
-			if r.InspectorIDs.Contains(uid) || r.SupervisorIDs.Contains(uid) || r.ManagerIDs.Contains(uid) {
+			if r.InspectorIDs.Contains(uid) || reportContainsUser(r.ReviewSteps, uid) {
 				return &r, nil
 			}
 		}
 		return nil, be
 	}
 	return &r, nil
+}
+
+func reportContainsUser(steps types.ReportReviewStepArray, uid string) bool {
+	for _, step := range steps {
+		if step.CandidateIDs.Contains(uid) {
+			return true
+		}
+		for _, signed := range step.Signed {
+			if signed.UserID == uid || signed.ProxyBy == uid {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func (s *ReportService) commName(id string) string {
@@ -1408,6 +1286,34 @@ func (s *ReportService) signerItems(ids types.IDArray, signedBy *string) []gin.H
 			"user_id": uid, "name": s.userName(uid),
 			"signed": signedBy != nil && *signedBy == uid,
 		})
+	}
+	return items
+}
+
+func (s *ReportService) reviewStepItems(steps types.ReportReviewStepArray) []gin.H {
+	items := make([]gin.H, 0, len(steps))
+	for _, step := range steps {
+		users := make([]gin.H, 0, len(step.CandidateIDs))
+		for _, uid := range step.CandidateIDs {
+			signed := ""
+			var entry *types.SignEntry
+			for i := range step.Signed {
+				if step.Signed[i].UserID == uid {
+					entry = &step.Signed[i]
+					break
+				}
+			}
+			if entry != nil {
+				signed = entry.SignedAt
+			}
+			users = append(users, gin.H{"user_id": uid, "name": s.userName(uid), "signed": entry != nil, "signed_at": signed, "signature_url": func() any {
+				if entry == nil {
+					return nil
+				}
+				return s.sigURL(entry.SignatureFileID)
+			}()})
+		}
+		items = append(items, gin.H{"slot": step.Slot, "name": step.Name, "mode": step.Mode, "candidate_ids": step.CandidateIDs, "users": users, "signed": step.Signed})
 	}
 	return items
 }

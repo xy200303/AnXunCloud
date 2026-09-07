@@ -152,3 +152,29 @@ func (ctl *StaffController) SaveReviewFlow(c *gin.Context) {
 	}
 	write(c, nil, ctl.svc.SaveReviewFlow(c, id, req.Steps))
 }
+
+func (ctl *StaffController) GetReportReviewFlow(c *gin.Context) {
+	id, be := pathID(c)
+	if be != nil {
+		response.Fail(c, be)
+		return
+	}
+	data, be := ctl.svc.GetReportReviewFlow(c, id)
+	write(c, data, be)
+}
+
+func (ctl *StaffController) SaveReportReviewFlow(c *gin.Context) {
+	id, be := pathID(c)
+	if be != nil {
+		response.Fail(c, be)
+		return
+	}
+	var req struct {
+		Steps types.FlowStepArray `json:"steps"`
+	}
+	if be := bind.JSON(c, &req); be != nil {
+		response.Fail(c, be)
+		return
+	}
+	write(c, nil, ctl.svc.SaveReportReviewFlow(c, id, req.Steps))
+}

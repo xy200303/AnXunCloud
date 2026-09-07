@@ -85,7 +85,7 @@ func (s *TenantService) List(q *dto.TenantListQuery) (*response.Page, *errs.Erro
 }
 
 // Create 开通租户：建租户 + 初始管理员账号（挂内置 tenant_admin 角色，首次登录强制改密）
-//   + 平台模板岗位/平台默认槽位绑定整份复制为新租户行（方案 §3：模板库只读于开通那一刻，
+//   - 平台模板岗位/平台默认槽位绑定整份复制为新租户行（方案 §3：模板库只读于开通那一刻，
 //     此后租户自管，模板后续修改不影响老租户；存量租户由迁移 00025 同样回填）。
 func (s *TenantService) Create(req *dto.TenantCreateReq) (string, *errs.Error) {
 	if !tenantCodeRe.MatchString(req.Code) {

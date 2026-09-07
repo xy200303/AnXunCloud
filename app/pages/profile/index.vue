@@ -64,6 +64,7 @@
 
 <script lang="ts">
 import { Colors, ColorTokens } from '@/utils/theme'
+import { APP_VERSION } from '@/utils/appVersion'
 import { apiUploadLocal, apiUpdateProfile, apiTenants } from '@/services/api'
 import { withFileToken } from '@/utils/fileurl'
 import { useAuthStore } from '@/stores/auth'
@@ -82,7 +83,7 @@ export default {
   data(): ProfileData {
     return {
       colors: Colors,
-      appVersion: '1.0.0'
+      appVersion: APP_VERSION
     }
   },
   onLoad() {

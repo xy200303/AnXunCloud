@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"strconv"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -99,8 +100,7 @@ func (ctl *ReportController) Rebuild(c *gin.Context) {
 	response.OKMsg(c, "已按当前模板重新生成", nil)
 }
 
-// SignCandidates GET /reports/sign-candidates?community_id=[&patrol_type=]（生成报告时的可选签字人；
-// patrol_type 非空时主管级默认名单按该类型汇报线槽位取）
+// SignCandidates GET /reports/sign-candidates?community_id=[&patrol_type=]（生成报告时的动态审核链候选人）
 func (ctl *ReportController) SignCandidates(c *gin.Context) {
 	communityID := c.Query("community_id")
 	if _, err := uuid.Parse(communityID); err != nil {
@@ -111,24 +111,16 @@ func (ctl *ReportController) SignCandidates(c *gin.Context) {
 	write(c, data, be)
 }
 
-// SignInspector POST /reports/:id/sign-inspector（电子确认；body 带 proxy_for+reason 为代签）
-func (ctl *ReportController) SignInspector(c *gin.Context) {
+// SignStep POST /reports/:id/sign-step/:step
+func (ctl *ReportController) SignStep(c *gin.Context) {
 	id, be := pathID(c)
 	if be != nil {
 		response.Fail(c, be)
 		return
 	}
-	var req dto.InspectorSignReq
-	_ = c.ShouldBindJSON(&req) // 本人确认为空 body，容错解析
-	data, be := ctl.svc.SignInspector(c, id, &req)
-	write(c, data, be)
-}
-
-// SignSupervisor POST /reports/:id/sign-supervisor
-func (ctl *ReportController) SignSupervisor(c *gin.Context) {
-	id, be := pathID(c)
-	if be != nil {
-		response.Fail(c, be)
+	step, err := strconv.Atoi(c.Param("step"))
+	if err != nil || step < 0 {
+		response.Fail(c, errs.ErrParam.WithMsg("审核步骤无效"))
 		return
 	}
 	var req dto.SignReq
@@ -136,23 +128,7 @@ func (ctl *ReportController) SignSupervisor(c *gin.Context) {
 		response.Fail(c, be)
 		return
 	}
-	data, be := ctl.svc.SignSupervisor(c, id, &req)
-	write(c, data, be)
-}
-
-// SignManager POST /reports/:id/sign-manager
-func (ctl *ReportController) SignManager(c *gin.Context) {
-	id, be := pathID(c)
-	if be != nil {
-		response.Fail(c, be)
-		return
-	}
-	var req dto.SignReq
-	if be := bind.JSON(c, &req); be != nil {
-		response.Fail(c, be)
-		return
-	}
-	data, be := ctl.svc.SignManager(c, id, &req)
+	data, be := ctl.svc.SignStep(c, id, step, &req)
 	write(c, data, be)
 }
 

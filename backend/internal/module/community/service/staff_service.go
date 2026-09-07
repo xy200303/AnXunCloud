@@ -99,10 +99,14 @@ func SlotUserIDs(db *gorm.DB, projectID, slot string) types.IDArray {
 	if len(candidateIDs) == 0 {
 		return types.IDArray{}
 	}
+	tenantID := middleware.CommunityTenantID(db, projectID)
+	if tenantID == nil {
+		return types.IDArray{}
+	}
 	enabled := map[string]bool{}
 	var valid []string
 	db.Model(&sysmodel.SysUser{}).
-		Where("id IN ? AND status = ?", candidateIDs, sysmodel.StatusEnabled).
+		Where("id IN ? AND tenant_id = ? AND status = ?", candidateIDs, *tenantID, sysmodel.StatusEnabled).
 		Pluck("id", &valid)
 	for _, id := range valid {
 		enabled[id] = true
@@ -533,6 +537,35 @@ func (s *StaffService) SaveReviewFlow(c *gin.Context, projectID string, steps ty
 	err := s.db.Where("project_id = ? AND flow_code = ?", projectID, sysmodel.FlowCheckinReview).First(&f).Error
 	if err != nil {
 		f = sysmodel.ApprovalFlow{ProjectID: &projectID, FlowCode: sysmodel.FlowCheckinReview, Steps: steps}
+		if err := s.db.Create(&f).Error; err != nil {
+			return errs.ErrInternal
+		}
+		return nil
+	}
+	if err := s.db.Model(&f).Update("steps", steps).Error; err != nil {
+		return errs.ErrInternal
+	}
+	return nil
+}
+
+func (s *StaffService) GetReportReviewFlow(c *gin.Context, projectID string) (gin.H, *errs.Error) {
+	if be := middleware.CheckCommunity(s.db, c, projectID); be != nil {
+		return nil, be
+	}
+	steps, source := ResolveFlowWithSource(s.db, projectID, sysmodel.FlowReportReview)
+	return gin.H{"flow_code": sysmodel.FlowReportReview, "steps": steps, "source": source}, nil
+}
+
+func (s *StaffService) SaveReportReviewFlow(c *gin.Context, projectID string, steps types.FlowStepArray) *errs.Error {
+	if be := middleware.CheckCommunity(s.db, c, projectID); be != nil {
+		return be
+	}
+	if be := ValidateReportFlowSteps(s.db, steps); be != nil {
+		return be
+	}
+	var f sysmodel.ApprovalFlow
+	if err := s.db.Where("project_id = ? AND flow_code = ?", projectID, sysmodel.FlowReportReview).First(&f).Error; err != nil {
+		f = sysmodel.ApprovalFlow{ProjectID: &projectID, FlowCode: sysmodel.FlowReportReview, Steps: steps}
 		if err := s.db.Create(&f).Error; err != nil {
 			return errs.ErrInternal
 		}

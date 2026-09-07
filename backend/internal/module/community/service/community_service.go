@@ -177,7 +177,7 @@ func (s *CommunityService) CreateCommunity(c *gin.Context, req *dto.CommunitySav
 	}
 	row := sysmodel.Community{
 		TenantID: tenantID,
-		Name: req.Name, Address: req.Address, ManagerID: req.ManagerID,
+		Name:     req.Name, Address: req.Address, ManagerID: req.ManagerID,
 		Status: status, Remark: req.Remark,
 	}
 	if err := s.db.Create(&row).Error; err != nil {
@@ -351,7 +351,7 @@ func (s *CommunityService) CreateBuilding(c *gin.Context, req *dto.BuildingSaveR
 		return "", errs.ErrParam.WithMsg("同小区下楼栋/区域名称已存在")
 	}
 	row := insmodel.Building{
-		TenantID: middleware.CommunityTenantID(s.db, req.CommunityID), // 冗余列（=所属小区租户）
+		TenantID:    middleware.CommunityTenantID(s.db, req.CommunityID), // 冗余列（=所属小区租户）
 		CommunityID: req.CommunityID, Name: req.Name, Type: req.Type, Sort: req.Sort, Status: sysmodel.StatusEnabled}
 	if err := s.db.Create(&row).Error; err != nil {
 		return "", errs.ErrInternal

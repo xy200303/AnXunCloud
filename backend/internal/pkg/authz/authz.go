@@ -77,8 +77,7 @@ func newEnforcer(adapter persist.Adapter) (*casbin.Enforcer, error) {
 }
 
 // permMatch 权限点匹配：等值命中；策略以 ":*" 结尾时前缀通配（system:user:* 匹配 system:user:list）。
-// 不用 casbin keyMatch2：它把 ':' 后内容当作路径参数通配，report:sign:inspector 会误匹配
-// report:sign:proxy（同前缀串权曾导致巡检员被圈进上级签字人名单）。
+// 不用 casbin keyMatch2：它把 ':' 后内容当作路径参数通配，容易将不同签字权限误匹配。
 func permMatch(reqObj, polObj string) bool {
 	if reqObj == polObj {
 		return true

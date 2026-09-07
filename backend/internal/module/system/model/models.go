@@ -90,21 +90,21 @@ func (SysRole) TableName() string { return "sys_role" }
 // SysMenu 菜单与按钮权限点（树形；ParentID 为空字符串表示根，落库为 NULL）
 type SysMenu struct {
 	types.UUIDModel
-	ParentID  *string        `gorm:"type:uuid" json:"parent_id"`
-	Title     string         `gorm:"size:64" json:"title"`
-	Path      string         `gorm:"size:255" json:"path"`
-	Icon      string         `gorm:"size:64" json:"icon"`
-	Type      string         `gorm:"size:8" json:"type"`
-	Perms     string         `gorm:"size:128" json:"perms"`
-	Sort      int            `json:"sort"`
-	Visible   bool           `json:"visible"`
-	Status    string         `gorm:"size:16" json:"status"`
-	IsBuiltin bool           `json:"is_builtin"`
+	ParentID  *string `gorm:"type:uuid" json:"parent_id"`
+	Title     string  `gorm:"size:64" json:"title"`
+	Path      string  `gorm:"size:255" json:"path"`
+	Icon      string  `gorm:"size:64" json:"icon"`
+	Type      string  `gorm:"size:8" json:"type"`
+	Perms     string  `gorm:"size:128" json:"perms"`
+	Sort      int     `json:"sort"`
+	Visible   bool    `json:"visible"`
+	Status    string  `gorm:"size:16" json:"status"`
+	IsBuiltin bool    `json:"is_builtin"`
 	// IsPlatform 平台级菜单（平台管理目录整棵子树）：仅超管可见可授权，租户角色不可分配
-	IsPlatform bool          `json:"is_platform"`
-	CreatedAt time.Time      `json:"created_at"`
-	UpdatedAt time.Time      `json:"updated_at"`
-	DeletedAt gorm.DeletedAt `json:"-"`
+	IsPlatform bool           `json:"is_platform"`
+	CreatedAt  time.Time      `json:"created_at"`
+	UpdatedAt  time.Time      `json:"updated_at"`
+	DeletedAt  gorm.DeletedAt `json:"-"`
 }
 
 // ParentIDStr 父菜单 ID（根返回空字符串）。
@@ -141,12 +141,12 @@ func (SysDictType) TableName() string { return "sys_dict_type" }
 // SysDictData 字典数据
 type SysDictData struct {
 	types.UUIDModel
-	TypeCode  string         `gorm:"size:64" json:"type_code"`
-	Label     string         `gorm:"size:64" json:"label"`
-	Value     string         `gorm:"size:64" json:"value"`
-	Sort      int            `json:"sort"`
-	Status    string         `gorm:"size:16" json:"status"`
-	Remark    string         `gorm:"size:255" json:"remark"`
+	TypeCode string `gorm:"size:64" json:"type_code"`
+	Label    string `gorm:"size:64" json:"label"`
+	Value    string `gorm:"size:64" json:"value"`
+	Sort     int    `json:"sort"`
+	Status   string `gorm:"size:16" json:"status"`
+	Remark   string `gorm:"size:255" json:"remark"`
 	// Attrs 通用扩展属性（迁移 00005；patrol_type 用 attrs.category 标记大类 daily_patrol/special）
 	Attrs     types.JSONMap  `gorm:"type:jsonb" json:"attrs"`
 	CreatedAt time.Time      `json:"created_at"`
@@ -255,10 +255,9 @@ func ValidPostLine(line string) bool {
 
 // 职责槽位代码（duty_binding.slot，系统固定枚举，见设计方案 §3.2；绑定岗位可配，代码只认槽位）
 const (
-	SlotReportSignSupervisor = "report_sign_supervisor" // 月报主管级签字
-	SlotReportSignManager    = "report_sign_manager"    // 月报经理级终审
-	SlotPatrolExecute        = "patrol_execute"         // 巡查任务执行
-	SlotPatrolReportLine     = "patrol_report_line"     // 巡查汇报关系（通用兜底）
+	SlotReportInspector  = "report_inspector"   // 报告巡检员确认（可选流程节点）
+	SlotPatrolExecute    = "patrol_execute"     // 巡查任务执行
+	SlotPatrolReportLine = "patrol_report_line" // 巡查汇报关系（通用兜底）
 
 	// 巡查汇报关系·业务线维度槽位（《汇报线与审批链扩展设计方案》§2：<family>.<dimension> 命名，
 	// 解析时先查维度槽位、未配置回落通用槽位 SlotPatrolReportLine，每级内部仍按 项目→租户→平台 回落。
@@ -275,6 +274,7 @@ const (
 // 审批流程 code（approval_flow.flow_code，系统固定枚举；步骤内容可配，代码只认流程 code）
 const (
 	FlowCheckinReview = "checkin_review" // 打卡审核链
+	FlowReportReview  = "report_review"  // 报告审核链
 )
 
 // DutySlot 槽位定义（系统固定枚举，名称用于前端展示）。
@@ -286,8 +286,7 @@ type DutySlot struct {
 // DutySlots 全部职责槽位（顺序即前端展示顺序；项目级覆盖页与租户/平台默认绑定页共用）。
 // 巡查汇报关系组：通用槽位居上作兜底，维度槽位随后（未配置维度槽位时回落通用绑定）。
 var DutySlots = []DutySlot{
-	{SlotReportSignSupervisor, "月报主管级签字"},
-	{SlotReportSignManager, "月报经理级终审"},
+	{SlotReportInspector, "报告巡检员确认"},
 	{SlotPatrolExecute, "巡查任务执行"},
 	{SlotPatrolReportLine, "巡查打卡审核（默认）"},
 	{SlotPatrolReportLineSafety, "巡查打卡审核 · 安全巡查"},
@@ -303,10 +302,10 @@ type PostDict struct {
 	TenantID     *string   `gorm:"type:uuid" json:"tenant_id"`
 	Code         string    `gorm:"size:64" json:"code"`
 	Name         string    `gorm:"size:64" json:"name"`
-	Line         string    `gorm:"size:32" json:"line"`           // 业务线（safety/engineering/environment/service/general）
-	IsSupervisor bool      `json:"is_supervisor"`                 // 主管级（数据范围推导：主管级岗位 → project 档）
-	RoleID       *string   `gorm:"type:uuid" json:"role_id"`      // 岗位绑定角色（有效角色实时并集的一个来源，可空）
-	Sort         int       `json:"sort"`                          // 业务线内排序
+	Line         string    `gorm:"size:32" json:"line"`      // 业务线（safety/engineering/environment/service/general）
+	IsSupervisor bool      `json:"is_supervisor"`            // 主管级（数据范围推导：主管级岗位 → project 档）
+	RoleID       *string   `gorm:"type:uuid" json:"role_id"` // 岗位绑定角色（有效角色实时并集的一个来源，可空）
+	Sort         int       `json:"sort"`                     // 业务线内排序
 	Status       string    `gorm:"size:16" json:"status"`
 	Remark       string    `gorm:"size:255" json:"remark"`
 	CreatedAt    time.Time `json:"created_at"`
@@ -414,7 +413,7 @@ type UploadFile struct {
 	WatermarkedURL string     `gorm:"size:512" json:"watermarked_url"`
 	Name           string     `gorm:"size:255" json:"name"`   // 原始文件名
 	MD5            string     `gorm:"size:64" json:"md5"`     // 内容摘要（完整性校验/去重）
-	Size           int64      `json:"size"`                    // 文件字节数
+	Size           int64      `json:"size"`                   // 文件字节数
 	Storage        string     `gorm:"size:16" json:"storage"` // 存储驱动：local/oss/cos
 	ExifTime       *time.Time `json:"exif_time"`
 	CreatedAt      time.Time  `json:"created_at"`
@@ -426,12 +425,12 @@ func (UploadFile) TableName() string { return "upload_file" }
 // 官网 /download 按平台取最新一条展示；文件统一走文件层（scene=app）。
 type AppRelease struct {
 	types.UUIDModel
-	Platform  string    `gorm:"size:16;index:idx_app_release_platform,priority:1" json:"platform"` // android/harmony/ios/wechat_mp
-	Version   string    `gorm:"size:64" json:"version"`
-	FileID    string    `gorm:"type:uuid" json:"file_id"`
-	Name      string    `gorm:"size:255" json:"name"`
-	Size      int64     `json:"size"`
-	Note      string    `gorm:"size:255" json:"note"`
+	Platform string `gorm:"size:16;index:idx_app_release_platform,priority:1" json:"platform"` // android/harmony/ios/wechat_mp
+	Version  string `gorm:"size:64" json:"version"`
+	FileID   string `gorm:"type:uuid" json:"file_id"`
+	Name     string `gorm:"size:255" json:"name"`
+	Size     int64  `json:"size"`
+	Note     string `gorm:"size:255" json:"note"`
 	// ForceUpdate 强制更新标记：true=App 启动弹窗不可跳过；false=弱更新可「以后再说」
 	ForceUpdate bool      `gorm:"not null;default:false" json:"force_update"`
 	CreatedAt   time.Time `gorm:"index:idx_app_release_platform,priority:2,sort:desc" json:"created_at"`
@@ -462,7 +461,8 @@ type SignAsset struct {
 func (SignAsset) TableName() string { return "sign_asset" }
 
 // StatusInt 状态字符串转接口约定的 1/0。
-func StatusInt(status string) int {	if status == StatusEnabled {
+func StatusInt(status string) int {
+	if status == StatusEnabled {
 		return 1
 	}
 	return 0

@@ -52,19 +52,19 @@ func (s *LogService) OperationList(q *dto.OperationLogQuery, tenantID string) (*
 	list := make([]map[string]any, 0, len(rows))
 	for _, r := range rows {
 		list = append(list, map[string]any{
-			"id":         r.ID,
-			"user_id":    r.UserID,
-			"username":   r.Username,
-			"module":     r.Module,
-			"action":     r.Action,
+			"id":          r.ID,
+			"user_id":     r.UserID,
+			"username":    r.Username,
+			"module":      r.Module,
+			"action":      r.Action,
 			"action_name": middleware.ActionName(r.Action),
-			"method":     r.Method,
-			"path":       r.Path,
-			"params":     r.Params,
-			"ip":         r.IP,
-			"status":     logStatusInt(r.Status),
-			"cost_ms":    r.CostMs,
-			"created_at": timefmt.T(r.CreatedAt),
+			"method":      r.Method,
+			"path":        r.Path,
+			"params":      r.Params,
+			"ip":          r.IP,
+			"status":      logStatusInt(r.Status),
+			"cost_ms":     r.CostMs,
+			"created_at":  timefmt.T(r.CreatedAt),
 		})
 	}
 	return &response.Page{List: list, Total: total, Page: q.Page, PageSize: q.PageSize}, nil

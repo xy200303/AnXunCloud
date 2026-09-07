@@ -43,12 +43,10 @@
         </view>
         <view  hover-class="hover-dim" class="card-row">
           <text  hover-class="hover-dim" class="card-node" :style="{ color: nodeColorOf(r.status), backgroundColor: colors.primaryLight }">{{ nodeTextOf(r.status) }}</text>
-          <text v-if="r.status == 'pending_inspector'"  hover-class="hover-dim" class="card-progress" :style="{ color: colors.textSecondary }">
-            巡检员已确认 {{ r.inspector_signed_count }}/{{ r.inspector_total }}
-          </text>
+          <text v-if="r.status == 'pending_review'" hover-class="hover-dim" class="card-progress" :style="{ color: colors.textSecondary }">待当前审核步骤处理</text>
         </view>
         <text class="card-signers" :style="{ color: colors.textSecondary }">
-          审核路径：主管 {{ (r.supervisor_signers || []).join('、') || '跳过' }} → 经理 {{ (r.manager_signers || []).join('、') || '跳过' }}
+          审核路径：{{ (r.review_steps || []).map((x: any) => x.name).join(' → ') || '无需审核' }}
         </text>
         <text  hover-class="hover-dim" class="card-time" :style="{ color: colors.textSecondary }">生成时间 {{ r.created_at }}</text>
       </view>
@@ -96,9 +94,7 @@ const TABS: { key: TabKey; label: string }[] = [
 
 /** 当前签字节点文案（对齐报告状态机） */
 function nodeTextOf(status: string): string {
-  if (status == 'pending_inspector') return '待巡检员确认'
-  if (status == 'pending_supervisor') return '待主管审批'
-  if (status == 'pending_manager') return '待经理终审'
+  if (status == 'pending_review') return '待审核'
   if (status == 'approved') return '已归档'
   return status
 }

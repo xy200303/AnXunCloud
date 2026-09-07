@@ -47,18 +47,14 @@
       </view>
       <text class="tip" :style="{ color: colors.textSecondary }">点位量大时选「仅异常点位」，报告页数更少（汇总统计不受影响）</text>
 
-      <text class="tip" :style="{ color: colors.textSecondary }">巡检员由当期任务自动圈定；主管和经理默认按小区汇报线岗位圈定，也可点击下面名单调整。</text>
+      <text class="tip" :style="{ color: colors.textSecondary }">审核链由后台配置，生成时可调整各步骤候选人。</text>
 
       <text class="label" :style="{ color: colors.textRegular }">审核路径</text>
-      <view class="signer-row" hover-class="hover-dim" @click="openCandidates('supervisor')">
-        <text class="signer-label" :style="{ color: colors.textRegular }">安全主管</text>
-        <text class="signer-value" :style="{ color: supervisorIds.length ? colors.textPrimary : colors.textSecondary }">{{ signerDisplay(supervisorIds) }} ›</text>
+      <view v-for="step in reviewSteps" :key="step.slot" class="signer-row" hover-class="hover-dim" @click="openCandidates(step.slot)">
+        <text class="signer-label" :style="{ color: colors.textRegular }">{{ step.name }}</text>
+        <text class="signer-value" :style="{ color: selectedIds(step.slot).length ? colors.textPrimary : colors.textSecondary }">{{ signerDisplay(selectedIds(step.slot), step.slot) }} ›</text>
       </view>
-      <view class="signer-row" hover-class="hover-dim" @click="openCandidates('manager')">
-        <text class="signer-label" :style="{ color: colors.textRegular }">物业经理</text>
-        <text class="signer-value" :style="{ color: managerIds.length ? colors.textPrimary : colors.textSecondary }">{{ signerDisplay(managerIds) }} ›</text>
-      </view>
-      <text class="tip" :style="{ color: colors.textSecondary }">同一级选择多人时，任意一人签字即可；清空表示跳过该级。候选人必须是当前公司启用用户。</text>
+      <text class="tip" :style="{ color: colors.textSecondary }">空候选步骤会自动跳过；任一/全部签署规则由审核链配置决定。</text>
     </view>
 
     <view class="btn-big" hover-class="hover-dim" :style="{ backgroundColor: canSubmit ? colors.primary : colors.border }" @click="submit">
@@ -68,16 +64,16 @@
     <!-- 审核人选择 -->
     <AppBottomSheet :visible="candidateShow" :mask-color="colors.mask" :background-color="colors.bgCard" @close="candidateShow = false">
         <view class="candidate-header">
-          <text class="candidate-title" :style="{ color: colors.textPrimary }">{{ candidateRole == 'supervisor' ? '选择安全主管' : '选择物业经理' }}</text>
+        <text class="candidate-title" :style="{ color: colors.textPrimary }">选择{{ activeStep?.name || '审核人' }}</text>
           <text class="candidate-clear" :style="{ color: colors.danger }" @click="clearCandidates">清空</text>
         </view>
         <view v-if="candidateLoading" class="candidate-empty"><text :style="{ color: colors.textSecondary }">加载中…</text></view>
         <view v-else-if="candidateError != ''" class="candidate-empty" hover-class="hover-dim" @click="loadCandidates">
           <text :style="{ color: colors.danger }">{{ candidateError }}</text>
         </view>
-        <view v-else-if="candidateUsers.length == 0" class="candidate-empty"><text :style="{ color: colors.textSecondary }">暂无当前公司启用用户</text></view>
+        <view v-else-if="candidateUsers.length == 0" class="candidate-empty"><text :style="{ color: colors.textSecondary }">暂无该审核级别候选人</text></view>
         <scroll-view v-else scroll-y class="candidate-scroll" :show-scrollbar="false">
-          <view v-for="u in candidateUsers" :key="u.id" class="candidate-item" hover-class="hover-dim" @click="toggleCandidate(u.id)">
+        <view v-for="u in candidateUsers" :key="u.id" class="candidate-item" hover-class="hover-dim" @click="toggleCandidate(u.id)">
             <text :style="{ color: selectedCandidateIds.indexOf(u.id) >= 0 ? colors.primary : colors.textPrimary }">{{ selectedCandidateIds.indexOf(u.id) >= 0 ? '✓ ' : '○ ' }}{{ u.name }}</text>
             <text v-if="!u.has_signature" class="candidate-warn" :style="{ color: colors.warning }">未配置签名</text>
           </view>
@@ -104,10 +100,9 @@ export default {
       patrolType: '',
       typeOptions: [] as DictOption[],
       detailMode: 'full',
-      candidateUsers: [] as ReportSignCandidate[],
-      supervisorIds: [] as string[],
-      managerIds: [] as string[],
-      candidateRole: 'supervisor' as 'supervisor' | 'manager',
+      reviewSteps: [] as Array<{ slot: string; name: string; mode: 'any' | 'all'; users: ReportSignCandidate[]; default_candidate_ids: string[] }>,
+      selected: {} as Record<string, string[]>,
+      candidateRole: '',
       candidateShow: false,
       candidateLoading: false,
       candidateError: '',
@@ -121,9 +116,11 @@ export default {
     }
   },
   computed: {
-    selectedCandidateIds(): string[] {
-      return this.candidateRole == 'supervisor' ? this.supervisorIds : this.managerIds
+    selectedCandidateIds(): string[] { return this.selected[this.candidateRole] || [] },
+    candidateUsers(): ReportSignCandidate[] {
+      return this.reviewSteps.find((step) => step.slot === this.candidateRole)?.users || []
     },
+    activeStep(): any { return this.reviewSteps.find((step) => step.slot === this.candidateRole) },
     communityText(): string {
       if (this.communityId == '') return '请选择小区'
       const c = this.communities.find((x) => x.id == this.communityId)
@@ -210,57 +207,54 @@ export default {
       this.candidateRequestId = requestId
       this.candidatesLoaded = false
       this.candidateError = ''
-      this.candidateUsers = []
-      this.supervisorIds = []
-      this.managerIds = []
+      this.reviewSteps = []
+      this.selected = {}
       if (!this.communityId) return
       this.candidateLoading = true
       try {
         const d = await apiReportSignCandidates(this.communityId, this.patrolType || undefined)
         if (requestId != this.candidateRequestId) return
-        this.candidateUsers = d.users
-        this.supervisorIds = d.default_supervisor_ids
-        this.managerIds = d.default_manager_ids
+        this.reviewSteps = d.steps
+        this.selected = Object.fromEntries(d.steps.map((step) => [step.slot, [...step.default_candidate_ids]]))
         this.candidatesLoaded = true
       } catch {
         if (requestId != this.candidateRequestId) return
-        this.candidateUsers = []
-        this.supervisorIds = []
-        this.managerIds = []
+        this.reviewSteps = []
+        this.selected = {}
         this.candidateError = '加载失败，点击重试'
       } finally {
         if (requestId == this.candidateRequestId) this.candidateLoading = false
       }
     },
-    openCandidates(role: 'supervisor' | 'manager') {
+    openCandidates(role: string) {
       if (!this.communityId) {
         uni.showToast({ title: '请先选择小区', icon: 'none' })
         return
       }
       this.candidateRole = role
       this.candidateShow = true
-      if (this.candidateUsers.length == 0) this.loadCandidates()
+      if (!this.candidatesLoaded) this.loadCandidates()
     },
     toggleCandidate(id: string) {
-      const target = this.candidateRole == 'supervisor' ? this.supervisorIds : this.managerIds
+      const target = this.selected[this.candidateRole] || (this.selected[this.candidateRole] = [])
       const index = target.indexOf(id)
       if (index >= 0) target.splice(index, 1)
       else target.push(id)
     },
     clearCandidates() {
-      if (this.candidateRole == 'supervisor') this.supervisorIds = []
-      else this.managerIds = []
+      this.selected[this.candidateRole] = []
     },
-    signerNames(ids: string[]): string {
+    signerNames(ids: string[], role: string): string {
+      const users = this.reviewSteps.find((step) => step.slot === role)?.users || []
       return ids.map((id) => {
-        const user = this.candidateUsers.find((item) => item.id == id)
+        const user = users.find((item) => item.id == id)
         return user != null ? user.name : ''
       }).filter((name) => name != '').join('、')
     },
-    signerDisplay(ids: string[]): string {
+    signerDisplay(ids: string[], role: string): string {
       if (!this.candidatesLoaded && this.candidateLoading) return '加载中…'
       if (!this.candidatesLoaded) return '暂未加载'
-      return this.signerNames(ids) || '该级跳过'
+      return this.signerNames(ids, role) || '该级跳过'
     },
     submit() {
       if (!this.canSubmit) return
@@ -272,8 +266,7 @@ export default {
         detail_mode: this.detailMode
       }
       if (this.candidatesLoaded) {
-        payload.supervisor_ids = this.supervisorIds
-        payload.manager_ids = this.managerIds
+        payload.sign_steps = this.reviewSteps.filter((step) => step.users.length > 0).map((step) => ({ slot: step.slot, candidate_ids: this.selected[step.slot] || [] }))
       }
       apiReportGenerate(payload)
         .then((res) => {

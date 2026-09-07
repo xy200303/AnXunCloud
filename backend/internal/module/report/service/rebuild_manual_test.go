@@ -8,8 +8,8 @@ import (
 	"anxuncloud/internal/config"
 	systemsvc "anxuncloud/internal/module/system/service"
 	"anxuncloud/internal/pkg/database"
-	"anxuncloud/internal/pkg/notify"
 	"anxuncloud/internal/pkg/logger"
+	"anxuncloud/internal/pkg/notify"
 	"anxuncloud/internal/pkg/redis"
 	"anxuncloud/internal/pkg/storage"
 )

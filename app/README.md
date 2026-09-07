@@ -32,6 +32,12 @@
 - `ACTIVE_ENV = 'dev' | 'prod'`：dev/prod 当前均指向 `https://pi.hbuer.com`，保留环境开关便于后续拆分；
 - 按端条件编译：`#ifndef MP-WEIXIN` → `/api/app`，`#ifdef MP-WEIXIN` → `/api/mp`。
 
+## 版本号维护
+
+- 只修改 `package.json` 的 `version`，页面展示和版本检查会自动读取该值；
+- `npm run build:h5` 会在构建前自动同步 `manifest.json` 的 `versionName` 和 `versionCode`；
+- 使用 HBuilderX 原生打包前先执行一次 `npm run sync:version`，再进行打包。
+
 ## 待申请/待配置（manifest.json 不允许注释，统一在此说明）
 
 | 项 | 位置 | 状态 |

@@ -6,9 +6,9 @@ import (
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 
+	"anxuncloud/internal/middleware"
 	"anxuncloud/internal/module/system/dto"
 	"anxuncloud/internal/module/system/service"
-	"anxuncloud/internal/middleware"
 	"anxuncloud/internal/pkg/bind"
 	"anxuncloud/internal/pkg/response"
 )

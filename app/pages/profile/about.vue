@@ -35,6 +35,7 @@
 import { Colors, ColorTokens } from '@/utils/theme'
 import { getPublicOrigin } from '@/services/request'
 import { fetchLatestRelease, currentVersion } from '@/utils/update'
+import { APP_VERSION } from '@/utils/appVersion'
 import UpdateDialog from '@/components/UpdateDialog.vue'
 
 type AboutData = {
@@ -49,7 +50,7 @@ export default {
   data(): AboutData {
     return {
       colors: Colors,
-      version: '1.0.0',
+      version: APP_VERSION,
       siteUrl: '',
       checking: false
     }

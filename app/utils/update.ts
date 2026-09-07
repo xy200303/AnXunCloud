@@ -7,6 +7,7 @@
  */
 import { getPublicOrigin } from '@/services/request'
 import { platformOf } from '@/utils/nfc'
+import { APP_VERSION } from '@/utils/appVersion'
 
 export type LatestRelease = {
   version: string
@@ -22,7 +23,7 @@ export function currentVersion(): string {
   const rt: any = plus.runtime
   if (rt != null && rt.version != null && rt.version != '') return String(rt.version)
   // #endif
-  return '1.0.0'
+  return APP_VERSION
 }
 
 /** 版本比较：a>b 返回 1，a<b 返回 -1，相等 0（按数字段比较，1.0.10 > 1.0.9；非数字段按 0 计） */

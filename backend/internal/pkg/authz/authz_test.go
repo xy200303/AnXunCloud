@@ -2,7 +2,7 @@ package authz
 
 import "testing"
 
-// 回归测试：keyMatch2 曾把 report:sign:inspector 当作 report:*:* 通配，
+// 回归测试：keyMatch2 曾把带冒号的签字权限当作路径通配，
 // 导致只有「巡检员确认」权限的用户通过「代签」校验（权限点同前缀串权）。
 func newTestEnforcer(t *testing.T, policies, groupings [][]string) interface {
 	Enforce(rvals ...interface{}) (bool, error)
@@ -27,14 +27,14 @@ func newTestEnforcer(t *testing.T, policies, groupings [][]string) interface {
 
 func TestPermMatchNoCrossPrefixBleed(t *testing.T) {
 	e := newTestEnforcer(t,
-		[][]string{{"role:inspector", DefaultDomain, "report:sign:inspector"}},
+		[][]string{{"role:inspector", DefaultDomain, "report:sign:step"}},
 		[][]string{{"user:u1", "role:inspector", DefaultDomain}},
 	)
 	cases := []struct {
 		obj  string
 		want bool
 	}{
-		{"report:sign:inspector", true},  // 持有的权限点等值命中
+		{"report:sign:step", true},   // 持有的权限点等值命中
 		{"report:sign:proxy", false}, // 同前缀不同权限点不得通过（本次 bug）
 		{"report:sign", false},
 		{"report:list", false},
@@ -46,7 +46,7 @@ func TestPermMatchNoCrossPrefixBleed(t *testing.T) {
 			t.Fatalf("Enforce %s: %v", c.obj, err)
 		}
 		if ok != c.want {
-			t.Errorf("Enforce(report:sign:inspector 持有, %s) = %v, want %v", c.obj, ok, c.want)
+			t.Errorf("Enforce(report:sign:step 持有, %s) = %v, want %v", c.obj, ok, c.want)
 		}
 	}
 }

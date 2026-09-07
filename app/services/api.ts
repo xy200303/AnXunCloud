@@ -302,7 +302,7 @@ export type OfflineSyncResult = {
 
 // ---- 月报签字（/reports，对齐后端 ReportService List/Detail/sign-*） ------------------
 
-/** 报告状态：pending_inspector/pending_supervisor/pending_manager/approved */
+/** 报告状态：pending_review/approved */
 export type ReportStatus = string
 
 /** 报告列表项（对齐 ReportService.List 返回） */
@@ -314,12 +314,9 @@ export type ReportListItem = {
   period: string
   title: string
   status: ReportStatus
-  inspector_total: number
-  inspector_signed_count: number
-  supervisor_name: string | null
-	manager_name: string | null
-	supervisor_signers?: string[]
-	manager_signers?: string[]
+	review_steps: ReportReviewStep[]
+	review_step: number
+	review_current_ids: string[]
   has_file: boolean
   created_at: string
   updated_at: string
@@ -332,23 +329,13 @@ export type ReportListPage = {
   page_size: number
 }
 
-/** 巡检员确认明细（对齐 Detail inspectors 元素；代签带 proxy_name/proxy_reason） */
-export type ReportInspector = {
-  user_id: string
-  name: string
-  signed: boolean
-  signed_at: string
-  signature_url: string | null
-  proxy_name?: string
-  proxy_reason?: string
-}
-
-/** 主管/经理指定签字人明细（signerItems：任一签署即该级完成） */
+/** 动态审核步骤候选人明细 */
 export type ReportSigner = {
   user_id: string
   name: string
   signed: boolean
 }
+export type ReportReviewStep = { slot: string; name: string; mode: 'any' | 'all'; candidate_ids: string[]; signed: any[]; users?: ReportSigner[] }
 
 /** 报告详情（对齐 ReportService.Detail；stats 为 JSONMap 快照，字段按 buildStats） */
 export type ReportDetail = {
@@ -360,22 +347,9 @@ export type ReportDetail = {
   status: ReportStatus
   stats: Record<string, any>
   inspector_ids: string[]
-  inspectors: ReportInspector[]
-  inspector_signed: Array<{ user_id: string; proxy_by?: string }>
-  supervisor_ids: string[]
-  supervisors: ReportSigner[]
-  manager_ids: string[]
-  managers: ReportSigner[]
-  supervisor_by: string | null
-  supervisor_name: string | null
-  supervisor_at: string | null
-  supervisor_remark: string
-  supervisor_signature_url: string | null
-  manager_by: string | null
-  manager_name: string | null
-  manager_at: string | null
-  manager_remark: string
-  manager_signature_url: string | null
+	review_steps: ReportReviewStep[]
+	review_step: number
+	review_current_ids: string[]
   reject_reason: string
   file_id: string
   file_url: string | null
@@ -383,7 +357,7 @@ export type ReportDetail = {
   updated_at: string
 }
 
-/** 主管/经理签批请求（对齐 dto.SignReq：action=approve/reject，驳回 reason 必填） */
+/** 动态审核步骤签批请求（action=approve/reject，驳回 reason 必填） */
 export type ReportSignReq = {
   action: 'approve' | 'reject'
   remark?: string
@@ -392,12 +366,6 @@ export type ReportSignReq = {
   signature_file_id?: string
 }
 
-/** 巡检员确认请求（对齐 dto.InspectorSignReq：proxy_for 非空为代签，reason 必填） */
-export type InspectorSignReqPayload = {
-  proxy_for?: string
-  reason?: string
-  signature_file_id?: string
-}
 
 // ---- 消息 / 公告（对齐 MPService.Messages / NoticeService.Published） -----------------
 
@@ -1136,7 +1104,7 @@ export function apiReports(page: number, pageSize: number, pendingMine: boolean,
   })
 }
 
-/** 报告详情 GET /reports/:id（stats 全量 + 三级签字明细） */
+/** 报告详情 GET /reports/:id（stats 全量 + 动态审核明细） */
 export function apiReportDetail(id: string): Promise<ReportDetail> {
   return new Promise<ReportDetail>((resolve, reject) => {
     httpGet<any>('/reports/' + id)
@@ -1154,30 +1122,9 @@ export function apiReportDetail(id: string): Promise<ReportDetail> {
           status: d.status ?? '',
           stats: (d.stats ?? {}) as Record<string, any>,
           inspector_ids: (d.inspector_ids ?? []).map((x: any) => String(x)),
-          inspectors: (d.inspectors ?? []).map((p: any) => ({
-            user_id: String(p.user_id ?? ''),
-            name: p.name ?? '',
-            signed: p.signed ?? false,
-            signed_at: p.signed_at ?? '',
-            signature_url: p.signature_url ?? null,
-            proxy_name: p.proxy_name,
-            proxy_reason: p.proxy_reason
-          })),
-          inspector_signed: (d.inspector_signed ?? []) as Array<{ user_id: string; proxy_by?: string }>,
-          supervisor_ids: (d.supervisor_ids ?? []).map((x: any) => String(x)),
-          supervisors: (d.supervisors ?? []) as ReportSigner[],
-          manager_ids: (d.manager_ids ?? []).map((x: any) => String(x)),
-          managers: (d.managers ?? []) as ReportSigner[],
-          supervisor_by: d.supervisor_by ?? null,
-          supervisor_name: d.supervisor_name ?? null,
-          supervisor_at: d.supervisor_at ?? null,
-          supervisor_remark: d.supervisor_remark ?? '',
-          supervisor_signature_url: d.supervisor_signature_url ?? null,
-          manager_by: d.manager_by ?? null,
-          manager_name: d.manager_name ?? null,
-          manager_at: d.manager_at ?? null,
-          manager_remark: d.manager_remark ?? '',
-          manager_signature_url: d.manager_signature_url ?? null,
+          review_steps: (d.review_steps ?? []) as ReportReviewStep[],
+          review_step: Number(d.review_step ?? 0),
+          review_current_ids: (d.review_current_ids ?? []).map((x: any) => String(x)),
           reject_reason: d.reject_reason ?? '',
           file_id: d.file_id ?? '',
           file_url: d.file_url ?? null,
@@ -1189,34 +1136,12 @@ export function apiReportDetail(id: string): Promise<ReportDetail> {
   })
 }
 
-/** 巡检员电子确认 POST /reports/:id/sign-inspector（空 body 本人确认；proxy_for+reason 代签） */
-export function apiSignInspector(id: string, req: InspectorSignReqPayload | null): Promise<{ status: string }> {
-  return new Promise<{ status: string }>((resolve, reject) => {
-    httpPost<any>('/reports/' + id + '/sign-inspector', req as Record<string, any> | null, true)
+/** 动态审核步骤签字 POST /reports/:id/sign-step/:step */
+export function apiSignStep(id: string, step: number, req: ReportSignReq): Promise<{ status: string; review_step: number }> {
+  return new Promise<{ status: string; review_step: number }>((resolve, reject) => {
+    httpPost<any>('/reports/' + id + '/sign-step/' + step, req as unknown as Record<string, any>, true)
       .then((d) => {
-        resolve({ status: d?.status ?? '' })
-      })
-      .catch(reject)
-  })
-}
-
-/** 主管审批 POST /reports/:id/sign-supervisor（action=approve/reject） */
-export function apiSignSupervisor(id: string, req: ReportSignReq): Promise<{ status: string }> {
-  return new Promise<{ status: string }>((resolve, reject) => {
-    httpPost<any>('/reports/' + id + '/sign-supervisor', req as unknown as Record<string, any>, true)
-      .then((d) => {
-        resolve({ status: d?.status ?? '' })
-      })
-      .catch(reject)
-  })
-}
-
-/** 经理终审 POST /reports/:id/sign-manager（action=approve/reject；approve 后异步归档 PDF） */
-export function apiSignManager(id: string, req: ReportSignReq): Promise<{ status: string }> {
-  return new Promise<{ status: string }>((resolve, reject) => {
-    httpPost<any>('/reports/' + id + '/sign-manager', req as unknown as Record<string, any>, true)
-      .then((d) => {
-        resolve({ status: d?.status ?? '' })
+        resolve({ status: d?.status ?? '', review_step: Number(d?.review_step ?? step) })
       })
       .catch(reject)
   })
@@ -1838,19 +1763,15 @@ export type ReportSignCandidate = {
   has_signature: boolean
 }
 
-/** 生成报告时读取审核路径及可选签字人。默认名单由小区汇报线岗位推导。 */
+/** 生成报告时读取审核路径及按审核级别筛选的可选签字人。筛选由后端完成。 */
 export function apiReportSignCandidates(communityId: string, patrolType?: string): Promise<{
-  users: ReportSignCandidate[]
-  default_supervisor_ids: string[]
-  default_manager_ids: string[]
+  steps: { index: number; slot: string; name: string; mode: 'any' | 'all'; users: ReportSignCandidate[]; default_candidate_ids: string[] }[]
 }> {
   return new Promise((resolve, reject) => {
     httpGet<{
-      users: ReportSignCandidate[]
-      default_supervisor_ids: string[]
-      default_manager_ids: string[]
+      steps: { index: number; slot: string; name: string; mode: 'any' | 'all'; users: ReportSignCandidate[]; default_candidate_ids: string[] }[]
     }>('/reports/sign-candidates?community_id=' + encodeURIComponent(communityId) + (patrolType ? '&patrol_type=' + encodeURIComponent(patrolType) : ''))
-      .then((d) => resolve(d ?? { users: [], default_supervisor_ids: [], default_manager_ids: [] }))
+      .then((d) => resolve(d ?? { steps: [] }))
       .catch(reject)
   })
 }
@@ -1861,8 +1782,7 @@ export function apiReportGenerate(body: {
   period: string
   patrol_type?: string
   detail_mode?: string
-  supervisor_ids?: string[]
-  manager_ids?: string[]
+  sign_steps?: { slot: string; candidate_ids: string[] }[]
 }): Promise<{ id: string; title: string; status: string; regenerated: boolean }> {
   return new Promise((resolve, reject) => {
     httpPost<{ id: string; title: string; status: string; regenerated: boolean }>('/reports/generate', body as unknown as Record<string, any>)

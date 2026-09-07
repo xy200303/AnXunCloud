@@ -87,3 +87,12 @@ export function getReviewFlow(communityId: string) {
 export function saveReviewFlow(communityId: string, steps: { slot: string; name: string }[]) {
   return request<null>({ url: `/communities/${communityId}/review-flow`, method: 'put', data: { steps } })
 }
+
+// 项目级报告签字审核链（项目级覆盖；空链表示报告生成后直接归档）
+export function getReportReviewFlow(communityId: string) {
+  return request<ReviewFlowView>({ url: `/communities/${communityId}/report-review-flow`, method: 'get' })
+}
+
+export function saveReportReviewFlow(communityId: string, steps: { slot: string; name: string; mode?: 'any' | 'all' }[]) {
+  return request<null>({ url: `/communities/${communityId}/report-review-flow`, method: 'put', data: { steps } })
+}

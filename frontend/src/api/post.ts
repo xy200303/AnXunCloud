@@ -86,6 +86,7 @@ export function savePostDutyBindings(bindings: { slot: string; post_codes: strin
 export interface ReviewFlowStep {
   slot: string
   name: string
+  mode?: 'any' | 'all'
 }
 export interface ReviewFlowView {
   flow_code: string

@@ -346,6 +346,17 @@
             save-perm="community:duty:edit"
           />
         </el-tab-pane>
+
+        <el-tab-pane label="报告签字流程" name="report-flow">
+          <ReviewFlowEditor
+            v-if="staffCommunityId"
+            :key="`${staffCommunityId}-report`"
+            :api="reportFlowApi"
+            :slot-options="dutySlotOptions"
+            save-perm="community:duty:edit"
+            kind="report"
+          />
+        </el-tab-pane>
       </el-tabs>
     </el-drawer>
 
@@ -402,7 +413,7 @@ import {
   listCommunities, createCommunity, updateCommunity, deleteCommunity,
   listCommunityTree, listBuildings, createBuilding, updateBuilding, deleteBuilding,
   listPostDict, listStaff, createStaff, updateStaff, deleteStaff, listDutyBindings, saveDutyBindings,
-  getReviewFlow, saveReviewFlow
+  getReviewFlow, saveReviewFlow, getReportReviewFlow, saveReportReviewFlow
 } from '@/api/community'
 import { listPoints } from '@/api/point'
 import { POST_LINES } from '@/api/post'
@@ -589,7 +600,7 @@ async function handleDelete(row: CommunityItem) {
 
 // ===== 岗位编制抽屉 =====
 const staffVisible = ref(false)
-const staffTab = ref<'staff' | 'duty'>('staff')
+const staffTab = ref<'staff' | 'duty' | 'flow' | 'report-flow'>('staff')
 const staffCommunityId = ref('')
 const staffCommunityName = ref('')
 const staffLoading = ref(false)
@@ -705,6 +716,10 @@ const dutyList = ref<DutyBindingItem[]>([])
 const flowApi = computed(() => ({
   listFlow: () => getReviewFlow(staffCommunityId.value),
   saveFlow: (s: { slot: string; name: string }[]) => saveReviewFlow(staffCommunityId.value, s) as Promise<unknown>
+}))
+const reportFlowApi = computed(() => ({
+  listFlow: () => getReportReviewFlow(staffCommunityId.value),
+  saveFlow: (s: { slot: string; name: string; mode?: 'any' | 'all' }[]) => saveReportReviewFlow(staffCommunityId.value, s) as Promise<unknown>
 }))
 const dutySlotOptions = computed(() => dutyList.value.map((d) => ({ slot: d.slot, name: d.name })))
 // 逐槽位编辑值（slot → post_codes）；dutyOriginal 记录加载时快照，仅提交有变更的槽位（upsert 语义，避免把平台默认固化成项目覆盖）

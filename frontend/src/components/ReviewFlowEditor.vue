@@ -1,9 +1,9 @@
-<!-- 打卡审批流程编辑器（扩展方案 §3）：租户级默认 / 平台模板 / 项目级覆盖三处共用。
+<!-- 审核流程编辑器（扩展方案 §3）：租户级默认 / 平台模板 / 项目级覆盖三处共用。
      流程 = 有序环节列表，每个环节引用一个职责槽位；环节名单解析与授权复用槽位体系。 -->
 <template>
   <div class="flow-editor">
     <div class="flow-head">
-      <span class="flow-title">打卡审批流程</span>
+      <span class="flow-title">{{ kind === 'report' ? '报告签字流程' : '打卡审批流程' }}</span>
       <el-tag v-if="sourceLabel" size="small" :type="source === 'platform' || source === 'tenant' ? 'warning' : source === 'project' ? 'success' : 'info'" effect="plain">
         {{ sourceLabel }}
       </el-tag>
@@ -11,7 +11,9 @@
     <el-alert
       type="info"
       :closable="false"
-      title="打卡记录按环节顺序逐级审核：当前环节名单成员通过后进入下一环节，末环节通过才生效；驳回即打回。环节审核人 = 负责岗位在该项目编制里的在职成员"
+      :title="kind === 'report'
+        ? '报告生成后按环节顺序签字审核；每个环节可要求任一人或全部人员完成。保存空流程表示报告生成后直接归档。'
+        : '打卡记录按环节顺序逐级审核：当前环节名单成员通过后进入下一环节，末环节通过才生效；驳回即打回。环节审核人 = 负责岗位在该项目编制里的在职成员'"
       class="flow-tip"
     />
     <div v-loading="loading">
@@ -21,10 +23,14 @@
         <el-select v-model="step.slot" placeholder="审核人（按岗位）" class="step-slot" :disabled="!canEdit">
           <el-option v-for="s in slotOptions" :key="s.slot" :label="s.name" :value="s.slot" />
         </el-select>
+        <el-select v-if="kind === 'report'" v-model="step.mode" class="step-mode" :disabled="!canEdit">
+          <el-option label="任一人" value="any" />
+          <el-option label="全部人" value="all" />
+        </el-select>
         <template v-if="canEdit">
           <el-button :icon="Top" circle size="small" :disabled="idx === 0" @click="move(idx, -1)" />
           <el-button :icon="Bottom" circle size="small" :disabled="idx === steps.length - 1" @click="move(idx, 1)" />
-          <el-button :icon="Delete" circle size="small" type="danger" plain :disabled="steps.length <= 1" @click="steps.splice(idx, 1)" />
+          <el-button :icon="Delete" circle size="small" type="danger" plain :disabled="!allowEmpty && steps.length <= 1" @click="steps.splice(idx, 1)" />
         </template>
       </div>
       <div class="flow-footer">
@@ -49,10 +55,13 @@ const props = defineProps<{
   }
   slotOptions: { slot: string; name: string }[]
   savePerm: string
+  kind?: 'checkin' | 'report'
 }>()
 
 const userStore = useUserStore()
 const canEdit = computed(() => userStore.hasPerm(props.savePerm))
+const kind = computed(() => props.kind || 'checkin')
+const allowEmpty = computed(() => kind.value === 'report')
 
 const loading = ref(false)
 const saving = ref(false)
@@ -86,7 +95,7 @@ function move(idx: number, dir: number) {
 }
 
 function addStep() {
-  steps.value.push({ slot: '', name: '' })
+  steps.value.push({ slot: '', name: '', ...(kind.value === 'report' ? { mode: 'any' as const } : {}) })
 }
 
 async function handleSave() {
@@ -98,7 +107,7 @@ async function handleSave() {
   }
   saving.value = true
   try {
-    await props.api.saveFlow(steps.value.map((s) => ({ slot: s.slot, name: s.name.trim() })))
+    await props.api.saveFlow(steps.value.map((s) => ({ slot: s.slot, name: s.name.trim(), ...(kind.value === 'report' ? { mode: s.mode || 'any' } : {}) })))
     ElMessage.success('审批流程已保存')
     fetchFlow()
   } finally {
@@ -150,6 +159,9 @@ onMounted(fetchFlow)
 }
 .step-slot {
   flex: 1;
+}
+.step-mode {
+  width: 105px;
 }
 .flow-footer {
   display: flex;

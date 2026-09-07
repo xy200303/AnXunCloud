@@ -25,25 +25,7 @@
 
     <!-- 任务列表 -->
     <view v-else-if="loaded" class="content">
-      <!-- 巡查类型筛选（客户端过滤：全部 / 安全 / 设备专项 / 环境 / 楼栋） -->
-      <scroll-view scroll-x class="chips" :show-scrollbar="false">
-        <view class="chips-inner">
-          <view
-            v-for="c in typeChips"
-            :key="c.value"
-            class="chip"
-            :style="typeFilter == c.value
-              ? { backgroundColor: colors.primaryLight, borderColor: colors.primary }
-              : { backgroundColor: colors.bgCard, borderColor: colors.border }"
-            @click="typeFilter = c.value"
-          >
-            <text
-              class="chip-text"
-              :style="{ color: typeFilter == c.value ? colors.primary : colors.textSecondary }"
-            >{{ c.label }}</text>
-          </view>
-        </view>
-      </scroll-view>
+      <AppChipScroller :items="typeChips" :value="typeFilter" :colors="colors" @change="typeFilter = $event" />
 
       <view class="summary">
         <text class="summary-date" :style="{ color: colors.textSecondary }">{{ date }}</text>
@@ -118,6 +100,7 @@ import { offlineCount, syncOfflineCheckins } from '@/utils/offline'
 import { useMessageStore } from '@/stores/message'
 import { doNfc } from '@/utils/scan'
 import { fetchLatestRelease } from '@/utils/update'
+import AppChipScroller from '@/components/AppChipScroller.vue'
 import UpdateDialog from '@/components/UpdateDialog.vue'
 
 /** 巡查类型文案（内置回落：后端未透传 patrol_type_label 时使用；新类型如 fire 以字典 label 为准） */
@@ -224,7 +207,7 @@ function toTaskView(t: TodayTask): TaskView {
 }
 
 export default {
-  components: { UpdateDialog },
+  components: { AppChipScroller, UpdateDialog },
   data(): TodayData {
     return {
       colors: Colors,
@@ -408,30 +391,6 @@ export default {
 }
 
 /* 巡查类型筛选 chips */
-.chips {
-  margin-bottom: 16rpx;
-}
-
-.chips-inner {
-  display: inline-flex;
-  flex-direction: row;
-  flex-wrap: nowrap;
-}
-
-.chip {
-  flex-shrink: 0;
-  border-width: 2rpx;
-  border-style: solid;
-  border-radius: 32rpx;
-  padding: 8rpx 24rpx;
-  margin-right: 16rpx;
-}
-
-.chip-text {
-  font-size: 26rpx;
-  white-space: nowrap;
-}
-
 .empty-filter {
   align-items: center;
   padding: 64rpx 0;

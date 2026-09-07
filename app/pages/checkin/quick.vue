@@ -44,50 +44,23 @@
         </view>
       </view>
 
-      <!-- 凭证核验步 -->
-      <block v-if="phase == 'cred'">
-        <view class="card" :style="{ backgroundColor: colors.bgCard, boxShadow: shadow }">
-          <text class="cred-title" :style="{ color: colors.textPrimary }">到场打卡</text>
-          <text v-if="!needsCred" class="cred-none" :style="{ color: colors.success }">✓ 本点位直接拍照就行</text>
-          <!-- 扫码行 -->
-          <view
-            v-if="curPoint != null && (curPoint.credential == 'qrcode' || curPoint.credential == 'any')"
-             hover-class="hover-dim" class="cred-row"
-            @click="onScanRowTap"
-          >
-            <text  hover-class="hover-dim" class="cred-row-name" :style="{ color: colors.textPrimary }">扫点位二维码</text>
-            <text v-if="curWizPoint != null && curWizPoint.scannedNo != ''" class="cred-status" :style="{ color: colors.success }">✓ 已完成</text>
-            <text v-else class="cred-status" :style="{ color: colors.textSecondary }">去完成 ›</text>
-          </view>
-          <!-- 读卡行 -->
-          <view
-            v-if="curPoint != null && (curPoint.credential == 'nfc' || curPoint.credential == 'any')"
-             hover-class="hover-dim" class="cred-row"
-            @click="onNfcRowTap"
-          >
-            <text  hover-class="hover-dim" class="cred-row-name" :style="{ color: colors.textPrimary }">刷 NFC 卡</text>
-            <text v-if="curWizPoint != null && curWizPoint.nfcCardId != ''" class="cred-status" :style="{ color: colors.success }">✓ 已完成</text>
-            <text v-else class="cred-status" :style="{ color: colors.textSecondary }">去完成 ›</text>
-          </view>
-          <!-- 定位行 -->
-          <view v-if="curPoint != null && curPoint.require_fence"  hover-class="hover-dim" class="cred-row" @click="onLocTap">
-            <text  hover-class="hover-dim" class="cred-row-name" :style="{ color: colors.textPrimary }">位置确认</text>
-            <text v-if="locating" class="cred-status" :style="{ color: colors.textSecondary }">定位中…</text>
-            <text v-else-if="locFailed" class="cred-status" :style="{ color: colors.danger }">失败，点我重试</text>
-            <text v-else-if="distance >= 0 && curPoint != null && distance <= curPoint.fence_radius" class="cred-status" :style="{ color: colors.success }">✓ 在范围内（{{ distance }}米）</text>
-            <text v-else-if="distance >= 0" class="cred-status" :style="{ color: colors.danger }">超出范围（{{ distance }}米）</text>
-            <text v-else class="cred-status" :style="{ color: colors.textSecondary }">去完成 ›</text>
-          </view>
-        </view>
-        <view
-           hover-class="hover-dim" class="btn-big"
-          :style="{ backgroundColor: credOk && fenceOk ? colors.success : colors.border }"
-          @click="startItems"
-        >
-          <text  hover-class="hover-dim" class="btn-big-text" :style="{ color: credOk && fenceOk ? colors.white : colors.textSecondary }">开始检查</text>
-        </view>
-        <text v-if="!(credOk && fenceOk)" class="start-hint" :style="{ color: colors.textSecondary }">先完成上面的确认，再开始检查</text>
-      </block>
+      <QuickCredentialCard
+        v-if="phase == 'cred'"
+        :point="curPoint"
+        :wiz-point="curWizPoint"
+        :needs-cred="needsCred"
+        :cred-ok="credOk"
+        :fence-ok="fenceOk"
+        :locating="locating"
+        :loc-failed="locFailed"
+        :distance="distance"
+        :colors="colors"
+        :shadow="shadow"
+        @scan="onScanRowTap"
+        @nfc="onNfcRowTap"
+        @location="onLocTap"
+        @start="startItems"
+      />
 
       <!-- 逐项卡片步 -->
       <block v-if="phase == 'items' && curItem != null">
@@ -111,30 +84,7 @@
         />
       </block>
 
-      <!-- 点位收尾步 -->
-      <block v-if="phase == 'gate'">
-        <view class="card gate-card" :style="{ backgroundColor: colors.bgCard, boxShadow: shadow }">
-          <text class="gate-title" :style="{ color: colors.textPrimary }">本点位 {{ curItemCount }} 项已过完</text>
-          <view class="gate-stats">
-            <view class="gate-stat">
-              <text class="gate-stat-num" :style="{ color: colors.success }">{{ gateStats.done }}</text>
-              <text class="gate-stat-label" :style="{ color: colors.textSecondary }">已完成</text>
-            </view>
-            <view class="gate-stat">
-              <text class="gate-stat-num" :style="{ color: colors.primary }">{{ gateStats.recognizing }}</text>
-              <text class="gate-stat-label" :style="{ color: colors.textSecondary }">AI 检查中</text>
-            </view>
-            <view class="gate-stat">
-              <text class="gate-stat-num" :style="{ color: colors.danger }">{{ gateStats.abnormal }}</text>
-              <text class="gate-stat-label" :style="{ color: colors.textSecondary }">异常</text>
-            </view>
-          </view>
-          <text class="gate-sub" :style="{ color: colors.textSecondary }">{{ gateStats.recognizing > 0 ? '提交后将等待 AI 检查完成' : '提交后 AI 统一检查' }}</text>
-        </view>
-        <view  hover-class="hover-dim" class="btn-big" :style="{ backgroundColor: colors.success }" @click="submitPoint">
-          <text  hover-class="hover-dim" class="btn-big-text" :style="{ color: colors.white }">提交本点位</text>
-        </view>
-      </block>
+      <QuickGateCard v-if="phase == 'gate'" :item-count="curItemCount" :stats="gateStats" :colors="colors" :shadow="shadow" @submit="submitPoint" />
 
       <!-- 补拍步（质量不合格 / 识别失败） -->
       <block v-if="phase == 'retake'">
@@ -227,6 +177,8 @@ import { compressForUpload } from '@/utils/image'
 import { WizardPointSnap, WizardItemSnap } from '@/utils/checkinWizard'
 import QuickItemCard from '@/components/QuickItemCard.vue'
 import QuickIssuePanel from '@/components/QuickIssuePanel.vue'
+import QuickCredentialCard from '@/components/QuickCredentialCard.vue'
+import QuickGateCard from '@/components/QuickGateCard.vue'
 
 /** 向导阶段：cred 凭证 / items 逐项 / gate 提交本点位 / retake 补拍 / abnormal 异常确认 / pointDone 点位完成 / taskDone 任务完成 */
 type Phase = 'cred' | 'items' | 'gate' | 'retake' | 'abnormal' | 'pointDone' | 'taskDone'
@@ -288,6 +240,9 @@ type QuickData = {
   destroyed: boolean
   /** 遮罩看门狗定时器 */
   overlayWatchdog: any
+  /** 相机/上传链路锁，避免连续点击创建多个照片任务 */
+  captureBusy: boolean
+  captureToken: number
   /** 手动退出放行标记（exitWizard 时 onBackPress 不拦截） */
   forceExit: boolean
 }
@@ -350,7 +305,7 @@ function freshPoint(p: TaskPoint): WizardPointSnap {
 }
 
 export default {
-  components: { QuickItemCard, QuickIssuePanel },
+  components: { QuickItemCard, QuickIssuePanel, QuickCredentialCard, QuickGateCard },
   data(): QuickData {
     return {
       colors: Colors,
@@ -390,10 +345,20 @@ export default {
       destroyed: false,
       /** 遮罩看门狗定时器 */
       overlayWatchdog: null,
+      captureBusy: false,
+      captureToken: 0,
       forceExit: false
     }
   },
   computed: {
+    /** 点位索引缓存：避免进度区和当前点位在每次响应式更新时重复线性查找 */
+    taskPointIndex(): Record<string, { point: TaskPoint; ordinal: number }> {
+      const index: Record<string, { point: TaskPoint; ordinal: number }> = {}
+      this.taskPoints.forEach((point, ordinal) => {
+        index[point.point_id] = { point: point, ordinal: ordinal + 1 }
+      })
+      return index
+    },
     curWizPoint(): WizardPointSnap | null {
       if (this.pointIdx < 0 || this.pointIdx >= this.wizPoints.length) return null
       return this.wizPoints[this.pointIdx]
@@ -401,8 +366,7 @@ export default {
     curPoint(): TaskPoint | null {
       const wp = this.curWizPoint
       if (wp == null) return null
-      const pt = this.taskPoints.find((p) => p.point_id == wp.point_id)
-      return pt != null ? pt : null
+      return this.taskPointIndex[wp.point_id]?.point || null
     },
     curItem(): WizardItemSnap | null {
       const wp = this.curWizPoint
@@ -423,8 +387,7 @@ export default {
     pointOrdinal(): number {
       const pt = this.curPoint
       if (pt == null) return 1
-      const i = this.taskPoints.findIndex((p) => p.point_id == pt.point_id)
-      return i >= 0 ? i + 1 : 1
+      return this.taskPointIndex[pt.point_id]?.ordinal || 1
     },
     progressWidth(): string {
       if (this.totalPoints <= 0) return '0%'
@@ -483,12 +446,12 @@ export default {
     },
     /** 底部「上一项」：主推进阶段且遮盖层未开启时显示 */
     showPrev(): boolean {
-      if (this.overlayMsg != '' || this.submitting) return false
+      if (this.overlayMsg != '' || this.submitting || this.captureBusy) return false
       return this.phase == 'cred' || this.phase == 'items' || this.phase == 'gate'
     },
     /** 手动模式入口：主推进阶段 + 非修改模式 + 有当前点位（修改模式点位已打卡，手动表单会拒） */
     showManualEntry(): boolean {
-      if (this.modify || this.overlayMsg != '' || this.submitting) return false
+      if (this.modify || this.overlayMsg != '' || this.submitting || this.captureBusy) return false
       if (this.curPoint == null) return false
       return this.phase == 'cred' || this.phase == 'items' || this.phase == 'gate'
     },
@@ -512,6 +475,8 @@ export default {
   },
   onUnload() {
     this.destroyed = true
+    this.captureToken += 1
+    this.captureBusy = false
     this.stopPoll()
     if (this.overlayWatchdog != null) {
       clearTimeout(this.overlayWatchdog)
@@ -522,7 +487,7 @@ export default {
     // 手动退出（exitWizard 的 navigateBack 在 App 端同样触发 onBackPress）：放行
     if (this.forceExit) return false
     // 遮盖层（上传/AI 检查/提交中）：拦截返回并提示，避免用户误以为卡死
-    if (this.overlayMsg != '' || this.submitting) {
+    if (this.overlayMsg != '' || this.submitting || this.captureBusy) {
       uni.showToast({ title: '处理中，请稍候…', icon: 'none' })
       return true
     }
@@ -542,6 +507,8 @@ export default {
         if (this.overlayMsg == '') return
         this.overlayMsg = ''
         this.submitting = false
+        this.captureToken += 1
+        this.captureBusy = false
         this.stopPoll()
         uni.showToast({ title: '网络较慢，请检查后重试', icon: 'none' })
       }, 75000)
@@ -877,7 +844,7 @@ export default {
         resolvePointCode(cardId)
         return
       }
-      if (this.overlayMsg != '' || this.submitting) {
+      if (this.overlayMsg != '' || this.submitting || this.captureBusy) {
         uni.showToast({ title: '处理中，请稍候…', icon: 'none' })
         return
       }
@@ -918,7 +885,7 @@ export default {
     /** 当前项拍照（仅相机）→ 上传原图 → 建识别 job → 立即推进下一项，不等结果（水印由服务端统一烧录） */
     takePhoto() {
       const it = this.curItem
-      if (it == null || !this.curItemIsPhoto) return
+      if (it == null || !this.curItemIsPhoto || it.status == 'recognizing') return
       this.shootFor(it, true, 'ai')
     },
     exceptionText(exceptionType?: string) {
@@ -929,7 +896,7 @@ export default {
     /** 拍照项逃生入口：明确区分设备不存在与现场无法拍摄。 */
     reportPhotoItemMissing() {
       const it = this.curItem
-      if (it == null || !this.curItemIsPhoto) return
+      if (it == null || !this.curItemIsPhoto || this.captureBusy || this.overlayMsg != '' || this.submitting) return
       uni.showActionSheet({
         itemList: ['设备确实不存在', '现场无法拍摄'],
         success: (r) => {
@@ -953,22 +920,32 @@ export default {
     },
     shootFor(it: WizardItemSnap, advance: boolean, mode: 'ai' | 'escape', exceptionType = '') {
       const wp = this.curWizPoint
-      if (wp == null) return
+      if (wp == null || this.captureBusy || this.overlayMsg != '' || this.submitting) return
       const pointId = wp.point_id
+      const captureToken = this.captureToken + 1
+      this.captureToken = captureToken
+      this.captureBusy = true
       uni.chooseImage({
         count: 1,
         sourceType: ['camera'],
         success: (res) => {
+          if (!this.captureIsCurrent(captureToken)) return
           const paths = (res.tempFilePaths || []) as string[]
-          if (paths.length == 0) return
+          if (paths.length == 0) {
+            this.captureBusy = false
+            return
+          }
+          this.overlayMsg = '照片处理中…'
           // 定标压缩（1920px/q80：仍在 AI 编码分辨率之上，不损识别；体积约为原图 1/4）。
           // 只传原图：AI 识别无水印干扰；水印由服务端在打卡后统一烧录（点位/时间/坐标/巡检员）
           compressForUpload(paths[0]).then((raw) => {
+            if (!this.captureIsCurrent(captureToken)) return null
             this.overlayMsg = '照片上传中…'
             let fileId = ''
             let fileUrl = ''
             apiUploadLocal(raw)
               .then((r) => {
+                if (!this.captureIsCurrent(captureToken)) return null
                 fileId = r.file_id
                 fileUrl = r.url
                 if (mode == 'escape') {
@@ -989,6 +966,7 @@ export default {
                 })
               })
               .then((j) => {
+                if (j == null || !this.captureIsCurrent(captureToken)) return
                 this.overlayMsg = ''
                 // 展示用服务端 URL（重启后仍可加载）；本地临时路径仅兜底
                 it.photos = [fileUrl != '' ? fileUrl : raw]
@@ -1017,11 +995,14 @@ export default {
                   it.pass = true
                   it.note = ''
                 }
+                this.captureBusy = false
                 // 拍照项：立即推进下一项，不等识别结果
                 if (advance) this.nextStep()
               })
               .catch((e: any) => {
+                if (!this.captureIsCurrent(captureToken)) return
                 this.overlayMsg = ''
+                this.captureBusy = false
                 const code = e != null && typeof e.code == 'number' ? e.code : 0
                 if (code == CODE_AI_DISABLED) {
                   uni.showToast({ title: 'AI 未启用，请改用手动模式', icon: 'none' })
@@ -1029,14 +1010,28 @@ export default {
                 }
                 uni.showToast({ title: (e && e.message) || '拍照失败，请重试', icon: 'none' })
               })
+              .then(() => {
+                if (this.captureToken == captureToken) this.captureBusy = false
+              })
+          }).catch((e: any) => {
+            if (!this.captureIsCurrent(captureToken)) return
+            this.overlayMsg = ''
+            this.captureBusy = false
+            uni.showToast({ title: (e && e.message) || '照片处理失败，请重试', icon: 'none' })
           })
+        },
+        fail: () => {
+          if (this.captureToken == captureToken) this.captureBusy = false
         }
       })
+    },
+    captureIsCurrent(token: number): boolean {
+      return !this.destroyed && this.captureToken == token
     },
     /** 感官项：正常一次过 */
     tapManualOk() {
       const it = this.curItem
-      if (it == null || this.curItemIsPhoto) return
+      if (it == null || this.curItemIsPhoto || it.status == 'done') return
       it.pass = true
       it.note = ''
       it.verdict = 'pass'
@@ -1048,13 +1043,13 @@ export default {
     /** 感官项：有异常 → 展开描述输入（可跳过） */
     tapManualAbnormal() {
       const it = this.curItem
-      if (it == null || this.curItemIsPhoto) return
+      if (it == null || this.curItemIsPhoto || it.status == 'done') return
       this.manualNote = it.note
       this.manualAbnormalOpen = true
     },
     confirmManualAbnormal() {
       const it = this.curItem
-      if (it == null) return
+      if (it == null || this.curItemIsPhoto || it.status == 'done') return
       it.pass = false
       it.note = this.manualNote.trim()
       it.verdict = 'abnormal'
@@ -1125,7 +1120,7 @@ export default {
     },
     /** 导航栏返回键：与系统返回同口径——直接退出巡检（已拍内容在云端草稿，下次可续） */
     onBackTap() {
-      if (this.overlayMsg != '' || this.submitting) return
+      if (this.overlayMsg != '' || this.submitting || this.captureBusy) return
       this.exitWizard()
     },
     /**
@@ -1165,7 +1160,7 @@ export default {
     /** 提交本点位：轮询未完成的识别 job → 汇总分流（全过 / 补拍 / 异常确认） */
     submitPoint() {
       const wp = this.curWizPoint
-      if (wp == null || this.submitting) return
+      if (wp == null || this.submitting || this.captureBusy) return
       if (!this.credOk) {
         uni.showToast({ title: '请先完成点位核验', icon: 'none' })
         return
@@ -1319,7 +1314,7 @@ export default {
     doCheckin(result: 'normal' | 'abnormal', abnIdxs: number[]) {
       const wp = this.curWizPoint
       const pt = this.curPoint
-      if (wp == null || pt == null || this.submitting) return
+      if (wp == null || pt == null || this.submitting || this.captureBusy) return
       this.submitting = true
       this.overlayMsg = '提交中…'
       const abnSet: Record<number, boolean> = {}
@@ -1596,119 +1591,6 @@ export default {
   margin-left: 16rpx;
   width: 88rpx;
   text-align: right;
-}
-
-.card {
-  border-radius: 24rpx;
-  padding: 32rpx;
-  margin-bottom: 24rpx;
-}
-
-/* 凭证步：核验清单 */
-.cred-title {
-  font-size: 36rpx;
-  font-weight: 700;
-  margin-bottom: 8rpx;
-}
-
-.cred-none {
-  font-size: 40rpx;
-  font-weight: 600;
-  text-align: center;
-  padding: 24rpx 0;
-}
-
-.cred-row {
-  flex-direction: row;
-  align-items: center;
-  justify-content: space-between;
-  min-height: 104rpx;
-  border-bottom-width: 1rpx;
-  border-bottom-style: solid;
-  border-bottom-color: rgba(0, 0, 0, 0.05);
-}
-
-.cred-row-name {
-  font-size: 40rpx;
-  font-weight: 600;
-}
-
-.cred-status {
-  font-size: 32rpx;
-  font-weight: 600;
-}
-
-.start-hint {
-  font-size: 28rpx;
-  text-align: center;
-  margin-top: -8rpx;
-  margin-bottom: 24rpx;
-}
-
-.btn-outline {
-  height: 112rpx;
-  border-radius: 20rpx;
-  border-width: 2rpx;
-  border-style: solid;
-  align-items: center;
-  justify-content: center;
-}
-
-.btn-outline-text {
-  font-size: 40rpx;
-  font-weight: 600;
-}
-
-/* 大按钮 */
-.btn-big {
-  width: 100%;
-  height: 140rpx;
-  border-radius: 20rpx;
-  align-items: center;
-  justify-content: center;
-  margin-bottom: 24rpx;
-}
-
-.btn-big-text {
-  font-size: 44rpx;
-  font-weight: 700;
-}
-
-/* 收尾步 */
-.gate-card {
-  align-items: center;
-}
-
-.gate-title {
-  font-size: 48rpx;
-  font-weight: 700;
-}
-
-.gate-stats {
-  flex-direction: row;
-  align-items: center;
-  justify-content: space-around;
-  width: 100%;
-  margin-top: 32rpx;
-}
-
-.gate-stat {
-  align-items: center;
-}
-
-.gate-stat-num {
-  font-size: 64rpx;
-  font-weight: 700;
-}
-
-.gate-stat-label {
-  font-size: 28rpx;
-  margin-top: 8rpx;
-}
-
-.gate-sub {
-  font-size: 30rpx;
-  margin-top: 24rpx;
 }
 
 /* 完成页 */

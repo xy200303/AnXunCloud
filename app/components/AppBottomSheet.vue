@@ -38,6 +38,7 @@ export default {
   bottom: 0;
   z-index: 99;
   justify-content: flex-end;
+  animation: app-sheet-fade-in 180ms ease-out;
 }
 
 .app-bottom-sheet {
@@ -47,5 +48,17 @@ export default {
   border-radius: 24rpx 24rpx 0 0;
   overflow: hidden;
   padding-bottom: env(safe-area-inset-bottom);
+  transform: translateY(0);
+  animation: app-sheet-slide-up 220ms ease-out;
+}
+
+@keyframes app-sheet-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes app-sheet-slide-up {
+  from { transform: translateY(100%); }
+  to { transform: translateY(0); }
 }
 </style>

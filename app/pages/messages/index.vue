@@ -10,21 +10,21 @@
       </view>
     </view>
 
-    <!-- 骨架屏 -->
-    <view v-if="loading" class="skeleton">
-      <view class="sk-block" :style="{ backgroundColor: colors.border }"></view>
-      <view class="sk-block" :style="{ backgroundColor: colors.border }"></view>
-      <view class="sk-block sk-short" :style="{ backgroundColor: colors.border }"></view>
-    </view>
-
-    <!-- 空态 -->
-    <view v-else-if="loaded && list.length == 0" class="empty">
-      <text class="empty-title" :style="{ color: colors.textRegular }">没有新消息，都去巡检啦</text>
-      <text class="empty-sub" :style="{ color: colors.textSecondary }">派单、待签、驳回等提醒会出现在这里</text>
-    </view>
+    <AppListShell
+      :loading="loading"
+      :loaded="loaded"
+      :empty="list.length == 0"
+      :error="errorMsg"
+      :show-skeleton="list.length == 0"
+      empty-title="没有新消息，都去巡检啦"
+      empty-sub="派单、待签、驳回等提醒会出现在这里"
+      :colors="colors"
+      @retry="reload"
+    >
 
     <!-- 消息列表 -->
-    <view v-else-if="loaded" class="content">
+    <template #default>
+    <view class="content">
       <view
         v-for="m in list"
         :key="m.id"
@@ -45,19 +45,22 @@
         </view>
       </view>
 
-      <text v-if="finished && list.length > 0" class="list-end" :style="{ color: colors.textSecondary }">没有更多了</text>
-      <text v-else-if="loadingMore" class="list-end" :style="{ color: colors.textSecondary }">加载中…</text>
     </view>
-
-    <!-- 加载失败 -->
-    <view v-else class="empty">
-      <text class="empty-title" :style="{ color: colors.textRegular }">{{ errorMsg }}</text>
-      <text class="empty-retry" :style="{ color: colors.primary }" @click="reload">重试</text>
-    </view>
+    </template>
+    <template #footer>
+      <AppListFooter :loading-more="loadingMore" :no-more="finished" :visible="list.length > 0" :colors="colors" />
+    </template>
+    </AppListShell>
 
     <!-- 公告弹层：已发布公告列表，点击进入公告详情页 -->
-    <view v-if="noticeShow" class="mask" :style="{ backgroundColor: colors.mask }" @click="noticeShow = false">
-      <view class="notice-panel" :style="{ backgroundColor: colors.bgCard }" @click.stop="noop">
+    <AppBottomSheet
+      :visible="noticeShow"
+      :mask-color="colors.mask"
+      :background-color="colors.bgCard"
+      height="75%"
+      @close="noticeShow = false"
+    >
+      <view class="notice-panel" :style="{ backgroundColor: colors.bgCard }">
         <view class="notice-head">
           <text class="notice-title" :style="{ color: colors.textPrimary }">公告</text>
           <text class="notice-close" :style="{ color: colors.textSecondary }" @click="noticeShow = false">关闭</text>
@@ -78,7 +81,7 @@
           </view>
         </scroll-view>
       </view>
-    </view>
+    </AppBottomSheet>
 
     <view class="tabbar-space"></view>
   </view>
@@ -89,6 +92,9 @@ import { Colors, ColorTokens } from '@/utils/theme'
 import { apiMessages, apiMarkMessageRead, apiAnnouncements, apiCheckinBrief, MessageItem, AnnouncementItem } from '@/services/api'
 import { useMessageStore } from '@/stores/message'
 import { syncBadge } from '@/utils/push'
+import AppListShell from '@/components/AppListShell.vue'
+import AppListFooter from '@/components/AppListFooter.vue'
+import AppBottomSheet from '@/components/AppBottomSheet.vue'
 
 const PAGE_SIZE = 20
 
@@ -105,6 +111,7 @@ type MessagesData = {
   noticeShow: boolean
   noticeLoading: boolean
   notices: AnnouncementItem[]
+  lastLoadedAt: number
 }
 
 /** 消息类型展示（对齐后端 SysMessage 写入点：report 月报 / checkin_audit 打卡审核 / task 任务（派单/逾期） / announcement 公告） */
@@ -125,6 +132,7 @@ function typeColorOf(t: string): string {
 }
 
 export default {
+  components: { AppListShell, AppListFooter, AppBottomSheet },
   data(): MessagesData {
     return {
       colors: Colors,
@@ -138,7 +146,8 @@ export default {
       list: [] as MessageItem[],
       noticeShow: false,
       noticeLoading: false,
-      notices: [] as AnnouncementItem[]
+      notices: [] as AnnouncementItem[],
+      lastLoadedAt: 0
     }
   },
   onLoad() {
@@ -146,7 +155,7 @@ export default {
   },
   onShow() {
     // 从深链页面返回时刷新（可能已在别处读过/处理过）
-    if (this.loaded) this.reload()
+    if (this.loaded && Date.now() - this.lastLoadedAt > 20000) this.reload()
   },
   onPullDownRefresh() {
     this.reload()
@@ -169,6 +178,7 @@ export default {
           this.list = res.list
           this.total = res.total
           this.finished = res.list.length >= res.total
+          this.lastLoadedAt = Date.now()
           useMessageStore().setUnread(res.unread_count)
           uni.stopPullDownRefresh()
         })
@@ -402,28 +412,10 @@ export default {
   margin-top: 12rpx;
 }
 
-.list-end {
-  font-size: 24rpx;
-  text-align: center;
-  padding: 24rpx 0;
-}
-
 /* 公告弹层 */
-.mask {
-  position: fixed;
-  left: 0;
-  top: 0;
-  right: 0;
-  bottom: 0;
-  z-index: 998;
-  align-items: center;
-  justify-content: center;
-  padding: 48rpx;
-}
-
 .notice-panel {
+  flex: 1;
   width: 100%;
-  max-height: 70%;
   border-radius: 24rpx;
   padding: 32rpx;
 }
@@ -446,7 +438,8 @@ export default {
 }
 
 .notice-scroll {
-  max-height: 800rpx;
+  flex: 1;
+  min-height: 0;
 }
 
 .notice-empty {

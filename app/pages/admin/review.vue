@@ -1,34 +1,22 @@
 <template>
   <view class="page" :style="{ backgroundColor: colors.bgPage }">
-    <!-- 审核状态 tab -->
-    <view class="tabs" :style="{ backgroundColor: colors.bgCard, borderBottomColor: colors.border }">
-      <view v-for="t in tabs" :key="t.value" class="tab" @click="switchStatus(t.value)">
-        <text class="tab-text" :style="{ color: status == t.value ? colors.primary : colors.textRegular }">{{ t.label }}</text>
-        <view class="tab-line" :style="{ backgroundColor: status == t.value ? colors.primary : 'transparent' }"></view>
-      </view>
-    </view>
+    <AppSegmentTabs :items="tabs" :value="status" :colors="colors" @change="switchStatus" />
 
-    <!-- 骨架屏 -->
-    <view v-if="loading && list.length == 0" class="skeleton">
-      <view class="sk-block" :style="{ backgroundColor: colors.border }"></view>
-      <view class="sk-block" :style="{ backgroundColor: colors.border }"></view>
-      <view class="sk-block sk-short" :style="{ backgroundColor: colors.border }"></view>
-    </view>
-
-    <!-- 空态 -->
-    <view v-else-if="loaded && list.length == 0" class="empty">
-      <text class="empty-title" :style="{ color: colors.textRegular }">{{ emptyTitle }}</text>
-      <text class="empty-sub" :style="{ color: colors.textSecondary }">下拉可刷新</text>
-    </view>
-
-    <!-- 加载失败 -->
-    <view v-else-if="!loaded && list.length == 0" class="empty">
-      <text class="empty-title" :style="{ color: colors.textRegular }">{{ errorMsg }}</text>
-      <text class="empty-retry" :style="{ color: colors.primary }" @click="reload">重试</text>
-    </view>
+    <AppListShell
+      :loading="loading"
+      :loaded="loaded"
+      :empty="list.length == 0"
+      :error="errorMsg"
+      :show-skeleton="list.length == 0"
+      :empty-title="emptyTitle"
+      empty-sub="下拉可刷新"
+      :colors="colors"
+      @retry="reload"
+    >
 
     <!-- 记录列表 -->
-    <view v-else class="content">
+    <template #default>
+    <view class="content">
       <view
         v-for="r in list"
         :key="r.id"
@@ -52,12 +40,12 @@
         </view>
       </view>
 
-      <!-- 加载更多状态 -->
-      <view class="loadmore">
-        <text v-if="loadingMore" class="loadmore-text" :style="{ color: colors.textSecondary }">加载中…</text>
-        <text v-else-if="noMore" class="loadmore-text" :style="{ color: colors.textSecondary }">没有更多了</text>
-      </view>
     </view>
+    </template>
+    <template #footer>
+      <AppListFooter :loading-more="loadingMore" :no-more="noMore" :visible="list.length > 0" :colors="colors" />
+    </template>
+    </AppListShell>
 
     <!-- 详情弹层 -->
     <AppBottomSheet
@@ -185,6 +173,9 @@ import { Colors, ColorTokens } from '@/utils/theme'
 import { apiReviewRecords, apiReviewPass, apiReviewReject, ReviewRecord } from '@/services/api'
 import { toAbsUrl } from '@/utils/url'
 import AppBottomSheet from '@/components/AppBottomSheet.vue'
+import AppListShell from '@/components/AppListShell.vue'
+import AppSegmentTabs from '@/components/AppSegmentTabs.vue'
+import AppListFooter from '@/components/AppListFooter.vue'
 
 const PAGE_SIZE = 20
 
@@ -220,7 +211,7 @@ function photoUrl(p: { url: string; watermarked_url: string }): string {
 }
 
 export default {
-  components: { AppBottomSheet },
+  components: { AppBottomSheet, AppListShell, AppListFooter, AppSegmentTabs },
   data(): ReviewData {
     return {
       colors: Colors,
@@ -401,30 +392,6 @@ export default {
   flex: 1;
 }
 
-.tabs {
-  flex-direction: row;
-  border-bottom-width: 1rpx;
-  border-bottom-style: solid;
-}
-
-.tab {
-  flex: 1;
-  align-items: center;
-  padding-top: 24rpx;
-}
-
-.tab-text {
-  font-size: 30rpx;
-  font-weight: 600;
-}
-
-.tab-line {
-  width: 64rpx;
-  height: 6rpx;
-  border-radius: 3rpx;
-  margin-top: 16rpx;
-}
-
 .skeleton {
   padding: 24rpx;
 }
@@ -512,15 +479,6 @@ export default {
 }
 
 .card-time {
-  font-size: 24rpx;
-}
-
-.loadmore {
-  align-items: center;
-  padding: 16rpx 0 32rpx;
-}
-
-.loadmore-text {
   font-size: 24rpx;
 }
 

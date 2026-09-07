@@ -35,9 +35,10 @@
         <view hover-class="hover-dim" class="btn-big shot-next" :style="{ backgroundColor: colors.success }" @click="$emit('next')">
           <text class="btn-big-text" :style="{ color: colors.white }">下一项</text>
         </view>
-        <view hover-class="hover-dim" class="btn-outline reshot" :style="{ borderColor: colors.primary }" @click="$emit('take-photo')">
+        <view v-if="item.status != 'recognizing'" hover-class="hover-dim" class="btn-outline reshot" :style="{ borderColor: colors.primary }" @click="$emit('take-photo')">
           <text class="btn-outline-text" :style="{ color: colors.primary }">重新拍</text>
         </view>
+        <text v-else class="recognizing-hint" :style="{ color: colors.textSecondary }">AI 检查中，完成后可重新拍</text>
       </block>
       <text
         v-if="item.status != 'recognizing'"
@@ -221,6 +222,12 @@ export default {
 .reshot {
   width: 100%;
   margin-top: 8rpx;
+}
+
+.recognizing-hint {
+  font-size: 28rpx;
+  margin-top: 8rpx;
+  margin-bottom: 8rpx;
 }
 
 .manual-note {

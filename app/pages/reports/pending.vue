@@ -1,36 +1,22 @@
 <template>
   <view class="page" :style="{ backgroundColor: colors.bgPage }">
-    <!-- 选项卡：待我签字 / 已完成 -->
-    <view class="tabs" :style="{ backgroundColor: colors.bgCard }">
-      <view
-        v-for="t in tabs"
-        :key="t.key"
-         hover-class="hover-dim" class="tab"
-        @click="switchTab(t.key)"
-      >
-        <text
-           hover-class="hover-dim" class="tab-text"
-          :style="{ color: tab == t.key ? colors.primary : colors.textRegular, fontWeight: tab == t.key ? 600 : 400 }"
-        >{{ t.label }}</text>
-        <view v-if="tab == t.key"  hover-class="hover-dim" class="tab-line" :style="{ backgroundColor: colors.primary }"></view>
-      </view>
-    </view>
+    <AppSegmentTabs :items="tabs" :value="tab" :colors="colors" @change="switchTab" />
 
-    <!-- 骨架屏 -->
-    <view v-if="loading" class="skeleton">
-      <view class="sk-block" :style="{ backgroundColor: colors.border }"></view>
-      <view class="sk-block" :style="{ backgroundColor: colors.border }"></view>
-      <view class="sk-block sk-short" :style="{ backgroundColor: colors.border }"></view>
-    </view>
-
-    <!-- 空态 -->
-    <view v-else-if="loaded && list.length == 0" class="empty">
-      <text class="empty-title" :style="{ color: colors.textRegular }">{{ emptyTitle }}</text>
-      <text class="empty-sub" :style="{ color: colors.textSecondary }">{{ emptySub }}</text>
-    </view>
+    <AppListShell
+      :loading="loading"
+      :loaded="loaded"
+      :empty="list.length == 0"
+      :error="errorMsg"
+      :show-skeleton="list.length == 0"
+      :empty-title="emptyTitle"
+      :empty-sub="emptySub"
+      :colors="colors"
+      @retry="load"
+    >
 
     <!-- 报告列表 -->
-    <view v-else-if="loaded" class="content">
+    <template #default>
+    <view class="content">
       <view
         v-for="r in list"
         :key="r.id"
@@ -51,12 +37,8 @@
         <text  hover-class="hover-dim" class="card-time" :style="{ color: colors.textSecondary }">生成时间 {{ r.created_at }}</text>
       </view>
     </view>
-
-    <!-- 加载失败 -->
-    <view v-else class="empty">
-      <text class="empty-title" :style="{ color: colors.textRegular }">{{ errorMsg }}</text>
-      <text class="empty-retry" :style="{ color: colors.primary }" @click="load">重试</text>
-    </view>
+    </template>
+    </AppListShell>
 
     <view v-if="menuOpen" class="plus-mask" @click="menuOpen = false">
       <view class="plus-menu" @click.stop>
@@ -73,6 +55,8 @@
 import { Colors, ColorTokens } from '@/utils/theme'
 import { apiReports, ReportListItem } from '@/services/api'
 import { useAuthStore } from '@/stores/auth'
+import AppListShell from '@/components/AppListShell.vue'
+import AppSegmentTabs from '@/components/AppSegmentTabs.vue'
 
 type TabKey = 'pending' | 'doing' | 'done'
 
@@ -84,6 +68,7 @@ type PendingData = {
   errorMsg: string
   list: ReportListItem[]
   menuOpen: boolean
+  lastLoadedAt: number
 }
 
 const TABS: { key: TabKey; label: string }[] = [
@@ -105,6 +90,7 @@ function nodeColorOf(status: string): string {
 }
 
 export default {
+  components: { AppListShell, AppSegmentTabs },
   data(): PendingData {
     return {
       colors: Colors,
@@ -113,7 +99,8 @@ export default {
       loaded: false,
       errorMsg: '',
       list: [] as ReportListItem[],
-      menuOpen: false
+      menuOpen: false,
+      lastLoadedAt: 0
     }
   },
   computed: {
@@ -140,7 +127,7 @@ export default {
   },
   onShow() {
     // 签字返回后刷新（待我签列表会剔除已签报告，已完成列表能看到归档结果）
-    if (this.loaded) this.load()
+    if (this.loaded && Date.now() - this.lastLoadedAt > 20000) this.load()
   },
   onPullDownRefresh() {
     this.load()
@@ -180,6 +167,7 @@ export default {
           this.loading = false
           this.loaded = true
           this.list = res.list
+          this.lastLoadedAt = Date.now()
           uni.stopPullDownRefresh()
         })
         .catch((e: Error) => {
@@ -190,6 +178,7 @@ export default {
         })
     },
     goDetail(id: string) {
+      this.lastLoadedAt = 0
       uni.navigateTo({ url: '/pages/reports/detail?id=' + encodeURIComponent(id) })
     },
     nodeTextOf,
@@ -202,31 +191,6 @@ export default {
 .page {
   flex: 1;
   padding: 24rpx;
-}
-
-.tabs {
-  flex-direction: row;
-  border-radius: 24rpx; /* Radius.card */
-  margin-bottom: 24rpx;
-  padding: 0 32rpx;
-}
-
-.tab {
-  flex: 1;
-  align-items: center;
-  padding-top: 24rpx;
-}
-
-.tab-text {
-  font-size: 30rpx;
-}
-
-.tab-line {
-  width: 48rpx;
-  height: 6rpx;
-  border-radius: 3rpx;
-  margin-top: 16rpx;
-  margin-bottom: 18rpx;
 }
 
 .skeleton {

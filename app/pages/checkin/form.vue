@@ -176,6 +176,7 @@ type FormData = {
   items: ItemView[]
   remark: string
   submitting: boolean
+  photoBusy: boolean
   /** AI 照片质量拦截计数与放行上限（43107 分支用；达到上限允许强制提交转人工复核） */
   qualityAttempts: number
   maxAttempts: number
@@ -230,6 +231,7 @@ export default {
       items: [] as ItemView[],
       remark: '',
       submitting: false,
+      photoBusy: false,
       qualityAttempts: 0,
       maxAttempts: 3,
       forceSubmit: false
@@ -416,16 +418,23 @@ export default {
     /** 拍照（仅相机防相册作弊）→ 定标压缩（1920px/q80）后入列表；一项一图硬约束（max=1）；水印由服务端在打卡后统一烧录 */
     takePhotos(list: string[], max: number) {
       const remain = max - list.length
-      if (remain <= 0) return
+      if (remain <= 0 || this.photoBusy || this.submitting) return
+      this.photoBusy = true
       uni.chooseImage({
         count: remain,
         sourceType: ['camera'],
         success: (res) => {
           const paths = (res.tempFilePaths || []) as string[]
-          paths.forEach((p) => {
-            compressForUpload(p).then((c) => list.push(c))
-          })
-        }
+          if (paths.length == 0) {
+            this.photoBusy = false
+            return
+          }
+          Promise.all(paths.slice(0, remain).map((p) => compressForUpload(p)))
+            .then((compressed) => compressed.forEach((p) => list.push(p)))
+            .catch(() => uni.showToast({ title: '照片处理失败，请重试', icon: 'none' }))
+            .finally(() => { this.photoBusy = false })
+        },
+        fail: () => { this.photoBusy = false }
       })
     },
     removePhoto(list: string[], idx: number) {
@@ -463,6 +472,10 @@ export default {
     },
     submit() {
       if (this.submitting) return
+      if (this.photoBusy) {
+        uni.showToast({ title: '照片处理中，请稍候', icon: 'none' })
+        return
+      }
       const err = this.validate()
       if (err != '') {
         uni.showToast({ title: err, icon: 'none' })

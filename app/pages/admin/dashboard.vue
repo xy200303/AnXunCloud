@@ -30,13 +30,7 @@
         </view>
       </view>
 
-      <!-- 任务筛选 tab：全部 / 有漏点 / 异常 -->
-      <view class="tabs" :style="{ backgroundColor: colors.bgCard, borderBottomColor: colors.border }">
-        <view v-for="t in tabs" :key="t.value" class="tab" @click="switchFilter(t.value)">
-          <text class="tab-text" :style="{ color: filter == t.value ? colors.primary : colors.textRegular }">{{ t.label }}</text>
-          <view class="tab-line" :style="{ backgroundColor: filter == t.value ? colors.primary : 'transparent' }"></view>
-        </view>
-      </view>
+      <AppSegmentTabs :items="tabs" :value="filter" :colors="colors" @change="switchFilter" />
 
       <!-- 空态 -->
       <view v-if="loaded && tasks.length == 0" class="empty">
@@ -91,6 +85,7 @@
 <script lang="ts">
 import { Colors, ColorTokens } from '@/utils/theme'
 import { apiAdminDashboard, apiTaskMonitorList, apiTaskRemind, DashboardData, MonitorTask } from '@/services/api'
+import AppSegmentTabs from '@/components/AppSegmentTabs.vue'
 
 const PAGE_SIZE = 20
 
@@ -145,6 +140,7 @@ function toTaskView(t: MonitorTask): TaskView {
 }
 
 export default {
+  components: { AppSegmentTabs },
   data(): BoardData {
     return {
       colors: Colors,
@@ -313,31 +309,6 @@ export default {
 .stat-label {
   font-size: 24rpx;
   margin-top: 8rpx;
-}
-
-.tabs {
-  flex-direction: row;
-  border-bottom-width: 1rpx;
-  border-bottom-style: solid;
-  margin-bottom: 24rpx;
-}
-
-.tab {
-  flex: 1;
-  align-items: center;
-  padding-top: 24rpx;
-}
-
-.tab-text {
-  font-size: 30rpx;
-  font-weight: 600;
-}
-
-.tab-line {
-  width: 64rpx;
-  height: 6rpx;
-  border-radius: 3rpx;
-  margin-top: 16rpx;
 }
 
 .skeleton {

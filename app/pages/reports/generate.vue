@@ -61,35 +61,32 @@
       <text class="btn-big-text" :style="{ color: canSubmit ? colors.white : colors.textSecondary }">{{ submitting ? '生成中…' : '生成报告' }}</text>
     </view>
 
-    <!-- 审核人选择 -->
-    <AppBottomSheet :visible="candidateShow" :mask-color="colors.mask" :background-color="colors.bgCard" @close="candidateShow = false">
-        <view class="candidate-header">
-        <text class="candidate-title" :style="{ color: colors.textPrimary }">选择{{ activeStep?.name || '审核人' }}</text>
-          <text class="candidate-clear" :style="{ color: colors.danger }" @click="clearCandidates">清空</text>
-        </view>
-        <view v-if="candidateLoading" class="candidate-empty"><text :style="{ color: colors.textSecondary }">加载中…</text></view>
-        <view v-else-if="candidateError != ''" class="candidate-empty" hover-class="hover-dim" @click="loadCandidates">
-          <text :style="{ color: colors.danger }">{{ candidateError }}</text>
-        </view>
-        <view v-else-if="candidateUsers.length == 0" class="candidate-empty"><text :style="{ color: colors.textSecondary }">暂无该审核级别候选人</text></view>
-        <scroll-view v-else scroll-y class="candidate-scroll" :show-scrollbar="false">
-        <view v-for="u in candidateUsers" :key="u.id" class="candidate-item" hover-class="hover-dim" @click="toggleCandidate(u.id)">
-            <text :style="{ color: selectedCandidateIds.indexOf(u.id) >= 0 ? colors.primary : colors.textPrimary }">{{ selectedCandidateIds.indexOf(u.id) >= 0 ? '✓ ' : '○ ' }}{{ u.name }}</text>
-            <text v-if="!u.has_signature" class="candidate-warn" :style="{ color: colors.warning }">未配置签名</text>
-          </view>
-        </scroll-view>
-        <view class="sheet-item" hover-class="hover-dim" @click="candidateShow = false"><text :style="{ color: colors.primary }">完成</text></view>
-    </AppBottomSheet>
+    <AppSelectionSheet
+      :visible="candidateShow"
+      :title="'选择' + (activeStep?.name || '审核人')"
+      :items="candidateItems"
+      :selected-ids="selectedCandidateIds"
+      :loading="candidateLoading"
+      :error="candidateError"
+      empty-text="暂无该审核级别候选人"
+      :mask-color="colors.mask"
+      :background-color="colors.bgCard"
+      :colors="colors"
+      @close="candidateShow = false"
+      @clear="clearCandidates"
+      @retry="loadCandidates"
+      @toggle="toggleCandidate"
+    />
   </view>
 </template>
 
 <script lang="ts">
 import { Colors, ColorTokens, ShadowCard } from '@/utils/theme'
 import { apiCommunityTree, apiDictOptions, apiReportGenerate, apiReportSignCandidates, DictOption, ReportSignCandidate } from '@/services/api'
-import AppBottomSheet from '@/components/AppBottomSheet.vue'
+import AppSelectionSheet from '@/components/AppSelectionSheet.vue'
 
 export default {
-  components: { AppBottomSheet },
+  components: { AppSelectionSheet },
   data() {
     return {
       colors: Colors,
@@ -119,6 +116,13 @@ export default {
     selectedCandidateIds(): string[] { return this.selected[this.candidateRole] || [] },
     candidateUsers(): ReportSignCandidate[] {
       return this.reviewSteps.find((step) => step.slot === this.candidateRole)?.users || []
+    },
+    candidateItems(): Array<{ id: string; name: string; warning?: string }> {
+      return this.candidateUsers.map((user) => ({
+        id: user.id,
+        name: user.name,
+        warning: user.has_signature ? '' : '未配置签名'
+      }))
     },
     activeStep(): any { return this.reviewSteps.find((step) => step.slot === this.candidateRole) },
     communityText(): string {
@@ -376,52 +380,4 @@ export default {
   font-weight: 600;
 }
 
-.candidate-scroll {
-  height: 52vh;
-  max-height: 720rpx;
-}
-
-.sheet-item {
-  padding: 28rpx 32rpx;
-  align-items: center;
-}
-
-.candidate-header {
-  flex-direction: row;
-  justify-content: space-between;
-  align-items: center;
-  padding: 24rpx 32rpx;
-}
-
-.candidate-title,
-.candidate-clear {
-  font-size: 30rpx;
-  font-weight: 600;
-}
-
-.candidate-item {
-  flex-direction: row;
-  justify-content: space-between;
-  padding: 28rpx 32rpx;
-  border-top-width: 1rpx;
-  border-top-style: solid;
-  border-top-color: #f0f0f0;
-}
-
-.candidate-item text {
-  font-size: 30rpx;
-}
-
-.candidate-warn {
-  font-size: 24rpx !important;
-}
-
-.candidate-empty {
-  align-items: center;
-  padding: 42rpx 32rpx;
-}
-
-.sheet-item text {
-  font-size: 30rpx;
-}
 </style>

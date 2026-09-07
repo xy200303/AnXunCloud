@@ -3,18 +3,9 @@
     <!-- 筛选栏：超级管理员支持企业/小区选择 + 名称搜索 + 新增 -->
     <view class="filter-bar" :style="{ backgroundColor: colors.bgCard, borderBottomColor: colors.border }">
       <view class="filter-row">
-        <view v-if="canTenantFilter" class="comm-picker tenant-picker" :style="{ borderColor: colors.border }" @click="openTenantSheet">
-          <text class="comm-picker-text" :style="{ color: tenantId == '' ? colors.textSecondary : colors.textPrimary }">{{ tenantName }}</text>
-          <text class="comm-picker-arrow" :style="{ color: colors.textSecondary }">▾</text>
-        </view>
-        <view class="comm-picker" :style="{ borderColor: colors.border }" @click="openCommunitySheet">
-          <text class="comm-picker-text" :style="{ color: communityId == '' ? colors.textSecondary : colors.textPrimary }">{{ communityName }}</text>
-          <text class="comm-picker-arrow" :style="{ color: colors.textSecondary }">▾</text>
-        </view>
-        <view v-if="communityId != ''" class="comm-picker" :style="{ borderColor: colors.border }" @click="openBuildingSheet">
-          <text class="comm-picker-text" :style="{ color: buildingId == '' ? colors.textSecondary : colors.textPrimary }">{{ buildingName }}</text>
-          <text class="comm-picker-arrow" :style="{ color: colors.textSecondary }">▾</text>
-        </view>
+        <AppFilterField v-if="canTenantFilter" :text="tenantName" :selected="tenantId != ''" :colors="colors" @click="openTenantSheet" />
+        <AppFilterField :text="communityName" :selected="communityId != ''" :colors="colors" @click="openCommunitySheet" />
+        <AppFilterField v-if="communityId != ''" :text="buildingName" :selected="buildingId != ''" :colors="colors" @click="openBuildingSheet" />
         <view v-if="canCreate" class="btn-add" :style="{ backgroundColor: colors.primary }" @click="goCreate">
           <text class="btn-add-text" :style="{ color: colors.white }">+ 新增</text>
         </view>
@@ -30,65 +21,25 @@
         />
         <text class="search-btn" :style="{ color: colors.primary }" @click="reload">搜索</text>
       </view>
-      <!-- 类型筛选（字典 point_type 横向滑动） -->
-      <scroll-view scroll-x class="chip-scroll" :show-scrollbar="false">
-        <view class="chip-row">
-          <view
-            v-for="t in typeChips"
-            :key="t.value"
-            class="chip"
-            hover-class="hover-dim"
-            :style="{
-              backgroundColor: typeFilter == t.value ? colors.primary : colors.bgPage,
-              borderColor: typeFilter == t.value ? colors.primary : colors.border
-            }"
-            @click="pickType(t.value)"
-          >
-            <text class="chip-text" :style="{ color: typeFilter == t.value ? colors.white : colors.textRegular }">{{ t.label }}</text>
-          </view>
-        </view>
-      </scroll-view>
-      <!-- 凭证筛选 -->
-      <scroll-view scroll-x class="chip-scroll" :show-scrollbar="false">
-        <view class="chip-row">
-          <view
-            v-for="c in credChips"
-            :key="c.value"
-            class="chip"
-            hover-class="hover-dim"
-            :style="{
-              backgroundColor: credFilter == c.value ? colors.primary : colors.bgPage,
-              borderColor: credFilter == c.value ? colors.primary : colors.border
-            }"
-            @click="pickCred(c.value)"
-          >
-            <text class="chip-text" :style="{ color: credFilter == c.value ? colors.white : colors.textRegular }">{{ c.label }}</text>
-          </view>
-        </view>
-      </scroll-view>
+      <AppChipScroller :items="typeChips" :value="typeFilter" :colors="colors" @change="pickType" />
+      <AppChipScroller :items="credChips" :value="credFilter" :colors="colors" @change="pickCred" />
     </view>
 
-    <!-- 骨架屏 -->
-    <view v-if="loading && list.length == 0" class="skeleton">
-      <view class="sk-block" :style="{ backgroundColor: colors.border }"></view>
-      <view class="sk-block" :style="{ backgroundColor: colors.border }"></view>
-      <view class="sk-block sk-short" :style="{ backgroundColor: colors.border }"></view>
-    </view>
-
-    <!-- 空态 -->
-    <view v-else-if="loaded && list.length == 0" class="empty">
-      <text class="empty-title" :style="{ color: colors.textRegular }">暂无点位</text>
-      <text class="empty-sub" :style="{ color: colors.textSecondary }">{{ canCreate ? '点右上角「新增」现场建点' : '切换小区或关键词试试' }}</text>
-    </view>
-
-    <!-- 加载失败 -->
-    <view v-else-if="!loaded && list.length == 0" class="empty">
-      <text class="empty-title" :style="{ color: colors.textRegular }">{{ errorMsg }}</text>
-      <text class="empty-retry" :style="{ color: colors.primary }" @click="reload">重试</text>
-    </view>
+    <AppListShell
+      :loading="loading"
+      :loaded="loaded"
+      :empty="list.length == 0"
+      :error="errorMsg"
+      :show-skeleton="list.length == 0"
+      empty-title="暂无点位"
+      :empty-sub="canCreate ? '点右上角「新增」现场建点' : '切换小区或关键词试试'"
+      :colors="colors"
+      @retry="reload"
+    >
 
     <!-- 点位列表 -->
-    <view v-else class="content">
+    <template #default>
+    <view class="content">
       <view
         v-for="p in list"
         :key="p.id"
@@ -111,12 +62,12 @@
         </view>
       </view>
 
-      <!-- 加载更多状态 -->
-      <view class="loadmore">
-        <text v-if="loadingMore" class="loadmore-text" :style="{ color: colors.textSecondary }">加载中…</text>
-        <text v-else-if="noMore" class="loadmore-text" :style="{ color: colors.textSecondary }">没有更多了</text>
-      </view>
     </view>
+    </template>
+    <template #footer>
+      <AppListFooter :loading-more="loadingMore" :no-more="noMore" :visible="list.length > 0" :colors="colors" />
+    </template>
+    </AppListShell>
   </view>
 </template>
 
@@ -124,6 +75,10 @@
 import { Colors, ColorTokens } from '@/utils/theme'
 import { apiPointList, apiCommunityTree, apiDictOptions, PointItem, CommunityTreeNode, DictOption } from '@/services/api'
 import { useAuthStore } from '@/stores/auth'
+import AppListShell from '@/components/AppListShell.vue'
+import AppListFooter from '@/components/AppListFooter.vue'
+import AppChipScroller from '@/components/AppChipScroller.vue'
+import AppFilterField from '@/components/AppFilterField.vue'
 
 const PAGE_SIZE = 20
 
@@ -151,6 +106,7 @@ type ListData = {
   page: number
   total: number
   list: PointView[]
+  lastLoadedAt: number
 }
 
 function credentialTextOf(c: string): string {
@@ -183,6 +139,7 @@ function toPointView(p: PointItem): PointView {
 }
 
 export default {
+  components: { AppListShell, AppListFooter, AppChipScroller, AppFilterField },
   data(): ListData {
     return {
       colors: Colors,
@@ -200,7 +157,8 @@ export default {
       errorMsg: '',
       page: 1,
       total: 0,
-      list: [] as PointView[]
+      list: [] as PointView[],
+      lastLoadedAt: 0
     }
   },
   computed: {
@@ -271,7 +229,7 @@ export default {
   },
   onShow() {
     // 新增/编辑返回后刷新
-    if (this.loaded) this.reload()
+    if (this.loaded && Date.now() - this.lastLoadedAt > 20000) this.reload()
   },
   onPullDownRefresh() {
     this.reload()
@@ -366,6 +324,7 @@ export default {
           this.loading = false
           this.loadingMore = false
           this.loaded = true
+          this.lastLoadedAt = Date.now()
           uni.stopPullDownRefresh()
         })
         .catch((e: Error) => {
@@ -378,9 +337,11 @@ export default {
         })
     },
     goCreate() {
+      this.lastLoadedAt = 0
       uni.navigateTo({ url: '/pages/admin/point-form' })
     },
     goEdit(id: string) {
+      this.lastLoadedAt = 0
       uni.navigateTo({ url: '/pages/admin/point-form?id=' + encodeURIComponent(id) })
     }
   }
@@ -392,29 +353,6 @@ export default {
   flex: 1;
 }
 
-.chip-scroll {
-  margin-top: 16rpx;
-  white-space: nowrap;
-}
-
-.chip-row {
-  flex-direction: row;
-  display: inline-flex;
-}
-
-.chip {
-  border-width: 1rpx;
-  border-style: solid;
-  border-radius: 999rpx;
-  padding: 10rpx 26rpx;
-  margin-right: 16rpx;
-  flex-shrink: 0;
-}
-
-.chip-text {
-  font-size: 26rpx;
-}
-
 .filter-bar {
   padding: 16rpx 24rpx 24rpx;
   border-bottom-width: 1rpx;
@@ -424,32 +362,6 @@ export default {
 .filter-row {
   flex-direction: row;
   align-items: center;
-}
-
-.comm-picker {
-  flex: 1;
-  height: 72rpx;
-  flex-direction: row;
-  align-items: center;
-  justify-content: space-between;
-  border-width: 2rpx;
-  border-style: solid;
-  border-radius: 12rpx;
-  padding: 0 24rpx;
-}
-
-.tenant-picker {
-  margin-right: 16rpx;
-}
-
-.comm-picker-text {
-  font-size: 28rpx;
-  flex: 1;
-}
-
-.comm-picker-arrow {
-  font-size: 24rpx;
-  margin-left: 16rpx;
 }
 
 .btn-add {
@@ -571,12 +483,4 @@ export default {
   margin-right: 16rpx;
 }
 
-.loadmore {
-  align-items: center;
-  padding: 16rpx 0 32rpx;
-}
-
-.loadmore-text {
-  font-size: 24rpx;
-}
 </style>

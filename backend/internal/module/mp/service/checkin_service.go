@@ -185,6 +185,10 @@ func (s *CheckinService) doCheckinLocked(ctx context.Context, inspectorID string
 		return nil, nil, errs.ErrParam.WithMsg("client_time 格式应为 YYYY-MM-DD HH:mm:ss")
 	}
 	// ③ 打卡方式校验（码值 / 围栏距离）
+	// 坐标可选机制：点位未录坐标或手机定位失败（0,0）时距离无意义，
+	// 跳过距离类校验与疑似判定（凭证校验不受影响），distance_to_point 不落库
+	reqGeoOK := req.Longitude != 0 || req.Latitude != 0
+	pointGeoOK := point.Longitude != 0 || point.Latitude != 0
 	distance := geo.Haversine(req.Longitude, req.Latitude, point.Longitude, point.Latitude)
 	if be := s.checkMode(req, &point, distance); be != nil {
 		return nil, nil, be
@@ -201,7 +205,8 @@ func (s *CheckinService) doCheckinLocked(ctx context.Context, inspectorID string
 		return nil, nil, errs.ErrParam.WithMsg("异常打卡必须填写异常描述")
 	}
 	// ⑤ 疑似作弊判定（距离倍数 / EXIF 拍摄时间偏差，不阻断提交）
-	isSuspect, suspectReason := s.suspectCheck(&point, distance, uploadFiles)
+	geoOK := reqGeoOK && pointGeoOK
+	isSuspect, suspectReason := s.suspectCheck(&point, distance, geoOK, uploadFiles)
 	// 落库类型：离线补传统一记 offline
 	checkinType := req.CheckinType
 	if offline {
@@ -220,7 +225,7 @@ func (s *CheckinService) doCheckinLocked(ctx context.Context, inspectorID string
 		TenantID: task.TenantID, // 冗余列随任务快照（=所属小区租户）
 		TaskID:   req.TaskID, PointID: req.PointID, InspectorID: inspectorID,
 		CommunityID: task.CommunityID, CheckinTime: now, ClientTime: &clientTime,
-		Longitude: &req.Longitude, Latitude: &req.Latitude, DistanceToPoint: &distance,
+		Longitude: &req.Longitude, Latitude: &req.Latitude, DistanceToPoint: distancePtr(distance, geoOK),
 		Altitude: altitude, Accuracy: accuracy,
 		CheckinType: checkinType, Result: req.Result, Remark: req.Remark,
 		IsSuspect: isSuspect, SuspectReason: suspectReason,
@@ -570,10 +575,28 @@ func (s *CheckinService) checkMode(req *dto.CheckinReq, point *insmodel.Inspecti
 			return errs.ErrQRCodeMismatch.WithMsg("凭证校验失败：请扫描点位二维码或读取 NFC 标签")
 		}
 	}
-	if point.RequireFence && distance > float64(point.FenceRadius) {
+	if !point.RequireFence {
+		return nil
+	}
+	if point.Longitude == 0 && point.Latitude == 0 {
+		// 点位未录坐标：围栏补录前不生效，跳过（允许先开围栏后由 App 现场补录坐标）
+		return nil
+	}
+	if req.Longitude == 0 && req.Latitude == 0 {
+		return errs.ErrOutOfFence.WithMsg("未获取到手机定位，该点位要求围栏校验，请开启定位后重试")
+	}
+	if distance > float64(point.FenceRadius) {
 		return errs.ErrOutOfFence.WithMsg(fmt.Sprintf("距点位 %dm，超出围栏半径 %dm", int(distance), point.FenceRadius))
 	}
 	return nil
+}
+
+// distancePtr 距离落库：双方坐标任一缺失时距离无意义，存 NULL。
+func distancePtr(distance float64, geoOK bool) *float64 {
+	if !geoOK {
+		return nil
+	}
+	return &distance
 }
 
 // nfcMatch NFC 卡号按统一入库格式精确比对，空串不匹配。
@@ -670,9 +693,10 @@ func (s *CheckinService) resolveCheckItems(req *dto.CheckinReq, point *insmodel.
 // suspectCheck 两类疑似作弊判定（距离超倍数 / EXIF 拍摄时间偏差）。
 // 不含客户端时间偏差：手机时钟不准的误报多，且打卡时间以服务端为准、改客户端时间无伪造收益；
 // client_time 字段仅保留作离线补传的实际打卡时刻记录。
-func (s *CheckinService) suspectCheck(point *insmodel.InspectionPoint, distance float64, files map[string]sysmodel.UploadFile) (bool, string) {
+func (s *CheckinService) suspectCheck(point *insmodel.InspectionPoint, distance float64, geoOK bool, files map[string]sysmodel.UploadFile) (bool, string) {
 	ratio := s.cfgFloat("inspection.suspect_distance_ratio", 1.0)
-	if distance > float64(point.FenceRadius)*ratio {
+	// geoOK=false（点位未录坐标或手机定位失败）：距离无意义，跳过距离项，EXIF 项照常
+	if geoOK && distance > float64(point.FenceRadius)*ratio {
 		return true, fmt.Sprintf("距点位 %dm，超阈值 %dm", int(distance), int(float64(point.FenceRadius)*ratio))
 	}
 	exifLimit := s.cfgInt("inspection.exif_deviation_seconds", 300)
@@ -888,9 +912,13 @@ func (s *CheckinService) resultView(rec *insmodel.CheckinRecord, syncRes *ai.Rev
 	if task.TotalPoints > 0 {
 		progress = task.DonePoints * 100 / task.TotalPoints
 	}
+	var distView any // 坐标缺失时 distance_to_point 为 NULL，响应给 null 而非 0（0 是合法距离）
+	if rec.DistanceToPoint != nil {
+		distView = int(*rec.DistanceToPoint)
+	}
 	out := gin.H{
 		"checkin_id": rec.ID, "checkin_time": timefmt.T(rec.CheckinTime),
-		"distance_to_point": int(*rec.DistanceToPoint),
+		"distance_to_point": distView,
 		"is_suspect":        rec.IsSuspect, "suspect_reason": rec.SuspectReason,
 		// AI 审核是否启用：启用时 App 提交后延迟轮询 /checkins/:id/items 拿逐项结论；未启用跳过免白等
 		"ai_enabled": s.aiCli.Enabled(),

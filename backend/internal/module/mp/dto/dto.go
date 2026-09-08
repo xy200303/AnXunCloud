@@ -37,8 +37,10 @@ type CheckinReq struct {
 	CheckinType string  `json:"checkin_type" binding:"required,oneof=qrcode fence nfc"`
 	QRCodeNo    string  `json:"qrcode_no"`
 	NFCID       string  `json:"nfc_id"`
-	Longitude   float64 `json:"longitude" binding:"required"`
-	Latitude    float64 `json:"latitude" binding:"required"`
+	// Longitude/Latitude 手机定位（0,0=定位失败/未授权）：坐标降级为可选机制，
+	// 仅围栏点位（require_fence）强制要求有效定位，校验在 checkMode 内按点位配置判定
+	Longitude float64 `json:"longitude"`
+	Latitude  float64 `json:"latitude"`
 	// Altitude/Accuracy 定位辅助信息（米，可空，仅参考展示不参与校验）；<=0 视为未提供
 	Altitude   float64 `json:"altitude"`
 	Accuracy   float64 `json:"accuracy"`

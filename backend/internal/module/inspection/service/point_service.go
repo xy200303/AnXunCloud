@@ -434,6 +434,8 @@ func (s *PointService) validate(req *dto.PointSaveReq) *errs.Error {
 	if req.FenceRadius != 0 && (req.FenceRadius < 10 || req.FenceRadius > 2000) {
 		return errs.ErrParam.WithMsg("fence_radius 须在 10–2000 米之间")
 	}
+	// 坐标可选（0,0=未录）：开围栏也允许暂不录坐标，后续由 App 现场补录；
+	// 补录前围栏不生效（checkMode 对无坐标点位跳过围栏校验），凭证校验不受影响
 	if req.Longitude < -180 || req.Longitude > 180 || req.Latitude < -90 || req.Latitude > 90 {
 		return errs.ErrParam.WithMsg("经纬度取值非法")
 	}
@@ -897,14 +899,10 @@ func (s *PointService) Import(c *gin.Context, r io.Reader) (*dto.PointImportResu
 			fail("打卡方式含 NFC 时 NFC卡号 必填")
 			continue
 		}
-		// 7. 经纬度与围栏半径：含围栏时经纬度必填；无围栏可留空记 0,0（现场用手机「获取当前位置」刷新补齐）
+		// 7. 经纬度与围栏半径：均可留空记 0,0（含围栏也允许，坐标补录前围栏不生效，
+		// 后续 App 现场补录后自动生效）；只填一个则视为错误
 		lon, lat := 0.0, 0.0
-		if lonText == "" && latText == "" {
-			if requireFence {
-				fail("打卡方式含围栏时 经度/纬度 必填")
-				continue
-			}
-		} else {
+		if lonText != "" || latText != "" {
 			if lonText == "" || latText == "" {
 				fail("经度/纬度须同时填写或同时留空")
 				continue

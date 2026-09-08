@@ -326,7 +326,8 @@ export default {
           this.myLat = loc.latitude
           this.myAlt = loc.altitude
           this.myAcc = loc.accuracy
-          if (this.point != null) {
+          // 点位未录坐标（0,0）时距离无意义，不计算（distText 随之不显示）
+          if (this.point != null && (this.point.longitude != 0 || this.point.latitude != 0)) {
             this.distance = Math.round(
               haversine(loc.longitude, loc.latitude, this.point.longitude, this.point.latitude)
             )

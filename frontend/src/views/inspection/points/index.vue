@@ -159,8 +159,8 @@
           </el-col>
         </el-row>
 
-        <!-- 坐标：腾讯地图 key 已配置时支持地图选点，未配置时仅手动输入 -->
-        <el-form-item label="坐标">
+        <!-- 坐标（选填）：腾讯地图 key 已配置时支持地图选点，未配置时仅手动输入；开围栏校验时必填 -->
+        <el-form-item label="坐标（选填）">
           <div class="coord-row">
             <el-input-number v-model="form.longitude" :precision="6" :step="0.0001" :min="70" :max="140" placeholder="经度" controls-position="right" />
             <el-input-number v-model="form.latitude" :precision="6" :step="0.0001" :min="3" :max="54" placeholder="纬度" controls-position="right" />
@@ -168,7 +168,7 @@
               <el-button :icon="MapLocation" :disabled="!mapKey" @click="mapPickerVisible = true">地图选点</el-button>
             </el-tooltip>
           </div>
-          <div class="text-secondary">{{ mapKey ? 'GCJ-02 坐标系；可点击「地图选点」在地图上拾取坐标' : 'GCJ-02 坐标系；地图选点需先在「系统管理-参数配置」填写 map.tencent_key' }}</div>
+          <div class="text-secondary">选填，留空表示暂未录坐标（可日后由 App 现场补录）；开启围栏但未录坐标时，围栏在补录前不生效。{{ mapKey ? 'GCJ-02 坐标系，可点击「地图选点」拾取' : '地图选点需先配置 map.tencent_key' }}</div>
         </el-form-item>
 
         <el-form-item label="围栏校验">
@@ -178,7 +178,7 @@
             inactive-text="不校验"
             @change="formRef?.validateField('credential')"
           />
-          <span class="text-secondary fence-hint">开启后打卡时 GPS 距点位超过半径将被拒绝</span>
+          <span class="text-secondary fence-hint">开启后打卡时 GPS 距点位超过半径将被拒绝（点位未录坐标时暂不生效）</span>
         </el-form-item>
 
         <el-form-item label="围栏半径">
@@ -620,9 +620,16 @@ function openForm(row?: PointItem) {
 
 async function handleSubmit() {
   await formRef.value?.validate()
-  if (form.longitude == null || form.latitude == null) {
-    ElMessage.warning('请填写点位坐标（经度/纬度）')
-    return
+  const noCoord = form.longitude == null || form.latitude == null
+  // 围栏开但未录坐标：围栏补录前不生效（允许保存，后续 App 现场补录坐标后自动生效）
+  const fenceEffective = form.require_fence && !noCoord
+  if (form.credential === 'none' && !fenceEffective) {
+    // 零到场校验组合：免凭证 + 围栏不生效（未开或未录坐标），提示但不禁止（开放式巡更场景合法）
+    try {
+      await ElMessageBox.confirm('该点位免打卡凭证且围栏不生效，打卡将没有任何到场校验（仅照片留证）。确认保存？', '无到场校验提醒', {
+        type: 'warning', confirmButtonText: '仍要保存', cancelButtonText: '返回修改'
+      })
+    } catch { return }
   }
   const payload = {
     community_id: form.communityBuilding[0],
@@ -631,8 +638,8 @@ async function handleSubmit() {
     floor: form.communityBuilding[1] ? form.floor : null,
     name: form.name,
     type: form.type,
-    longitude: form.longitude,
-    latitude: form.latitude,
+    longitude: form.longitude ?? 0,
+    latitude: form.latitude ?? 0,
     fence_radius: form.fence_radius,
     credential: form.credential,
     require_fence: form.require_fence,

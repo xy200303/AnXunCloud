@@ -97,7 +97,7 @@
             定位精度约 {{ accuracy }} m{{ accuracy > 50 ? '，定位精度较差，请靠近点位重试' : '' }}
           </text>
         </view>
-        <text v-else class="loc-empty" :style="{ color: colors.textSecondary }">尚未录入坐标（必填），可定位或手动输入</text>
+        <text v-else class="loc-empty" :style="{ color: colors.textSecondary }">尚未录入坐标（选填），可定位或手动输入；开启围栏时补录坐标后方生效</text>
 
         <view v-if="!readonly" class="loc-manual">
           <input
@@ -150,7 +150,7 @@
             <text class="cred-text" :style="{ color: credential == c.value ? colors.primary : colors.textRegular }">{{ c.label }}</text>
           </view>
         </view>
-        <text v-if="credential == 'none'" class="cred-tip" :style="{ color: colors.textSecondary }">免凭证时将启用电子围栏校验</text>
+        <text v-if="credential == 'none'" class="cred-tip" :style="{ color: colors.textSecondary }">免凭证时将启用电子围栏校验（未录坐标时暂不生效）</text>
 
         <!-- NFC 区（凭证含 NFC 时显示） -->
         <template v-if="credential == 'nfc' || credential == 'any'">
@@ -531,15 +531,22 @@ export default {
         uni.showToast({ title: '请选择点位类型', icon: 'none' })
         return null
       }
-      const lng = parseFloat(this.lngText)
-      const lat = parseFloat(this.latText)
-      if (isNaN(lng) || isNaN(lat) || lng == 0 || lat == 0) {
-        uni.showToast({ title: '请录入点位坐标', icon: 'none' })
+      // 坐标选填（0,0=未录，后续可补录）：须同时填写或同时留空
+      const lngEmpty = this.lngText.trim() == ''
+      const latEmpty = this.latText.trim() == ''
+      if (lngEmpty != latEmpty) {
+        uni.showToast({ title: '经纬度须同时填写或同时留空', icon: 'none' })
         return null
       }
-      if (lng < -180 || lng > 180 || lat < -90 || lat > 90) {
-        uni.showToast({ title: '经纬度取值非法', icon: 'none' })
-        return null
+      let lng = 0
+      let lat = 0
+      if (!lngEmpty) {
+        lng = parseFloat(this.lngText)
+        lat = parseFloat(this.latText)
+        if (isNaN(lng) || isNaN(lat) || lng < -180 || lng > 180 || lat < -90 || lat > 90) {
+          uni.showToast({ title: '经纬度格式或取值非法', icon: 'none' })
+          return null
+        }
       }
       if (this.credential == 'nfc' && this.nfcId.trim() == '') {
         uni.showToast({ title: '凭证方式为 NFC 时须填写 NFC 卡号', icon: 'none' })
@@ -554,7 +561,7 @@ export default {
         latitude: lat,
         fence_radius: this.fenceRadius,
         credential: this.credential,
-        // 免凭证时后端要求至少启用围栏校验（credential=none && !require_fence 会被拒）
+        // 免凭证点位默认开围栏作为到场校验（未录坐标时围栏暂不生效，补录后自动生效）
         require_fence: this.credential == 'none',
         template_id: this.templateId == '' ? null : this.templateId,
         nfc_id: this.nfcId.trim(),

@@ -54,8 +54,8 @@ type PointSaveReq struct {
 	Floor              *int     `json:"floor"`       // 楼层（负数=地下层；nil=非楼栋点位）
 	Name               string   `json:"name" binding:"required"`
 	Type               string   `json:"type" binding:"required"`
-	Longitude          float64  `json:"longitude" binding:"required"`
-	Latitude           float64  `json:"latitude" binding:"required"`
+	Longitude          float64  `json:"longitude"` // 坐标可选（0,0=未录）；开围栏校验时必填，规则在 service validate
+	Latitude           float64  `json:"latitude"`
 	FenceRadius        int      `json:"fence_radius"`
 	Credential         string   `json:"credential"`
 	RequireFence       bool     `json:"require_fence"`

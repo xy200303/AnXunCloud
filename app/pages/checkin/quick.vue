@@ -414,6 +414,7 @@ export default {
     fenceOk(): boolean {
       const pt = this.curPoint
       if (pt == null || !pt.require_fence) return true
+      if (pt.longitude == 0 && pt.latitude == 0) return true // 点位未录坐标：后端跳过围栏校验，前端一致放行
       return this.distance >= 0 && this.distance <= pt.fence_radius
     },
     retakeItems(): WizardItemSnap[] {
@@ -744,7 +745,8 @@ export default {
           this.myLat = loc.latitude
           this.myAlt = loc.altitude
           this.myAcc = loc.accuracy
-          if (this.curPoint != null) {
+          // 点位未录坐标（0,0）时距离无意义，不计算
+          if (this.curPoint != null && (this.curPoint.longitude != 0 || this.curPoint.latitude != 0)) {
             this.distance = Math.round(
               haversine(loc.longitude, loc.latitude, this.curPoint.longitude, this.curPoint.latitude)
             )

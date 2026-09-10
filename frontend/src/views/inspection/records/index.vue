@@ -107,11 +107,12 @@
         :data="list"
         stripe
         style="width: 100%"
+        row-key="id"
         :row-class-name="activeTab === 'pending' ? '' : 'clickable-row'"
         @row-click="handleRowClick"
         @selection-change="(rows: CheckinItem[]) => (selectedRows = rows)"
       >
-        <el-table-column v-if="activeTab === 'pending'" type="selection" width="44" />
+        <el-table-column v-if="activeTab === 'pending'" type="selection" width="44" reserve-selection />
         <el-table-column prop="checkin_time" label="打卡时间" width="160" />
         <el-table-column prop="inspector_name" label="巡检员" width="100" />
         <el-table-column prop="community_name" label="小区" min-width="120" />

@@ -410,7 +410,39 @@ func (s *EquipmentService) Export(c *gin.Context, q *dto.ListQuery) (*excelize.F
 	if err := s.filtered(c, q).Order("code ASC").Limit(equipmentExportMaxRows).Find(&rows).Error; err != nil {
 		return nil, errs.ErrInternal
 	}
-	items := s.toItems(rows)
+	return s.buildExcel(s.toItems(rows))
+}
+
+// ExportByIds 勾选导出（上限 2000 台；逐小区数据权限校验，越权直接拒绝）。
+func (s *EquipmentService) ExportByIds(c *gin.Context, ids []string) (*excelize.File, *errs.Error) {
+	if len(ids) == 0 {
+		return nil, errs.ErrParam.WithMsg("ids 必填")
+	}
+	if len(ids) > 2000 {
+		return nil, errs.ErrParam.WithMsg("单次最多导出 2000 台")
+	}
+	var rows []model.Equipment
+	if err := s.db.Where("id IN ?", ids).Order("code ASC").Find(&rows).Error; err != nil {
+		return nil, errs.ErrInternal
+	}
+	if len(rows) == 0 {
+		return nil, errs.ErrNotFound
+	}
+	checked := map[string]bool{}
+	for i := range rows {
+		if checked[rows[i].CommunityID] {
+			continue
+		}
+		if be := middleware.CheckCommunity(s.db, c, rows[i].CommunityID); be != nil {
+			return nil, be
+		}
+		checked[rows[i].CommunityID] = true
+	}
+	return s.buildExcel(s.toItems(rows))
+}
+
+// buildExcel 台账导出 xlsx 组装（Export/ExportByIds 共用）。
+func (s *EquipmentService) buildExcel(items []gin.H) (*excelize.File, *errs.Error) {
 	f := excelize.NewFile()
 	sheet := "Sheet1"
 	headers := []string{"序号", "设备编号", "设备名称", "设备类型", "小区", "楼栋", "点位",

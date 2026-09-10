@@ -53,14 +53,25 @@
           <div class="table-toolbar-left">
             <el-button v-perms="'equipment:create'" type="primary" :icon="Plus" @click="openForm()">新增设备</el-button>
             <el-button v-perms="'equipment:import'" :icon="Upload" @click="openImport">批量导入</el-button>
-            <el-button v-perms="'equipment:export'" :icon="Download" @click="handleExport">导出</el-button>
+            <el-button v-perms="'equipment:export'" :icon="Download" :disabled="selectedRows.length === 0" @click="handleExportSelected">
+              导出选中{{ selectedRows.length > 0 ? `（${selectedRows.length}）` : '' }}
+            </el-button>
+            <el-button v-perms="'equipment:export'" :icon="Download" @click="handleExport">导出全部</el-button>
+            <el-button v-perms="'equipment:delete'" type="danger" plain :icon="Delete" :disabled="selectedCount === 0" @click="handleBatchDelete">
+              批量删除{{ selectedCount > 0 ? `（${selectedCount}）` : '' }}
+            </el-button>
+            <el-button v-if="!selectAllFiltered" link type="primary" :disabled="total === 0" @click="selectAllFiltered = true">
+              全选筛选结果（{{ total }} 条）
+            </el-button>
+            <el-tag v-else type="warning" closable @close="cancelSelectAll">已全选 {{ total }} 条（跨页）</el-tag>
           </div>
           <el-tooltip content="刷新" placement="top">
             <el-button :icon="RefreshRight" circle @click="fetchList" />
           </el-tooltip>
         </div>
 
-        <el-table v-loading="loading" :data="list" stripe style="width: 100%">
+        <el-table ref="tableRef" v-loading="loading" :data="list" stripe style="width: 100%" row-key="id" @selection-change="handleSelectionChange">
+          <el-table-column type="selection" width="45" reserve-selection />
           <el-table-column label="状态灯" width="70" align="center">
             <template #default="{ row }">
               <el-tooltip :content="dueStateLabel(row.due_state)" placement="top">
@@ -438,7 +449,7 @@ import {
 } from 'element-plus'
 import { Search, Refresh, Plus, RefreshRight, Upload, Download, UploadFilled, Delete } from '@element-plus/icons-vue'
 import {
-  listEquipment, createEquipment, updateEquipment, deleteEquipment,
+  listEquipment, createEquipment, updateEquipment, deleteEquipment, batchDeleteEquipment,
   registerMaintenance, listMaintenancePending, listMaintenanceHistory,
   importEquipment,
   type EquipmentItem, type EquipmentQuery, type EquipmentStatus, type DueState,
@@ -448,7 +459,7 @@ import { uploadImage, withFileToken } from '@/api/upload'
 import { listCommunities, listCommunityTree } from '@/api/community'
 import { listPoints } from '@/api/point'
 import { listDictOptions, type DictOption } from '@/api/dict'
-import { downloadFile } from '@/utils/download'
+import { downloadFile, downloadFilePost } from '@/utils/download'
 import type { CommunityItem } from '@/api/biz-types'
 import ConfirmList from './ConfirmList.vue'
 
@@ -496,6 +507,7 @@ async function fetchList() {
 
 function handleSearch() {
   query.page = 1
+  selectAllFiltered.value = false // 筛选条件变化后跨页全选失效（目标集已变）
   fetchList()
 }
 
@@ -700,6 +712,54 @@ async function handleDelete(row: EquipmentItem) {
   await deleteEquipment(row.id)
   ElMessage.success('已删除')
   fetchList()
+}
+
+// ===== 批量删除 / 勾选导出（跨页选择：reserve-selection 保持勾选，全选走筛选条件模式） =====
+const tableRef = ref()
+const selectedRows = ref<EquipmentItem[]>([])
+const selectAllFiltered = ref(false)
+const selectedCount = computed(() => (selectAllFiltered.value ? total.value : selectedRows.value.length))
+
+function handleSelectionChange(rows: EquipmentItem[]) {
+  selectedRows.value = rows
+}
+
+function cancelSelectAll() {
+  selectAllFiltered.value = false
+  selectedRows.value = []
+  tableRef.value?.clearSelection()
+}
+
+async function handleBatchDelete() {
+  const n = selectedCount.value
+  if (n === 0) return
+  const scopeText = selectAllFiltered.value ? `当前筛选结果的全部 ${n} 台设备` : `选中的 ${n} 台设备`
+  const ok = await ElMessageBox.confirm(
+    `删除后维保历史保留但设备不可再用，确定删除${scopeText}吗？`,
+    '批量删除确认',
+    { confirmButtonText: '删除', cancelButtonText: '取消', type: 'error' }
+  ).then(() => true).catch(() => false)
+  if (!ok) return
+  const res = await batchDeleteEquipment(
+    selectAllFiltered.value
+      ? {
+          all: true,
+          type: query.type || undefined,
+          community_id: query.community_id || undefined,
+          status: query.status || undefined,
+          due_state: query.due_state || undefined,
+          keyword: query.keyword || undefined
+        }
+      : { ids: selectedRows.value.map((r) => r.id) }
+  )
+  ElMessage.success(`已删除 ${res.deleted} 台设备`)
+  cancelSelectAll()
+  fetchList()
+}
+
+function handleExportSelected() {
+  if (selectedRows.value.length === 0) return
+  downloadFilePost('/equipment/export', { ids: selectedRows.value.map((r) => r.id) }, '设备台账_选中.xlsx')
 }
 
 // ===== 维保登记 =====

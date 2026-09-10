@@ -103,6 +103,39 @@ func (ctl *EquipmentController) Delete(c *gin.Context) {
 	write(c, nil, ctl.equipment.Delete(c, id))
 }
 
+// BatchDelete POST /equipment/batch-delete
+func (ctl *EquipmentController) BatchDelete(c *gin.Context) {
+	var req dto.BatchDeleteReq
+	if be := bind.JSON(c, &req); be != nil {
+		response.Fail(c, be)
+		return
+	}
+	n, be := ctl.equipment.BatchDelete(c, &req)
+	write(c, gin.H{"deleted": n}, be)
+}
+
+// ExportSelected POST /equipment/export（勾选 id 集合导出，xlsx 附件）
+func (ctl *EquipmentController) ExportSelected(c *gin.Context) {
+	var req dto.ExportIdsReq
+	if be := bind.JSON(c, &req); be != nil {
+		response.Fail(c, be)
+		return
+	}
+	f, be := ctl.equipment.ExportByIds(c, req.IDs)
+	if be != nil {
+		response.Fail(c, be)
+		return
+	}
+	defer f.Close()
+	var buf bytes.Buffer
+	if err := f.Write(&buf); err != nil {
+		response.Fail(c, errs.ErrInternal)
+		return
+	}
+	stamp := time.Now().Format("20060102_150405")
+	writeExcel(c, fmt.Sprintf("equipment_selected_%s.xlsx", stamp), fmt.Sprintf("设备台账_选中_%s.xlsx", stamp), buf.Bytes())
+}
+
 // writeExcel 输出 Excel 文件流（中文文件名：ASCII 兜底 + RFC 5987 filename*）。
 func writeExcel(c *gin.Context, asciiName, chineseName string, data []byte) {
 	c.Header("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")

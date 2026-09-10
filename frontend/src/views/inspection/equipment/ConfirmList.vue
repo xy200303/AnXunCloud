@@ -23,10 +23,11 @@
       :data="list"
       stripe
       style="width: 100%"
+      row-key="id"
       :row-class-name="rowClass"
       @selection-change="(rows: MaintenanceItem[]) => (selected = rows)"
     >
-      <el-table-column type="selection" width="44" />
+      <el-table-column type="selection" width="44" reserve-selection />
       <el-table-column type="expand">
         <template #default="{ row }">
           <div class="expand-body">

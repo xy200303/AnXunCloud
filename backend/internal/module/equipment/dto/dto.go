@@ -33,6 +33,24 @@ type SaveReq struct {
 	Remark          string         `json:"remark"`
 }
 
+// BatchDeleteReq 批量删除（软删除，维保流水保留）：
+// ids 逐台删（勾选模式，上限 500）；all=true 按筛选条件删全部（跨页全选，上限 2000，租户隔离由筛选查询自带）。
+type BatchDeleteReq struct {
+	IDs         []string `json:"ids"`
+	All         bool     `json:"all"`
+	Type        string   `json:"type"`
+	CommunityID string   `json:"community_id"`
+	PointID     string   `json:"point_id"`
+	Status      string   `json:"status"`
+	DueState    string   `json:"due_state"`
+	Keyword     string   `json:"keyword"`
+}
+
+// ExportIdsReq 按 id 集合导出（勾选导出）。
+type ExportIdsReq struct {
+	IDs []string `json:"ids" binding:"required"`
+}
+
 // ========== 维保登记 ==========
 
 // MaintenanceRegisterReq 维保登记（一键+一拍；台账补录 ledger_fix 可同时提交补录日期，确认时一并回写）。

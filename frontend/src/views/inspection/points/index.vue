@@ -57,8 +57,8 @@
             </el-tooltip>
           </div>
 
-          <el-table v-loading="loading" :data="list" stripe style="width: 100%" @selection-change="(rows: PointItem[]) => (selected = rows)">
-            <el-table-column type="selection" width="44" />
+          <el-table v-loading="loading" :data="list" stripe style="width: 100%" row-key="id" @selection-change="(rows: PointItem[]) => (selected = rows)">
+            <el-table-column type="selection" width="44" reserve-selection />
             <el-table-column prop="name" label="点位名称" min-width="130" show-overflow-tooltip />
             <el-table-column prop="building_name" label="楼栋/区域" min-width="120" show-overflow-tooltip />
             <el-table-column prop="type_label" label="类型" width="100">

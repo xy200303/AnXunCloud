@@ -486,6 +486,60 @@ func (s *EquipmentService) Delete(c *gin.Context, id string) *errs.Error {
 	return nil
 }
 
+// BatchDelete 批量软删除。ids 模式逐台校验小区数据权限；all 模式按筛选条件（filtered 自带租户隔离），上限 2000。
+// 不存在的 id 忽略，返回实际删除数。
+func (s *EquipmentService) BatchDelete(c *gin.Context, req *dto.BatchDeleteReq) (int, *errs.Error) {
+	if req.All {
+		q := &dto.ListQuery{
+			Type: req.Type, CommunityID: req.CommunityID, PointID: req.PointID,
+			Status: req.Status, DueState: req.DueState, Keyword: req.Keyword,
+		}
+		var ids []string
+		if err := s.filtered(c, q).Limit(2001).Pluck("id", &ids).Error; err != nil {
+			return 0, errs.ErrInternal
+		}
+		if len(ids) == 0 {
+			return 0, errs.ErrNotFound
+		}
+		if len(ids) > 2000 {
+			return 0, errs.ErrParam.WithMsg("筛选结果超过 2000 台，请缩小范围后分批删除")
+		}
+		if err := s.db.Where("id IN ?", ids).Delete(&model.Equipment{}).Error; err != nil {
+			return 0, errs.ErrInternal
+		}
+		return len(ids), nil
+	}
+	ids := req.IDs
+	if len(ids) == 0 {
+		return 0, errs.ErrParam.WithMsg("ids 必填")
+	}
+	if len(ids) > 500 {
+		return 0, errs.ErrParam.WithMsg("单次最多删除 500 台")
+	}
+	var rows []model.Equipment
+	if err := s.db.Where("id IN ?", ids).Find(&rows).Error; err != nil {
+		return 0, errs.ErrInternal
+	}
+	if len(rows) == 0 {
+		return 0, errs.ErrNotFound
+	}
+	checked := map[string]bool{}
+	found := make([]string, 0, len(rows))
+	for i := range rows {
+		if !checked[rows[i].CommunityID] {
+			if be := middleware.CheckCommunity(s.db, c, rows[i].CommunityID); be != nil {
+				return 0, be
+			}
+			checked[rows[i].CommunityID] = true
+		}
+		found = append(found, rows[i].ID)
+	}
+	if err := s.db.Where("id IN ?", found).Delete(&model.Equipment{}).Error; err != nil {
+		return 0, errs.ErrInternal
+	}
+	return len(found), nil
+}
+
 // validate 设备参数校验（excludeID 为修改时排除自身的编号查重）。
 func (s *EquipmentService) validate(req *dto.SaveReq, excludeID string) (string, *errs.Error) {
 	tenantID := middleware.CommunityTenantID(s.db, req.CommunityID)

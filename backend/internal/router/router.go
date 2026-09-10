@@ -269,6 +269,7 @@ func New(cfg *config.Config, db *gorm.DB, rdb *redis.Client) (*gin.Engine, *insp
 			equipment.GET("/import-template", middleware.RequirePerm("equipment:import"), equipmentCtl.ImportTemplate)
 			equipment.POST("/import", middleware.RequirePerm("equipment:import"), middleware.OperLog(db, "equipment", "import"), equipmentCtl.Import)
 			equipment.GET("/export", middleware.RequirePerm("equipment:export"), equipmentCtl.Export)
+			equipment.POST("/export", middleware.RequirePerm("equipment:export"), equipmentCtl.ExportSelected)
 			equipment.GET("/maintenance-pending", middleware.RequirePerm("equipment:confirm"), maintCtl.PendingList)
 			equipment.POST("/maintenance", middleware.RequirePerm("equipment:maintenance"), middleware.OperLog(db, "equipment", "maintenance"), maintCtl.Register)
 			equipment.POST("/maintenance/confirm", middleware.RequirePerm("equipment:confirm"), middleware.OperLog(db, "equipment", "confirm"), maintCtl.Confirm)
@@ -276,6 +277,7 @@ func New(cfg *config.Config, db *gorm.DB, rdb *redis.Client) (*gin.Engine, *insp
 			equipment.GET("/:id", middleware.RequirePerm("equipment:list"), equipmentCtl.Detail)
 			equipment.GET("/:id/maintenances", middleware.RequirePerm("equipment:list"), maintCtl.History)
 			equipment.POST("", middleware.RequirePerm("equipment:create"), middleware.OperLog(db, "equipment", "create"), equipmentCtl.Create)
+			equipment.POST("/batch-delete", middleware.RequirePerm("equipment:delete"), middleware.OperLog(db, "equipment", "batch_delete"), equipmentCtl.BatchDelete)
 			equipment.PUT("/:id", middleware.RequirePerm("equipment:update"), middleware.OperLog(db, "equipment", "update"), equipmentCtl.Update)
 			equipment.DELETE("/:id", middleware.RequirePerm("equipment:delete"), middleware.OperLog(db, "equipment", "delete"), equipmentCtl.Delete)
 		}

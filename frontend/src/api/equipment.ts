@@ -102,6 +102,21 @@ export function deleteEquipment(id: string) {
   return request<null>({ url: `/equipment/${id}`, method: 'delete' })
 }
 
+// 批量删除（软删除，维保流水保留；返回实际删除数）：
+// 勾选模式传 ids；跨页全选模式传 all + 当前筛选条件
+export function batchDeleteEquipment(data: {
+  ids?: string[]
+  all?: boolean
+  type?: string
+  community_id?: string
+  point_id?: string
+  status?: string
+  due_state?: string
+  keyword?: string
+}) {
+  return request<{ deleted: number }>({ url: '/equipment/batch-delete', method: 'post', data })
+}
+
 // ===== 维保登记 / 确认链 =====
 
 export interface MaintenancePhoto {

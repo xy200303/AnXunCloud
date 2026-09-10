@@ -99,6 +99,7 @@
           </el-table-column>
           <el-table-column label="操作" width="240" fixed="right">
             <template #default="{ row }">
+              <el-button v-perms="'equipment:list'" link type="primary" @click="openDetail(row)">详情</el-button>
               <el-button v-perms="'equipment:maintenance'" link type="primary" @click="openRegister(row)">维保登记</el-button>
               <el-button v-perms="'equipment:list'" link type="primary" @click="openHistory(row)">维保历史</el-button>
               <el-button v-perms="'equipment:update'" link type="primary" @click="openForm(row)">编辑</el-button>
@@ -260,6 +261,33 @@
       </template>
     </el-dialog>
 
+    <!-- 设备详情抽屉：基础字段 + extra 档案信息（空值不显示） -->
+    <el-drawer v-model="detailVisible" :title="detailRow ? `设备详情：${detailRow.name}（${detailRow.code}）` : '设备详情'" size="480px">
+      <template v-if="detailRow">
+        <el-descriptions :column="1" border size="small">
+          <el-descriptions-item label="设备编号">{{ detailRow.code }}</el-descriptions-item>
+          <el-descriptions-item label="设备名称">{{ detailRow.name }}</el-descriptions-item>
+          <el-descriptions-item label="设备类型">{{ detailRow.type_label || detailRow.type }}</el-descriptions-item>
+          <el-descriptions-item label="位置">{{ locationText(detailRow) }}</el-descriptions-item>
+          <el-descriptions-item label="出厂日期">{{ detailRow.manufacture_date || '--' }}</el-descriptions-item>
+          <el-descriptions-item label="最近维保">{{ detailRow.last_maintenance_date || '--' }}</el-descriptions-item>
+          <el-descriptions-item label="下次到期">{{ detailRow.next_due_date || '--' }}</el-descriptions-item>
+          <el-descriptions-item label="报废日期">{{ detailRow.scrap_date || '--' }}</el-descriptions-item>
+          <el-descriptions-item label="状态">
+            <el-tag :type="statusTagType(detailRow.status)" size="small">{{ detailRow.status_label || detailRow.status }}</el-tag>
+            <el-tag v-if="detailRow.label_missing" type="info" size="small" style="margin-left: 8px">标签缺失</el-tag>
+          </el-descriptions-item>
+          <el-descriptions-item v-if="detailRow.remark" label="备注">{{ detailRow.remark }}</el-descriptions-item>
+        </el-descriptions>
+        <template v-if="detailExtras.length">
+          <div class="archive-title">档案信息</div>
+          <el-descriptions :column="1" border size="small">
+            <el-descriptions-item v-for="e in detailExtras" :key="e.key" :label="e.label">{{ e.value }}</el-descriptions-item>
+          </el-descriptions>
+        </template>
+      </template>
+    </el-drawer>
+
     <!-- 维保历史抽屉 -->
     <el-drawer v-model="historyVisible" :title="`维保历史${historyTarget ? `：${historyTarget.name}（${historyTarget.code}）` : ''}`" size="520px">
       <el-timeline v-loading="historyLoading" class="history-timeline">
@@ -365,7 +393,7 @@
       <div v-show="importStep === 2" class="import-pane">
         <el-alert
           v-if="importResult"
-          :title="`导入完成：新增 ${importResult.created_count} 条，更新 ${importResult.updated_count} 条，失败 ${importResult.fail_count} 条`"
+          :title="`导入完成：新增 ${importResult.created_count} 条，更新 ${importResult.updated_count} 条，失败 ${importResult.fail_count} 条，自动绑定点位 ${importResult.auto_bound} 条`"
           :type="importResult.fail_count > 0 ? 'warning' : 'success'"
           :closable="false"
           show-icon
@@ -402,7 +430,7 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
 import { useRoute } from 'vue-router'
 import {
   ElMessage, ElMessageBox,
@@ -757,6 +785,37 @@ async function handleRegister() {
   }
 }
 
+// ===== 设备详情抽屉（extra 档案信息键值中文对照，空值不显示） =====
+const detailVisible = ref(false)
+const detailRow = ref<EquipmentItem | null>(null)
+
+// extra 键 → 中文标签（与导入映射一致）
+const extraLabels: [string, string][] = [
+  ['project_name', '项目名称'], ['room', '机房名称'], ['level', '设备等级'], ['dept', '责任部门'],
+  ['system', '所属设备系统'], ['brand', '品牌'], ['spec', '规格型号'], ['original_value', '设备原值'],
+  ['quantity', '数量'], ['put_into_service', '投运日期'], ['maint_status', '维保状态'], ['run_status', '运行状态'],
+  ['origin', '产地'], ['manufacturer_contact', '厂家联系人'], ['installer_contact', '安装单位联系人电话'],
+  ['vendor', '维保单位'], ['vendor_contact', '维保单位联系人电话'], ['other_info', '其他信息']
+]
+
+const detailExtras = computed(() => {
+  const extra = detailRow.value?.extra
+  if (!extra) return [] as { key: string; label: string; value: string }[]
+  const out: { key: string; label: string; value: string }[] = []
+  for (const [key, label] of extraLabels) {
+    const v = extra[key]
+    if (v != null && String(v).trim() !== '') {
+      out.push({ key, label, value: String(v) })
+    }
+  }
+  return out
+})
+
+function openDetail(row: EquipmentItem) {
+  detailRow.value = row
+  detailVisible.value = true
+}
+
 // ===== 维保历史抽屉 =====
 const historyVisible = ref(false)
 const historyLoading = ref(false)
@@ -973,6 +1032,12 @@ onMounted(() => {
   width: 64px;
   height: 64px;
   border-radius: $radius-small;
+}
+
+.archive-title {
+  font-weight: 600;
+  margin: $spacing-lg 0 $spacing-md;
+  color: $color-text-primary;
 }
 
 .history-timeline {

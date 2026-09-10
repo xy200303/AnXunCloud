@@ -138,15 +138,28 @@ func (j DeviceJudge) View() map[string]any {
 	}
 }
 
-// LoadPointEquipment 批量按点位加载在用关联设备（point_id IN，软删自动排除；任务详情组装消除 N+1）。
+// LoadPointEquipment 批量按点位加载参与打卡判定的关联设备（point_id IN，软删自动排除；任务详情组装消除 N+1）。
+// 只加载「启用催办类型」的设备（与 equipment_expire job 同口径）：零值规则类型（如公告栏/门禁等纯台账设备）
+// 即使绑定点位也不注入合成项——不产生台账补录噪音，日常巡检零新增动作原则。
 // 标签缺失设备排除（已退出自动判定，走经理处置通道，不再出现合成项）。
 func LoadPointEquipment(db *gorm.DB, pointIDs []string) (map[string][]model.Equipment, error) {
 	out := map[string][]model.Equipment{}
 	if len(pointIDs) == 0 {
 		return out, nil
 	}
+	// 启用催办的类型集合（typeRules 的 Remind 标志，与 expire_job 扫描口径一致）
+	rules, _ := NewEquipmentService(db).typeRules()
+	remindTypes := make([]string, 0, len(rules))
+	for t, r := range rules {
+		if r.Remind {
+			remindTypes = append(remindTypes, t)
+		}
+	}
+	if len(remindTypes) == 0 {
+		return out, nil
+	}
 	var rows []model.Equipment
-	if err := db.Where("point_id IN ? AND status = ? AND label_missing = ?", pointIDs, model.StatusInService, false).Find(&rows).Error; err != nil {
+	if err := db.Where("point_id IN ? AND status = ? AND label_missing = ? AND type IN ?", pointIDs, model.StatusInService, false, remindTypes).Find(&rows).Error; err != nil {
 		return nil, err
 	}
 	for i := range rows {

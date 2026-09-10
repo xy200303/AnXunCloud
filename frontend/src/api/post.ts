@@ -102,6 +102,15 @@ export function saveReviewFlow(steps: ReviewFlowStep[]) {
   return request<null>({ url: '/system/review-flow', method: 'put', data: { steps } })
 }
 
+// 租户级报告签字审核链（空流程=报告生成后直接归档）
+export function getReportReviewFlow() {
+  return request<ReviewFlowView>({ url: '/system/report-review-flow', method: 'get' })
+}
+
+export function saveReportReviewFlow(steps: ReviewFlowStep[]) {
+  return request<null>({ url: '/system/report-review-flow', method: 'put', data: { steps } })
+}
+
 // ===== 岗位模板库（平台管理 /system/post-templates，仅超管；开通租户时的初始拷贝源） =====
 
 export function listPostTemplates() {
@@ -136,4 +145,13 @@ export function getPostTemplateReviewFlow() {
 
 export function savePostTemplateReviewFlow(steps: ReviewFlowStep[]) {
   return request<null>({ url: '/system/review-flow-template', method: 'put', data: { steps } })
+}
+
+// 平台默认报告签字审核链
+export function getPostTemplateReportReviewFlow() {
+  return request<ReviewFlowView>({ url: '/system/report-review-flow-template', method: 'get' })
+}
+
+export function savePostTemplateReportReviewFlow(steps: ReviewFlowStep[]) {
+  return request<null>({ url: '/system/report-review-flow-template', method: 'put', data: { steps } })
 }

@@ -185,6 +185,7 @@ export interface EquipmentImportResult {
   created_count: number
   updated_count: number
   fail_count: number
+  auto_bound: number // 自动推理绑定点位条数（v1.8）
   fail_details: { row: number; code: string; reason: string }[]
 }
 

@@ -1860,6 +1860,10 @@ export type EquipmentListItem = {
   status: string
   status_label: string
   remark: string
+  /** 档案扩展信息（导入映射：project_name/room/dept/system/brand/spec/original_value/quantity/put_into_service/maint_status/run_status/origin/各联系人/other_info 等） */
+  extra?: Record<string, any>
+  /** 标签缺失标记（v1.7） */
+  label_missing?: boolean
   /** mp 待维保列表附带：已逾期天数（<=0 表示未逾期） */
   overdue_days?: number
 }

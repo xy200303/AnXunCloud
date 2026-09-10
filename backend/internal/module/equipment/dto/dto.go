@@ -75,7 +75,9 @@ type ImportResult struct {
 	CreatedCount int          `json:"created_count"`
 	UpdatedCount int          `json:"updated_count"`
 	FailCount    int          `json:"fail_count"`
-	FailDetails  []ImportFail `json:"fail_details"`
+	// AutoBound 自动推理绑定点位的条数（歧义/无对应不逐条报，计数即可）
+	AutoBound   int          `json:"auto_bound"`
+	FailDetails []ImportFail `json:"fail_details"`
 }
 
 // ImportFail 导入失败明细行。

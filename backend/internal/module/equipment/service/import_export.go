@@ -12,6 +12,7 @@ import (
 	"github.com/xuri/excelize/v2"
 
 	"anxuncloud/internal/middleware"
+	insmodel "anxuncloud/internal/module/inspection/model"
 	"anxuncloud/internal/module/equipment/dto"
 	"anxuncloud/internal/module/equipment/model"
 	sysmodel "anxuncloud/internal/module/system/model"
@@ -20,11 +21,12 @@ import (
 )
 
 // 甲方台账列结构（§3.2.1，导入模板直接兼容，按列头名识别、兼容顺序变化）。
+// 全量对齐戎安设备档案 27 列：所有列均入 extra 口袋或主字段，零数据丢失。
 var equipmentImportHeaders = []string{
-	"序号", "机房名称", "设备等级", "设备分类", "设备名称", "设备编号", "设备品牌", "管控区域",
-	"规格型号", "设备原值", "设备数量", "出厂日期", "竣工验收日", "投运日期", "安装位置", "异动状态",
-	"维保状态", "运行状态", "备注", "产地", "厂家联系人", "安装单位联系人电话", "维保单位",
-	"维保单位联系人电话", "其他信息",
+	"序号", "项目名称", "机房名称", "设备等级", "责任部门", "所属设备系统", "设备分类", "设备名称",
+	"设备编号", "设备品牌", "管控区域", "规格型号", "设备原值", "设备数量", "出厂日期", "竣工验收日",
+	"投运日期", "安装位置", "异动状态", "维保状态", "运行状态", "备注", "产地", "厂家联系人",
+	"安装单位联系人电话", "维保单位", "维保单位联系人电话", "其他信息",
 }
 
 // typeAlias 设备分类别名表：甲方台账分类名 → equipment_type 字典 value。
@@ -95,9 +97,10 @@ func (s *EquipmentService) ImportTemplate() (*excelize.File, *errs.Error) {
 		}
 	}
 	example := []any{
-		1, "消防水泵房", "一级", "灭火器设施", "1栋3楼灭火器", "XCCT-MH-0001", "某品牌", "1栋",
-		"MFZ/ABC4", "", 1, "2023-05-01", "", "2023-06-01", "1栋3楼通道", "启用",
-		"自行维保", "正常", "", "湖北", "", "", "某维保公司", "", "示例行，导入时自动跳过",
+		1, "某项目", "消防水泵房", "一级", "工程部", "消防系统", "灭火器设施", "1栋3楼灭火器",
+		"XCCT-MH-0001", "某品牌", "1栋", "MFZ/ABC4", "", 1, "2023-05-01", "",
+		"2023-06-01", "1栋3楼通道", "启用", "自行维保", "正常", "", "湖北", "",
+		"", "某维保公司", "", "示例行，导入时自动跳过",
 	}
 	for i, v := range example {
 		cell, _ := excelize.CoordinatesToCellName(i+1, 2)
@@ -109,10 +112,10 @@ func (s *EquipmentService) ImportTemplate() (*excelize.File, *errs.Error) {
 	if err != nil {
 		return nil, errs.ErrInternal
 	}
-	if err := f.SetCellStyle(sheet, "A1", "Y1", style); err != nil {
+	if err := f.SetCellStyle(sheet, "A1", "AB1", style); err != nil {
 		return nil, errs.ErrInternal
 	}
-	f.SetColWidth(sheet, "A", "Y", 14)
+	f.SetColWidth(sheet, "A", "AB", 14)
 	return f, nil
 }
 
@@ -179,6 +182,16 @@ func (s *EquipmentService) Import(c *gin.Context, communityID string, r io.Reade
 	}
 	rules, _ := s.typeRules()
 
+	// 点位自动推理绑定索引（戎安台账实测驱动）：楼栋/点位按小区预载，键=归一化楼栋|楼层
+	var bindIdx *pointBindIndex
+	{
+		var bs []insmodel.Building
+		s.db.Where("community_id = ?", communityID).Find(&bs)
+		var ps []insmodel.InspectionPoint
+		s.db.Where("community_id = ?", communityID).Find(&ps)
+		bindIdx = buildPointBindIndex(bs, ps)
+	}
+
 	result := &dto.ImportResult{Total: len(dataRows), FailDetails: []dto.ImportFail{}}
 	for i, row := range dataRows {
 		cell := func(header string) string {
@@ -223,12 +236,24 @@ func (s *EquipmentService) Import(c *gin.Context, communityID string, r io.Reade
 				extra[key] = v
 			}
 		}
+		putExtra("project_name", cell("项目名称"))
+		putExtra("room", cell("机房名称"))
 		putExtra("level", cell("设备等级"))
+		putExtra("dept", cell("责任部门"))
+		putExtra("system", cell("所属设备系统"))
 		putExtra("brand", cell("设备品牌"))
 		putExtra("spec", cell("规格型号"))
+		putExtra("original_value", cell("设备原值"))
+		putExtra("quantity", cell("设备数量")) // 仅入 extra 不展开行（戎安每行一台一码）
+		putExtra("acceptance_date", cell("竣工验收日"))
 		putExtra("maint_status", cell("维保状态"))
+		putExtra("run_status", cell("运行状态"))
 		putExtra("vendor", cell("维保单位"))
 		putExtra("origin", cell("产地"))
+		putExtra("manufacturer_contact", cell("厂家联系人"))
+		putExtra("installer_contact", cell("安装单位联系人电话"))
+		putExtra("vendor_contact", cell("维保单位联系人电话"))
+		putExtra("other_info", cell("其他信息"))
 		putExtra("put_into_service", putIntoServiceRaw)
 		// 安装位置 + 管控区域 + 备注 → remark 拼接（点位无对应关系，point_id 留空待 App 扫码绑定）
 		remark := joinRemark(cell("安装位置"), cell("管控区域"), cell("备注"))
@@ -240,6 +265,12 @@ func (s *EquipmentService) Import(c *gin.Context, communityID string, r io.Reade
 		nextDue := CalcNextDueDate(manufacture, nil, rule.FirstMonths, rule.CycleMonths)
 		scrapDate := CalcScrapDate(manufacture, rule.ScrapMonths)
 
+		// 点位自动推理绑定：恰好 1 个候选才绑（歧义/无对应跳过）
+		var bindCand *bindCandidate
+		if key, ok := parseDeviceLocation([]string{cell("安装位置"), cell("管控区域"), cell("设备名称"), cell("机房名称")}); ok {
+			bindCand = bindIdx.lookup(key)
+		}
+
 		if existing, ok := existingByCode[code]; ok {
 			// 同编号按更新（幂等重导）：不覆盖人工已改的状态/点位绑定/到期日覆盖
 			updates := map[string]any{
@@ -248,6 +279,14 @@ func (s *EquipmentService) Import(c *gin.Context, communityID string, r io.Reade
 			}
 			if existing.NextDueDate == nil {
 				updates["next_due_date"] = nextDue
+			}
+			// 自动绑定只补 NULL（绝不动人工已绑）；building_id 为 NULL 时顺带填上
+			if bindCand != nil && existing.PointID == nil {
+				updates["point_id"] = bindCand.pointID
+				if existing.BuildingID == nil && bindCand.buildingID != nil {
+					updates["building_id"] = *bindCand.buildingID
+				}
+				result.AutoBound++
 			}
 			if err := s.db.Model(&existing).Updates(updates).Error; err != nil {
 				fail("更新失败：" + err.Error())
@@ -265,6 +304,13 @@ func (s *EquipmentService) Import(c *gin.Context, communityID string, r io.Reade
 			Status:          status,
 			Extra:           extra, Remark: remark,
 		}
+		if bindCand != nil {
+			e.PointID = &bindCand.pointID
+			if bindCand.buildingID != nil {
+				e.BuildingID = bindCand.buildingID
+			}
+			result.AutoBound++
+		}
 		if err := s.db.Create(&e).Error; err != nil {
 			fail("写入失败：" + err.Error())
 			continue
@@ -273,7 +319,7 @@ func (s *EquipmentService) Import(c *gin.Context, communityID string, r io.Reade
 		result.CreatedCount++
 	}
 	result.FailCount = len(result.FailDetails)
-	msg := fmt.Sprintf("导入完成：新增 %d 条，更新 %d 条，失败 %d 条", result.CreatedCount, result.UpdatedCount, result.FailCount)
+	msg := fmt.Sprintf("导入完成：新增 %d 条，更新 %d 条，失败 %d 条，自动绑定点位 %d 条", result.CreatedCount, result.UpdatedCount, result.FailCount, result.AutoBound)
 	return result, msg, nil
 }
 
@@ -368,7 +414,9 @@ func (s *EquipmentService) Export(c *gin.Context, q *dto.ListQuery) (*excelize.F
 	f := excelize.NewFile()
 	sheet := "Sheet1"
 	headers := []string{"序号", "设备编号", "设备名称", "设备类型", "小区", "楼栋", "点位",
-		"出厂日期", "最近维保日期", "下次到期日", "报废日期", "到期状态", "状态", "备注"}
+		"出厂日期", "最近维保日期", "下次到期日", "报废日期", "到期状态", "状态", "备注",
+		"机房名称", "设备等级", "责任部门", "所属设备系统", "设备品牌", "规格型号", "设备原值", "设备数量",
+		"投运日期", "维保状态", "运行状态", "产地", "厂家联系人", "安装单位联系人电话", "维保单位", "维保单位联系人电话", "其他信息"}
 	for i, h := range headers {
 		cell, _ := excelize.CoordinatesToCellName(i+1, 1)
 		if err := f.SetCellValue(sheet, cell, h); err != nil {
@@ -379,12 +427,23 @@ func (s *EquipmentService) Export(c *gin.Context, q *dto.ListQuery) (*excelize.F
 	if err != nil {
 		return nil, errs.ErrInternal
 	}
-	if err := f.SetCellStyle(sheet, "A1", "N1", style); err != nil {
+	if err := f.SetCellStyle(sheet, "A1", "AD1", style); err != nil {
 		return nil, errs.ErrInternal
 	}
-	dueLabels := map[string]string{DueNone: "无到期日", DueNormal: "正常", DueWarning: "临期", DueOverdue: "已逾期"}
+	dueLabels := map[string]string{DueNone: "无到期日", DueNormal: "正常", DueWarning: "临期", DueOverdue: "已逾期", DueScrap: "应报废", DueLabelMissing: "标签缺失"}
 	get := func(item gin.H, key string) string {
 		if v, ok := item[key].(string); ok {
+			return v
+		}
+		return ""
+	}
+	// extra 口袋取值（jsonb 读回为 any，统一转字符串）
+	getExtra := func(item gin.H, key string) string {
+		extra, ok := item["extra"].(types.JSONMap)
+		if !ok || extra == nil {
+			return ""
+		}
+		if v, ok := extra[key].(string); ok {
 			return v
 		}
 		return ""
@@ -395,6 +454,11 @@ func (s *EquipmentService) Export(c *gin.Context, q *dto.ListQuery) (*excelize.F
 			get(item, "community_name"), get(item, "building_name"), get(item, "point_name"),
 			get(item, "manufacture_date"), get(item, "last_maintenance_date"), get(item, "next_due_date"),
 			get(item, "scrap_date"), dueLabels[get(item, "due_state")], get(item, "status_label"), get(item, "remark"),
+			getExtra(item, "room"), getExtra(item, "level"), getExtra(item, "dept"), getExtra(item, "system"),
+			getExtra(item, "brand"), getExtra(item, "spec"), getExtra(item, "original_value"), getExtra(item, "quantity"),
+			getExtra(item, "put_into_service"), getExtra(item, "maint_status"), getExtra(item, "run_status"),
+			getExtra(item, "origin"), getExtra(item, "manufacturer_contact"), getExtra(item, "installer_contact"),
+			getExtra(item, "vendor"), getExtra(item, "vendor_contact"), getExtra(item, "other_info"),
 		}
 		for i, v := range vals {
 			cell, _ := excelize.CoordinatesToCellName(i+1, r+2)
@@ -403,6 +467,6 @@ func (s *EquipmentService) Export(c *gin.Context, q *dto.ListQuery) (*excelize.F
 			}
 		}
 	}
-	f.SetColWidth(sheet, "A", "N", 16)
+	f.SetColWidth(sheet, "A", "AD", 16)
 	return f, nil
 }

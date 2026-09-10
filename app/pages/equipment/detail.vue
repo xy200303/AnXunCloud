@@ -32,6 +32,15 @@
           <text v-if="detail.remark != ''" class="info-line" :style="{ color: colors.textSecondary }">备注：{{ detail.remark }}</text>
         </view>
 
+        <!-- 档案信息（extra 口袋键值展示，空值不显示） -->
+        <view v-if="archiveRows.length > 0" class="card" :style="{ backgroundColor: colors.bgCard }">
+          <text class="sec-title" :style="{ color: colors.textPrimary }">档案信息</text>
+          <view v-for="r in archiveRows" :key="r.key" class="archive-row">
+            <text class="archive-label" :style="{ color: colors.textSecondary }">{{ r.label }}</text>
+            <text class="archive-value" :style="{ color: colors.textRegular }">{{ r.value }}</text>
+          </view>
+        </view>
+
         <!-- 维保历史时间线 -->
         <view class="card" :style="{ backgroundColor: colors.bgCard }">
           <text class="sec-title" :style="{ color: colors.textPrimary }">维保历史</text>
@@ -182,6 +191,24 @@ export default {
     historyMore(): boolean {
       return this.historyLoaded && this.history.length < this.historyTotal
     },
+    /** 档案信息：extra 口袋按键值中文对照展示（空值不显示） */
+    archiveRows(): Array<{ key: string; label: string; value: string }> {
+      const d = this.detail
+      if (d == null || d.extra == null) return []
+      const labels: Array<[string, string]> = [
+        ['project_name', '项目名称'], ['room', '机房名称'], ['level', '设备等级'], ['dept', '责任部门'],
+        ['system', '所属设备系统'], ['brand', '品牌'], ['spec', '规格型号'], ['original_value', '设备原值'],
+        ['quantity', '数量'], ['put_into_service', '投运日期'], ['maint_status', '维保状态'], ['run_status', '运行状态'],
+        ['origin', '产地'], ['manufacturer_contact', '厂家联系人'], ['installer_contact', '安装单位联系人电话'],
+        ['vendor', '维保单位'], ['vendor_contact', '维保单位联系人电话'], ['other_info', '其他信息']
+      ]
+      const out: Array<{ key: string; label: string; value: string }> = []
+      labels.forEach(([key, label]) => {
+        const v = (d.extra as Record<string, any>)[key]
+        if (v != null && String(v).trim() != '') out.push({ key, label, value: String(v) })
+      })
+      return out
+    },
     /** 维保登记入口：equipment:maintenance 权限 */
     canRegister(): boolean {
       return useAuthStore().hasPerm('equipment:maintenance')
@@ -304,6 +331,22 @@ export default {
 .info-line {
   font-size: 28rpx;
   margin-top: 8rpx;
+}
+
+.archive-row {
+  flex-direction: row;
+  margin-top: 8rpx;
+}
+
+.archive-label {
+  font-size: 26rpx;
+  width: 220rpx;
+  flex-shrink: 0;
+}
+
+.archive-value {
+  font-size: 26rpx;
+  flex: 1;
 }
 
 .sec-title {

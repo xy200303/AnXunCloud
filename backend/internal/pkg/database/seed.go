@@ -366,7 +366,8 @@ func seedRoleMenus(tx *gorm.DB, roleIDs, menuIDs map[string]string) error {
 		return err
 	}
 	// 一线人员可查看报告；具体审核权限由报告生成时固化的动态审核链和候选人名单控制。
-	fieldStaffMenuKeys := []string{"report:list", "equipment:list", "equipment:maintenance"}
+	// equipment:maintenance 供 App 维保登记（appAuth 通道）；equipment:list（台账管理）是管理岗能力，不配给一线。
+	fieldStaffMenuKeys := []string{"report:list", "equipment:maintenance"}
 	var fieldStaffMenuIDs []string
 	for _, key := range fieldStaffMenuKeys {
 		if id, ok := menuIDs[key]; ok {

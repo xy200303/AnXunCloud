@@ -106,14 +106,42 @@ export type PointByCode = {
   tasks: PointTaskCtx[]
 }
 
-/** 检查项模板项（TaskDetail 点位 check_items 元素） */
+/** 台账有效期（equipment_validity）单台设备自动判定结果（v1.6：绑定即启用、逐台独立；
+ *  任务详情为每台关联在用设备注入一条合成检查项，本结构挂在该项 auto_judge 上） */
+export type EquipmentAutoJudge = {
+  /** normal 正常 / warning 临期 / overdue 已逾期 / no_data 台账数据缺失（需补录） */
+  status: string
+  /** 到期日（YYYY-MM-DD，no_data 为空串） */
+  next_due_date: string
+  /** 生效的临期阈值（设备覆盖 > 全局） */
+  warn_days: number
+  /** 已逾期天数（>0 表示逾期） */
+  overdue_days: number
+  /** 报废日已过（视同逾期，应停用更换） */
+  scrap_due?: boolean
+  /** 报废日期（可空） */
+  scrap_date?: string
+  /** 存在待确认维保登记（展示「待确认」） */
+  has_pending_register: boolean
+  /** 是否展示「已完成维保？登记」入口 */
+  show_register: boolean
+  equipment_id: string
+  equipment_code: string
+  equipment_name: string
+}
+
+/** 检查项模板项（TaskDetail 点位 check_items 元素；含绑定设备注入的台账合成项） */
 export type CheckItemTpl = {
   name: string
   requirement: string
   /** none/optional/required */
   photo_required: string
-  /** 判定方式：manual=感官项（人工正常/异常），其余=拍照 AI 识别项；缺省按拍照项处理（待与后端对齐下发） */
+  /** 判定方式：manual=感官项（人工正常/异常），equipment_validity=台账有效期（合成项，服务端自动判定），其余=拍照 AI 识别项 */
   judge_type: string
+  /** 合成项设备快照（judge_type=equipment_validity 时：{equipment_id, equipment_no}） */
+  judge_config?: Record<string, any> | null
+  /** 台账有效期单台设备自动判定（judge_type=equipment_validity 时后端透出；其余项为空） */
+  auto_judge?: EquipmentAutoJudge | null
 }
 
 /** 任务明细点位（含我的打卡状态） */
@@ -183,6 +211,11 @@ export type CheckinItemReqPayload = {
   ai_reading?: string
   /** 异常逃生入口的项目异常类型；由服务端草稿校验后写入正式记录 */
   exception_type?: 'device_missing' | 'unable_to_capture' | ''
+  /** 标签抽查合成项（equipment_date_spot）：生产日期/维修日期/无贴纸/标签缺失（服务端四规则比对，pass 被忽略） */
+  spot_manufacture_date?: string
+  spot_maintenance_date?: string
+  spot_no_sticker?: boolean
+  spot_label_missing?: boolean
 }
 
 /** 打卡提交请求体（对齐后端 dto.CheckinReq） */
@@ -495,7 +528,7 @@ type RawTaskDetail = {
     longitude?: number
     latitude?: number
     fence_radius?: number
-    check_items?: Array<{ name?: string; requirement?: string; photo_required?: string; judge_type?: string }>
+    check_items?: Array<{ name?: string; requirement?: string; photo_required?: string; judge_type?: string; judge_config?: Record<string, any> | null; auto_judge?: EquipmentAutoJudge | null }>
     my_checkin?: {
       id?: string | number
       checkin_time?: string
@@ -831,7 +864,9 @@ export function apiTaskDetail(id: string): Promise<TaskDetail> {
               name: c.name ?? '',
               requirement: c.requirement ?? '',
               photo_required: c.photo_required ?? '',
-              judge_type: c.judge_type ?? ''
+              judge_type: c.judge_type ?? '',
+              judge_config: c.judge_config ?? null,
+              auto_judge: c.auto_judge ?? null
             })),
             my_checkin: p.my_checkin == null
               ? null
@@ -1793,6 +1828,205 @@ export function apiReportGenerate(body: {
         }
         resolve(d)
       })
+      .catch(reject)
+  })
+}
+
+// ===== 设备台账与维保周期管理（《设备台账与维保周期管理设计方案》） =====
+// 通道约定与点位管理一致：相对路径随端解析（App=/api/app，小程序=/api/mp），
+// 管理端能力（列表/详情/历史/确认链）复用 PC 控制器 + 同一套权限点，巡检员能力为待维保与登记。
+
+/** 到期状态：normal 正常 / warning 临期 / overdue 已逾期 / none 无到期日 */
+export type EquipmentDueState = 'normal' | 'warning' | 'overdue' | 'none' | 'scrap' | 'label_missing'
+
+/** 台账列表项（/equipment/list 元素；mp 待维保列表同形，另带 overdue_days） */
+export type EquipmentListItem = {
+  id: string
+  code: string
+  name: string
+  type: string
+  type_label: string
+  community_id: string
+  community_name: string
+  building_id: string | null
+  building_name?: string
+  point_id: string | null
+  point_name?: string
+  manufacture_date: string
+  last_maintenance_date: string
+  next_due_date: string
+  scrap_date: string
+  due_state: EquipmentDueState
+  status: string
+  status_label: string
+  remark: string
+  /** mp 待维保列表附带：已逾期天数（<=0 表示未逾期） */
+  overdue_days?: number
+}
+
+export type EquipmentDetail = EquipmentListItem & {
+  updated_at: string
+  type_rule?: { first_months: number; cycle_months: number; remind: boolean; scrap_months: number }
+}
+
+export type EquipmentPage = {
+  list: EquipmentListItem[]
+  total: number
+  page: number
+  page_size: number
+}
+
+/** 台账分页 GET /equipment/list（type/community_id/due_state/keyword/point_id 筛选） */
+export function apiEquipmentList(
+  page: number,
+  pageSize: number,
+  opts: { type?: string; communityId?: string; dueState?: string; keyword?: string; pointId?: string } = {}
+): Promise<EquipmentPage> {
+  let path = '/equipment/list?page=' + page + '&page_size=' + pageSize
+  if (opts.type != null && opts.type != '') path += '&type=' + encodeURIComponent(opts.type)
+  if (opts.communityId != null && opts.communityId != '') path += '&community_id=' + opts.communityId
+  if (opts.dueState != null && opts.dueState != '') path += '&due_state=' + opts.dueState
+  if (opts.keyword != null && opts.keyword != '') path += '&keyword=' + encodeURIComponent(opts.keyword)
+  if (opts.pointId != null && opts.pointId != '') path += '&point_id=' + opts.pointId
+  return new Promise<EquipmentPage>((resolve, reject) => {
+    httpGet<any>(path)
+      .then((d) => {
+        resolve({
+          list: (d?.list ?? []) as EquipmentListItem[],
+          total: d?.total ?? 0,
+          page: d?.page ?? page,
+          page_size: d?.page_size ?? pageSize
+        })
+      })
+      .catch(reject)
+  })
+}
+
+/** 设备详情 GET /equipment/:id */
+export function apiEquipmentDetail(id: string): Promise<EquipmentDetail> {
+  return new Promise<EquipmentDetail>((resolve, reject) => {
+    httpGet<EquipmentDetail>('/equipment/' + id)
+      .then((d) => {
+        if (d == null) {
+          reject(new Error('设备详情响应异常'))
+          return
+        }
+        resolve(d)
+      })
+      .catch(reject)
+  })
+}
+
+/** 我的待维保设备 GET /equipment/due（本租户临期+逾期在用设备，逾期在前） */
+export function apiEquipmentDue(): Promise<EquipmentListItem[]> {
+  return new Promise<EquipmentListItem[]>((resolve, reject) => {
+    httpGet<EquipmentListItem[]>('/equipment/due')
+      .then((d) => resolve(d ?? []))
+      .catch(reject)
+  })
+}
+
+/** 维保登记 POST /equipment/maintenance（一键+一拍；ledger_fix 可随单补录日期，经理确认后回写台账） */
+export function apiEquipmentRegister(req: {
+  equipment_id: string
+  maintenance_type?: string
+  maintenance_date?: string
+  vendor?: string
+  note?: string
+  file_ids: string[]
+  manufacture_date?: string
+  last_maintenance_date?: string
+}): Promise<{ id: string }> {
+  return new Promise<{ id: string }>((resolve, reject) => {
+    httpPost<{ id: string }>('/equipment/maintenance', req as unknown as Record<string, any>)
+      .then((d) => resolve(d ?? { id: '' }))
+      .catch(reject)
+  })
+}
+
+/** 维保流水（待确认列表/设备历史共用元素） */
+export type MaintenanceItem = {
+  id: string
+  equipment_id: string
+  equipment_code: string
+  equipment_name: string
+  point_id?: string
+  point_name?: string
+  maintenance_type: string
+  maintenance_date: string
+  vendor: string | null
+  operator_name: string
+  note: string
+  photos: Array<{ file_id: string; url: string }>
+  /** pending 待确认 / confirmed 已确认 / rejected 已驳回 */
+  confirm_status: string
+  /** 标签缺失登记（确认后设备退出自动判定） */
+  label_missing?: boolean
+  reject_reason: string | null
+  /** AI 预检：pass/review/ null（未预检） */
+  ai_verdict: string | null
+  ai_reason: string | null
+  created_by_name: string
+  created_at: string
+  confirmed_by_name?: string
+  confirmed_at?: string
+  fix_manufacture_date?: string
+  fix_last_maintenance_date?: string
+}
+
+export type MaintenancePage = {
+  list: MaintenanceItem[]
+  total: number
+  page: number
+  page_size: number
+}
+
+/** 设备维保历史 GET /equipment/:id/maintenances */
+export function apiMaintenanceHistory(equipmentId: string, page: number, pageSize: number): Promise<MaintenancePage> {
+  return new Promise<MaintenancePage>((resolve, reject) => {
+    httpGet<any>('/equipment/' + equipmentId + '/maintenances?page=' + page + '&page_size=' + pageSize)
+      .then((d) => {
+        resolve({
+          list: (d?.list ?? []) as MaintenanceItem[],
+          total: d?.total ?? 0,
+          page: d?.page ?? page,
+          page_size: d?.page_size ?? pageSize
+        })
+      })
+      .catch(reject)
+  })
+}
+
+/** 待确认维保登记 GET /equipment/maintenance-pending（AI 存疑置顶，需 equipment:confirm） */
+export function apiMaintenancePending(page: number, pageSize: number): Promise<MaintenancePage> {
+  return new Promise<MaintenancePage>((resolve, reject) => {
+    httpGet<any>('/equipment/maintenance-pending?page=' + page + '&page_size=' + pageSize)
+      .then((d) => {
+        resolve({
+          list: (d?.list ?? []) as MaintenanceItem[],
+          total: d?.total ?? 0,
+          page: d?.page ?? page,
+          page_size: d?.page_size ?? pageSize
+        })
+      })
+      .catch(reject)
+  })
+}
+
+/** 批量确认 POST /equipment/maintenance/confirm（幂等：已处理跳过） */
+export function apiMaintenanceConfirm(ids: string[]): Promise<{ confirmed: number; skipped: number; not_found: string[] }> {
+  return new Promise((resolve, reject) => {
+    httpPost<{ confirmed: number; skipped: number; not_found: string[] }>('/equipment/maintenance/confirm', { ids })
+      .then((d) => resolve(d ?? { confirmed: 0, skipped: 0, not_found: [] }))
+      .catch(reject)
+  })
+}
+
+/** 驳回 POST /equipment/maintenance/reject（理由必填，通知登记人） */
+export function apiMaintenanceReject(id: string, reason: string): Promise<void> {
+  return new Promise<void>((resolve, reject) => {
+    httpPost('/equipment/maintenance/reject', { id: id, reason: reason })
+      .then(() => resolve())
       .catch(reject)
   })
 }

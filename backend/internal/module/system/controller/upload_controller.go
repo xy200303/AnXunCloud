@@ -19,7 +19,7 @@ func NewUploadController(upload *mpsvc.UploadService) *UploadController {
 }
 
 // Local POST /system/upload（登录即可，multipart：scene + file）。
-// scene 取值：signature（手写签名）/ seal（公章）/ avatar（头像）/ notice（公告附件）。
+// scene 取值：signature（手写签名）/ seal（公章）/ avatar（头像）/ notice（公告附件）/ equipment（设备维保登记照片）。
 func (ctl *UploadController) Local(c *gin.Context) {
 	scene := c.PostForm("scene")
 	fileHeader, err := c.FormFile("file")

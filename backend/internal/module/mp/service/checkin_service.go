@@ -15,6 +15,8 @@ import (
 	"gorm.io/gorm/clause"
 
 	communitysvc "anxuncloud/internal/module/community/service"
+	eqsvc "anxuncloud/internal/module/equipment/service"
+	eqmodel "anxuncloud/internal/module/equipment/model"
 	insmodel "anxuncloud/internal/module/inspection/model"
 	"anxuncloud/internal/module/mp/dto"
 	sysmodel "anxuncloud/internal/module/system/model"
@@ -196,9 +198,19 @@ func (s *CheckinService) doCheckinLocked(ctx context.Context, inspectorID string
 	// ④ 检查项模板与逐项照片：模板每项都必须有提交结果（按 name 匹配）并生成逐项快照行；
 	// 必拍约束（模板 required 项/不合格项 ≥1 张）与 file_id 上传确认（43104 / 43106）在逐项内完成；
 	// 返回 upload_file 索引（EXIF 判定/水印/AI 输入共用）。照片唯一归属逐项，无记录级照片。
-	checkItems, uploadFiles, be := s.resolveCheckItems(req, &point, inspectorID)
+	checkItems, uploadFiles, be := s.resolveCheckItems(req, &task, &point, inspectorID)
 	if be != nil {
 		return nil, nil, be
+	}
+	// 台账有效期/标签抽查合成项判异常（逾期/报废/抽查不符/标签缺失，不可人工改判）：记录级强制异常并转人工审核
+	equipmentForced, equipmentNote := false, ""
+	for i := range checkItems {
+		if (checkItems[i].JudgeType == ai.JudgeEquipmentValidity || checkItems[i].JudgeType == ai.JudgeEquipmentDateSpot) && !checkItems[i].Pass {
+			equipmentForced = true
+			if equipmentNote == "" {
+				equipmentNote = checkItems[i].Note
+			}
+		}
 	}
 	// 异常时描述必填
 	if req.Result == insmodel.ResultAbnormal && strings.TrimSpace(req.Remark) == "" {
@@ -283,6 +295,14 @@ func (s *CheckinService) doCheckinLocked(ctx context.Context, inspectorID string
 	if !useSyncAI && !req.Force && !req.AIConfirmed {
 		rec.AuditStatus = insmodel.AuditPending
 		rec.AIReason = "未经 AI 识别，待复核"
+	}
+	// 台账判异常最后覆盖（优先级高于 AI 结论）：记录级强制异常 + 转人工审核；描述缺省带自动备注
+	if equipmentForced {
+		rec.Result = insmodel.ResultAbnormal
+		rec.AuditStatus = insmodel.AuditPending
+		if strings.TrimSpace(rec.Remark) == "" {
+			rec.Remark = equipmentNote
+		}
 	}
 
 	overwrite := false // 覆盖修改模式：同任务同点位已有未锁定记录时置真（事务外写操作日志用）
@@ -383,7 +403,10 @@ func (s *CheckinService) doCheckinLocked(ctx context.Context, inspectorID string
 			s.notifyAuditors(rec.ID, point.Name, rec.AIReason)
 		}
 	default:
-		if s.aiCli.Enabled() {
+		if equipmentForced {
+			// 台账判异常直接转人工：跳过异步补识别，避免 AI pass 把记录自动放行出审核队列
+			s.notifyAuditors(rec.ID, point.Name, equipmentNote)
+		} else if s.aiCli.Enabled() {
 			go s.aiReview(rec.ID, &point, checkItems, req.Remark)
 		} else {
 			s.notifyAuditors(rec.ID, point.Name, "未启用 AI 识别，转人工审核")
@@ -395,11 +418,12 @@ func (s *CheckinService) doCheckinLocked(ctx context.Context, inspectorID string
 }
 
 // buildReviewInput 组装大模型审核上下文（同步判定与异步补识别共用）。
-// 照片全部来自逐项快照（ItemPhotos）；manual（手动确认项）不入 CheckItems/ItemPhotos。
+// 照片全部来自逐项快照（ItemPhotos）；manual（手动确认项）与 equipment_validity（台账有效期，
+// 服务端判定、无照片）不入 CheckItems/ItemPhotos。
 func (s *CheckinService) buildReviewInput(point *insmodel.InspectionPoint, items []insmodel.CheckinRecordItem, remark string) ai.ReviewInput {
 	names := make([]string, 0, len(items))
 	for _, it := range items {
-		if it.JudgeType == ai.JudgeManual {
+		if it.JudgeType == ai.JudgeManual || it.JudgeType == ai.JudgeEquipmentValidity || it.JudgeType == ai.JudgeEquipmentDateSpot {
 			continue
 		}
 		names = append(names, it.Name)
@@ -532,7 +556,8 @@ func (s *CheckinService) validateConfirmedAI(req *dto.CheckinReq, items []insmod
 		draftByName[draft.ItemName] = draft
 	}
 	for _, item := range items {
-		if item.JudgeType == ai.JudgeManual {
+		// 手动确认项/台账有效期项/标签抽查项不走逐项 AI 识别结论校验（抽查由服务端四规则比对）
+		if item.JudgeType == ai.JudgeManual || item.JudgeType == ai.JudgeEquipmentValidity || item.JudgeType == ai.JudgeEquipmentDateSpot {
 			continue
 		}
 		draft, ok := draftByName[item.Name]
@@ -610,9 +635,11 @@ func nfcMatch(reqID, pointID string) bool {
 // 点位必须已绑定模板（v21 起强制，无模板概念已消除）；模板每项都必须有提交结果（按 name 匹配）；
 // 逐项照片硬约束（一项一图）：每项最多 1 张；不合格项（pass=false）与模板 photo_required=required 的项须恰好 1 张，
 // file_id 逐一上传确认（43104/43106）；照片唯一归属逐项，无记录级照片。
+// 台账有效期合成项客户端不提交（服务端实时逐台判定追加）；标签抽查合成项触发即必交
+// （必拍 1 张 + 生产日期/维修日期，服务端按四规则与台账比对，客户端 pass 被忽略）。
 // 返回逐项快照行 + upload_file 索引（EXIF 判定/AI 输入/水印共用）；
 // name/requirement/ai_hint/photo_required 打卡当时从模板项复制。
-func (s *CheckinService) resolveCheckItems(req *dto.CheckinReq, point *insmodel.InspectionPoint, ownerID string) ([]insmodel.CheckinRecordItem, map[string]sysmodel.UploadFile, *errs.Error) {
+func (s *CheckinService) resolveCheckItems(req *dto.CheckinReq, task *insmodel.InspectionTask, point *insmodel.InspectionPoint, ownerID string) ([]insmodel.CheckinRecordItem, map[string]sysmodel.UploadFile, *errs.Error) {
 	if point.TemplateID == nil || *point.TemplateID == "" {
 		return nil, nil, errs.ErrParam.WithMsg("该点位未绑定检查项模板，无法打卡")
 	}
@@ -639,9 +666,15 @@ func (s *CheckinService) resolveCheckItems(req *dto.CheckinReq, point *insmodel.
 	if len(missing) > 0 {
 		return nil, nil, errs.ErrParam.WithMsg("检查项结果缺失：" + strings.Join(missing, "、"))
 	}
+	// 合成项预期（与任务详情注入同口径重算）：有效期项客户端忽略；抽查项触发即必交
+	_, spotMap, be := s.equipmentSynthetics(task, point)
+	if be != nil {
+		return nil, nil, be
+	}
 	items := make([]insmodel.CheckinRecordItem, 0, len(req.CheckItems))
 	files := map[string]sysmodel.UploadFile{}
 	seenItems := make(map[string]bool, len(req.CheckItems))
+	spotSubmitted := map[string]bool{}
 	for i, it := range req.CheckItems {
 		if seenItems[it.Name] {
 			return nil, nil, errs.ErrParam.WithMsg("检查项「" + it.Name + "」重复提交")
@@ -649,12 +682,29 @@ func (s *CheckinService) resolveCheckItems(req *dto.CheckinReq, point *insmodel.
 		seenItems[it.Name] = true
 		ti := tplByName[it.Name]
 		if ti == nil {
+			// 抽查合成项：服务端比对落快照；有效期合成项：客户端不应提交（忽略，服务端重算）
+			if sj, ok := spotMap[it.Name]; ok {
+				row, f, be := s.resolveSpotItem(it, sj, ownerID)
+				if be != nil {
+					return nil, nil, be
+				}
+				row.Sort = i
+				files[f.ID] = f
+				items = append(items, row)
+				spotSubmitted[it.Name] = true
+				continue
+			}
+			if strings.HasPrefix(it.Name, "设备维保·") {
+				continue
+			}
 			return nil, nil, errs.ErrParam.WithMsg("检查项「" + it.Name + "」不属于该点位模板")
 		}
+		// 台账有效期项：判定由服务端实时给出（不调 AI 不要求照片，模板 photo_required 配置忽略）
+		isEqValidity := ti.JudgeType == ai.JudgeEquipmentValidity
 		if len(it.Photos) > 1 {
 			return nil, nil, errs.ErrParam.WithMsg("检查项「" + it.Name + "」照片超出上限：一项一图，最多 1 张")
 		}
-		if !it.Pass && len(it.Photos) == 0 {
+		if !isEqValidity && !it.Pass && len(it.Photos) == 0 {
 			return nil, nil, errs.ErrPhotoMissing.WithMsg("检查项「" + it.Name + "」不合格，须至少上传 1 张该项照片")
 		}
 		exceptionType := strings.TrimSpace(it.ExceptionType)
@@ -664,7 +714,7 @@ func (s *CheckinService) resolveCheckItems(req *dto.CheckinReq, point *insmodel.
 		if exceptionType != "" && it.Pass {
 			return nil, nil, errs.ErrParam.WithMsg("检查项「" + it.Name + "」已上报项目异常，结果必须为异常")
 		}
-		if ti.PhotoRequired == types.PhotoReqRequired && len(it.Photos) == 0 {
+		if !isEqValidity && ti.PhotoRequired == types.PhotoReqRequired && len(it.Photos) == 0 {
 			return nil, nil, errs.ErrPhotoMissing.WithMsg("检查项「" + it.Name + "」要求必拍，须至少上传 1 张该项照片")
 		}
 		photoIDs := make([]string, 0, len(it.Photos))
@@ -680,17 +730,172 @@ func (s *CheckinService) resolveCheckItems(req *dto.CheckinReq, point *insmodel.
 			files[f.ID] = f
 			photoIDs = append(photoIDs, f.ID)
 		}
-		items = append(items, insmodel.CheckinRecordItem{
+		row := insmodel.CheckinRecordItem{
 			Name: it.Name, Pass: it.Pass, Note: it.Note, ExceptionType: exceptionType,
 			Photos: types.StringArray(photoIDs), PhotoRequired: ti.PhotoRequired,
 			Requirement: ti.Requirement, AIHint: ti.AIHint,
 			JudgeType: ti.JudgeType, JudgeConfig: ti.JudgeConfig, Sort: i,
-		})
+		}
+		items = append(items, row)
+	}
+	// 触发的抽查项必须全部提交（必拍+必填，缺失即阻断——防跳过抽查）
+	for name := range spotMap {
+		if !spotSubmitted[name] {
+			return nil, nil, errs.ErrParam.WithMsg("标签抽查项「" + name + "」未完成：须拍标签照并填写日期")
+		}
+	}
+	// 台账有效期合成项（§3.5 v1.6：绑定即启用、逐台独立）：客户端不提交合成项，
+	// 服务端按点位实时逐台判定并追加快照——每台在用设备一条；逾期逐台去重（首次产异常，
+	// 持续逾期只标「催办中」，pending 登记标「待确认」），judge_config 携 equipment_id 快照键控
+	if be := s.appendEquipmentItems(&items, point); be != nil {
+		return nil, nil, be
 	}
 	return items, files, nil
 }
 
-// suspectCheck 两类疑似作弊判定（距离超倍数 / EXIF 拍摄时间偏差）。
+// appendEquipmentItems 逐台追加台账有效期合成快照项（无关联设备不追加）。
+func (s *CheckinService) appendEquipmentItems(items *[]insmodel.CheckinRecordItem, point *insmodel.InspectionPoint) *errs.Error {
+	byPoint, err := eqsvc.LoadPointEquipment(s.db, []string{point.ID})
+	if err != nil {
+		return errs.ErrInternal
+	}
+	eqs := byPoint[point.ID]
+	if len(eqs) == 0 {
+		return nil
+	}
+	ids := make([]string, 0, len(eqs))
+	for i := range eqs {
+		ids = append(ids, eqs[i].ID)
+	}
+	pendingSet := eqsvc.PendingMaintenanceSet(s.db, ids)
+	reportedSet := eqsvc.OverdueReportedSet(s.db, ids)
+	now := time.Now()
+	judges := eqsvc.JudgeDevices(eqs, pendingSet, eqsvc.GlobalWarnDays(s.db), now)
+	for _, j := range judges {
+		pass, note := eqsvc.DeviceJudgeSubmit(j, !reportedSet[j.EquipmentID], now)
+		*items = append(*items, insmodel.CheckinRecordItem{
+			Name: eqsvc.SyntheticItemName(j), Pass: pass, Note: note,
+			Photos: types.StringArray{}, PhotoRequired: types.PhotoReqNone,
+			JudgeType: ai.JudgeEquipmentValidity,
+			// 设备快照：逐台去重与后续抽查比对的键
+			JudgeConfig: types.JSONMap{"equipment_id": j.EquipmentID, "equipment_no": j.Code},
+			Sort:        len(*items),
+		})
+	}
+	return nil
+}
+
+// equipmentSynthetics 计算该点位本任务的合成项预期（与任务详情注入同口径重算）：
+// 返回全部有效期项判定 + 触发的抽查项（名→判定）。抽查触发需任务上下文（哈希含 task_id/日期）。
+func (s *CheckinService) equipmentSynthetics(task *insmodel.InspectionTask, point *insmodel.InspectionPoint) ([]eqsvc.DeviceJudge, map[string]eqsvc.DeviceJudge, *errs.Error) {
+	spotMap := map[string]eqsvc.DeviceJudge{}
+	byPoint, err := eqsvc.LoadPointEquipment(s.db, []string{point.ID})
+	if err != nil {
+		return nil, nil, errs.ErrInternal
+	}
+	eqs := byPoint[point.ID]
+	if len(eqs) == 0 {
+		return nil, spotMap, nil
+	}
+	judges := eqsvc.JudgeDevices(eqs, nil, eqsvc.GlobalWarnDays(s.db), time.Now())
+	if !eqsvc.CfgBool(s.db, "equipment.spotcheck_enabled", true) {
+		return judges, spotMap, nil
+	}
+	ids := make([]string, 0, len(eqs))
+	for i := range eqs {
+		ids = append(ids, eqs[i].ID)
+	}
+	globalRatio := eqsvc.CfgInt(s.db, "equipment.spotcheck_ratio", 10)
+	salt := eqsvc.CfgString(s.db, "equipment.spotcheck_salt", "")
+	rules := eqsvc.NewEquipmentService(s.db).TypeRules()
+	verified := eqsvc.LastVerifiedMap(s.db, ids)
+	now := time.Now()
+	taskDate := task.TaskDate.Format("2006-01-02")
+	for _, j := range judges {
+		// 临期/逾期必触发（到期核验）；否则确定性哈希随机；长期未验证翻倍
+		triggered := j.State == eqsvc.DueWarning || j.State == eqsvc.DueOverdue
+		if !triggered {
+			lv, ok := verified[j.EquipmentID]
+			var lvPtr *time.Time
+			if ok {
+				lvPtr = &lv
+			}
+			triggered = eqsvc.SpotTriggered(task.ID, point.ID, j.EquipmentID, taskDate, salt,
+				eqsvc.SpotRatioFor(rules[j.Type], globalRatio, lvPtr, now))
+		}
+		if triggered {
+			spotMap[eqsvc.SpotItemPrefix+j.Name+"("+j.Code+")"] = j
+		}
+	}
+	return judges, spotMap, nil
+}
+
+// resolveSpotItem 处理抽查合成项提交：必拍 1 张（归属本人），服务端按四规则与台账比对（只核对不写台账），
+// 客户端 pass 被忽略；勾选「标签缺失」→ 强制异常进审核（等经理处置）。
+func (s *CheckinService) resolveSpotItem(it dto.CheckinItemReq, j eqsvc.DeviceJudge, ownerID string) (insmodel.CheckinRecordItem, sysmodel.UploadFile, *errs.Error) {
+	row := insmodel.CheckinRecordItem{
+		Name: it.Name, PhotoRequired: types.PhotoReqRequired,
+		JudgeType: ai.JudgeEquipmentDateSpot,
+	}
+	var file sysmodel.UploadFile
+	if len(it.Photos) != 1 {
+		return row, file, errs.ErrPhotoMissing.WithMsg("抽查项「" + it.Name + "」须恰好 1 张标签/设备照片")
+	}
+	f, err := uploadfile.ByID(s.db, it.Photos[0])
+	if err != nil || f.UserID != ownerID {
+		return row, file, errs.ErrPhotoNotUploaded
+	}
+	file = f
+	// 台账侧数据
+	var e eqmodel.Equipment
+	if err := s.db.First(&e, "id = ?", j.EquipmentID).Error; err != nil {
+		return row, file, errs.ErrNotFound.WithMsg("抽查设备不存在")
+	}
+	rule := eqsvc.NewEquipmentService(s.db).TypeRules()[e.Type]
+	// 现场侧日期（严格 YYYY-MM-DD；标签缺失/无贴纸可空）
+	var labelMfg, labelMaint *time.Time
+	if v := strings.TrimSpace(it.SpotManufactureDate); v != "" {
+		t, err := time.ParseInLocation("2006-01-02", v, time.Local)
+		if err != nil {
+			return row, file, errs.ErrParam.WithMsg("生产日期格式应为 YYYY-MM-DD")
+		}
+		labelMfg = &t
+	}
+	if v := strings.TrimSpace(it.SpotMaintenanceDate); v != "" {
+		t, err := time.ParseInLocation("2006-01-02", v, time.Local)
+		if err != nil {
+			return row, file, errs.ErrParam.WithMsg("维修日期格式应为 YYYY-MM-DD")
+		}
+		labelMaint = &t
+	}
+	if !it.SpotLabelMissing && !it.SpotNoSticker && labelMfg == nil {
+		return row, file, errs.ErrParam.WithMsg("请填写生产日期（读不到则勾选「标签缺失」）")
+	}
+	res := eqsvc.CompareSpot(eqsvc.SpotCompareInput{
+		LedgerManufacture: e.ManufactureDate,
+		LedgerLastMaint:   e.LastMaintenanceDate,
+		LabelManufacture:  labelMfg,
+		LabelMaint:        labelMaint,
+		NoSticker:         it.SpotNoSticker,
+		LabelMissing:      it.SpotLabelMissing,
+		FirstMonths:       rule.FirstMonths,
+		CycleMonths:       rule.CycleMonths,
+		Now:               time.Now(),
+	})
+	row.Pass = res.Pass
+	if !res.Pass {
+		row.Note = strings.Join(res.Mismatches, "；")
+	}
+	row.Photos = types.StringArray{file.ID}
+	// 快照留证：设备 + 现场提交值（比对只核对不写台账）
+	row.JudgeConfig = types.JSONMap{
+		"equipment_id": e.ID, "equipment_no": e.Code,
+		"spot_manufacture_date": strings.TrimSpace(it.SpotManufactureDate),
+		"spot_maintenance_date": strings.TrimSpace(it.SpotMaintenanceDate),
+		"spot_no_sticker": it.SpotNoSticker, "spot_label_missing": it.SpotLabelMissing,
+	}
+	return row, file, nil
+}
 // 不含客户端时间偏差：手机时钟不准的误报多，且打卡时间以服务端为准、改客户端时间无伪造收益；
 // client_time 字段仅保留作离线补传的实际打卡时刻记录。
 func (s *CheckinService) suspectCheck(point *insmodel.InspectionPoint, distance float64, geoOK bool, files map[string]sysmodel.UploadFile) (bool, string) {

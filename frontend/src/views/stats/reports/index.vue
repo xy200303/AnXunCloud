@@ -141,6 +141,37 @@
             </el-descriptions-item>
           </el-descriptions>
 
+          <!-- 设备台账（v1.7：状态快照/当期维保/抽查/判定来源；无设备小区不显示） -->
+          <template v-if="equipmentStats">
+            <div class="section-title">设备台账</div>
+            <el-descriptions :column="3" border size="small">
+              <el-descriptions-item label="正常">{{ equipmentStats.status_buckets.normal }}</el-descriptions-item>
+              <el-descriptions-item label="临期">
+                <span :class="{ 'danger-text': equipmentStats.status_buckets.warning > 0 }">{{ equipmentStats.status_buckets.warning }}</span>
+              </el-descriptions-item>
+              <el-descriptions-item label="已逾期">
+                <span :class="{ 'danger-text': equipmentStats.status_buckets.overdue > 0 }">{{ equipmentStats.status_buckets.overdue }}</span>
+              </el-descriptions-item>
+              <el-descriptions-item label="应报废">
+                <span :class="{ 'danger-text': equipmentStats.status_buckets.scrap > 0 }">{{ equipmentStats.status_buckets.scrap }}</span>
+              </el-descriptions-item>
+              <el-descriptions-item label="标签缺失">
+                <span :class="{ 'danger-text': equipmentStats.status_buckets.label_missing > 0 }">{{ equipmentStats.status_buckets.label_missing }}</span>
+              </el-descriptions-item>
+              <el-descriptions-item label="维保登记/确认">
+                {{ equipmentStats.maintenance.registered }} / {{ equipmentStats.maintenance.confirmed }}
+              </el-descriptions-item>
+              <el-descriptions-item label="抽查触发/不符">
+                {{ equipmentStats.spotcheck.triggered }} /
+                <span :class="{ 'danger-text': equipmentStats.spotcheck.mismatch > 0 }">{{ equipmentStats.spotcheck.mismatch }}</span>
+              </el-descriptions-item>
+              <el-descriptions-item label="判定来源（系统/人工·AI）" :span="2">
+                {{ equipmentStats.judge_source.system }} / {{ equipmentStats.judge_source.manual_ai }}
+                <span class="text-secondary">（台账有效期与日期标签抽查为系统判定）</span>
+              </el-descriptions-item>
+            </el-descriptions>
+          </template>
+
           <!-- 逐日明细 -->
           <template v-if="stats.daily.length">
             <div class="section-title">逐日明细</div>
@@ -456,6 +487,19 @@ const emptyStats: ReportStats = {
   daily: []
 }
 const stats = computed<ReportStats>(() => ({ ...emptyStats, ...(detail.value?.stats || {}), daily: detail.value?.stats?.daily || [] }))
+
+// 设备台账章节（v1.7；stats.equipment 缺省=旧报告/无设备，不显示区块）
+interface EquipmentStats {
+  status_buckets: { normal: number; warning: number; overdue: number; scrap: number; label_missing: number }
+  maintenance: { registered: number; confirmed: number; rejected: number }
+  spotcheck: { triggered: number; mismatch: number }
+  judge_source: { system: number; manual_ai: number }
+}
+const equipmentStats = computed<EquipmentStats | null>(() => {
+  const eq = detail.value?.stats?.equipment as EquipmentStats | undefined
+  if (!eq || !eq.status_buckets) return null
+  return eq
+})
 
 // ===== 记录明细分页加载（后端分页，滚动到底拉下一页，避免几千行一次返回/渲染卡死） =====
 const RECORDS_PAGE_SIZE = 100

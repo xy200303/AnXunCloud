@@ -24,6 +24,12 @@ type CheckinItemReq struct {
 	AIReason      string `json:"ai_reason"`
 	AIReading     string `json:"ai_reading"`
 	ExceptionType string `json:"exception_type"`
+	// 标签抽查合成项（judge_type=equipment_date_spot）提交字段：生产日期/维修日期（YYYY-MM-DD，可空）、
+	// 无贴纸标记、标签缺失标记（勾缺失则日期免填、强制异常进审核）；服务端按四规则与台账比对，客户端 pass 被忽略
+	SpotManufactureDate string `json:"spot_manufacture_date"`
+	SpotMaintenanceDate string `json:"spot_maintenance_date"`
+	SpotNoSticker       bool   `json:"spot_no_sticker"`
+	SpotLabelMissing    bool   `json:"spot_label_missing"`
 }
 
 // CheckinReq 打卡提交（离线补传单条结构相同）。

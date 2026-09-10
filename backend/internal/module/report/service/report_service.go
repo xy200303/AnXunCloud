@@ -298,6 +298,9 @@ func (s *ReportService) buildStatsRange(communityID string, start, end time.Time
 		daily = append(daily, gin.H{"date": d.Date, "task_total": d.Total, "task_done": d.Done, "abnormal": abByDay[d.Date]})
 	}
 
+	// 设备台账章节（v1.7；无设备小区各计数为 0）
+	eqStats := s.buildEquipmentStats(communityID, start, end)
+
 	stats := types.JSONMap{
 		"task_total":     taskSum.Total,
 		"task_done":      taskSum.Done,
@@ -309,6 +312,7 @@ func (s *ReportService) buildStatsRange(communityID string, start, end time.Time
 		"suspect_count":  ckSum.Suspect,
 		"issue_count":    ckSum.Abnormal, // 当期异常打卡数（原 wo_created 口径的替代指标）
 		"daily":          daily,
+		"equipment":      eqStats, // 设备台账章节（状态快照/当期维保/抽查/判定来源）
 	}
 	return stats, types.IDArray(inspectorIDs), nil
 }

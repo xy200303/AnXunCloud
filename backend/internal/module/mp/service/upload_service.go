@@ -168,10 +168,10 @@ func (s *UploadService) SaveLocal(userID string, scene, filename string, size in
 	return gin.H{"file_id": rec.ID, "url": url}, nil
 }
 
-// SaveAdminLocal 管理端本地上传（/api/admin/system/upload）：签名/公章/头像/公告附件。
+// SaveAdminLocal 管理端本地上传（/api/admin/system/upload）：签名/公章/头像/公告附件/设备维保登记照片。
 func (s *UploadService) SaveAdminLocal(userID string, scene, filename string, size int64, r io.Reader) (gin.H, *errs.Error) {
 	switch scene {
-	case "signature", "seal", "avatar", "notice":
+	case "signature", "seal", "avatar", "notice", "equipment":
 	default:
 		return nil, errs.ErrParam.WithMsg("scene 取值非法")
 	}

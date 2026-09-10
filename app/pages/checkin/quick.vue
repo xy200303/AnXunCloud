@@ -44,6 +44,17 @@
         </view>
       </view>
 
+      <!-- 点位设备提醒横幅（v1.7 展示增强，零新增动作）：逾期/报废红、临期黄；点击跳到设备项 -->
+      <view
+        v-if="equipBanner.show && phase != 'taskDone'"
+        class="equip-banner"
+        :style="{ backgroundColor: equipBanner.danger ? colors.danger : colors.warning }"
+        @click="jumpToEquip"
+      >
+        <text class="equip-banner-text" :style="{ color: colors.white }">{{ equipBanner.text }}</text>
+        <text class="equip-banner-arrow" :style="{ color: colors.white }">></text>
+      </view>
+
       <QuickCredentialCard
         v-if="phase == 'cred'"
         :point="curPoint"
@@ -67,6 +78,8 @@
         <QuickItemCard
           :item="curItem"
           :is-photo="curItemIsPhoto"
+          :is-spot="curItemIsSpot"
+          :equip-judge="curEquipJudge"
           :manual-abnormal-open="manualAbnormalOpen"
           :manual-note="manualNote"
           :exception-label="curItemExceptionText"
@@ -81,6 +94,11 @@
           @manual-abnormal="tapManualAbnormal"
           @update:manual-note="manualNote = $event"
           @confirm-manual-abnormal="confirmManualAbnormal"
+          @register="goEquipRegister"
+          @spot-photo="takeSpotPhoto"
+          @spot-ai="aiReadSpotLabel"
+          @spot-field="onSpotField"
+          @spot-confirm="confirmSpot"
         />
       </block>
 
@@ -166,6 +184,7 @@ import {
   apiItemDraftPhotoAbnormal,
   CODE_AI_DISABLED,
   CODE_CHECKIN_LOCKED,
+  EquipmentAutoJudge,
   ItemDraft,
   TaskPoint
 } from '@/services/api'
@@ -271,12 +290,13 @@ function fmtDateTime(d: Date): string {
   )
 }
 
-/** 由点位模板生成向导项初始状态 */
-function freshItem(name: string, requirement: string, judgeType: string): WizardItemSnap {
-  return {
+/** 由点位模板生成向导项初始状态（台账有效期项按服务端 auto_judge 预置结论，巡检员不可改） */
+function freshItem(name: string, requirement: string, judgeType: string, autoJudge: EquipmentAutoJudge | null): WizardItemSnap {
+  const it: WizardItemSnap = {
     name: name,
     requirement: requirement,
     judge_type: judgeType,
+    auto_judge: autoJudge,
     photos: [],
     file_ids: [],
     exception_type: '',
@@ -289,8 +309,29 @@ function freshItem(name: string, requirement: string, judgeType: string): Wizard
     quality_pass: true,
     quality_issue: '',
     pass: true,
-    note: ''
+    note: '',
+    spot_mfg: '',
+    spot_maint: '',
+    spot_no_sticker: false,
+    spot_label_missing: false,
+    spot_ai_loading: false
   }
+  // 台账有效期合成项（v1.6 逐台独立）：按服务端判定预置展示态，初始化即落定；
+  // 不上送、不参与人工分流（服务端提交时实时逐台判定，逾期记录级强制异常兜底）
+  if (judgeType == 'equipment_validity' && autoJudge != null) {
+    it.status = 'done'
+    if (autoJudge.status == 'overdue') {
+      it.pass = false
+      it.verdict = 'abnormal' // 收尾统计可见异常台数；提交结果以服务端为准
+      it.note = '设备维保逾期：编号 ' + autoJudge.equipment_code + ' 到期日 ' + autoJudge.next_due_date
+      if (autoJudge.has_pending_register) it.note += '（已登记维保待确认）'
+    } else {
+      it.pass = true
+      it.verdict = 'pass'
+      if (autoJudge.status == 'no_data') it.note = '台账数据缺失待补录'
+    }
+  }
+  return it
 }
 
 /** 由点位模板生成向导点位初始状态 */
@@ -300,7 +341,7 @@ function freshPoint(p: TaskPoint): WizardPointSnap {
     status: 'doing',
     scannedNo: '',
     nfcCardId: '',
-    items: (p.check_items || []).map((c) => freshItem(c.name, c.requirement, c.judge_type))
+    items: (p.check_items || []).map((c) => freshItem(c.name, c.requirement, c.judge_type, c.auto_judge ?? null))
   }
 }
 
@@ -376,9 +417,37 @@ export default {
     curItemCount(): number {
       return this.curWizPoint != null ? this.curWizPoint.items.length : 0
     },
-    /** 当前项是否拍照项（judge_type != 'manual'；缺省按拍照项） */
+    /** 当前项是否拍照项（manual 感官项与 equipment_validity 台账有效期项之外的类型；缺省按拍照项） */
     curItemIsPhoto(): boolean {
-      return this.curItem != null && this.curItem.judge_type != 'manual'
+      return this.curItem != null && this.curItem.judge_type != 'manual' && this.curItem.judge_type != 'equipment_validity' && this.curItem.judge_type != 'equipment_date_spot'
+    },
+    /** 点位设备横幅：统计当前点位台账合成项临期/逾期/报废台数 */
+    equipBanner(): { show: boolean; danger: boolean; text: string } {
+      const wp = this.curWizPoint
+      if (wp == null) return { show: false, danger: false, text: '' }
+      let warn = 0
+      let bad = 0
+      wp.items.forEach((it) => {
+        if (it.judge_type != 'equipment_validity' || it.auto_judge == null) return
+        if (it.auto_judge.scrap_due || it.auto_judge.status == 'overdue') {
+          bad++
+        } else if (it.auto_judge.status == 'warning') {
+          warn++
+        }
+      })
+      if (bad > 0) return { show: true, danger: true, text: '该点位 ' + bad + ' 台设备已逾期/应报废' + (warn > 0 ? '，' + warn + ' 台临期' : '') }
+      if (warn > 0) return { show: true, danger: false, text: '该点位 ' + warn + ' 台设备临期' }
+      return { show: false, danger: false, text: '' }
+    },
+    /** 当前项是否标签抽查合成项（v1.7；必拍+填日期，服务端四规则比对） */
+    curItemIsSpot(): boolean {
+      return this.curItem != null && this.curItem.judge_type == 'equipment_date_spot'
+    },
+    /** 当前台账有效期项的自动判定（非该类型/未关联台账为 null，走人工分支） */
+    curEquipJudge(): EquipmentAutoJudge | null {
+      const it = this.curItem
+      if (it == null || it.judge_type != 'equipment_validity') return null
+      return it.auto_judge ?? null
     },
     curItemExceptionText(): string {
       return this.curItem == null ? '设备不存在/无法检测，提交异常' : this.exceptionText(this.curItem.exception_type)
@@ -645,12 +714,30 @@ export default {
               const it = wp.items.find((x) => x.name == d.item_name)
               if (it == null) return
               if (it.judge_type == 'manual') {
-                // 感官项：恢复手动选择结果
+                // 感官项：恢复手动选择结果（台账有效期合成项无草稿，每次按服务端最新判定重建）
                 if (d.manual_pass == null) return
                 it.pass = d.manual_pass
                 it.note = d.manual_pass ? '' : d.manual_note
                 it.verdict = d.manual_pass ? 'pass' : 'abnormal'
                 it.status = 'done'
+                return
+              }
+              // 抽查合成项：恢复照片 + AI 读数预填日期（结论服务端比对，草稿仅过程数据）
+              if (it.judge_type == 'equipment_date_spot') {
+                it.file_ids = d.file_ids.slice()
+                it.photos = d.photos.slice()
+                it.img_error = false
+                if (it.file_ids.length > 0) {
+                  const m = (d.ai_reading || '').match(/M(\d{4}-\d{2}|无)\|W(\d{4}-\d{2}|无)/)
+                  if (m != null) {
+                    if (m[1] != '无' && (it.spot_mfg ?? '') == '') it.spot_mfg = m[1] + '-01'
+                    if (m[2] != '无' && (it.spot_maint ?? '') == '') {
+                      it.spot_maint = m[2] + '-01'
+                    } else if (m[2] == '无') {
+                      it.spot_no_sticker = true
+                    }
+                  }
+                }
                 return
               }
               // 拍照项：照片 + AI 识别结论
@@ -1030,6 +1117,142 @@ export default {
     captureIsCurrent(token: number): boolean {
       return !this.destroyed && this.captureToken == token
     },
+    /** 横幅点击：跳到当前点位第一个设备合成项（台账有效期/抽查） */
+    jumpToEquip() {
+      const wp = this.curWizPoint
+      if (wp == null) return
+      const idx = wp.items.findIndex((it) => it.judge_type == 'equipment_validity' || it.judge_type == 'equipment_date_spot')
+      if (idx < 0) return
+      this.itemIdx = idx
+      this.phase = 'items'
+    },
+    /** 抽查项字段更新（QuickItemCard picker/勾选透传；标签缺失勾选后清空日期） */
+    onSpotField(payload: { field: string; value: any }) {
+      const it = this.curItem
+      if (it == null || !this.curItemIsSpot) return
+      ;(it as any)[payload.field] = payload.value
+      if (payload.field == 'spot_label_missing' && payload.value == true) {
+        it.spot_mfg = ''
+        it.spot_maint = ''
+      }
+    },
+    /** 抽查项拍照（仅相机，一项一图）：上传换 file_id 后即完成照片部分 */
+    takeSpotPhoto() {
+      const it = this.curItem
+      if (it == null || !this.curItemIsSpot || this.captureBusy || this.submitting) return
+      uni.chooseImage({
+        count: 1,
+        sourceType: ['camera'],
+        success: (res) => {
+          const path = (res.tempFilePaths || [])[0]
+          if (path == null) return
+          this.captureBusy = true
+          this.overlayMsg = '上传中…'
+          compressForUpload(path)
+            .then((p) => apiUploadLocal(p))
+            .then((up) => {
+              it.photos = [up.url]
+              it.file_ids = [up.file_id]
+              it.img_error = false
+            })
+            .catch((e: any) => {
+              uni.showToast({ title: (e && e.message) || '上传失败，请重试', icon: 'none' })
+            })
+            .finally(() => {
+              this.captureBusy = false
+              this.overlayMsg = ''
+            })
+        }
+      })
+    },
+    /** 抽查项 AI 读标签预填（需已拍照；失败/超时允许手填，不阻塞） */
+    aiReadSpotLabel() {
+      const it = this.curItem
+      if (it == null || !this.curItemIsSpot || it.spot_ai_loading || it.file_ids.length == 0) return
+      const wp = this.curWizPoint
+      if (wp == null) return
+      it.spot_ai_loading = true
+      apiAiItemJobCreate({ task_id: this.taskId, point_id: wp.point_id, name: it.name, file_ids: it.file_ids.slice() })
+        .then((j) => this.pollSpotLabelJob(it, j.job_id, 8))
+        .catch((e: any) => {
+          it.spot_ai_loading = false
+          uni.showToast({ title: (e && e.message) || 'AI 识别不可用，请手填日期', icon: 'none' })
+        })
+    },
+    /** 轮询读标签结果：M2020-05|W2025-03 紧凑格式解析预填（巡检员可改，提交以确认值为准） */
+    pollSpotLabelJob(it: WizardItemSnap, jobId: string, retries: number) {
+      setTimeout(() => {
+        if (this.destroyed) return
+        apiAiItemJobs([jobId])
+          .then((jobs) => {
+            const j = jobs[0]
+            if (j != null && j.status == 'done') {
+              const m = (j.reading || '').match(/M(\d{4}-\d{2}|无)\|W(\d{4}-\d{2}|无)/)
+              if (m != null) {
+                if (m[1] != '无') it.spot_mfg = m[1] + '-01'
+                if (m[2] != '无') {
+                  it.spot_maint = m[2] + '-01'
+                  it.spot_no_sticker = false
+                } else {
+                  it.spot_no_sticker = true
+                }
+                uni.showToast({ title: '已预填日期，请核对', icon: 'none' })
+              } else {
+                uni.showToast({ title: '未读到日期，请手填', icon: 'none' })
+              }
+              it.spot_ai_loading = false
+              return
+            }
+            if (j != null && j.status == 'failed') {
+              it.spot_ai_loading = false
+              uni.showToast({ title: 'AI 识别失败，请手填日期', icon: 'none' })
+              return
+            }
+            if (retries > 0) {
+              this.pollSpotLabelJob(it, jobId, retries - 1)
+            } else {
+              it.spot_ai_loading = false
+              uni.showToast({ title: 'AI 识别超时，请手填日期', icon: 'none' })
+            }
+          })
+          .catch(() => {
+            it.spot_ai_loading = false
+          })
+      }, 1500)
+    },
+    /** 抽查项完成：校验必拍+日期（标签缺失全免/无贴纸免维修日期）→ 落定进下一项；比对结论服务端给出 */
+    confirmSpot() {
+      const it = this.curItem
+      if (it == null || !this.curItemIsSpot || it.status == 'done') return
+      if (it.file_ids.length == 0) {
+        uni.showToast({ title: '请先拍 1 张标签/设备照片', icon: 'none' })
+        return
+      }
+      if (!it.spot_label_missing) {
+        if ((it.spot_mfg ?? '') == '') {
+          uni.showToast({ title: '请填写生产日期（读不到则勾选标签缺失）', icon: 'none' })
+          return
+        }
+        if (!it.spot_no_sticker && (it.spot_maint ?? '') == '') {
+          uni.showToast({ title: '请填写维修日期或选「无贴纸」', icon: 'none' })
+          return
+        }
+      }
+      it.status = 'done'
+      it.verdict = 'pass' // 展示用占位；结论以服务端四规则比对为准
+      this.nextStep()
+    },
+    /** 台账有效期合成项「已完成维保？登记」：跳维保登记页（逐台：该设备自己的上下文；登记后回到向导原位） */
+    goEquipRegister() {
+      const aj = this.curEquipJudge
+      if (aj == null || aj.equipment_id == '') return
+      uni.navigateTo({
+        url:
+          '/pages/equipment/register?equipment_id=' + encodeURIComponent(aj.equipment_id) +
+          '&name=' + encodeURIComponent(aj.equipment_name) +
+          '&code=' + encodeURIComponent(aj.equipment_code)
+      })
+    },
     /** 感官项：正常一次过 */
     tapManualOk() {
       const it = this.curItem
@@ -1272,7 +1495,19 @@ export default {
       if (wp == null) return
       const retake: number[] = []
       const abnormal: number[] = []
+      // 抽查合成项：未完成（未拍/未填日期）阻断提交并跳回该项
+      for (let i = 0; i < wp.items.length; i++) {
+        const si = wp.items[i]
+        if (si.judge_type == 'equipment_date_spot' && si.status != 'done') {
+          this.itemIdx = i
+          this.phase = 'items'
+          uni.showToast({ title: '「' + si.name + '」未完成：须拍照并填写日期', icon: 'none' })
+          return
+        }
+      }
       wp.items.forEach((it, i) => {
+        // 台账有效期/抽查合成项：服务端判定（逾期/不符记录级转人工），不参与向导的补拍/异常分流
+        if (it.judge_type == 'equipment_validity' || it.judge_type == 'equipment_date_spot') return
         if (it.judge_type != 'manual') {
           // 拍照项：未拍 / 识别失败 / 质量不合格 → 补拍
           if (it.status == 'todo' || it.status == 'failed' || (it.status == 'done' && !it.quality_pass)) {
@@ -1281,6 +1516,7 @@ export default {
           }
           if (it.status == 'done' && it.verdict == 'abnormal') abnormal.push(i)
         } else if (!it.pass) {
+          // 感官项：巡检员手选异常
           abnormal.push(i)
         }
       })
@@ -1323,18 +1559,26 @@ export default {
       abnIdxs.forEach((i) => {
         abnSet[i] = true
       })
-      const checkItems = wp.items.map((it, i) => {
+      // 台账有效期合成项不上送（服务端按点位实时逐台判定追加快照）；abnSet 键为 wp.items 原始下标，过滤时保留
+      const checkItems: any[] = []
+      wp.items.forEach((it, i) => {
+        if (it.judge_type == 'equipment_validity') return
         const isAbn = abnSet[i] == true
-        return {
+        const isSpot = it.judge_type == 'equipment_date_spot'
+        checkItems.push({
           name: it.name,
-          pass: !isAbn,
+          pass: isSpot ? true : !isAbn, // 抽查项 pass 由服务端四规则比对决定
           note: isAbn ? it.note : '',
           photos: it.file_ids.slice(),
           exception_type: it.exception_type ?? '',
-          ai_verdict: it.verdict,
-          ai_reason: it.reason,
-          ai_reading: it.reading
-        }
+          ai_verdict: isSpot ? '' : it.verdict,
+          ai_reason: isSpot ? '' : it.reason,
+          ai_reading: isSpot ? '' : it.reading,
+          spot_manufacture_date: isSpot ? it.spot_mfg : undefined,
+          spot_maintenance_date: isSpot ? it.spot_maint : undefined,
+          spot_no_sticker: isSpot ? it.spot_no_sticker : undefined,
+          spot_label_missing: isSpot ? it.spot_label_missing : undefined
+        })
       })
       const remark = wp.items
         .filter((it, i) => abnSet[i] == true && it.note != '')
@@ -1473,6 +1717,26 @@ export default {
 .empty-retry {
   font-size: 30rpx;
   padding: 16rpx 32rpx;
+}
+
+/* 点位设备提醒横幅 */
+.equip-banner {
+  border-radius: 16rpx;
+  padding: 20rpx 24rpx;
+  margin-bottom: 24rpx;
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.equip-banner-text {
+  font-size: 26rpx;
+  flex: 1;
+}
+
+.equip-banner-arrow {
+  font-size: 26rpx;
+  margin-left: 16rpx;
 }
 
 .wizard {

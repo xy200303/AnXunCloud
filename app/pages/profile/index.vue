@@ -32,6 +32,20 @@
         <text  hover-class="hover-dim" class="row-text" :style="{ color: colors.textRegular }">点位管理</text>
         <text  hover-class="hover-dim" class="row-arrow" :style="{ color: colors.textSecondary }">></text>
       </view>
+      <view v-if="canEquipment"  hover-class="hover-dim" class="row" @click="goAdmin('/pages/equipment/index')">
+        <text  hover-class="hover-dim" class="row-text" :style="{ color: colors.textRegular }">设备台账</text>
+        <view class="row-right">
+          <text v-if="equipmentDueCount > 0" class="row-badge" :style="{ backgroundColor: colors.danger, color: colors.white }">{{ equipmentDueCount > 99 ? '99+' : equipmentDueCount }}</text>
+          <text  hover-class="hover-dim" class="row-arrow" :style="{ color: colors.textSecondary }">></text>
+        </view>
+      </view>
+      <view v-if="canEquipmentConfirm"  hover-class="hover-dim" class="row" @click="goAdmin('/pages/equipment/confirm')">
+        <text  hover-class="hover-dim" class="row-text" :style="{ color: colors.textRegular }">维保确认</text>
+        <view class="row-right">
+          <text v-if="equipmentPendingCount > 0" class="row-badge" :style="{ backgroundColor: colors.danger, color: colors.white }">{{ equipmentPendingCount > 99 ? '99+' : equipmentPendingCount }}</text>
+          <text  hover-class="hover-dim" class="row-arrow" :style="{ color: colors.textSecondary }">></text>
+        </view>
+      </view>
     </view>
 
     <!-- 功能入口 -->
@@ -65,7 +79,7 @@
 <script lang="ts">
 import { Colors, ColorTokens } from '@/utils/theme'
 import { APP_VERSION } from '@/utils/appVersion'
-import { apiUploadLocal, apiUpdateProfile, apiTenants } from '@/services/api'
+import { apiUploadLocal, apiUpdateProfile, apiTenants, apiEquipmentDue, apiMaintenancePending } from '@/services/api'
 import { withFileToken } from '@/utils/fileurl'
 import { useAuthStore } from '@/stores/auth'
 import { useTenantStore } from '@/stores/tenant'
@@ -76,6 +90,10 @@ type ProfileData = {
   colors: ColorTokens
   /** 安装包版本号（App 端取 plus.runtime，其他端回落默认值） */
   appVersion: string
+  /** 设备台账角标：待维保台数（临期+逾期） */
+  equipmentDueCount: number
+  /** 维保确认角标：待确认登记数 */
+  equipmentPendingCount: number
 }
 
 export default {
@@ -83,7 +101,9 @@ export default {
   data(): ProfileData {
     return {
       colors: Colors,
-      appVersion: APP_VERSION
+      appVersion: APP_VERSION,
+      equipmentDueCount: 0,
+      equipmentPendingCount: 0
     }
   },
   onLoad() {
@@ -157,9 +177,17 @@ export default {
     canPointManage(): boolean {
       return useAuthStore().hasPerm('inspection:point:list')
     },
+    /** 设备台账入口（逾期数角标） */
+    canEquipment(): boolean {
+      return useAuthStore().hasPerm('equipment:list')
+    },
+    /** 维保确认入口（pending 数角标；默认仅经理/管理员角色） */
+    canEquipmentConfirm(): boolean {
+      return useAuthStore().hasPerm('equipment:confirm')
+    },
     /** 管理区块整体显隐：任一入口可见即显示 */
     showAdmin(): boolean {
-      return this.canDashboard || this.canReview || this.canPointManage
+      return this.canDashboard || this.canReview || this.canPointManage || this.canEquipment || this.canEquipmentConfirm
     },
     /** 是否超级管理员（「当前公司」切换入口仅超管可见） */
     isSuperAdmin(): boolean {
@@ -177,6 +205,21 @@ export default {
     const store = useAuthStore()
     if (store.isLoggedIn) {
       store.fetchProfile().catch((_e: any) => {})
+    }
+    // 设备台账角标（失败静默：无权限/未上线不打扰）
+    if (this.canEquipment) {
+      apiEquipmentDue()
+        .then((list) => {
+          this.equipmentDueCount = list.length
+        })
+        .catch((_e: any) => {})
+    }
+    if (this.canEquipmentConfirm) {
+      apiMaintenancePending(1, 1)
+        .then((res) => {
+          this.equipmentPendingCount = res.total
+        })
+        .catch((_e: any) => {})
     }
   },
   methods: {
@@ -357,6 +400,20 @@ export default {
 
 .row-arrow {
   font-size: 26rpx;
+}
+
+.row-right {
+  flex-direction: row;
+  align-items: center;
+}
+
+/* 入口角标（待维保/待确认数） */
+.row-badge {
+  font-size: 22rpx;
+  border-radius: 20rpx;
+  padding: 2rpx 14rpx;
+  margin-right: 12rpx;
+  overflow: hidden;
 }
 
 .btn-logout {

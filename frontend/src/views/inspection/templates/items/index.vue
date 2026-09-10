@@ -136,7 +136,8 @@ import {
 } from '@/api/template'
 import type { PhotoRequired } from '@/api/biz-types'
 
-// AI 判定类型选项（与后端 ai.NormalizeJudgeType 对齐；非法/空值后端兜底为 general）
+// AI 判定类型选项（与后端 ai.NormalizeJudgeType 对齐；非法/空值后端兜底为 general；
+// 系统内置类型（台账有效期/日期标签抽查）绑定即启用，不在模板配置，后端保存时拒绝）
 const JUDGE_TYPES: { value: string; label: string; desc: string }[] = [
   { value: 'general', label: '通用综合判定', desc: '默认：结合检查要求综合判断照片是否合格' },
   { value: 'presence', label: '有无', desc: '判断照片中是否存在所述设施/物品' },

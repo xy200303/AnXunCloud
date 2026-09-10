@@ -50,13 +50,18 @@ const (
 	JudgeBaseline  = "baseline"  // 基线对比（二期预留，一期按 general 处理）
 	// JudgeManual 手动确认项：不拍照不调 AI，由巡检员现场手选正常/异常（如噪音、气味等照片无法判定的项）
 	JudgeManual = "manual"
+	// JudgeEquipmentValidity 台账有效期（系统内置，服务端按设备台账 next_due_date 自动判定，不调 AI 不要求照片）
+	JudgeEquipmentValidity = "equipment_validity"
+	// JudgeEquipmentDateSpot 日期标签抽查（系统内置，二期预留，本期不实现逻辑）
+	JudgeEquipmentDateSpot = "equipment_date_spot"
 )
 
 // NormalizeJudgeType 判定类型归一化：非法/空值回 general（兜底，不报错）。
 func NormalizeJudgeType(jt string) string {
 	switch strings.TrimSpace(jt) {
 	case JudgePresence, JudgeDamage, JudgeMetric, JudgeState, JudgeLabel,
-		JudgePassage, JudgeLeak, JudgeIndicator, JudgeTidiness, JudgeBaseline, JudgeManual:
+		JudgePassage, JudgeLeak, JudgeIndicator, JudgeTidiness, JudgeBaseline, JudgeManual,
+		JudgeEquipmentValidity, JudgeEquipmentDateSpot:
 		return strings.TrimSpace(jt)
 	}
 	return JudgeGeneral

@@ -174,12 +174,17 @@ onUnmounted(() => {
   if (pollTimer) clearInterval(pollTimer)
 })
 
-// 点击消息：标记已读（局部更新角标），不再跳转业务详情
+// 点击消息：标记已读（局部更新角标）；设备类消息跳转对应业务页
 async function handleMessageClick(msg: MessageItem) {
   if (!msg.is_read) {
     msg.is_read = true
     unreadCount.value = Math.max(0, unreadCount.value - 1)
     markMessageRead(msg.id).catch(() => {})
+  }
+  // 设备台账：到期提醒 → 台账页；维保登记驳回 → 台账页（管理员可进维保确认 tab）
+  if (msg.type === 'equipment_expire' || msg.type === 'equipment_maint_reject') {
+    messageVisible.value = false
+    router.push('/inspection/equipment')
   }
 }
 

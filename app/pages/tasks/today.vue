@@ -10,6 +10,19 @@
       <text class="offline-bar-text" :style="{ color: colors.primary }">离线暂存 {{ offlineCount }} 条打卡，点击立即补传</text>
     </view>
 
+    <!-- 维保待办红色卡片：有临期/逾期设备才显示，点击跳台账页带筛选 -->
+    <view
+      v-if="dueCount > 0"
+      class="due-bar"
+      :style="{ backgroundColor: colors.danger }"
+      @click="goEquipmentDue"
+    >
+      <text class="due-bar-text" :style="{ color: colors.white }">
+        维保待办 {{ dueCount }} 台{{ dueMaxOverdue > 0 ? '，最早已逾期 ' + dueMaxOverdue + ' 天' : '（临期），请及时处理' }}
+      </text>
+      <text class="due-bar-arrow" :style="{ color: colors.white }">></text>
+    </view>
+
     <!-- 骨架屏 -->
     <view v-if="loading" class="skeleton">
       <view class="sk-block" :style="{ backgroundColor: colors.border }"></view>
@@ -88,6 +101,18 @@
 
     <view class="tabbar-space"></view>
 
+    <!-- 维保启动提醒弹窗（每天第一次进本页且有待维保设备时弹出，自绘） -->
+    <view v-if="dueTipVisible" class="tip-mask" :style="{ backgroundColor: colors.mask }" @click="closeDueTip">
+      <view class="tip-dialog" :style="{ backgroundColor: colors.bgCard }" @click.stop="">
+        <text class="tip-title" :style="{ color: colors.textPrimary }">维保提醒</text>
+        <text class="tip-content" :style="{ color: colors.textRegular }">{{ dueTipText }}</text>
+        <view class="tip-actions">
+          <text class="tip-btn" :style="{ color: colors.textSecondary }" @click="closeDueTip">知道了</text>
+          <text class="tip-btn" :style="{ color: colors.primary }" @click="goEquipmentDue">去处理</text>
+        </view>
+      </view>
+    </view>
+
     <!-- 版本更新弹窗（启动自动检查；强制更新不可跳过） -->
     <UpdateDialog ref="updDialog" />
   </view>
@@ -95,13 +120,23 @@
 
 <script lang="ts">
 import { Colors, ColorTokens } from '@/utils/theme'
-import { apiTasksToday, TodayTask } from '@/services/api'
+import { apiTasksToday, apiEquipmentDue, TodayTask } from '@/services/api'
 import { offlineCount, syncOfflineCheckins } from '@/utils/offline'
 import { useMessageStore } from '@/stores/message'
+import { useAuthStore } from '@/stores/auth'
 import { doNfc } from '@/utils/scan'
 import { fetchLatestRelease } from '@/utils/update'
 import AppChipScroller from '@/components/AppChipScroller.vue'
 import UpdateDialog from '@/components/UpdateDialog.vue'
+
+/** 维保提醒「每日一次」存储键 */
+const DUE_TIP_KEY = 'equipment_due_tip_date'
+
+function todayKey(): string {
+  const d = new Date()
+  const pad = (n: number) => (n < 10 ? '0' + n : '' + n)
+  return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate())
+}
 
 /** 巡查类型文案（内置回落：后端未透传 patrol_type_label 时使用；新类型如 fire 以字典 label 为准） */
 function patrolTextOf(t: string): string {
@@ -172,6 +207,13 @@ type TodayData = {
   menuOpen: boolean
   /** 「+」菜单项（数据驱动，后续加功能在此追加一行即可） */
   plusItems: Array<{ key: string; label: string; icon: string }>
+  /** 维保待办台数（0 = 不显示卡片；临期+逾期合计） */
+  dueCount: number
+  /** 最早逾期天数（0 = 无逾期，仅临期） */
+  dueMaxOverdue: number
+  /** 启动提醒弹窗 */
+  dueTipVisible: boolean
+  dueTipText: string
 }
 
 function statusTextOf(s: string): string {
@@ -227,7 +269,11 @@ export default {
         { key: 'nearby', label: '附近点位', icon: '◎' },
         { key: 'nfc', label: 'NFC 识别', icon: '≋' },
         { key: 'history', label: '历史任务', icon: '◷' }
-      ] as Array<{ key: string; label: string; icon: string }>
+      ] as Array<{ key: string; label: string; icon: string }>,
+      dueCount: 0,
+      dueMaxOverdue: 0,
+      dueTipVisible: false,
+      dueTipText: ''
     }
   },
   computed: {
@@ -281,6 +327,8 @@ export default {
     if (this.offlineCount > 0) {
       this.trySync()
     }
+    // 维保待办卡片 + 每日一次启动提醒（失败静默：无权限/未上线不打扰）
+    this.loadDue(true)
     // 刷新消息 tab 未读角标（轻量请求只取 unread_count，失败静默）
     useMessageStore().refresh()
   },
@@ -356,6 +404,39 @@ export default {
     goNearby() {
       uni.navigateTo({ url: '/pages/tasks/nearby' })
     },
+    /** 维保待办：拉取本租户临期+逾期设备；withTip 时按「每天一次」弹启动提醒 */
+    loadDue(withTip: boolean) {
+      // 无台账查看权限不查（卡片与弹窗都不显示）
+      if (!useAuthStore().hasPerm('equipment:list')) return
+      apiEquipmentDue()
+        .then((list) => {
+          this.dueCount = list.length
+          let maxOverdue = 0
+          list.forEach((e) => {
+            if ((e.overdue_days ?? 0) > maxOverdue) maxOverdue = e.overdue_days ?? 0
+          })
+          this.dueMaxOverdue = maxOverdue
+          if (!withTip || list.length == 0) return
+          // 启动弹窗每天最多一次（本地记日期）
+          if (uni.getStorageSync(DUE_TIP_KEY) == todayKey()) return
+          uni.setStorageSync(DUE_TIP_KEY, todayKey())
+          this.dueTipText = maxOverdue > 0
+            ? list.length + ' 台设备待维保，最早已逾期 ' + maxOverdue + ' 天，请尽快处理'
+            : list.length + ' 台设备临近维保期，请安排维保'
+          this.dueTipVisible = true
+        })
+        .catch((_e: any) => {})
+    },
+    closeDueTip() {
+      this.dueTipVisible = false
+    },
+    /** 待办卡片/弹窗「去处理」：跳台账页（有逾期按已逾期筛选，否则按临期） */
+    goEquipmentDue() {
+      this.dueTipVisible = false
+      uni.navigateTo({
+        url: '/pages/equipment/index?due_state=' + (this.dueMaxOverdue > 0 ? 'overdue' : 'warning')
+      })
+    },
     /** 类型筛选 chip：按当日任务实际类型动态生成（label 走后端字典，新类型零改动生效） */
     buildTypeChips() {
       const chips: Array<{ label: string; value: string }> = [{ label: '全部', value: '' }]
@@ -388,6 +469,66 @@ export default {
 
 .offline-bar-text {
   font-size: 26rpx;
+}
+
+/* 维保待办红色卡片 */
+.due-bar {
+  border-radius: 16rpx;
+  padding: 20rpx 24rpx;
+  margin-bottom: 24rpx;
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.due-bar-text {
+  font-size: 26rpx;
+  flex: 1;
+}
+
+.due-bar-arrow {
+  font-size: 26rpx;
+  margin-left: 16rpx;
+}
+
+/* 维保启动提醒弹窗 */
+.tip-mask {
+  position: fixed;
+  left: 0;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 999;
+  justify-content: center;
+  align-items: center;
+}
+
+.tip-dialog {
+  width: 600rpx;
+  border-radius: 24rpx;
+  padding: 32rpx;
+}
+
+.tip-title {
+  font-size: 32rpx;
+  font-weight: 600;
+}
+
+.tip-content {
+  font-size: 28rpx;
+  margin-top: 24rpx;
+  line-height: 44rpx;
+}
+
+.tip-actions {
+  flex-direction: row;
+  justify-content: flex-end;
+  margin-top: 32rpx;
+}
+
+.tip-btn {
+  font-size: 30rpx;
+  padding: 8rpx 24rpx;
 }
 
 /* 巡查类型筛选 chips */

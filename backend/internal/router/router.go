@@ -19,6 +19,8 @@ import (
 	authsvc "anxuncloud/internal/module/auth/service"
 	communityctl "anxuncloud/internal/module/community/controller"
 	communitysvc "anxuncloud/internal/module/community/service"
+	equipmentctl "anxuncloud/internal/module/equipment/controller"
+	equipmentsvc "anxuncloud/internal/module/equipment/service"
 	filectl "anxuncloud/internal/module/file/controller"
 	filesvc "anxuncloud/internal/module/file/service"
 	inspectionctl "anxuncloud/internal/module/inspection/controller"
@@ -31,6 +33,7 @@ import (
 	statssvc "anxuncloud/internal/module/stats/service"
 	systemctl "anxuncloud/internal/module/system/controller"
 	systemsvc "anxuncloud/internal/module/system/service"
+	"anxuncloud/internal/pkg/ai"
 	"anxuncloud/internal/pkg/jwtutil"
 	"anxuncloud/internal/pkg/logger"
 	"anxuncloud/internal/pkg/notify"
@@ -83,6 +86,9 @@ func New(cfg *config.Config, db *gorm.DB, rdb *redis.Client) (*gin.Engine, *insp
 	taskSvc := inspectionsvc.NewTaskService(db, store, notifier)
 	templateSvc := inspectionsvc.NewTemplateService(db)
 	reviewSvc := inspectionsvc.NewReviewService(db, notifier)
+	equipmentSvc := equipmentsvc.NewEquipmentService(db)
+	maintSvc := equipmentsvc.NewMaintenanceService(db, notifier, ai.NewClient(configSvc.Get, ai.WithStorage(store)))
+	expireSvc := equipmentsvc.NewExpireService(db, notifier)
 	statsSvc := statssvc.NewStatsService(db, store)
 	reportSvc := reportsvc.NewReportService(db, rdb, store, configSvc.Get, notifier)
 	mpSvc := mpsvc.NewMPService(db, rdb, sess, jwtm, cfg.Wechat)
@@ -90,6 +96,8 @@ func New(cfg *config.Config, db *gorm.DB, rdb *redis.Client) (*gin.Engine, *insp
 	checkinSvc.StartAIItemWorkers() // 逐项 AI 识别队列消费 worker（ai.worker_concurrency，随 router 装配启动）
 	uploadSvc := mpsvc.NewUploadService(db, store, cfg.Upload, cfg.OSS)
 	scheduler := inspectionsvc.NewScheduler(db, planSvc, reportSvc, configSvc.Get)
+	// 设备台账：每日到期扫描提醒（临期/逾期/升级经理，时间取 equipment.expire_check_time）
+	scheduler.Register(inspectionsvc.PlanJob{Name: "equipment_expire", Run: expireSvc.Run})
 
 	authCtl := authctl.NewAuthController(authSvc)
 	userCtl := systemctl.NewUserController(userSvc, db)
@@ -111,6 +119,8 @@ func New(cfg *config.Config, db *gorm.DB, rdb *redis.Client) (*gin.Engine, *insp
 	communityCtl := communityctl.NewCommunityController(communitySvc)
 	staffCtl := communityctl.NewStaffController(staffSvc)
 	inspectionCtl := inspectionctl.NewInspectionController(pointSvc, planSvc, taskSvc)
+	equipmentCtl := equipmentctl.NewEquipmentController(equipmentSvc)
+	maintCtl := equipmentctl.NewMaintenanceController(maintSvc)
 	templateCtl := inspectionctl.NewTemplateController(templateSvc)
 	reviewCtl := inspectionctl.NewReviewController(reviewSvc)
 	statsCtl := statsctl.NewStatsController(statsSvc)
@@ -252,6 +262,23 @@ func New(cfg *config.Config, db *gorm.DB, rdb *redis.Client) (*gin.Engine, *insp
 			points.PUT("/:id", middleware.RequirePerm("inspection:point:update"), middleware.OperLog(db, "inspection", "update"), inspectionCtl.UpdatePoint)
 			points.DELETE("/:id", middleware.RequirePerm("inspection:point:delete"), middleware.OperLog(db, "inspection", "delete"), inspectionCtl.DeletePoint)
 		}
+		// 设备台账与维保（《设备台账与维保周期管理设计方案》）
+		equipment := secured.Group("/equipment")
+		{
+			equipment.GET("/list", middleware.RequirePerm("equipment:list"), equipmentCtl.List)
+			equipment.GET("/import-template", middleware.RequirePerm("equipment:import"), equipmentCtl.ImportTemplate)
+			equipment.POST("/import", middleware.RequirePerm("equipment:import"), middleware.OperLog(db, "equipment", "import"), equipmentCtl.Import)
+			equipment.GET("/export", middleware.RequirePerm("equipment:export"), equipmentCtl.Export)
+			equipment.GET("/maintenance-pending", middleware.RequirePerm("equipment:confirm"), maintCtl.PendingList)
+			equipment.POST("/maintenance", middleware.RequirePerm("equipment:maintenance"), middleware.OperLog(db, "equipment", "maintenance"), maintCtl.Register)
+			equipment.POST("/maintenance/confirm", middleware.RequirePerm("equipment:confirm"), middleware.OperLog(db, "equipment", "confirm"), maintCtl.Confirm)
+			equipment.POST("/maintenance/reject", middleware.RequirePerm("equipment:confirm"), middleware.OperLog(db, "equipment", "reject"), maintCtl.Reject)
+			equipment.GET("/:id", middleware.RequirePerm("equipment:list"), equipmentCtl.Detail)
+			equipment.GET("/:id/maintenances", middleware.RequirePerm("equipment:list"), maintCtl.History)
+			equipment.POST("", middleware.RequirePerm("equipment:create"), middleware.OperLog(db, "equipment", "create"), equipmentCtl.Create)
+			equipment.PUT("/:id", middleware.RequirePerm("equipment:update"), middleware.OperLog(db, "equipment", "update"), equipmentCtl.Update)
+			equipment.DELETE("/:id", middleware.RequirePerm("equipment:delete"), middleware.OperLog(db, "equipment", "delete"), equipmentCtl.Delete)
+		}
 		// 巡检计划
 		plans := secured.Group("/inspection/plans")
 		{
@@ -344,6 +371,8 @@ func New(cfg *config.Config, db *gorm.DB, rdb *redis.Client) (*gin.Engine, *insp
 			mpAuth.GET("/tasks/:id", mpCtl.TaskDetail)
 			mpAuth.GET("/points/by-code/:code", mpCtl.PointByCode)
 			mpAuth.GET("/points/nearby", mpCtl.NearbyPoints)
+			mpAuth.GET("/equipment/due", maintCtl.MpDueDevices)          // 设备台账：我的待维保列表（临期+逾期）
+			mpAuth.POST("/equipment/maintenance", maintCtl.MpRegister)   // 维保登记（一键+一拍，pending 待经理确认）
 			mpAuth.POST("/checkin", mpCtl.Checkin)
 			mpAuth.POST("/checkin/offline-sync", mpCtl.OfflineSync)
 			mpAuth.POST("/checkin/ai-item-jobs", mpCtl.SubmitAIItemJob)                          // 逐项 AI 识别：提交
@@ -410,6 +439,18 @@ func New(cfg *config.Config, db *gorm.DB, rdb *redis.Client) (*gin.Engine, *insp
 
 			// ===== 管理功能（App 端）：复用 PC 控制器 + 同一套权限点，入口由 App 按 perms 显隐 =====
 			appAuth.GET("/tenants", middleware.RequirePerm("tenant:list"), tenantCtl.List) // 超管「当前公司」切换的租户列表
+			// 设备台账（App 端）：复用 PC/mp 控制器 + 同一套权限点
+			appEquipment := appAuth.Group("/equipment")
+			{
+				appEquipment.GET("/list", middleware.RequirePerm("equipment:list"), equipmentCtl.List)
+				appEquipment.GET("/due", maintCtl.MpDueDevices)
+				appEquipment.POST("/maintenance", middleware.RequirePerm("equipment:maintenance"), middleware.OperLog(db, "equipment", "maintenance"), maintCtl.Register)
+				appEquipment.GET("/maintenance-pending", middleware.RequirePerm("equipment:confirm"), maintCtl.PendingList)
+				appEquipment.POST("/maintenance/confirm", middleware.RequirePerm("equipment:confirm"), middleware.OperLog(db, "equipment", "confirm"), maintCtl.Confirm)
+				appEquipment.POST("/maintenance/reject", middleware.RequirePerm("equipment:confirm"), middleware.OperLog(db, "equipment", "reject"), maintCtl.Reject)
+				appEquipment.GET("/:id", middleware.RequirePerm("equipment:list"), equipmentCtl.Detail)
+				appEquipment.GET("/:id/maintenances", middleware.RequirePerm("equipment:list"), maintCtl.History)
+			}
 			appAuth.GET("/dashboard", statsCtl.Dashboard)
 			appAuth.GET("/communities/tree", middleware.RequirePerm("community:list", "inspection:point:list"), communityCtl.Tree)
 			appAuth.GET("/system/users", middleware.RequirePerm("system:user:list"), userCtl.List)

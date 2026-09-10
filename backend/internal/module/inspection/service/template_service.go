@@ -211,6 +211,16 @@ func validateItem(name, photoRequired string) *errs.Error {
 	return nil
 }
 
+// rejectBuiltinJudgeType 系统内置判定类型不允许写进模板（v1.6 起绑定即启用：
+// 点位绑了台账设备就自动注入合成检查项，模板无需也无法配置；打卡记录快照仍可能带这两个类型）。
+func rejectBuiltinJudgeType(judgeType string) *errs.Error {
+	switch strings.TrimSpace(judgeType) {
+	case ai.JudgeEquipmentValidity, ai.JudgeEquipmentDateSpot:
+		return errs.ErrParam.WithMsg("「台账有效期/日期标签抽查」为系统内置判定类型，设备绑定点位后自动生效，无需在模板中配置")
+	}
+	return nil
+}
+
 // ========== 项级粒度接口 ==========
 
 // itemRowView 项级接口视图：含 id/sort/created_at（区别于模板内嵌 items 快照视图）。
@@ -245,6 +255,9 @@ func (s *TemplateService) AddItem(c *gin.Context, templateID string, req *dto.Te
 		return "", be
 	}
 	if be := validateItem(req.Name, req.PhotoRequired); be != nil {
+		return "", be
+	}
+	if be := rejectBuiltinJudgeType(req.JudgeType); be != nil {
 		return "", be
 	}
 	sort := 0
@@ -299,6 +312,9 @@ func (s *TemplateService) UpdateItem(c *gin.Context, templateID, itemID string, 
 		return be
 	}
 	if be := validateItem(req.Name, req.PhotoRequired); be != nil {
+		return be
+	}
+	if be := rejectBuiltinJudgeType(req.JudgeType); be != nil {
 		return be
 	}
 	pr := req.PhotoRequired

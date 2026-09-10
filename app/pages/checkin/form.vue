@@ -52,20 +52,36 @@
         </view>
       </view>
 
+      <!-- 点位设备提醒横幅（v1.7 展示增强，零新增动作）：逾期/报废红、临期黄；点击滚动到设备项 -->
+      <view
+        v-if="equipBanner.show"
+        class="equip-banner"
+        :style="{ backgroundColor: equipBanner.danger ? colors.danger : colors.warning }"
+        @click="scrollToEquip"
+      >
+        <text class="equip-banner-text" :style="{ color: colors.white }">{{ equipBanner.text }}</text>
+        <text class="equip-banner-arrow" :style="{ color: colors.white }">></text>
+      </view>
+
       <!-- 检查项列表 -->
       <view v-if="items.length > 0" class="card" :style="{ backgroundColor: colors.bgCard }">
         <view class="sec-head">
           <text class="sec-title" :style="{ color: colors.textPrimary }">检查项</text>
           <text class="sec-action" :style="{ color: colors.primary }" @click="allNormal">全部正常</text>
         </view>
-        <view v-for="(it, idx) in items" :key="idx" class="item">
+        <view v-for="(it, idx) in items" :key="idx" class="item" :class="{ 'equip-anchor-mark': isEquipAuto(it) }">
           <view class="item-head">
             <view class="item-texts">
               <text class="item-name" :style="{ color: colors.textPrimary }">{{ it.name }}</text>
               <text v-if="it.requirement != ''" class="item-req" :style="{ color: colors.textSecondary }">{{ it.requirement }}</text>
-              <text v-if="it.photo_required == 'required'" class="item-req" :style="{ color: colors.warning }">必拍照片</text>
+              <text v-if="it.photo_required == 'required' && !isEquipAuto(it)" class="item-req" :style="{ color: colors.warning }">必拍照片</text>
             </view>
-            <view class="item-toggle">
+            <!-- 台账有效期合成项：服务端逐台自动判定，只读展示（不可人工改判） -->
+            <view v-if="isEquipAuto(it)" class="equip-state-wrap">
+              <text class="equip-state" :style="{ color: equipStateColor(it.auto_judge) }">{{ equipStateText(it.auto_judge) }}</text>
+              <text v-if="it.auto_judge != null && it.auto_judge.has_pending_register" class="equip-pending" :style="{ color: colors.primary }">已登记待确认</text>
+            </view>
+            <view v-else-if="!isEquipSpot(it)" class="item-toggle">
               <text
                 class="toggle-btn"
                 :style="it.pass ? { color: colors.white, backgroundColor: colors.success } : { color: colors.textSecondary, backgroundColor: colors.bgPage }"
@@ -78,9 +94,59 @@
               >异常</text>
             </view>
           </view>
+          <!-- 标签抽查合成项（v1.7）：必拍 1 张 + 生产日期/维修日期（服务端四规则比对，结论由服务端给出） -->
+          <view v-if="isEquipSpot(it)" class="spot-block" :style="{ borderColor: colors.border }">
+            <view class="spot-row">
+              <text class="spot-label" :style="{ color: colors.textRegular }">生产日期</text>
+              <picker mode="date" :value="it.spot_mfg" :disabled="it.spot_label_missing" @change="it.spot_mfg = $event.detail.value">
+                <view class="spot-picker" :style="{ borderColor: colors.border, color: it.spot_mfg != '' ? colors.textPrimary : colors.textSecondary }">
+                  {{ it.spot_mfg != '' ? it.spot_mfg : '选择日期' }}
+                </view>
+              </picker>
+            </view>
+            <view class="spot-row">
+              <text class="spot-label" :style="{ color: colors.textRegular }">维修日期</text>
+              <picker v-if="!it.spot_no_sticker" mode="date" :value="it.spot_maint" :disabled="it.spot_label_missing" @change="it.spot_maint = $event.detail.value">
+                <view class="spot-picker" :style="{ borderColor: colors.border, color: it.spot_maint != '' ? colors.textPrimary : colors.textSecondary }">
+                  {{ it.spot_maint != '' ? it.spot_maint : '选择日期' }}
+                </view>
+              </picker>
+              <text
+                class="spot-check"
+                :style="{ color: it.spot_no_sticker ? colors.primary : colors.textSecondary }"
+                @click="it.spot_no_sticker = !it.spot_no_sticker"
+              >{{ it.spot_no_sticker ? '✓ 无贴纸' : '无贴纸' }}</text>
+            </view>
+            <view class="spot-row">
+              <text
+                class="spot-check"
+                :style="{ color: it.spot_label_missing ? colors.danger : colors.textSecondary }"
+                @click="toggleSpotMissing(it)"
+              >{{ it.spot_label_missing ? '✓ 标签缺失/无法辨认' : '标签缺失/无法辨认' }}</text>
+              <text
+                v-if="it.photos.length > 0 && !it.spot_label_missing"
+                class="spot-ai"
+                :style="{ color: colors.primary }"
+                @click="aiReadLabel(it)"
+              >{{ it.spot_ai_loading ? 'AI 识别中…' : 'AI 读标签' }}</text>
+            </view>
+            <text class="spot-hint" :style="{ color: colors.textSecondary }">抽查只核对不改台账；比对不符将转经理审核</text>
+          </view>
+
+          <!-- 台账有效期合成项：该设备临期/逾期/缺数据时的登记/补录入口（逐台独立） -->
+          <view
+            v-if="isEquipAuto(it) && it.auto_judge != null && it.auto_judge.show_register"
+            class="equip-register"
+            :style="{ borderColor: colors.primary }"
+            @click="goRegister(it)"
+          >
+            <text class="equip-register-text" :style="{ color: colors.primary }">{{ it.auto_judge != null && it.auto_judge.status == 'no_data' ? '台账补录' : '已完成维保？登记' }}</text>
+          </view>
+          <!-- 台账有效期合成项：自动判定备注（逾期/缺数据）只读展示 -->
+          <text v-if="isEquipAuto(it) && it.note != ''" class="item-req" :style="{ color: equipStateColor(it.auto_judge) }">{{ it.note }}</text>
           <!-- 异常备注（选异常必填） -->
           <textarea
-            v-if="!it.pass"
+            v-if="!it.pass && !isEquipAuto(it)"
             v-model="it.note"
             class="item-note"
             :style="{ borderColor: colors.border, color: colors.textPrimary }"
@@ -133,7 +199,7 @@
 
 <script lang="ts">
 import { Colors, ColorTokens } from '@/utils/theme'
-import { apiTaskDetail, apiCheckin, apiCheckinItems, apiUploadLocal, TaskPoint, CheckinResult, CheckinItemAI, CheckinReqPayload } from '@/services/api'
+import { apiTaskDetail, apiCheckin, apiCheckinItems, apiUploadLocal, apiAiItemJobCreate, apiAiItemJobs, TaskPoint, CheckinResult, CheckinItemAI, CheckinReqPayload, EquipmentAutoJudge } from '@/services/api'
 import { isNfcSupported, readCardOnce, toastNfcUnavailable } from '@/utils/nfc'
 import { extractPointCode } from '@/utils/scan'
 import { getLocationGcj02 } from '@/utils/geo'
@@ -149,6 +215,48 @@ type ItemView = {
   note: string
   /** 水印烧录后的本地路径，提交时上传换 file_id */
   photos: string[]
+  /** 判定方式（equipment_validity=台账有效期：服务端自动判定，UI 只读展示） */
+  judge_type: string
+  /** 台账有效期自动判定（judge_type=equipment_validity 时后端透出） */
+  auto_judge: EquipmentAutoJudge | null
+  /** 标签抽查项（judge_type=equipment_date_spot）录入字段 */
+  spot_mfg: string
+  spot_maint: string
+  spot_no_sticker: boolean
+  spot_label_missing: boolean
+  spot_ai_loading: boolean
+}
+
+/** 台账有效期合成项（v1.6：绑定即启用、逐台独立——点位每台在用设备一条合成项，只读展示） */
+function isEquipAuto(it: ItemView): boolean {
+  return it.judge_type == 'equipment_validity' && it.auto_judge != null
+}
+
+/** 标签抽查合成项（v1.7：触发才出现；必拍+填日期，服务端四规则比对） */
+function isEquipSpot(it: ItemView): boolean {
+  return it.judge_type == 'equipment_date_spot'
+}
+
+/** 台账有效期状态文案（逐台：auto_judge 即该设备自己的判定；报废日已过优先） */
+function equipStateText(aj: EquipmentAutoJudge): string {
+  if (aj.scrap_due) return '已过报废日期' + ((aj.scrap_date || '') != '' ? '（' + aj.scrap_date + '）' : '') + '，应停用更换'
+  if (aj.status == 'no_data') return '台账数据缺失，请补录'
+  const due = aj.next_due_date
+  if (due == '') return ''
+  if (aj.status == 'overdue') return '已逾期 ' + aj.overdue_days + ' 天（到期日 ' + due + '）'
+  if (aj.status == 'warning') {
+    const days = Math.round((new Date(due.replace(/-/g, '/')).getTime() - todayZero()) / 86400000)
+    return '将于 ' + days + ' 天内到期（' + due + '）'
+  }
+  return '台账有效（至 ' + due + '）'
+}
+
+function equipStateColor(aj: EquipmentAutoJudge): string {
+  if (aj.scrap_due) return Colors.danger
+  if (aj.status == 'overdue') return Colors.danger
+  if (aj.status == 'warning') return Colors.warning
+  if (aj.status == 'no_data') return Colors.info
+  return Colors.success
 }
 
 type FormData = {
@@ -238,6 +346,22 @@ export default {
     }
   },
   computed: {
+    /** 点位设备横幅：统计台账合成项临期/逾期/报废台数 */
+    equipBanner(): { show: boolean; danger: boolean; text: string } {
+      let warn = 0
+      let bad = 0
+      this.items.forEach((it) => {
+        if (!isEquipAuto(it) || it.auto_judge == null) return
+        if (it.auto_judge.scrap_due || it.auto_judge.status == 'overdue') {
+          bad++
+        } else if (it.auto_judge.status == 'warning') {
+          warn++
+        }
+      })
+      if (bad > 0) return { show: true, danger: true, text: '该点位 ' + bad + ' 台设备已逾期/应报废' + (warn > 0 ? '，' + warn + ' 台临期' : '') }
+      if (warn > 0) return { show: true, danger: false, text: '该点位 ' + warn + ' 台设备临期' }
+      return { show: false, danger: false, text: '' }
+    },
     /** qrcode/any 凭证点位且未核验 → 显示凭证校验入口（any 并列扫码+NFC） */
     needScan(): boolean {
       if (this.point == null) return false
@@ -271,6 +395,10 @@ export default {
     this.load()
   },
   methods: {
+    isEquipAuto,
+    isEquipSpot,
+    equipStateText,
+    equipStateColor,
     load() {
       if (this.taskId == '' || this.pointId == '') {
         this.loading = false
@@ -297,14 +425,31 @@ export default {
             this.nfcCardId = this.scannedNo
             this.scannedNo = ''
           }
-          this.items = pt.check_items.map((c) => ({
-            name: c.name,
-            requirement: c.requirement,
-            photo_required: c.photo_required,
-            pass: true,
-            note: '',
-            photos: []
-          }))
+          this.items = pt.check_items.map((c) => {
+            const it: ItemView = {
+              name: c.name,
+              requirement: c.requirement,
+              photo_required: c.photo_required,
+              pass: true,
+              note: '',
+              photos: [],
+              judge_type: c.judge_type,
+              auto_judge: c.auto_judge ?? null,
+              spot_mfg: '', spot_maint: '', spot_no_sticker: false, spot_label_missing: false, spot_ai_loading: false
+            }
+            // 台账有效期合成项：按服务端逐台判定预置结论（逾期判异常，客户端不可改，提交时不上送）
+            if (isEquipAuto(it) && it.auto_judge != null) {
+              const aj = it.auto_judge
+              if (aj.status == 'overdue') {
+                it.pass = false
+                it.note = '设备维保逾期：编号 ' + aj.equipment_code + ' 到期日 ' + aj.next_due_date
+                if (aj.has_pending_register) it.note += '（已登记维保待确认）'
+              } else if (aj.status == 'no_data') {
+                it.note = '台账数据缺失待补录'
+              }
+            }
+            return it
+          })
           this.loading = false
           this.loaded = true
           // 加载完成自动定位一次
@@ -399,22 +544,103 @@ export default {
       uni.showToast({ title: '这张卡不是本点位的 NFC 卡', icon: 'none' })
     },
     setPass(idx: number, pass: boolean) {
+      // 台账有效期项由服务端判定，不接受人工改判
+      if (isEquipAuto(this.items[idx])) return
       this.items[idx].pass = pass
     },
-    /** 一键全部正常并清空逐项备注；不跳过必拍照片校验 */
+    /** 一键全部正常并清空逐项备注；不跳过必拍照片校验；台账有效期项（服务端判定）不动 */
     allNormal() {
       this.items.forEach((it) => {
+        if (isEquipAuto(it)) return
         it.pass = true
         it.note = ''
       })
-      const needPhoto = this.items.some((it) => it.photo_required == 'required' && it.photos.length == 0)
+      const needPhoto = this.items.some((it) => !isEquipAuto(it) && it.photo_required == 'required' && it.photos.length == 0)
       if (needPhoto) {
         uni.showToast({ title: '仍有必拍照片项，请拍照', icon: 'none' })
       }
     },
     showItemPhotos(it: ItemView): boolean {
-      // 异常项与模板必拍项均展示照片区
+      // 台账有效期项不要求照片；抽查项必拍；异常项与模板必拍项均展示照片区
+      if (isEquipAuto(it)) return false
+      if (isEquipSpot(it)) return true
       return !it.pass || it.photo_required == 'required'
+    },
+    /** 抽查项「标签缺失」开关：勾选后清空日期（日期免填） */
+    toggleSpotMissing(it: ItemView) {
+      it.spot_label_missing = !it.spot_label_missing
+      if (it.spot_label_missing) {
+        it.spot_mfg = ''
+        it.spot_maint = ''
+      }
+    },
+    /** 抽查项 AI 读标签预填（拍照后可用；失败/超时允许手填，不阻塞） */
+    aiReadLabel(it: ItemView) {
+      if (it.spot_ai_loading || it.photos.length == 0) return
+      it.spot_ai_loading = true
+      // 本地照片先上传换 file_id 再建识别任务（抽查合成项经后端按前缀+触发重算放行）
+      apiUploadLocal(it.photos[0])
+        .then((up) => apiAiItemJobCreate({ task_id: this.taskId, point_id: this.pointId, name: it.name, file_ids: [up.file_id] }))
+        .then((j) => this.pollLabelJob(it, j.job_id, 8))
+        .catch((e: any) => {
+          it.spot_ai_loading = false
+          uni.showToast({ title: (e && e.message) || 'AI 识别不可用，请手填日期', icon: 'none' })
+        })
+    },
+    /** 轮询读标签结果：M2020-05|W2025-03 紧凑格式解析预填（巡检员可改，提交以确认值为准） */
+    pollLabelJob(it: ItemView, jobId: string, retries: number) {
+      setTimeout(() => {
+        apiAiItemJobs([jobId])
+          .then((jobs) => {
+            const j = jobs[0]
+            if (j != null && j.status == 'done') {
+              const m = (j.reading || '').match(/M(\d{4}-\d{2}|无)\|W(\d{4}-\d{2}|无)/)
+              if (m != null) {
+                if (m[1] != '无') it.spot_mfg = m[1] + '-01'
+                if (m[2] != '无') {
+                  it.spot_maint = m[2] + '-01'
+                  it.spot_no_sticker = false
+                } else {
+                  it.spot_no_sticker = true
+                }
+                uni.showToast({ title: '已预填日期，请核对', icon: 'none' })
+              } else {
+                uni.showToast({ title: '未读到日期，请手填', icon: 'none' })
+              }
+              it.spot_ai_loading = false
+              return
+            }
+            if (j != null && j.status == 'failed') {
+              uni.showToast({ title: 'AI 识别失败，请手填日期', icon: 'none' })
+              it.spot_ai_loading = false
+              return
+            }
+            if (retries > 0) {
+              this.pollLabelJob(it, jobId, retries - 1)
+            } else {
+              it.spot_ai_loading = false
+              uni.showToast({ title: 'AI 识别超时，请手填日期', icon: 'none' })
+            }
+          })
+          .catch(() => {
+            it.spot_ai_loading = false
+          })
+      }, 1500)
+    },
+    /** 台账有效期合成项「已完成维保？登记」入口：跳登记页（逐台：该设备自己的上下文） */
+    /** 横幅点击：滚动到第一个设备合成项 */
+    scrollToEquip() {
+      uni.pageScrollTo({ selector: '.equip-anchor-mark', duration: 200, fail: () => {} })
+    },
+    goRegister(it: ItemView) {
+      const aj = it.auto_judge
+      if (aj == null || aj.equipment_id == '') return
+      uni.navigateTo({
+        url:
+          '/pages/equipment/register?equipment_id=' + encodeURIComponent(aj.equipment_id) +
+          '&name=' + encodeURIComponent(aj.equipment_name) +
+          '&code=' + encodeURIComponent(aj.equipment_code)
+      })
     },
     /** 拍照（仅相机防相册作弊）→ 定标压缩（1920px/q80）后入列表；一项一图硬约束（max=1）；水印由服务端在打卡后统一烧录 */
     takePhotos(list: string[], max: number) {
@@ -459,6 +685,16 @@ export default {
       }
       for (let i = 0; i < this.items.length; i++) {
         const it = this.items[i]
+        // 台账有效期项：服务端判定，无照片/备注约束（备注已按状态预置）
+        if (isEquipAuto(it)) continue
+        // 标签抽查项：必拍 1 张；日期必填（无贴纸免维修日期；标签缺失全免）
+        if (isEquipSpot(it)) {
+          if (it.photos.length == 0) return '「' + it.name + '」须拍 1 张标签/设备照片'
+          if (it.spot_label_missing) continue
+          if (it.spot_mfg == '') return '「' + it.name + '」请填写生产日期（读不到则勾选标签缺失）'
+          if (!it.spot_no_sticker && it.spot_maint == '') return '「' + it.name + '」请填写维修日期或选「无贴纸」'
+          continue
+        }
         if (!it.pass && it.note.trim() == '') {
           return '请填写「' + it.name + '」异常备注'
         }
@@ -512,11 +748,15 @@ export default {
         client_time: fmtDateTime(new Date()),
         result: abnormal ? 'abnormal' : 'normal',
         remark: this.remark.trim(),
-        check_items: this.items.map((it) => ({
+        check_items: this.items.filter((it) => !isEquipAuto(it)).map((it) => ({
           name: it.name,
           pass: it.pass,
           note: it.note.trim(),
-          photos: []
+          photos: [],
+          spot_manufacture_date: isEquipSpot(it) ? it.spot_mfg : undefined,
+          spot_maintenance_date: isEquipSpot(it) ? it.spot_maint : undefined,
+          spot_no_sticker: isEquipSpot(it) ? it.spot_no_sticker : undefined,
+          spot_label_missing: isEquipSpot(it) ? it.spot_label_missing : undefined
         }))
       }
       // 照片保留本地路径（不删本地文件）：item=检查项名（照片唯一归属逐项）
@@ -601,10 +841,11 @@ export default {
       const pt = this.point as TaskPoint
       this.submitting = true
       uni.showLoading({ title: '上传中…', mask: true })
-      // 逐项照片 file_id（与 items 同序；照片唯一归属逐项，无记录级照片）
-      const itemKeys: string[][] = this.items.map(() => [])
+      // 台账有效期合成项不上送（服务端实时逐台判定追加）；抽查项须上送（含 spot_* 字段）；逐项照片 file_id 与提交项同序
+      const subs = this.items.filter((it) => !isEquipAuto(it))
+      const itemKeys: string[][] = subs.map(() => [])
       let chain: Promise<void> = Promise.resolve()
-      this.items.forEach((it, idx) => {
+      subs.forEach((it, idx) => {
         it.photos.forEach((p) => {
           chain = chain
             .then(() => apiUploadLocal(p))
@@ -630,11 +871,15 @@ export default {
             client_time: fmtDateTime(new Date()),
             result: abnormal ? 'abnormal' : 'normal',
             remark: this.remark.trim(),
-            check_items: this.items.map((it, idx) => ({
+            check_items: subs.map((it, idx) => ({
               name: it.name,
               pass: it.pass,
               note: it.note.trim(),
-              photos: itemKeys[idx]
+              photos: itemKeys[idx],
+              spot_manufacture_date: isEquipSpot(it) ? it.spot_mfg : undefined,
+              spot_maintenance_date: isEquipSpot(it) ? it.spot_maint : undefined,
+              spot_no_sticker: isEquipSpot(it) ? it.spot_no_sticker : undefined,
+              spot_label_missing: isEquipSpot(it) ? it.spot_label_missing : undefined
             })),
             force: this.forceSubmit || undefined
           })
@@ -827,6 +1072,103 @@ export default {
   padding: 10rpx 24rpx;
   border-radius: 12rpx;
   margin-left: 12rpx;
+}
+
+/* 标签抽查项 */
+.spot-block {
+  margin-top: 16rpx;
+  border-width: 2rpx;
+  border-style: solid;
+  border-radius: 16rpx;
+  padding: 24rpx;
+}
+
+.spot-row {
+  flex-direction: row;
+  align-items: center;
+  margin-bottom: 16rpx;
+}
+
+.spot-label {
+  font-size: 26rpx;
+  width: 140rpx;
+}
+
+.spot-picker {
+  height: 72rpx;
+  min-width: 240rpx;
+  border-width: 2rpx;
+  border-style: solid;
+  border-radius: 12rpx;
+  padding: 0 24rpx;
+  justify-content: center;
+  font-size: 28rpx;
+}
+
+.spot-check {
+  font-size: 26rpx;
+  margin-left: 24rpx;
+  padding: 8rpx 16rpx;
+}
+
+.spot-ai {
+  font-size: 26rpx;
+  padding: 8rpx 16rpx;
+}
+
+.spot-hint {
+  font-size: 22rpx;
+}
+
+/* 点位设备提醒横幅 */
+.equip-banner {
+  border-radius: 16rpx;
+  padding: 20rpx 24rpx;
+  margin-bottom: 24rpx;
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.equip-banner-text {
+  font-size: 26rpx;
+  flex: 1;
+}
+
+.equip-banner-arrow {
+  font-size: 26rpx;
+  margin-left: 16rpx;
+}
+
+/* 台账有效期项：服务端判定结果展示 + 登记入口 */
+.equip-state-wrap {
+  flex-direction: column;
+  align-items: flex-end;
+  margin-left: 24rpx;
+}
+
+.equip-state {
+  font-size: 26rpx;
+}
+
+.equip-pending {
+  font-size: 22rpx;
+  margin-top: 4rpx;
+}
+
+.equip-register {
+  margin-top: 16rpx;
+  height: 72rpx;
+  border-width: 2rpx;
+  border-style: solid;
+  border-radius: 12rpx;
+  align-items: center;
+  justify-content: center;
+}
+
+.equip-register-text {
+  font-size: 28rpx;
+  font-weight: 600;
 }
 
 .item-note {

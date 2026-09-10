@@ -13,18 +13,22 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/redis/go-redis/v9"
+	"go.uber.org/zap"
 	"gorm.io/gorm"
 
 	"anxuncloud/internal/config"
 	"anxuncloud/internal/middleware"
 	authsvc "anxuncloud/internal/module/auth/service"
+	eqsvc "anxuncloud/internal/module/equipment/service"
 	insmodel "anxuncloud/internal/module/inspection/model"
 	inssvc "anxuncloud/internal/module/inspection/service"
 	"anxuncloud/internal/module/mp/dto"
 	sysmodel "anxuncloud/internal/module/system/model"
+	"anxuncloud/internal/pkg/ai"
 	"anxuncloud/internal/pkg/bind"
 	"anxuncloud/internal/pkg/errs"
 	"anxuncloud/internal/pkg/jwtutil"
+	"anxuncloud/internal/pkg/logger"
 	"anxuncloud/internal/pkg/session"
 	"anxuncloud/internal/pkg/timefmt"
 	"anxuncloud/internal/pkg/types"
@@ -669,6 +673,9 @@ func (s *MPService) TaskDetail(inspectorID, taskID string) (gin.H, *errs.Error) 
 		}
 		points[idx]["check_items"] = ci
 	}
+	// 台账有效期（equipment_validity）合成检查项：绑定即启用——按点位查在用设备，
+	// 有设备的点位在 check_items 末尾逐台注入合成项（与模板是否配置无关）
+	s.injectEquipmentItems(task.ID, task.TaskDate.Format("2006-01-02"), points)
 	return gin.H{
 		"id": task.ID, "plan_name": plan.Name, "community_name": s.commName(task.CommunityID),
 		"patrol_type":       task.PatrolType,                                      // 巡查类型透出，app 端按类型分组展示
@@ -678,6 +685,104 @@ func (s *MPService) TaskDetail(inspectorID, taskID string) (gin.H, *errs.Error) 
 		"status":     task.Status, "total_points": task.TotalPoints, "done_points": task.DonePoints,
 		"progress": progressOf(task.DonePoints, task.TotalPoints), "points": points,
 	}, nil
+}
+
+// injectEquipmentItems 台账有效期合成检查项注入（§3.5 v1.6：绑定即启用 + 逐台独立）：
+// 任务全部点位一次 IN 批量查关联在用设备（消除 N+1），有待确认登记批量预取；
+// 有设备的点位在 check_items 末尾逐台追加合成项（每台设备一条），无设备点位不出现该项——与模板是否配置无关。
+// 查询失败静默降级（不注入，打卡不受影响），不阻断任务详情。
+func (s *MPService) injectEquipmentItems(taskID, taskDate string, points []gin.H) {
+	pointIDs := make([]string, 0, len(points))
+	for idx := range points {
+		if pid, _ := points[idx]["point_id"].(string); pid != "" {
+			pointIDs = append(pointIDs, pid)
+		}
+	}
+	if len(pointIDs) == 0 {
+		return
+	}
+	byPoint, err := eqsvc.LoadPointEquipment(s.db, pointIDs)
+	if err != nil {
+		logger.L.Warn("台账合成检查项注入：查询关联设备失败，跳过注入", zap.Error(err))
+		return
+	}
+	if len(byPoint) == 0 {
+		return
+	}
+	// 批量预取待确认登记（逐台「待确认」展示态）
+	eqIDs := make([]string, 0, 8)
+	for _, eqs := range byPoint {
+		for i := range eqs {
+			eqIDs = append(eqIDs, eqs[i].ID)
+		}
+	}
+	pendingSet := eqsvc.PendingMaintenanceSet(s.db, eqIDs)
+	globalWarn := eqsvc.GlobalWarnDays(s.db)
+	now := time.Now()
+	// 抽查触发准备（v1.7 二期）：总开关 + 全局比例 + 盐值 + 长期未验证翻倍
+	spotEnabled := eqsvc.CfgBool(s.db, "equipment.spotcheck_enabled", true)
+	globalRatio := eqsvc.CfgInt(s.db, "equipment.spotcheck_ratio", 10)
+	spotSalt := eqsvc.CfgString(s.db, "equipment.spotcheck_salt", "")
+	var rules map[string]eqsvc.TypeRule
+	var verified map[string]time.Time
+	if spotEnabled {
+		rules = eqsvc.NewEquipmentService(s.db).TypeRules()
+		verified = eqsvc.LastVerifiedMap(s.db, eqIDs)
+	}
+	for idx := range points {
+		pid, _ := points[idx]["point_id"].(string)
+		eqs := byPoint[pid]
+		if len(eqs) == 0 {
+			continue
+		}
+		judges := eqsvc.JudgeDevices(eqs, pendingSet, globalWarn, now)
+		// 同模板点位共享 check_items 切片：追加合成项前逐点拷贝，避免跨点位串数据
+		items, _ := points[idx]["check_items"].([]gin.H)
+		copied := make([]gin.H, len(items), len(items)+len(judges)*2)
+		for i, it := range items {
+			m := gin.H{}
+			for k, v := range it {
+				m[k] = v
+			}
+			copied[i] = m
+		}
+		for _, j := range judges {
+			copied = append(copied, gin.H{
+				"name":           eqsvc.SyntheticItemName(j),
+				"requirement":    "",
+				"photo_required": types.PhotoReqNone,
+				"judge_type":     ai.JudgeEquipmentValidity,
+				// 设备快照：提交落库与逐台去重键控用
+				"judge_config": gin.H{"equipment_id": j.EquipmentID, "equipment_no": j.Code},
+				"auto_judge":   j.View(),
+			})
+			// 日期标签抽查（紧跟该设备的有效期项之后）：临期/逾期必触发（到期核验），否则确定性哈希随机；
+			// 台账长期未验证（超 6 个月）概率翻倍；标签缺失设备不参与（LoadPointEquipment 已排除）
+			if spotEnabled {
+				triggered := j.State == eqsvc.DueWarning || j.State == eqsvc.DueOverdue
+				if !triggered {
+					lv, ok := verified[j.EquipmentID]
+					var lvPtr *time.Time
+					if ok {
+						lvPtr = &lv
+					}
+					ratio := eqsvc.SpotRatioFor(rules[j.Type], globalRatio, lvPtr, now)
+					triggered = eqsvc.SpotTriggered(taskID, pid, j.EquipmentID, taskDate, spotSalt, ratio)
+				}
+				if triggered {
+					copied = append(copied, gin.H{
+						"name":           eqsvc.SpotItemPrefix + j.Name + "(" + j.Code + ")",
+						"requirement":    "拍 1 张瓶体标签/钢印照片，填写生产日期与维修日期（无贴纸选「无」）；标签磨损选「标签缺失」",
+						"photo_required": types.PhotoReqRequired,
+						"judge_type":     ai.JudgeEquipmentDateSpot,
+						"judge_config":   gin.H{"equipment_id": j.EquipmentID, "equipment_no": j.Code},
+						"auto_judge":     j.View(),
+					})
+				}
+			}
+		}
+		points[idx]["check_items"] = copied
+	}
 }
 
 // ========== 打卡记录 ==========

@@ -10,8 +10,17 @@
 export type WizardItemSnap = {
   name: string
   requirement: string
-  /** manual=感官项；其余=拍照 AI 识别项 */
+  /** manual=感官项；equipment_validity=台账有效期（服务端自动判定）；其余=拍照 AI 识别项 */
   judge_type: string
+  /** 台账有效期自动判定（judge_type=equipment_validity 时由任务详情带出） */
+  auto_judge?: import('@/services/api').EquipmentAutoJudge | null
+  /** 标签抽查项（judge_type=equipment_date_spot）录入字段：生产日期/维修日期/无贴纸/标签缺失 */
+  spot_mfg?: string
+  spot_maint?: string
+  spot_no_sticker?: boolean
+  spot_label_missing?: boolean
+  /** 抽查 AI 读标签中标记 */
+  spot_ai_loading?: boolean
   /** 照片展示地址（上传成功后的服务端 URL；本地临时路径仅即时预览，重启后可能失效） */
   photos: string[]
   /** 已上传的 upload_file.id（与 photos 一一对应） */

@@ -15,6 +15,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/redis/go-redis/v9"
 
+	eqsvc "anxuncloud/internal/module/equipment/service"
 	insmodel "anxuncloud/internal/module/inspection/model"
 	"anxuncloud/internal/module/mp/dto"
 	"anxuncloud/internal/pkg/ai"
@@ -83,10 +84,24 @@ func (s *CheckinService) SubmitAIItemJob(ctx context.Context, inspectorID string
 		return nil, errs.ErrParam.WithMsg("该点位未绑定检查项模板")
 	}
 	var tplItem insmodel.CheckTemplateItem
-	if err := s.db.Where("template_id = ? AND name = ?", *point.TemplateID, req.Name).First(&tplItem).Error; err != nil {
-		return nil, errs.ErrParam.WithMsg("检查项「" + req.Name + "」不属于该点位模板")
-	}
-	if ai.NormalizeJudgeType(tplItem.JudgeType) == ai.JudgeManual {
+	tplErr := s.db.Where("template_id = ? AND name = ?", *point.TemplateID, req.Name).First(&tplItem).Error
+	if tplErr != nil {
+		// 标签抽查合成项（equipment_date_spot，绑定即启用不在模板内）：按任务上下文重算触发，命中才放行
+		if !strings.HasPrefix(req.Name, eqsvc.SpotItemPrefix) {
+			return nil, errs.ErrParam.WithMsg("检查项「" + req.Name + "」不属于该点位模板")
+		}
+		_, spotMap, be := s.equipmentSynthetics(&task, &point)
+		if be != nil {
+			return nil, be
+		}
+		if _, ok := spotMap[req.Name]; !ok {
+			return nil, errs.ErrParam.WithMsg("该抽查项当前未触发")
+		}
+		tplItem = insmodel.CheckTemplateItem{
+			Name: req.Name, JudgeType: ai.JudgeLabel,
+			Requirement: strPtr("读取消防/物业设备标签或钢印上的日期。reading 严格输出：M{生产年月}|W{维修年月}，读不到写 无，如 M2020-05|W2025-03 或 M2020-05|W无 或 M无|W无；除 reading 外不要输出日期"),
+		}
+	} else if ai.NormalizeJudgeType(tplItem.JudgeType) == ai.JudgeManual {
 		return nil, errs.ErrParam.WithMsg("手动确认项无需 AI 识别")
 	}
 	// file_ids 仅接受 upload_file.id。

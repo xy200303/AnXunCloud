@@ -180,6 +180,32 @@
       "style": {
         "navigationBarTitleText": "点位编辑"
       }
+    },
+    {
+      "path": "pages/equipment/index",
+      "style": {
+        "navigationBarTitleText": "设备台账",
+        "enablePullDownRefresh": true
+      }
+    },
+    {
+      "path": "pages/equipment/detail",
+      "style": {
+        "navigationBarTitleText": "设备详情"
+      }
+    },
+    {
+      "path": "pages/equipment/register",
+      "style": {
+        "navigationBarTitleText": "维保登记"
+      }
+    },
+    {
+      "path": "pages/equipment/confirm",
+      "style": {
+        "navigationBarTitleText": "维保确认",
+        "enablePullDownRefresh": true
+      }
     }
   ],
   "globalStyle": {

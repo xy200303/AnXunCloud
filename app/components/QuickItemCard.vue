@@ -49,6 +49,81 @@
       >{{ exceptionLabel }}</text>
     </template>
 
+    <!-- 标签抽查（equipment_date_spot）合成项：必拍 1 张 + 生产日期/维修日期（服务端四规则比对） -->
+    <template v-else-if="isSpot">
+      <view class="spot-photo" :style="{ borderColor: item.file_ids.length > 0 ? colors.success : colors.primary }" @click="$emit('spot-photo')">
+        <image
+          v-if="item.photos.length > 0 && !item.img_error"
+          :src="item.photos[0]"
+          class="spot-img"
+          mode="aspectFill"
+          @error="$emit('image-error')"
+        />
+        <text v-else class="spot-photo-text" :style="{ color: colors.primary }">点这里拍标签/设备照片</text>
+      </view>
+      <view class="spot-row">
+        <text class="spot-label" :style="{ color: colors.textRegular }">生产日期</text>
+        <picker mode="date" :value="item.spot_mfg" :disabled="item.spot_label_missing" @change="$emit('spot-field', { field: 'spot_mfg', value: $event.detail.value })">
+          <view class="spot-picker" :style="{ borderColor: colors.border, color: (item.spot_mfg || '') != '' ? colors.textPrimary : colors.textSecondary }">
+            {{ (item.spot_mfg || '') != '' ? item.spot_mfg : '选择日期' }}
+          </view>
+        </picker>
+      </view>
+      <view class="spot-row">
+        <text class="spot-label" :style="{ color: colors.textRegular }">维修日期</text>
+        <picker v-if="!item.spot_no_sticker" mode="date" :value="item.spot_maint" :disabled="item.spot_label_missing" @change="$emit('spot-field', { field: 'spot_maint', value: $event.detail.value })">
+          <view class="spot-picker" :style="{ borderColor: colors.border, color: (item.spot_maint || '') != '' ? colors.textPrimary : colors.textSecondary }">
+            {{ (item.spot_maint || '') != '' ? item.spot_maint : '选择日期' }}
+          </view>
+        </picker>
+        <text
+          class="spot-check"
+          :style="{ color: item.spot_no_sticker ? colors.primary : colors.textSecondary }"
+          @click="$emit('spot-field', { field: 'spot_no_sticker', value: !item.spot_no_sticker })"
+        >{{ item.spot_no_sticker ? '✓ 无贴纸' : '无贴纸' }}</text>
+      </view>
+      <view class="spot-row">
+        <text
+          class="spot-check"
+          :style="{ color: item.spot_label_missing ? colors.danger : colors.textSecondary }"
+          @click="$emit('spot-field', { field: 'spot_label_missing', value: !item.spot_label_missing })"
+        >{{ item.spot_label_missing ? '✓ 标签缺失/无法辨认' : '标签缺失/无法辨认' }}</text>
+        <text
+          v-if="item.file_ids.length > 0 && !item.spot_label_missing"
+          class="spot-ai"
+          :style="{ color: colors.primary }"
+          @click="$emit('spot-ai')"
+        >{{ item.spot_ai_loading ? 'AI 识别中…' : 'AI 读标签' }}</text>
+      </view>
+      <text class="spot-hint" :style="{ color: colors.textSecondary }">抽查只核对不改台账；比对不符将转经理审核</text>
+      <view hover-class="hover-dim" class="btn-big spot-done" :style="{ backgroundColor: colors.primary }" @click="$emit('spot-confirm')">
+        <text class="btn-big-text" :style="{ color: colors.white }">完成，下一项</text>
+      </view>
+    </template>
+
+    <!-- 台账有效期（equipment_validity）合成项：服务端按该设备台账自动判定，只读展示，不可人工改判 -->
+    <template v-else-if="equipJudge != null">
+      <view class="equip-banner" :style="{ backgroundColor: colors.bgPage }">
+        <text class="equip-state" :style="{ color: equipColor }">{{ equipText }}</text>
+        <text class="equip-sub" :style="{ color: colors.textSecondary }">
+          {{ item.name }}
+        </text>
+        <text v-if="equipJudge.has_pending_register" class="equip-pending" :style="{ color: colors.primary }">已登记维保，待经理确认</text>
+      </view>
+      <view
+        v-if="equipJudge.show_register"
+        hover-class="hover-dim"
+        class="btn-outline equip-register"
+        :style="{ borderColor: colors.primary }"
+        @click="$emit('register')"
+      >
+        <text class="btn-outline-text" :style="{ color: colors.primary }">{{ equipJudge.status == 'no_data' ? '台账补录' : '已完成维保？登记' }}</text>
+      </view>
+      <view hover-class="hover-dim" class="btn-big" :style="{ backgroundColor: colors.primary }" @click="$emit('next')">
+        <text class="btn-big-text" :style="{ color: colors.white }">下一项</text>
+      </view>
+    </template>
+
     <template v-else>
       <view hover-class="hover-dim" class="btn-big btn-normal" :style="{ backgroundColor: colors.success }" @click="$emit('manual-ok')">
         <text class="btn-big-text" :style="{ color: colors.white }">✓ 正常</text>
@@ -76,11 +151,23 @@
 <script lang="ts">
 import type { ColorTokens } from '@/utils/theme'
 import type { WizardItemSnap } from '@/utils/checkinWizard'
+import type { EquipmentAutoJudge } from '@/services/api'
+
+/** 今日 0 点（本地时区），到期天数计算用 */
+function todayZero(): number {
+  const d = new Date()
+  d.setHours(0, 0, 0, 0)
+  return d.getTime()
+}
 
 export default {
   props: {
     item: { type: Object as () => WizardItemSnap, required: true },
     isPhoto: { type: Boolean, default: true },
+    /** 台账有效期项的自动判定（judge_type=equipment_validity 时由父组件传入；null=非该类型） */
+    equipJudge: { type: Object as () => EquipmentAutoJudge | null, default: null },
+    /** 是否标签抽查合成项（equipment_date_spot） */
+    isSpot: { type: Boolean, default: false },
     manualAbnormalOpen: { type: Boolean, default: false },
     manualNote: { type: String, default: '' },
     exceptionLabel: { type: String, default: '设备不存在/无法检测，提交异常' },
@@ -96,8 +183,37 @@ export default {
     'manual-ok',
     'manual-abnormal',
     'update:manual-note',
-    'confirm-manual-abnormal'
-  ]
+    'confirm-manual-abnormal',
+    'register',
+    'spot-photo',
+    'spot-ai',
+    'spot-field',
+    'spot-confirm'
+  ],
+  computed: {
+    /** 台账有效期状态文案（逐台：equipJudge 即该设备自己的判定） */
+    equipText(): string {
+      const aj = this.equipJudge
+      if (aj == null) return ''
+      if (aj.status == 'no_data') return '台账数据缺失，请补录'
+      const due = aj.next_due_date
+      if (due == '') return ''
+      if (aj.status == 'overdue') return '已逾期 ' + aj.overdue_days + ' 天（到期日 ' + due + '）'
+      if (aj.status == 'warning') {
+        const days = Math.round((new Date(due.replace(/-/g, '/')).getTime() - todayZero()) / 86400000)
+        return '将于 ' + days + ' 天内到期（' + due + '）'
+      }
+      return '台账有效（至 ' + due + '）'
+    },
+    equipColor(): string {
+      const aj = this.equipJudge
+      if (aj == null) return this.colors.success
+      if (aj.status == 'overdue') return this.colors.danger
+      if (aj.status == 'warning') return this.colors.warning
+      if (aj.status == 'no_data') return this.colors.info
+      return this.colors.success
+    }
+  }
 }
 </script>
 
@@ -252,5 +368,100 @@ export default {
   border-radius: 14rpx;
   text-align: center;
   background-color: rgba(255, 150, 0, 0.1);
+}
+
+/* 标签抽查项 */
+.spot-photo {
+  width: 100%;
+  height: 360rpx;
+  border-width: 3rpx;
+  border-style: dashed;
+  border-radius: 24rpx;
+  margin-top: 40rpx;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+
+.spot-img {
+  width: 100%;
+  height: 360rpx;
+}
+
+.spot-photo-text {
+  font-size: 36rpx;
+  font-weight: 600;
+}
+
+.spot-row {
+  flex-direction: row;
+  align-items: center;
+  margin-top: 24rpx;
+  width: 100%;
+}
+
+.spot-label {
+  font-size: 30rpx;
+  width: 160rpx;
+}
+
+.spot-picker {
+  height: 88rpx;
+  min-width: 280rpx;
+  border-width: 2rpx;
+  border-style: solid;
+  border-radius: 12rpx;
+  padding: 0 24rpx;
+  justify-content: center;
+  font-size: 30rpx;
+}
+
+.spot-check {
+  font-size: 28rpx;
+  margin-left: 24rpx;
+  padding: 12rpx 20rpx;
+}
+
+.spot-ai {
+  font-size: 28rpx;
+  padding: 12rpx 20rpx;
+}
+
+.spot-hint {
+  font-size: 24rpx;
+  margin-top: 16rpx;
+}
+
+.spot-done {
+  margin-top: 24rpx;
+}
+
+/* 台账有效期项：自动判定结果横幅 + 登记入口 */
+.equip-banner {
+  width: 100%;
+  border-radius: 20rpx;
+  margin-top: 40rpx;
+  padding: 32rpx;
+  align-items: center;
+}
+
+.equip-state {
+  font-size: 40rpx;
+  font-weight: 700;
+}
+
+.equip-sub {
+  font-size: 28rpx;
+  margin-top: 12rpx;
+}
+
+.equip-pending {
+  font-size: 26rpx;
+  margin-top: 8rpx;
+}
+
+.equip-register {
+  width: 100%;
+  margin-top: 24rpx;
 }
 </style>

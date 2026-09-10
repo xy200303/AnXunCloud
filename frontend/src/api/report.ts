@@ -35,6 +35,13 @@ export interface ReportStats {
   suspect_count: number
   issue_count: number
   daily: { date: string; task_total: number; task_done: number; abnormal: number }[]
+  /** 设备台账章节（v1.7；旧报告无此字段） */
+  equipment?: {
+    status_buckets: { normal: number; warning: number; overdue: number; scrap: number; label_missing: number }
+    maintenance: { registered: number; confirmed: number; rejected: number }
+    spotcheck: { triggered: number; mismatch: number }
+    judge_source: { system: number; manual_ai: number }
+  }
 }
 
 // 打卡记录明细行（与后端 /reports/:id/records 分页接口行结构一致）

@@ -83,9 +83,10 @@
                 </el-tag>
               </template>
             </el-table-column>
-            <el-table-column label="操作" width="150" fixed="right">
+            <el-table-column label="操作" width="200" fixed="right">
               <template #default="{ row }">
                 <el-button v-perms="'inspection:point:update'" link type="primary" @click="openForm(row)">编辑</el-button>
+                <el-button v-perms="'equipment:list'" link type="primary" @click="openLinkedEquipment(row)">关联设备</el-button>
                 <el-button v-perms="'inspection:point:delete'" link type="danger" @click="handleDelete(row)">删除</el-button>
               </template>
             </el-table-column>
@@ -401,16 +402,51 @@
     :latitude="form.latitude"
     @confirm="handleMapPick"
   />
+
+  <!-- 关联设备：台账按 point_id 反查（一点多具），点击编号跳设备台账页 -->
+  <el-dialog v-model="eqVisible" :title="`关联设备${eqPoint ? `：${eqPoint.name}` : ''}`" width="640px">
+    <el-table v-loading="eqLoading" :data="eqList" stripe size="small">
+      <el-table-column label="状态灯" width="60" align="center">
+        <template #default="{ row }">
+          <el-tooltip :content="dueStateLabel(row.due_state)" placement="top">
+            <span class="due-dot" :class="`due-${row.due_state}`" />
+          </el-tooltip>
+        </template>
+      </el-table-column>
+      <el-table-column prop="code" label="设备编号" min-width="140" show-overflow-tooltip>
+        <template #default="{ row }">
+          <el-button link type="primary" @click="goEquipment(row)">{{ row.code }}</el-button>
+        </template>
+      </el-table-column>
+      <el-table-column prop="name" label="设备名称" min-width="130" show-overflow-tooltip />
+      <el-table-column label="类型" width="100">
+        <template #default="{ row }">{{ row.type_label || row.type }}</template>
+      </el-table-column>
+      <el-table-column label="下次到期" width="100" align="center">
+        <template #default="{ row }">{{ row.next_due_date || '--' }}</template>
+      </el-table-column>
+      <el-table-column label="状态" width="80" align="center">
+        <template #default="{ row }">
+          <el-tag :type="row.status === 'in_service' ? 'success' : 'info'" size="small">{{ row.status_label || row.status }}</el-tag>
+        </template>
+      </el-table-column>
+      <template #empty>
+        <el-empty description="该点位暂未关联台账设备（可在设备台账编辑绑定，或 App 扫码绑定）" />
+      </template>
+    </el-table>
+  </el-dialog>
 </template>
 
 <script setup lang="ts">
 import { onMounted, reactive, ref, computed } from 'vue'
+import { useRouter } from 'vue-router'
 import {
   ElMessage, ElMessageBox,
   type FormInstance, type FormRules, type UploadFile, type UploadInstance, type UploadRawFile
 } from 'element-plus'
 import { Search, Refresh, Plus, RefreshRight, Grid, MapLocation, Delete, Upload, Download, UploadFilled, Files } from '@element-plus/icons-vue'
 import { listPoints, createPoint, updatePoint, deletePoint, generateQrcodes, importPoints, batchCreatePoints, type PointQuery, type PointImportResult, type PointBatchResult } from '@/api/point'
+import { listEquipment, type EquipmentItem, type DueState } from '@/api/equipment'
 import { withFileToken } from '@/api/upload'
 import { listTemplates } from '@/api/template'
 import { listCommunityTree } from '@/api/community'
@@ -885,6 +921,38 @@ function downloadFailDetails() {
   a.click()
   URL.revokeObjectURL(url)
 }
+
+// ===== 关联设备（台账按 point_id 反查，一点多具） =====
+const router = useRouter()
+const eqVisible = ref(false)
+const eqLoading = ref(false)
+const eqPoint = ref<PointItem | null>(null)
+const eqList = ref<EquipmentItem[]>([])
+
+function dueStateLabel(s: DueState) {
+  return { normal: '正常', warning: '临期', overdue: '已逾期', none: '无到期日', scrap: '应报废', label_missing: '标签缺失' }[s] || s
+}
+
+// 台账按 point_id 直查（一点多具）
+async function openLinkedEquipment(row: PointItem) {
+  eqPoint.value = row
+  eqVisible.value = true
+  eqLoading.value = true
+  try {
+    const d = await listEquipment({ point_id: row.id, page: 1, page_size: 100 })
+    eqList.value = d.list
+  } catch {
+    eqList.value = []
+  } finally {
+    eqLoading.value = false
+  }
+}
+
+// 跳设备台账页（按编号定位）
+function goEquipment(row: EquipmentItem) {
+  eqVisible.value = false
+  router.push({ path: '/inspection/equipment', query: { keyword: row.code } })
+}
 </script>
 
 <style scoped lang="scss">
@@ -971,5 +1039,39 @@ function downloadFailDetails() {
 
 .fail-tip {
   margin-top: $spacing-sm;
+}
+
+// 关联设备状态灯：normal 绿 / warning 黄 / overdue 红 / none 灰
+.due-dot {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+
+  &.due-normal {
+    background: $color-success;
+  }
+
+  &.due-warning {
+    background: $color-warning;
+  }
+
+  &.due-overdue {
+    background: $color-danger;
+  }
+
+  &.due-none {
+    background: $color-text-placeholder;
+  }
+
+  &.due-scrap {
+    background: $color-danger;
+  }
+
+  &.due-label_missing {
+    background: $color-text-placeholder;
+    border: 2px dashed $color-text-secondary;
+    box-sizing: border-box;
+  }
 }
 </style>

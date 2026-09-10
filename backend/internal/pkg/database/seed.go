@@ -140,6 +140,15 @@ func seedMenus(tx *gorm.DB) (map[string]string, error) {
 				{title: "记录审核", typ: model.MenuTypeButton, perms: "inspection:checkin:review", sort: 2},
 				{title: "发起抽查", typ: model.MenuTypeButton, perms: "inspection:checkin:spotcheck", sort: 3},
 			}},
+			{title: "设备台账", path: "/inspection/equipment", icon: "Box", typ: model.MenuTypeMenu, perms: "equipment:list", sort: 5, children: []menuSeed{
+				{title: "新增设备", typ: model.MenuTypeButton, perms: "equipment:create", sort: 1},
+				{title: "编辑设备", typ: model.MenuTypeButton, perms: "equipment:update", sort: 2},
+				{title: "删除设备", typ: model.MenuTypeButton, perms: "equipment:delete", sort: 3},
+				{title: "批量导入", typ: model.MenuTypeButton, perms: "equipment:import", sort: 4},
+				{title: "导出", typ: model.MenuTypeButton, perms: "equipment:export", sort: 5},
+				{title: "维保登记", typ: model.MenuTypeButton, perms: "equipment:maintenance", sort: 6},
+				{title: "维保确认", typ: model.MenuTypeButton, perms: "equipment:confirm", sort: 7},
+			}},
 			{title: "检查项模板", path: "/inspection/templates", icon: "Finished", typ: model.MenuTypeMenu, perms: "inspection:template:list", sort: 6, children: []menuSeed{
 				{title: "新增模板", typ: model.MenuTypeButton, perms: "inspection:template:create", sort: 1},
 				{title: "编辑模板", typ: model.MenuTypeButton, perms: "inspection:template:update", sort: 2},
@@ -319,6 +328,7 @@ func seedRoleMenus(tx *gorm.DB, roleIDs, menuIDs map[string]string) error {
 		// 巡检记录按 path 补一条（perms 键只映射后写的菜单；问题清单已并入巡检记录）
 		"/inspection/records",
 		"inspection:template:list", "inspection:checkin:review", "inspection:checkin:spotcheck",
+		"equipment:list", "equipment:create", "equipment:update", "equipment:delete", "equipment:import", "equipment:export", "equipment:maintenance", "equipment:confirm",
 		"/stats", "stats:inspection", "stats:performance", "stats:report", "stats:export",
 		"report:list", "report:generate", "report:download",
 		"/community", "community:list", "community:staff:list", "community:staff:edit", "community:duty:edit",
@@ -356,7 +366,7 @@ func seedRoleMenus(tx *gorm.DB, roleIDs, menuIDs map[string]string) error {
 		return err
 	}
 	// 一线人员可查看报告；具体审核权限由报告生成时固化的动态审核链和候选人名单控制。
-	fieldStaffMenuKeys := []string{"report:list"}
+	fieldStaffMenuKeys := []string{"report:list", "equipment:list", "equipment:maintenance"}
 	var fieldStaffMenuIDs []string
 	for _, key := range fieldStaffMenuKeys {
 		if id, ok := menuIDs[key]; ok {
@@ -402,6 +412,8 @@ func seedDicts(tx *gorm.DB) error {
 		{"checkin_type", "打卡类型", [][2]string{{"扫码", "qrcode"}, {"围栏", "fence"}, {"离线补传", "offline"}, {"NFC", "nfc"}}},
 		{"checkin_result", "打卡结果", [][2]string{{"正常", "normal"}, {"异常", "abnormal"}}},
 		{"patrol_type", "巡查类型", [][2]string{{"安全巡查", "safety"}, {"设备设施专项巡查", "equipment"}, {"环境巡查", "environment"}, {"楼栋巡查", "building"}, {"消防设施专项", "fire"}}},
+		{"equipment_type", "设备类型", [][2]string{{"干粉灭火器", "extinguisher"}, {"消火栓", "hydrant"}, {"水泵", "pump"}, {"电梯", "elevator"}, {"配电柜", "distribution"}, {"烟感", "smoke_detector"}}},
+		{"equipment_maint_type", "维保类型", [][2]string{{"维修充粉", "repair"}, {"保养", "maintain"}, {"检测", "inspect"}, {"更换", "replace"}, {"台账补录", "ledger_fix"}}},
 	}
 	for _, d := range dicts {
 		t := model.SysDictType{Code: d.code, Name: d.name, Remark: "系统预置"}
@@ -441,6 +453,28 @@ func seedDicts(tx *gorm.DB) error {
 			return err
 		}
 	}
+	// equipment_type 维保规则（《设备台账与维保周期管理设计方案》§3.1）：
+	// first_months 首次维保月数（0=无首次规则）/ cycle_months 维保周期 / remind 启用催办 / scrap_months 报废月数（0=不算报废）
+	equipmentRules := []struct {
+		value                    string
+		firstMonths, cycleMonths int
+		remind                   bool
+		scrapMonths              int
+	}{
+		{"extinguisher", 60, 24, true, 120}, // 干粉灭火器：5 年首保 + 2 年周期 + 10 年报废（甲方规则/国标）
+		{"hydrant", 0, 12, true, 0},         // 消火栓：年度检测
+		{"pump", 0, 6, true, 0},             // 水泵：半年保养
+		{"elevator", 0, 1, false, 0},        // 电梯：外包按月上门，只记录不催办
+		{"distribution", 0, 12, true, 0},    // 配电柜：年检
+		{"smoke_detector", 0, 12, true, 0},  // 烟感：年度检测
+	}
+	for _, er := range equipmentRules {
+		if err := tx.Model(&model.SysDictData{}).
+			Where("type_code = ? AND value = ?", "equipment_type", er.value).
+			Update("attrs", types.JSONMap{"first_months": er.firstMonths, "cycle_months": er.cycleMonths, "remind": er.remind, "scrap_months": er.scrapMonths}).Error; err != nil {
+			return err
+		}
+	}
 	return nil
 }
 
@@ -455,6 +489,12 @@ func seedConfigs(tx *gorm.DB) error {
 		{Key: "inspection.overdue_check_time", Name: "逾期翻转时间", Value: "00:10", ConfigGroup: "inspection", Remark: "每日该时刻将昨日未完成任务置 overdue"},
 		{Key: "inspection.route_optimize", Name: "路线自动优化开关", Value: "true", ConfigGroup: "inspection", Remark: "任务生成时按楼栋聚类+最近邻重排点位，减少折返"},
 		{Key: "mp.offline_sync_limit", Name: "离线补传单批上限", Value: "50", ConfigGroup: "mp", Remark: "单次补传最大条数"},
+		{Key: "equipment.expire_warn_days", Name: "设备临期提醒提前量(天)", Value: "30", ConfigGroup: "equipment", Remark: "下次到期日前 N 天进入临期状态并提醒"},
+		{Key: "equipment.expire_check_time", Name: "设备到期扫描时间", Value: "08:00", ConfigGroup: "equipment", Remark: "每日该时刻扫描临期/逾期设备并推送提醒"},
+		{Key: "equipment.overdue_remind_interval_days", Name: "设备逾期重复提醒间隔(天)", Value: "7", ConfigGroup: "equipment", Remark: "逾期后每隔 N 天重复提醒直至登记维保"},
+		{Key: "equipment.escalate_days", Name: "设备逾期升级经理天数", Value: "7", ConfigGroup: "equipment", Remark: "逾期超过 N 天未登记时升级通知物业经理/安全主管"},
+		{Key: "equipment.spotcheck_enabled", Name: "设备日期抽查开关", Value: "true", ConfigGroup: "equipment", Remark: "二期：灭火器日期标签抽查总开关"},
+		{Key: "equipment.spotcheck_ratio", Name: "设备日期抽查比例(%)", Value: "10", ConfigGroup: "equipment", Remark: "二期：默认抽查比例，可被检查项 judge_config.ratio 覆盖"},
 		{Key: "msg.subscribe_enabled", Name: "微信订阅消息开关", Value: "true", ConfigGroup: "msg", Remark: "任务提醒/审核通知"},
 		{Key: "msg.wecom_webhook_enabled", Name: "企业微信消息推送开关", Value: "false", ConfigGroup: "msg", Remark: "开启需配置 webhook 地址（应用配置，不入库）"},
 		{Key: "security.login_fail_limit", Name: "登录失败锁定次数", Value: "5", ConfigGroup: "security", Remark: "连续失败锁定 10 分钟（配合 Redis 计数）"},

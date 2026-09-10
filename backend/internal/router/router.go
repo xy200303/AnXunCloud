@@ -450,8 +450,8 @@ func New(cfg *config.Config, db *gorm.DB, rdb *redis.Client) (*gin.Engine, *insp
 				appEquipment.GET("/maintenance-pending", middleware.RequirePerm("equipment:confirm"), maintCtl.PendingList)
 				appEquipment.POST("/maintenance/confirm", middleware.RequirePerm("equipment:confirm"), middleware.OperLog(db, "equipment", "confirm"), maintCtl.Confirm)
 				appEquipment.POST("/maintenance/reject", middleware.RequirePerm("equipment:confirm"), middleware.OperLog(db, "equipment", "reject"), maintCtl.Reject)
-				appEquipment.GET("/:id", middleware.RequirePerm("equipment:list"), equipmentCtl.Detail)
-				appEquipment.GET("/:id/maintenances", middleware.RequirePerm("equipment:list"), maintCtl.History)
+				appEquipment.GET("/:id", middleware.RequirePerm("equipment:list", "equipment:maintenance"), equipmentCtl.Detail)
+				appEquipment.GET("/:id/maintenances", middleware.RequirePerm("equipment:list", "equipment:maintenance"), maintCtl.History)
 			}
 			appAuth.GET("/dashboard", statsCtl.Dashboard)
 			appAuth.GET("/communities/tree", middleware.RequirePerm("community:list", "inspection:point:list"), communityCtl.Tree)

@@ -189,6 +189,13 @@
       }
     },
     {
+      "path": "pages/equipment/due",
+      "style": {
+        "navigationBarTitleText": "维保待办",
+        "enablePullDownRefresh": true
+      }
+    },
+    {
       "path": "pages/equipment/detail",
       "style": {
         "navigationBarTitleText": "设备详情"

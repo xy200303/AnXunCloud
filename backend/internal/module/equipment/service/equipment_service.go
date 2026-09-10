@@ -343,7 +343,7 @@ func (s *EquipmentService) Detail(c *gin.Context, id string) (gin.H, *errs.Error
 	if err := s.db.First(&e, "id = ?", id).Error; err != nil {
 		return nil, errs.ErrNotFound
 	}
-	if be := middleware.CheckCommunity(s.db, c, e.CommunityID); be != nil {
+	if be := checkRegisterAccess(s.db, c, &e); be != nil {
 		return nil, be
 	}
 	items := s.toItems([]model.Equipment{e})

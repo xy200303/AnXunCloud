@@ -10,7 +10,7 @@
       <text class="offline-bar-text" :style="{ color: colors.primary }">离线暂存 {{ offlineCount }} 条打卡，点击立即补传</text>
     </view>
 
-    <!-- 维保待办红色卡片：有临期/逾期设备才显示，点击跳台账页带筛选 -->
+    <!-- 维保待办红色卡片：有临期/逾期设备才显示，点击跳维保待办页（免台账权限） -->
     <view
       v-if="dueCount > 0"
       class="due-bar"
@@ -406,8 +406,8 @@ export default {
     },
     /** 维保待办：拉取本租户临期+逾期设备；withTip 时按「每天一次」弹启动提醒 */
     loadDue(withTip: boolean) {
-      // 无台账查看权限不查（卡片与弹窗都不显示）
-      if (!useAuthStore().hasPerm('equipment:list')) return
+      // 能看台账或能登记维保的才查（卡片与弹窗都不显示给无关角色）
+      if (!useAuthStore().hasPerm(['equipment:list', 'equipment:maintenance'])) return
       apiEquipmentDue()
         .then((list) => {
           this.dueCount = list.length
@@ -430,11 +430,11 @@ export default {
     closeDueTip() {
       this.dueTipVisible = false
     },
-    /** 待办卡片/弹窗「去处理」：跳台账页（有逾期按已逾期筛选，否则按临期） */
+    /** 待办卡片/弹窗「去处理」：跳维保待办页（巡检员无台账权限也能看；有逾期按已逾期筛选，否则按临期） */
     goEquipmentDue() {
       this.dueTipVisible = false
       uni.navigateTo({
-        url: '/pages/equipment/index?due_state=' + (this.dueMaxOverdue > 0 ? 'overdue' : 'warning')
+        url: '/pages/equipment/due?due_state=' + (this.dueMaxOverdue > 0 ? 'overdue' : 'warning')
       })
     },
     /** 类型筛选 chip：按当日任务实际类型动态生成（label 走后端字典，新类型零改动生效） */

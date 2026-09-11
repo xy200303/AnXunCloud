@@ -30,6 +30,23 @@
         <Background :gap="18" pattern-color="#dcdfe6" />
         <Controls :show-interactive="false" />
 
+        <Panel v-if="canEdit" position="top-right" class="flow-toolbar">
+          <el-dropdown v-if="allowAi" trigger="click" @command="(c: string) => insertStep(steps.length, c as 'manual' | 'ai')">
+            <el-button type="primary" size="small">
+              <el-icon class="btn-icon"><Plus /></el-icon>添加环节
+            </el-button>
+            <template #dropdown>
+              <el-dropdown-menu>
+                <el-dropdown-item command="manual"><el-icon><User /></el-icon>人工审核</el-dropdown-item>
+                <el-dropdown-item command="ai"><el-icon><Cpu /></el-icon>AI 审核</el-dropdown-item>
+              </el-dropdown-menu>
+            </template>
+          </el-dropdown>
+          <el-button v-else type="primary" size="small" @click="insertStep(steps.length, 'manual')">
+            <el-icon class="btn-icon"><Plus /></el-icon>添加环节
+          </el-button>
+        </Panel>
+
         <template #node-start>
           <div class="vf-pill start-pill" :class="{ 'connect-blocked': isBlockedTarget('start') }">开始</div>
           <Handle id="chain-s" type="source" :position="Position.Bottom" class="ghost-handle" :connectable="false" />
@@ -91,8 +108,8 @@
           <Handle id="branch-t" type="target" :position="Position.Left" class="branch-target" :connectable="canEdit" />
         </template>
 
-        <template #edge-chain="{ sourceX, sourceY, targetX, targetY, data, markerEnd }">
-          <BaseEdge :path="`M ${sourceX} ${sourceY} L ${targetX} ${targetY}`" :marker-end="markerEnd" class="chain-edge" />
+        <template #edge-chain="{ sourceX, sourceY, targetX, targetY, data, markerEnd, style }">
+          <BaseEdge :path="`M ${sourceX} ${sourceY} L ${targetX} ${targetY}`" :marker-end="markerEnd" :style="style" class="chain-edge" />
           <EdgeLabelRenderer v-if="canEdit">
             <div class="edge-add nodrag nopan" :style="{ transform: `translate(-50%, -50%) translate(${(sourceX + targetX) / 2}px, ${(sourceY + targetY) / 2}px)` }">
               <el-dropdown trigger="click" @command="(c: string) => insertStep(data.at, c as 'manual' | 'ai')">
@@ -172,7 +189,7 @@
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Top, Bottom, Delete, Plus, User, Cpu } from '@element-plus/icons-vue'
-import { VueFlow, Handle, Position, BaseEdge, EdgeLabelRenderer, MarkerType, useVueFlow, getBezierPath } from '@vue-flow/core'
+import { VueFlow, Handle, Position, Panel, BaseEdge, EdgeLabelRenderer, MarkerType, useVueFlow, getBezierPath } from '@vue-flow/core'
 import type { Connection, Edge, EdgeProps, Node, OnConnectStartParams } from '@vue-flow/core'
 import { Controls } from '@vue-flow/controls'
 import { Background } from '@vue-flow/background'
@@ -425,7 +442,7 @@ function buildEdges(): Edge[] {
   return list
 }
 
-const edges = computed<Edge[]>(() => buildEdges())
+const edges = ref<Edge[]>([])
 
 function branchEdgePath(p: EdgeProps) {
   return getBezierPath({
@@ -452,7 +469,8 @@ function rebuild() {
   })
   if (showRejectNode.value) dims.reject = { w: PILL_W, h: PILL_H }
   for (const [id, d] of Object.entries(dims)) g.setNode(id, { width: d.w, height: d.h })
-  for (const e of buildEdges()) g.setEdge(e.source, e.target)
+  const edgeList = buildEdges()
+  for (const e of edgeList) g.setEdge(e.source, e.target)
   dagreLayout(g)
 
   const pos = (id: string) => {
@@ -483,10 +501,14 @@ function rebuild() {
     list.push({ id: 'reject', type: 'reject', position: rejectPos, data: {}, selectable: false, connectable: canEdit.value })
   }
   nodes.value = list
+  // 与 nodes 同批次写入：Vue Flow 内部 nodes 的 watcher 先于 edges 创建，同批次触发时 setNodes 先执行，
+  // 避免挂载/重建瞬间边因「目标节点尚未入 store」被当作孤儿边丢弃
+  edges.value = edgeList
   nextTick(() => fitView({ padding: 0.2 }))
 }
 
-watch(steps, rebuild, { deep: true })
+// immediate：后端返回空流程时 steps 保持 [] 不触发 watch，首次渲染也要构建开始/结束节点与主链边
+watch(steps, rebuild, { deep: true, immediate: true })
 watch(canEdit, rebuild)
 
 // ===== 拖线配置分支去向：AI 环节右侧三个彩色锚点 → 目标节点 =====
@@ -502,7 +524,8 @@ function onConnectEnd() {
   connectSource.value = null
 }
 
-function isValidConnection(conn: Connection): boolean {
+// 分支连接规则（拖线落点校验 + onConnect 落库前复核共用）
+function isBranchConnectionAllowed(conn: Connection): boolean {
   if (!canEdit.value) return false
   const field = conn.sourceHandle as BranchField | null
   if (!conn.source?.startsWith('step-') || !field || !(field + '').startsWith('on_')) return false
@@ -516,6 +539,13 @@ function isValidConnection(conn: Connection): boolean {
     return j > i && steps.value[j]?.kind !== 'ai'
   }
   return false
+}
+
+// 注意：Vue Flow 除拖线外，还会在 setEdges 写入 store 时用本函数校验「已存在的边」，
+// 因此非拖线期间（connectSource 为空）必须一律放行，否则主链边会被当作 EDGE_INVALID 丢弃
+function isValidConnection(conn: Connection): boolean {
+  if (!connectSource.value) return true
+  return isBranchConnectionAllowed(conn)
 }
 
 function denyReason(conn: Connection): string {
@@ -532,7 +562,7 @@ function denyReason(conn: Connection): string {
 }
 
 function onConnect(conn: Connection) {
-  if (!isValidConnection(conn)) {
+  if (!isBranchConnectionAllowed(conn)) {
     ElMessage.warning(denyReason(conn))
     return
   }
@@ -672,6 +702,12 @@ onMounted(fetchFlow)
 }
 .flow-tip {
   margin-bottom: $spacing-md;
+}
+.flow-toolbar {
+  margin: $spacing-md;
+}
+.btn-icon {
+  margin-right: 4px;
 }
 .flow-canvas {
   position: relative;
@@ -817,13 +853,14 @@ onMounted(fetchFlow)
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 20px;
-  height: 20px;
+  width: 22px;
+  height: 22px;
   border-radius: 50%;
   background: $color-white;
   border: 1px solid $color-primary;
   color: $color-primary;
   cursor: pointer;
+  box-shadow: 0 1px 4px rgba(31, 35, 41, 0.18);
   &:hover {
     background: $color-primary;
     color: $color-white;

@@ -631,6 +631,7 @@ func (s *MPService) TaskDetail(inspectorID, taskID string) (gin.H, *errs.Error) 
 				"checkin_type": ck.CheckinType, "distance_to_point": dist,
 				"altitude": alt, "accuracy": acc,
 				"result": ck.Result, "is_suspect": ck.IsSuspect,
+				"audit_status": ck.AuditStatus, "audit_remark": ck.AuditRemark, // 审核状态/打回原因透出（巡检员记录页可见）
 				"locked": ck.LockedAt != nil, // 已随周期报告归档锁定：不可覆盖修改
 			}
 		}

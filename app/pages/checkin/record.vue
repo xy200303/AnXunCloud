@@ -23,6 +23,14 @@
           >{{ result == 'abnormal' ? '⚠ 有异常' : '✓ 正常' }}</text>
         </view>
         <text v-if="buildingName != ''" class="head-sub" :style="{ color: colors.textSecondary }">{{ buildingName }}</text>
+        <!-- 审核状态（提交后可见：打回红条带原因并引导修改；其余一行状态） -->
+        <view v-if="auditStatus == 'rejected'" class="audit-bar" :style="{ backgroundColor: '#FDECEC' }">
+          <text class="audit-bar-text" :style="{ color: colors.danger }">审核未通过{{ auditRemark != '' ? '：' + auditRemark : '' }}。请修改后重新提交</text>
+        </view>
+        <view v-else-if="auditStatus != ''" class="meta-row">
+          <text class="meta-label" :style="{ color: colors.textSecondary }">审核状态</text>
+          <text class="meta-value" :style="{ color: auditStatus == 'pass' ? colors.success : colors.warning }">{{ auditStatus == 'pass' ? '已通过' : '审核中' }}</text>
+        </view>
         <view class="meta-row">
           <text class="meta-label" :style="{ color: colors.textSecondary }">打卡时间</text>
           <text class="meta-value" :style="{ color: colors.textRegular }">{{ checkinTime }}</text>
@@ -110,6 +118,8 @@ export default {
       accuracy: null as number | null,
       locked: false,
       taskStatus: '',
+      auditStatus: '',
+      auditRemark: '',
       aiEnabled: false,
       items: [] as CheckinItemAI[]
     }
@@ -171,6 +181,8 @@ export default {
           this.result = pt.my_checkin.result
           this.locked = pt.my_checkin.locked
           this.taskStatus = res.status
+          this.auditStatus = pt.my_checkin.audit_status ?? ''
+          this.auditRemark = pt.my_checkin.audit_remark ?? ''
           this.aiEnabled = res.ai_enabled ?? false
           return apiCheckinItems(pt.my_checkin.id).then((items) => {
             this.items = items
@@ -238,6 +250,18 @@ export default {
   flex-direction: row;
   justify-content: space-between;
   align-items: center;
+}
+
+/* 审核打回红条 */
+.audit-bar {
+  border-radius: 16rpx;
+  padding: 20rpx 24rpx;
+  margin-top: 16rpx;
+}
+
+.audit-bar-text {
+  font-size: 26rpx;
+  line-height: 40rpx;
 }
 
 .point-name {

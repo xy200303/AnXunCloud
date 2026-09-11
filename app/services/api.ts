@@ -171,6 +171,10 @@ export type TaskPoint = {
     /** normal/abnormal */
     result: string
     is_suspect: boolean
+    /** 审核状态：pending 审核中 / pass 已通过 / rejected 被打回 */
+    audit_status?: string
+    /** 打回原因（rejected 时有值） */
+    audit_remark?: string
     /** true = 已归档锁定，不可覆盖修改 */
     locked: boolean
   } | null
@@ -542,8 +546,12 @@ type RawTaskDetail = {
       checkin_time?: string
       checkin_type?: string
       distance_to_point?: number | null
+      altitude?: number | null
+      accuracy?: number | null
       result?: string
       is_suspect?: boolean
+      audit_status?: string
+      audit_remark?: string
       locked?: boolean
     } | null
   }>
@@ -883,8 +891,12 @@ export function apiTaskDetail(id: string): Promise<TaskDetail> {
                   checkin_time: p.my_checkin.checkin_time ?? '',
                   checkin_type: p.my_checkin.checkin_type ?? '',
                   distance_to_point: p.my_checkin.distance_to_point ?? null,
+                  altitude: p.my_checkin.altitude ?? null,
+                  accuracy: p.my_checkin.accuracy ?? null,
                   result: p.my_checkin.result ?? '',
                   is_suspect: p.my_checkin.is_suspect ?? false,
+                  audit_status: p.my_checkin.audit_status ?? '',
+                  audit_remark: p.my_checkin.audit_remark ?? '',
                   locked: p.my_checkin.locked ?? false
                 }
           }))

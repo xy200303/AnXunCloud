@@ -227,7 +227,8 @@ export default {
         })
     },
     /** 点击单条：标记已读 + 按类型深链（task→任务详情 / report→报告详情 / announcement→公告详情 /
-     *  checkin_audit→打回进记录卡、审核提醒进审核详情；无映射→弹完整内容） */
+     *  checkin_audit→打回进记录卡、审核提醒进审核详情 / equipment_maint_reject→我的提交 /
+     *  equipment_maint_pending→维保确认 / equipment_expire|scrap→设备详情；无映射→弹完整内容） */
     onTap(m: MessageItem) {
       if (!m.is_read) {
         apiMarkMessageRead(m.id)
@@ -284,6 +285,21 @@ export default {
           return
         }
         this.msgDlg = { show: true, title: m.title, content: m.content }
+        return
+      }
+      if (m.type == 'equipment_maint_reject') {
+        // 巡检员收「维保登记被驳回」：直达「我的提交」（看驳回原因、重新拍照登记）
+        uni.navigateTo({ url: '/pages/equipment/mine' })
+        return
+      }
+      if (m.type == 'equipment_maint_pending') {
+        // 经理收「维保待确认」：直达维保确认页处理
+        uni.navigateTo({ url: '/pages/equipment/confirm' })
+        return
+      }
+      if ((m.type == 'equipment_expire' || m.type == 'equipment_scrap') && biz != null && biz != '') {
+        // 设备到期/报废提醒：biz_id = 设备 ID，直达设备详情（可一键去维保拍照）
+        uni.navigateTo({ url: '/pages/equipment/detail?id=' + encodeURIComponent(biz) })
         return
       }
       // 无跳转映射：直接展示完整内容

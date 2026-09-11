@@ -329,6 +329,8 @@ export type CheckinItemAI = {
   photo_urls?: string[]
   /** 异常项处置方式（'' / on_site_resolved / maintenance_registered / report_pending） */
   disposition?: string
+  /** 处置照片 URL（on_site_resolved 的凭证照片；记录卡展示用） */
+  resolution_photo_urls?: string[]
 }
 
 /** 照片元素（后端 types.PhotoItem，打卡/审核记录通用） */
@@ -1064,7 +1066,11 @@ export function apiCheckinItems(checkinId: string): Promise<CheckinItemAI[]> {
             name: it.name ?? '',
             pass: it.pass ?? false,
             ai_verdict: it.ai_verdict ?? '',
-            ai_reason: it.ai_reason ?? ''
+            ai_reason: it.ai_reason ?? '',
+            note: it.note ?? '',
+            photo_urls: it.photo_urls ?? [],
+            disposition: it.disposition ?? '',
+            resolution_photo_urls: it.resolution_photo_urls ?? []
           }))
         )
       })

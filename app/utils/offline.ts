@@ -164,7 +164,8 @@ async function syncOne(entry: OfflineEntry): Promise<void> {
       keysByItem[ph.item].push(r.file_id)
     }
   }
-  // 回填逐项 photos / resolution_file_ids（照片唯一归属逐项，无记录级照片）
+  // 回填逐项 photos / resolution_file_ids（照片唯一归属逐项，无记录级照片；
+  // 「现场已处理」异常项该项照片可为空——处置照片即凭证，服务端同口径免除）
   req.check_items.forEach((ci) => {
     ci.photos = keysByItem[ci.name] ?? []
     if (resKeysByItem[ci.name] != null) ci.resolution_file_ids = resKeysByItem[ci.name]

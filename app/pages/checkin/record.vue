@@ -65,6 +65,18 @@
         />
         <text v-if="it.ai_reason != null && it.ai_reason != ''" class="item-ai" :style="{ color: colors.textSecondary }">{{ it.ai_reason }}</text>
         <text v-if="dispositionText(it) != ''" class="item-disp" :style="{ color: it.disposition == 'report_pending' ? colors.warning : colors.success }">处置：{{ dispositionText(it) }}</text>
+        <!-- 处置照片（现场已处理的凭证；处置照片即该项照片，不重复展示） -->
+        <view v-if="it.resolution_photo_urls != null && it.resolution_photo_urls.length > 0" class="res-photos">
+          <image
+            v-for="(u, ui) in it.resolution_photo_urls"
+            :key="ui"
+            :src="u"
+            class="res-photo"
+            mode="aspectFill"
+            lazy-load
+            @click="previewRes(it, ui)"
+          />
+        </view>
         <text v-if="it.note != null && it.note != ''" class="item-note" :style="{ color: colors.textRegular }">备注：{{ it.note }}</text>
       </view>
       <view v-if="items.length == 0" class="card" :style="{ backgroundColor: colors.bgCard, boxShadow: shadow }">
@@ -200,6 +212,11 @@ export default {
       if (it.photo_urls == null || it.photo_urls.length == 0) return
       uni.previewImage({ urls: it.photo_urls })
     },
+    /** 处置照片放大预览 */
+    previewRes(it: CheckinItemAI, idx: number) {
+      if (it.resolution_photo_urls == null || it.resolution_photo_urls.length == 0) return
+      uni.previewImage({ urls: it.resolution_photo_urls, current: idx })
+    },
     /** 异常项处置方式文案（有 disposition 才展示行） */
     dispositionText(it: CheckinItemAI): string {
       if (it.disposition == 'on_site_resolved') return '现场已处理'
@@ -329,6 +346,21 @@ export default {
 .item-disp {
   font-size: 26rpx;
   margin-top: 12rpx;
+}
+
+/* 处置照片缩略图行 */
+.res-photos {
+  flex-direction: row;
+  flex-wrap: wrap;
+  margin-top: 12rpx;
+}
+
+.res-photo {
+  width: 160rpx;
+  height: 160rpx;
+  border-radius: 12rpx;
+  margin-right: 16rpx;
+  margin-bottom: 8rpx;
 }
 
 .item-note {

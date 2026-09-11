@@ -665,6 +665,7 @@ func nfcMatch(reqID, pointID string) bool {
 // 点位必须已绑定模板（v21 起强制，无模板概念已消除）；模板每项都必须有提交结果（按 name 匹配）；
 // 逐项照片硬约束（一项一图）：每项最多 1 张；不合格项（pass=false）与模板 photo_required=required 的项须恰好 1 张，
 // file_id 逐一上传确认（43104/43106）；照片唯一归属逐项，无记录级照片。
+// 例外：disposition=on_site_resolved（现场已处理）的不合格项免该项照片——处置照片即凭证，避免重复拍照/存储。
 // 台账有效期合成项客户端可仅上送 name+photos（≤3 张新标签照片，归属校验；pass 忽略仍以服务端判定为准，
 // 提交时按 name 对应服务端合成项触发维保核验）；标签抽查合成项触发即必交
 // （必拍 1 张 + 生产日期/维修日期，服务端按四规则与台账比对，客户端 pass 被忽略）。
@@ -758,7 +759,14 @@ func (s *CheckinService) resolveCheckItems(req *dto.CheckinReq, task *insmodel.I
 		if len(it.Photos) > 1 {
 			return nil, nil, errs.ErrParam.WithMsg("检查项「" + it.Name + "」照片超出上限：一项一图，最多 1 张")
 		}
-		if !isEqValidity && !it.Pass && len(it.Photos) == 0 {
+		// 处置方式（disposition）白名单/照片约束校验（纯函数规则见 checkItemDisposition）
+		disposition := strings.TrimSpace(it.Disposition)
+		if msg := checkItemDisposition(disposition, it.Pass, len(it.ResolutionFileIDs)); msg != "" {
+			return nil, nil, errs.ErrParam.WithMsg("检查项「" + it.Name + "」" + msg)
+		}
+		// 「现场已处理」异常项：处置照片即凭证（避免重复拍照/存储），该项照片与必拍约束免除
+		onSiteResolved := disposition == insmodel.DispositionOnSiteResolved
+		if !isEqValidity && !onSiteResolved && !it.Pass && len(it.Photos) == 0 {
 			return nil, nil, errs.ErrPhotoMissing.WithMsg("检查项「" + it.Name + "」不合格，须至少上传 1 张该项照片")
 		}
 		exceptionType := strings.TrimSpace(it.ExceptionType)
@@ -768,12 +776,7 @@ func (s *CheckinService) resolveCheckItems(req *dto.CheckinReq, task *insmodel.I
 		if exceptionType != "" && it.Pass {
 			return nil, nil, errs.ErrParam.WithMsg("检查项「" + it.Name + "」已上报项目异常，结果必须为异常")
 		}
-		// 处置方式（disposition）白名单/照片约束校验（纯函数规则见 checkItemDisposition）
-		disposition := strings.TrimSpace(it.Disposition)
-		if msg := checkItemDisposition(disposition, it.Pass, len(it.ResolutionFileIDs)); msg != "" {
-			return nil, nil, errs.ErrParam.WithMsg("检查项「" + it.Name + "」" + msg)
-		}
-		if !isEqValidity && ti.PhotoRequired == types.PhotoReqRequired && len(it.Photos) == 0 {
+		if !isEqValidity && !onSiteResolved && ti.PhotoRequired == types.PhotoReqRequired && len(it.Photos) == 0 {
 			return nil, nil, errs.ErrPhotoMissing.WithMsg("检查项「" + it.Name + "」要求必拍，须至少上传 1 张该项照片")
 		}
 		photoIDs := make([]string, 0, len(it.Photos))
@@ -1167,13 +1170,18 @@ func (s *CheckinService) itemPhotoRefs(items []insmodel.CheckinRecordItem) []ai.
 		if it.JudgeType == ai.JudgeManual {
 			continue
 		}
+		// 现场已处理异常项无该项照片时：处置照片即凭证，交给 AI 按处理后状态判定
+		photos := it.Photos
+		if len(photos) == 0 && it.Disposition == insmodel.DispositionOnSiteResolved {
+			photos = it.ResolutionFileIDs
+		}
 		// 无逐项照片的项：仅当带判定元数据（判定类型/标准要求/识别要点）时才透出，
 		// 由 AI 按文字要求判定（无图可核对时模型应判存疑）
-		if len(it.Photos) == 0 && !hasJudgeMeta(it) {
+		if len(photos) == 0 && !hasJudgeMeta(it) {
 			continue
 		}
-		refs := make([]ai.PhotoRef, 0, len(it.Photos))
-		for _, ref := range it.Photos {
+		refs := make([]ai.PhotoRef, 0, len(photos))
+		for _, ref := range photos {
 			if f, err := uploadfile.ByID(s.db, ref); err == nil {
 				refs = append(refs, ai.PhotoRef{URL: f.URL})
 			}

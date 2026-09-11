@@ -665,10 +665,14 @@ export default {
         it.disposition = 'report_pending'
       }
     },
-    /** 异常项处置方式切换：改回「上报待处理」时清掉已拍处置照片 */
+    /** 异常项处置方式切换：改回「上报待处理」时清掉已拍处置照片；选「现场已处理」时清掉该项照片（处置照片即凭证，避免重复存储） */
     setDisposition(it: ItemView, value: '' | 'on_site_resolved' | 'report_pending') {
       it.disposition = value
-      if (value != 'on_site_resolved') it.res_photos = []
+      if (value != 'on_site_resolved') {
+        it.res_photos = []
+      } else {
+        it.photos = []
+      }
     },
     /** 一键全部正常并清空逐项备注；不跳过必拍照片校验；台账有效期项（服务端判定）不动 */
     allNormal() {
@@ -688,6 +692,8 @@ export default {
       // 台账有效期项不要求照片；抽查项必拍；异常项与模板必拍项均展示照片区
       if (isEquipAuto(it)) return false
       if (isEquipSpot(it)) return true
+      // 「现场已处理」异常项：处置照片即该项凭证照片，不再重复展示该项拍照区
+      if (!it.pass && it.disposition == 'on_site_resolved') return false
       return !it.pass || it.photo_required == 'required'
     },
     /** 抽查项「标签缺失」开关：勾选后清空日期（日期免填） */
@@ -830,7 +836,9 @@ export default {
         if (!it.pass && it.note.trim() == '') {
           return '请填写「' + it.name + '」异常备注'
         }
-        if ((!it.pass || it.photo_required == 'required') && it.photos.length == 0) {
+        // 「现场已处理」异常项：处置照片即凭证，该项照片由处置照片兜底（下方校验必拍处置照片）
+        const resolvedOnSite = !it.pass && it.disposition == 'on_site_resolved'
+        if (!resolvedOnSite && (!it.pass || it.photo_required == 'required') && it.photos.length == 0) {
           return '「' + it.name + '」须至少拍 1 张照片'
         }
         // 「现场已处理」须拍处置照片留痕

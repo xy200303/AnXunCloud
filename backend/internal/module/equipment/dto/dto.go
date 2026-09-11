@@ -69,6 +69,14 @@ type MaintenanceRegisterReq struct {
 	LastMaintenanceDate string `json:"last_maintenance_date"`
 }
 
+// MaintenanceUpdateReq 待确认维保登记修改（限本人 + pending）：可换照片/改备注/改维保日期；
+// 照片变更时重新同步 AI 核验（不合格 43107 拦截），结论刷新供经理确认参考。
+type MaintenanceUpdateReq struct {
+	MaintenanceDate string   `json:"maintenance_date"` // YYYY-MM-DD，缺省不改
+	Note            string   `json:"note"`
+	FileIDs         []string `json:"file_ids" binding:"required,min=1"` // 修改后的新维修标签照片（必传）
+}
+
 // ConfirmReq 维保登记批量确认（已 confirmed/rejected 的记录跳过，幂等）。
 type ConfirmReq struct {
 	IDs []string `json:"ids" binding:"required,min=1,max=200"`

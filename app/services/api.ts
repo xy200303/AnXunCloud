@@ -2042,3 +2042,31 @@ export function apiMaintenanceReject(id: string, reason: string): Promise<void> 
       .catch(reject)
   })
 }
+
+/** 我的提交 GET /equipment/maintenance-mine（全部状态，最新在前） */
+export function apiMaintenanceMine(page: number, pageSize: number): Promise<MaintenancePage> {
+  return new Promise<MaintenancePage>((resolve, reject) => {
+    httpGet<any>('/equipment/maintenance-mine?page=' + page + '&page_size=' + pageSize)
+      .then((d) => {
+        resolve({
+          list: (d?.list ?? []) as MaintenanceItem[],
+          total: d?.total ?? 0,
+          page: d?.page ?? page,
+          page_size: d?.page_size ?? pageSize
+        })
+      })
+      .catch(reject)
+  })
+}
+
+/** 待确认登记修改 PUT /equipment/maintenance/:id（限本人；照片变更后端重新 AI 核验，不合格 43107 拦截） */
+export function apiMaintenanceUpdate(
+  id: string,
+  req: { file_ids: string[]; note?: string; maintenance_date?: string }
+): Promise<{ id: string; confirm_status?: string }> {
+  return new Promise<{ id: string; confirm_status?: string }>((resolve, reject) => {
+    httpPut<{ id: string; confirm_status?: string }>('/equipment/maintenance/' + id, req as unknown as Record<string, any>)
+      .then((d) => resolve(d ?? { id: id }))
+      .catch(reject)
+  })
+}

@@ -59,7 +59,7 @@
 
         <!-- 提交（同向导大按钮） -->
         <view hover-class="hover-dim" class="btn-big" :style="{ backgroundColor: photos.length == 0 || submitting ? colors.info : colors.primary }" @click="submit">
-          <text class="btn-big-text" :style="{ color: colors.white }">{{ submitting ? 'AI 核对中…' : '提交维保' }}</text>
+          <text class="btn-big-text" :style="{ color: colors.white }">{{ submitting ? 'AI 核对中…' : editId != '' ? '重新提交' : '提交维保' }}</text>
         </view>
 
         <text class="foot-note" :style="{ color: colors.textSecondary }">标签磨损无法辨认？请联系经理在电脑端处理</text>
@@ -96,9 +96,20 @@
 
 <script lang="ts">
 import { Colors, ColorTokens } from '@/utils/theme'
-import { apiEquipmentDetail, apiEquipmentRegister, apiUploadLocal, EquipmentDetail, CODE_QUALITY_FAIL } from '@/services/api'
+import { apiEquipmentDetail, apiEquipmentRegister, apiMaintenanceUpdate, apiMaintenanceMine, apiUploadLocal, EquipmentDetail, CODE_QUALITY_FAIL } from '@/services/api'
 import { compressForUpload } from '@/utils/image'
 import AppDialog from '@/components/AppDialog.vue'
+
+/** 「我的提交 → 修改照片」编辑草稿的 storage 键（与 mine.vue 约定一致） */
+const MAINTAIN_EDIT_KEY = 'maintain_edit_draft'
+
+type MaintainEditDraft = {
+  id: string
+  equipment_id: string
+  name: string
+  code: string
+  photos: Array<{ file_id: string; url: string }>
+}
 
 /** 今日 0 点（本地时区），到期天数计算用 */
 function todayZero(): number {
@@ -110,6 +121,8 @@ function todayZero(): number {
 type MaintainData = {
   colors: ColorTokens
   equipmentId: string
+  /** 编辑模式：待确认记录 id（「我的提交 → 修改照片」跳入）；空 = 新登记 */
+  editId: string
   detail: EquipmentDetail | null
   /** 详情拉取失败时的回显兜底（路由参数带入） */
   eqName: string
@@ -133,6 +146,7 @@ export default {
     return {
       colors: Colors,
       equipmentId: '',
+      editId: '',
       detail: null,
       eqName: '',
       eqCode: '',
@@ -169,6 +183,12 @@ export default {
     this.equipmentId = options && options.equipment_id ? String(options.equipment_id) : ''
     if (options && options.name) this.eqName = String(options.name)
     if (options && options.code) this.eqCode = String(options.code)
+    // 编辑模式（我的提交 → 修改照片）：预填已上传照片，提交走 PUT 修改
+    if (options && options.maintenance_id) {
+      this.editId = String(options.maintenance_id)
+      uni.setNavigationBarTitle({ title: '修改维保照片' })
+      this.prefillDraft()
+    }
     if (this.equipmentId != '') {
       apiEquipmentDetail(this.equipmentId)
         .then((d) => {
@@ -186,6 +206,24 @@ export default {
     }
   },
   methods: {
+    /** 编辑模式预填：优先 mine.vue 写入的草稿；缺失（如页面刷新）时拉我的提交列表兜底 */
+    prefillDraft() {
+      const draft = uni.getStorageSync(MAINTAIN_EDIT_KEY) as MaintainEditDraft | ''
+      if (draft != null && typeof draft == 'object' && draft.id == this.editId && Array.isArray(draft.photos)) {
+        this.photos = draft.photos.map((p) => p.url)
+        this.fileIds = draft.photos.map((p) => p.file_id)
+        return
+      }
+      apiMaintenanceMine(1, 100)
+        .then((p) => {
+          const m = p.list.find((it) => it.id == this.editId)
+          if (m != null) {
+            this.photos = m.photos.map((ph) => ph.url)
+            this.fileIds = m.photos.map((ph) => ph.file_id)
+          }
+        })
+        .catch(() => {})
+    },
     /** 拍照（仅相机防相册作弊）→ 压缩 → 上传换 file_id（scene=checkin：维保照片同属检查类照片） */
     takePhoto() {
       if (this.uploading || this.submitting) return
@@ -241,6 +279,25 @@ export default {
       this.submitting = true
       // 后端同步 AI 核对（最长约 15s）：遮罩 loading 与打卡「AI 检查中」同口径，防重复点击
       uni.showLoading({ title: 'AI 核对中…', mask: true })
+      if (this.editId != '') {
+        // 编辑模式：修改待确认记录（后端重走 AI 核验；经理已处理则 409 提示）
+        apiMaintenanceUpdate(this.editId, { file_ids: this.fileIds })
+          .then((r) => {
+            uni.hideLoading()
+            const autoOk = r.confirm_status == 'confirmed'
+            this.openResult(autoOk ? 'ok' : 'pending', autoOk ? '维保已生效' : '修改已提交', autoOk ? '系统核对通过，台账已更新' : '已更新照片，经理确认后生效')
+          })
+          .catch((e: any) => {
+            uni.hideLoading()
+            this.submitting = false
+            if (e != null && e.code == CODE_QUALITY_FAIL) {
+              this.openResult('fail', '照片不合格，请重新拍摄', e.message)
+              return
+            }
+            this.openResult('fail', '提交失败', e != null ? e.message : '网络异常，请重试')
+          })
+        return
+      }
       // 最小载荷：拍新标签即登记（默认维修类、当天）；后端同步 AI 核对，结论供经理确认参考
       apiEquipmentRegister({
         equipment_id: this.equipmentId,

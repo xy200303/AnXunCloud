@@ -5,6 +5,12 @@
       <AppChipScroller :items="dueChips" :value="dueFilter" :colors="colors" @change="dueFilter = $event" />
     </view>
 
+    <!-- 我的提交入口：提交后设备从待办消失（有 pending 流水），这里给登记人查看/修改的固定入口 -->
+    <view hover-class="hover-dim" class="mine-entry" :style="{ backgroundColor: colors.bgCard, borderBottomColor: colors.border }" @click="goMine">
+      <text class="mine-entry-text" :style="{ color: colors.textPrimary }">我的提交记录</text>
+      <text class="mine-entry-arrow" :style="{ color: colors.textSecondary }">查看 / 修改 ›</text>
+    </view>
+
     <AppListShell
       :loading="loading"
       :loaded="loaded"
@@ -172,6 +178,9 @@ export default {
         return
       }
       uni.navigateTo({ url: '/pages/equipment/detail?id=' + encodeURIComponent(e.id) })
+    },
+    goMine() {
+      uni.navigateTo({ url: '/pages/equipment/mine' })
     }
   }
 }
@@ -186,6 +195,25 @@ export default {
   padding: 16rpx 24rpx 24rpx;
   border-bottom-width: 1rpx;
   border-bottom-style: solid;
+}
+
+/* 我的提交入口条 */
+.mine-entry {
+  flex-direction: row;
+  justify-content: space-between;
+  align-items: center;
+  padding: 24rpx 32rpx;
+  border-bottom-width: 1rpx;
+  border-bottom-style: solid;
+}
+
+.mine-entry-text {
+  font-size: 28rpx;
+  font-weight: 600;
+}
+
+.mine-entry-arrow {
+  font-size: 26rpx;
 }
 
 .content {

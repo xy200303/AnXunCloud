@@ -95,3 +95,34 @@ func (ctl *MaintenanceController) MpDueDevices(c *gin.Context) {
 func (ctl *MaintenanceController) MpRegister(c *gin.Context) {
 	ctl.Register(c)
 }
+
+// Mine GET /equipment/maintenance-mine（我提交的维保登记：全部状态，最新在前）
+func (ctl *MaintenanceController) Mine(c *gin.Context) {
+	var q response.PageQuery
+	if be := bind.Query(c, &q); be != nil {
+		response.Fail(c, be)
+		return
+	}
+	page, be := ctl.maintenance.Mine(c, &q)
+	write(c, page, be)
+}
+
+// Update PUT /equipment/maintenance/:id（待确认登记修改：限本人，照片变更重新 AI 核验）
+func (ctl *MaintenanceController) Update(c *gin.Context) {
+	id, be := pathID(c)
+	if be != nil {
+		response.Fail(c, be)
+		return
+	}
+	var req dto.MaintenanceUpdateReq
+	if be := bind.JSON(c, &req); be != nil {
+		response.Fail(c, be)
+		return
+	}
+	confirmed, be := ctl.maintenance.Update(c, id, &req)
+	status := model.ConfirmPending
+	if confirmed {
+		status = model.ConfirmConfirmed
+	}
+	write(c, gin.H{"id": id, "confirm_status": status}, be)
+}

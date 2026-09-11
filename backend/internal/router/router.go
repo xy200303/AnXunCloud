@@ -375,6 +375,8 @@ func New(cfg *config.Config, db *gorm.DB, rdb *redis.Client) (*gin.Engine, *insp
 			mpAuth.GET("/points/nearby", mpCtl.NearbyPoints)
 			mpAuth.GET("/equipment/due", maintCtl.MpDueDevices)          // 设备台账：我的待维保列表（临期+逾期）
 			mpAuth.POST("/equipment/maintenance", maintCtl.MpRegister)   // 维保登记（一键+一拍，pending 待经理确认）
+			mpAuth.GET("/equipment/maintenance-mine", maintCtl.Mine)     // 我的提交（全部状态，最新在前）
+			mpAuth.PUT("/equipment/maintenance/:id", maintCtl.Update)    // 待确认登记修改（限本人，重走 AI 核验）
 			mpAuth.POST("/checkin", mpCtl.Checkin)
 			mpAuth.POST("/checkin/offline-sync", mpCtl.OfflineSync)
 			mpAuth.POST("/checkin/ai-item-jobs", mpCtl.SubmitAIItemJob)                          // 逐项 AI 识别：提交
@@ -447,6 +449,8 @@ func New(cfg *config.Config, db *gorm.DB, rdb *redis.Client) (*gin.Engine, *insp
 				appEquipment.GET("/list", middleware.RequirePerm("equipment:list"), equipmentCtl.List)
 				appEquipment.GET("/due", maintCtl.MpDueDevices)
 				appEquipment.POST("/maintenance", middleware.RequirePerm("equipment:maintenance"), middleware.OperLog(db, "equipment", "maintenance"), maintCtl.Register)
+				appEquipment.GET("/maintenance-mine", maintCtl.Mine)
+				appEquipment.PUT("/maintenance/:id", middleware.RequirePerm("equipment:maintenance"), middleware.OperLog(db, "equipment", "maintenance_update"), maintCtl.Update)
 				appEquipment.GET("/maintenance-pending", middleware.RequirePerm("equipment:confirm"), maintCtl.PendingList)
 				appEquipment.POST("/maintenance/confirm", middleware.RequirePerm("equipment:confirm"), middleware.OperLog(db, "equipment", "confirm"), maintCtl.Confirm)
 				appEquipment.POST("/maintenance/reject", middleware.RequirePerm("equipment:confirm"), middleware.OperLog(db, "equipment", "reject"), maintCtl.Reject)

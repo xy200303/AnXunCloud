@@ -208,6 +208,13 @@
       }
     },
     {
+      "path": "pages/equipment/mine",
+      "style": {
+        "navigationBarTitleText": "我的提交",
+        "enablePullDownRefresh": true
+      }
+    },
+    {
       "path": "pages/equipment/confirm",
       "style": {
         "navigationBarTitleText": "维保确认",

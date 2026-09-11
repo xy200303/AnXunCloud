@@ -578,6 +578,119 @@ func (s *MaintenanceService) toMaintenanceItems(rows []model.EquipmentMaintenanc
 	return list
 }
 
+// Mine 我提交的维保登记分页（全部状态，最新在前；巡检员「我的提交」用——
+// 提交后设备因有 pending 流水会从待维保列表消失，这里给登记人一个可见、可修改的入口）。
+func (s *MaintenanceService) Mine(c *gin.Context, q *response.PageQuery) (*response.Page, *errs.Error) {
+	identity := middleware.CurrentIdentity(c)
+	if identity == nil {
+		return nil, errs.ErrUnauthorized
+	}
+	db := s.db.Model(&model.EquipmentMaintenance{}).Where("created_by = ?", identity.UserID)
+	var total int64
+	if err := db.Count(&total).Error; err != nil {
+		return nil, errs.ErrInternal
+	}
+	var rows []model.EquipmentMaintenance
+	offset, limit := q.Normalize()
+	if err := db.Order("created_at DESC").Offset(offset).Limit(limit).Find(&rows).Error; err != nil {
+		return nil, errs.ErrInternal
+	}
+	return &response.Page{List: s.toMaintenanceItems(rows), Total: total, Page: q.Page, PageSize: q.PageSize}, nil
+}
+
+// Update 待确认登记修改（限本人 + pending；已确认/已驳回不可改——已生效的回写台账，驳回的请重新登记）。
+// 照片逐一校验归属本人；非标签缺失单且 AI 可用时重新同步核验：明显不合格（质量/内容判不像）
+// 43107 拦截不落库（与 Register 同口径）；可信且 equipment.ai_auto_confirm 开则自动 confirmed 回写台账，
+// 否则保持 pending 并刷新 ai_verdict/ai_reason 供经理确认参考（不重复通知经理，避免骚扰）。
+// 返回 confirmed=true 表示本次修改后已自动生效。
+func (s *MaintenanceService) Update(c *gin.Context, id string, req *dto.MaintenanceUpdateReq) (bool, *errs.Error) {
+	identity := middleware.CurrentIdentity(c)
+	if identity == nil {
+		return false, errs.ErrUnauthorized
+	}
+	var m model.EquipmentMaintenance
+	if err := s.db.First(&m, "id = ?", id).Error; err != nil {
+		return false, errs.ErrNotFound
+	}
+	if m.CreatedBy != identity.UserID {
+		return false, errs.ErrDataScope.WithMsg("只能修改本人提交的维保登记")
+	}
+	if m.ConfirmStatus != model.ConfirmPending {
+		return false, errs.ErrConflict.WithMsg("该登记已被经理处理，不可修改；如需变更请重新拍照登记")
+	}
+	if len(req.FileIDs) > 9 {
+		return false, errs.ErrParam.WithMsg("照片最多 9 张")
+	}
+	for _, fid := range req.FileIDs {
+		f, err := uploadfile.ByID(s.db, fid)
+		if err != nil || f.UserID != identity.UserID {
+			return false, errs.ErrPhotoNotUploaded
+		}
+	}
+	var e model.Equipment
+	if err := s.db.First(&e, "id = ?", m.EquipmentID).Error; err != nil {
+		return false, errs.ErrNotFound
+	}
+	updates := map[string]any{
+		"file_ids": types.IDArray(req.FileIDs),
+		"note":     strings.TrimSpace(req.Note),
+	}
+	m.FileIDs = types.IDArray(req.FileIDs)
+	m.Note = strings.TrimSpace(req.Note)
+	if strings.TrimSpace(req.MaintenanceDate) != "" {
+		d, be := parseDate(req.MaintenanceDate)
+		if be != nil {
+			return false, be
+		}
+		updates["maintenance_date"] = *d
+		m.MaintenanceDate = *d
+	}
+	// 照片变更重新同步 AI 核验（标签缺失登记无日期可读，保持原结论）
+	aiVerdict := ""
+	if s.aiCli != nil && s.aiCli.Enabled() && !m.LabelMissing {
+		timeout := time.Duration(cfgInt(s.db, "ai.sync_timeout_seconds", 15)) * time.Second
+		ctx, cancel := context.WithTimeout(c.Request.Context(), timeout)
+		verdict, reason, reading, blocked, aiErr := CheckMaintenanceLabel(ctx, s.aiCli, s.db, e.Name, e.Type, m.FileIDs, false)
+		cancel()
+		switch {
+		case aiErr != nil:
+			// 调用失败：清掉旧结论，经理审批时不被过期结论误导
+			updates["ai_verdict"] = nil
+			updates["ai_reason"] = nil
+		case blocked:
+			return false, errs.ErrPhotoQuality.WithMsg("照片未通过系统核验（" + reason + "），请重新拍摄")
+		default:
+			reason = truncateStr2(reason, 500)
+			trusted, suspectReplace, trustNote := JudgeLabelTrust(verdict, reading, m.MaintenanceDate, e.ManufactureDate)
+			if trusted {
+				aiVerdict = model.AIVerdictPass
+				updates["ai_verdict"] = aiVerdict
+				updates["ai_reason"] = truncateStr2(appendReason(reason, "AI 核对通过，待经理确认"), 500)
+			} else {
+				if suspectReplace {
+					reason = appendReason(reason, trustNote)
+				} else if verdict == model.AIVerdictPass {
+					reason = appendReason(reason, "未读出可信维修日期，待人工确认")
+				}
+				aiVerdict = model.AIVerdictReview
+				updates["ai_verdict"] = aiVerdict
+				updates["ai_reason"] = truncateStr2(reason, 500)
+			}
+		}
+	}
+	if err := s.db.Model(&model.EquipmentMaintenance{}).Where("id = ?", m.ID).Updates(updates).Error; err != nil {
+		return false, errs.ErrInternal
+	}
+	// AI 可信且开关开：自动生效（与 Register 同口径；默认关，等经理确认）
+	if aiVerdict == model.AIVerdictPass && cfgBool(s.db, "equipment.ai_auto_confirm", false) {
+		if be := s.confirmByAI(&m); be != nil {
+			return false, be
+		}
+		return true, nil
+	}
+	return false, nil
+}
+
 // DueDevices mp 端待维保设备列表：本租户临期+逾期+应报废在用设备（带点位/小区名，逾期/报废在前）。
 // 标签缺失设备不出现（已退出自动判定，走经理处置通道）。
 func (s *MaintenanceService) DueDevices(c *gin.Context) ([]gin.H, *errs.Error) {

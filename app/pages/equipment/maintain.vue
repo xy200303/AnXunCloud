@@ -59,12 +59,26 @@
 
         <!-- 提交（同向导大按钮） -->
         <view hover-class="hover-dim" class="btn-big" :style="{ backgroundColor: photos.length == 0 || submitting ? colors.info : colors.primary }" @click="submit">
-          <text class="btn-big-text" :style="{ color: colors.white }">{{ submitting ? '提交中…' : '提交维保' }}</text>
+          <text class="btn-big-text" :style="{ color: colors.white }">{{ submitting ? 'AI 核对中…' : '提交维保' }}</text>
         </view>
 
         <text class="foot-note" :style="{ color: colors.textSecondary }">标签磨损无法辨认？请联系经理在电脑端处理</text>
       </view>
       <view class="bottom-space"></view>
+    </view>
+
+    <!-- 提交结果弹窗（自绘：圆形状态图标 + 标题 + 说明 + 胶囊按钮；系统 showModal 太生硬） -->
+    <view v-if="resultDlg.show" class="dlg-mask" :style="{ backgroundColor: colors.mask }">
+      <view class="dlg-card" :style="{ backgroundColor: colors.bgCard }">
+        <view class="dlg-icon" :style="{ backgroundColor: resultDlg.color }">
+          <text class="dlg-icon-text" :style="{ color: colors.white }">{{ resultDlg.icon }}</text>
+        </view>
+        <text class="dlg-title" :style="{ color: colors.textPrimary }">{{ resultDlg.title }}</text>
+        <text class="dlg-content" :style="{ color: colors.textRegular }">{{ resultDlg.content }}</text>
+        <view hover-class="hover-dim" class="dlg-btn" :style="{ backgroundColor: resultDlg.color }" @click="onResultConfirm">
+          <text class="dlg-btn-text" :style="{ color: colors.white }">知道了</text>
+        </view>
+      </view>
     </view>
   </view>
 </template>
@@ -95,6 +109,8 @@ type MaintainData = {
   imgError: boolean
   submitting: boolean
   uploading: boolean
+  /** 提交结果弹窗（自绘）：kind 决定图标/颜色；成功类确认后退出，失败类留在原地 */
+  resultDlg: { show: boolean; kind: 'ok' | 'pending' | 'fail'; icon: string; color: string; title: string; content: string }
 }
 
 export default {
@@ -110,7 +126,8 @@ export default {
       fileIds: [] as string[],
       imgError: false,
       submitting: false,
-      uploading: false
+      uploading: false,
+      resultDlg: { show: false, kind: 'ok', icon: '✓', color: Colors.success, title: '', content: '' }
     }
   },
   computed: {
@@ -207,6 +224,8 @@ export default {
         return
       }
       this.submitting = true
+      // 后端同步 AI 核对（最长约 15s）：遮罩 loading 与打卡「AI 检查中」同口径，防重复点击
+      uni.showLoading({ title: 'AI 核对中…', mask: true })
       // 最小载荷：拍新标签即登记（默认维修类、当天）；后端同步 AI 核对，结论供经理确认参考
       apiEquipmentRegister({
         equipment_id: this.equipmentId,
@@ -214,20 +233,31 @@ export default {
         file_ids: this.fileIds
       })
         .then((r) => {
-          // 已生效（ai_auto_confirm 开且核对通过）与待确认（默认：转经理）分别反馈
-          if (r.confirm_status == 'confirmed' || r.confirm_mode == 'ai') {
-            uni.showToast({ title: '系统核对通过，维保已生效', icon: 'none' })
-          } else {
-            uni.showToast({ title: '已提交，待经理确认', icon: 'none' })
-          }
-          setTimeout(() => {
-            uni.navigateBack()
-          }, 800)
+          uni.hideLoading()
+          // 结果必须被看到：自绘弹窗确认后才退出（toast 会被 navigateBack 吞掉）
+          const autoOk = r.confirm_status == 'confirmed' || r.confirm_mode == 'ai'
+          this.openResult(autoOk ? 'ok' : 'pending', autoOk ? '维保已生效' : '提交成功', autoOk ? '系统核对通过，台账已更新' : '已提交，经理确认后生效')
         })
         .catch((e: Error) => {
+          uni.hideLoading()
           this.submitting = false
-          uni.showToast({ title: e.message, icon: 'none' })
+          // 失败留在原地可重试（照片已上传，重试不丢）
+          this.openResult('fail', '提交失败', e.message)
         })
+    },
+    /** 打开结果弹窗：ok=绿勾（已生效）/pending=蓝点（待经理确认）/fail=红叉（留在原地可重试） */
+    openResult(kind: 'ok' | 'pending' | 'fail', title: string, content: string) {
+      const icon = kind == 'fail' ? '✕' : kind == 'pending' ? '●' : '✓'
+      const color = kind == 'fail' ? Colors.danger : kind == 'pending' ? Colors.primary : Colors.success
+      this.resultDlg = { show: true, kind, icon, color, title, content }
+    },
+    /** 结果弹窗确认：成功类退出本页；失败类仅关闭，照片保留可重试 */
+    onResultConfirm() {
+      const kind = this.resultDlg.kind
+      this.resultDlg.show = false
+      if (kind != 'fail') {
+        uni.navigateBack()
+      }
     }
   }
 }
@@ -406,5 +436,64 @@ export default {
 
 .bottom-space {
   height: 64rpx;
+}
+
+/* 提交结果弹窗（自绘，居中卡片） */
+.dlg-mask {
+  position: fixed;
+  left: 0;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 999;
+  justify-content: center;
+  align-items: center;
+}
+
+.dlg-card {
+  width: 600rpx;
+  border-radius: 28rpx;
+  padding: 48rpx 40rpx 40rpx;
+  align-items: center;
+}
+
+.dlg-icon {
+  width: 112rpx;
+  height: 112rpx;
+  border-radius: 56rpx;
+  align-items: center;
+  justify-content: center;
+}
+
+.dlg-icon-text {
+  font-size: 56rpx;
+  font-weight: 700;
+}
+
+.dlg-title {
+  font-size: 36rpx;
+  font-weight: 700;
+  margin-top: 24rpx;
+}
+
+.dlg-content {
+  font-size: 28rpx;
+  margin-top: 16rpx;
+  line-height: 44rpx;
+  text-align: center;
+}
+
+.dlg-btn {
+  width: 100%;
+  height: 96rpx;
+  border-radius: 48rpx;
+  align-items: center;
+  justify-content: center;
+  margin-top: 40rpx;
+}
+
+.dlg-btn-text {
+  font-size: 34rpx;
+  font-weight: 600;
 }
 </style>

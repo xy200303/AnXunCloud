@@ -1635,14 +1635,16 @@ export default {
       const pt = this.curPoint
       if (wp == null || pt == null || this.submitting || this.captureBusy) return
       this.submitting = true
-      this.overlayMsg = '提交中…'
+      // 带新标签照片的提交后端会同步 AI 核对（最长约 15s）：遮罩文案说明在核对，避免误以为卡死
+      const hasLabel = wp.items.some((it) => it.judge_type == 'equipment_validity' && it.file_ids.length > 0)
+      this.overlayMsg = hasLabel ? 'AI 核对新标签中…' : '提交中…'
       const abnSet: Record<number, boolean> = {}
       abnIdxs.forEach((i) => {
         abnSet[i] = true
       })
       // 台账有效期合成项默认不上送（服务端按点位实时逐台判定追加快照）；
-      // 但已拍新标签照片的需上送（photos=新标签照片，服务端 AI 核对，可信自动回写台账）；
-      // abnSet 键为 wp.items 原始下标，过滤时保留
+      // 但已拍新标签照片的需上送（photos=新标签照片，服务端同步 AI 核对，结论供经理确认，
+      // equipment.ai_auto_confirm 开时才自动回写台账）；abnSet 键为 wp.items 原始下标，过滤时保留
       const checkItems: any[] = []
       wp.items.forEach((it, i) => {
         if (it.judge_type == 'equipment_validity') {

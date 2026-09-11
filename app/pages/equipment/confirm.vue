@@ -104,6 +104,18 @@
         </view>
       </view>
     </view>
+
+    <!-- 确认通过弹窗（自绘，替代原生 showModal）：单条/批量共用，ids 在打开时暂存 -->
+    <AppDialog
+      :visible="confirmDlgShow"
+      kind="primary"
+      title="确认通过"
+      :content="'确认通过 ' + confirmIds.length + ' 条维保登记？确认后台账即时生效（回写最近维保日期并重算到期日）。'"
+      confirm-text="通过"
+      cancel-text="取消"
+      @update:visible="confirmDlgShow = $event"
+      @confirm="onConfirmOk"
+    />
   </view>
 </template>
 
@@ -116,6 +128,7 @@ import {
 import { toAbsUrl } from '@/utils/url'
 import AppListShell from '@/components/AppListShell.vue'
 import AppListFooter from '@/components/AppListFooter.vue'
+import AppDialog from '@/components/AppDialog.vue'
 
 const PAGE_SIZE = 20
 
@@ -137,10 +150,13 @@ type ConfirmData = {
   rejectReason: string
   rejectTarget: MaintenanceItem | null
   acting: boolean
+  /** 确认通过弹窗：待确认 id 集合（单条/批量共用） */
+  confirmDlgShow: boolean
+  confirmIds: string[]
 }
 
 export default {
-  components: { AppListShell, AppListFooter },
+  components: { AppListShell, AppListFooter, AppDialog },
   data(): ConfirmData {
     return {
       colors: Colors,
@@ -157,7 +173,9 @@ export default {
       rejecting: false,
       rejectReason: '',
       rejectTarget: null,
-      acting: false
+      acting: false,
+      confirmDlgShow: false,
+      confirmIds: [] as string[]
     }
   },
   computed: {
@@ -236,29 +254,27 @@ export default {
     preview(m: MaintenanceItem, idx: number) {
       uni.previewImage({ urls: m.photos.map((p) => toAbsUrl(p.url)), current: idx })
     },
-    /** 确认（单条/批量共用）：确认后台账即时生效 */
+    /** 确认（单条/批量共用）：弹窗确认后台账即时生效 */
     doConfirm(ids: string[]) {
       if (this.acting || ids.length == 0) return
-      uni.showModal({
-        title: '确认通过',
-        content: '确认通过 ' + ids.length + ' 条维保登记？确认后台账即时生效（回写最近维保日期并重算到期日）。',
-        confirmText: '通过',
-        success: (res) => {
-          if (!res.confirm) return
-          this.acting = true
-          apiMaintenanceConfirm(ids)
-            .then((r) => {
-              uni.showToast({ title: '已确认 ' + r.confirmed + ' 条', icon: 'none' })
-              this.reload()
-            })
-            .catch((e: Error) => {
-              uni.showToast({ title: e.message, icon: 'none' })
-            })
-            .finally(() => {
-              this.acting = false
-            })
-        }
-      })
+      this.confirmIds = ids
+      this.confirmDlgShow = true
+    },
+    onConfirmOk() {
+      const ids = this.confirmIds
+      if (ids.length == 0) return
+      this.acting = true
+      apiMaintenanceConfirm(ids)
+        .then((r) => {
+          uni.showToast({ title: '已确认 ' + r.confirmed + ' 条', icon: 'none' })
+          this.reload()
+        })
+        .catch((e: Error) => {
+          uni.showToast({ title: e.message, icon: 'none' })
+        })
+        .finally(() => {
+          this.acting = false
+        })
     },
     onPass(m: MaintenanceItem) {
       this.doConfirm([m.id])

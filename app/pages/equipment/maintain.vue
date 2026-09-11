@@ -80,6 +80,17 @@
         </view>
       </view>
     </view>
+    <!-- 删除照片确认（自绘弹窗，与结果弹窗同口径） -->
+    <AppDialog
+      :visible="delDlg.show"
+      kind="danger"
+      title="删除照片"
+      content="确定删除这张照片吗？"
+      confirm-text="删除"
+      cancel-text="取消"
+      @update:visible="delDlg.show = $event"
+      @confirm="onDelPhotoConfirm"
+    />
   </view>
 </template>
 
@@ -87,6 +98,7 @@
 import { Colors, ColorTokens } from '@/utils/theme'
 import { apiEquipmentDetail, apiEquipmentRegister, apiUploadLocal, EquipmentDetail } from '@/services/api'
 import { compressForUpload } from '@/utils/image'
+import AppDialog from '@/components/AppDialog.vue'
 
 /** 今日 0 点（本地时区），到期天数计算用 */
 function todayZero(): number {
@@ -111,9 +123,12 @@ type MaintainData = {
   uploading: boolean
   /** 提交结果弹窗（自绘）：kind 决定图标/颜色；成功类确认后退出，失败类留在原地 */
   resultDlg: { show: boolean; kind: 'ok' | 'pending' | 'fail'; icon: string; color: string; title: string; content: string }
+  /** 删除照片确认弹窗：idx 为待删照片下标 */
+  delDlg: { show: boolean; idx: number }
 }
 
 export default {
+  components: { AppDialog },
   data(): MaintainData {
     return {
       colors: Colors,
@@ -127,7 +142,8 @@ export default {
       imgError: false,
       submitting: false,
       uploading: false,
-      resultDlg: { show: false, kind: 'ok', icon: '✓', color: Colors.success, title: '', content: '' }
+      resultDlg: { show: false, kind: 'ok', icon: '✓', color: Colors.success, title: '', content: '' },
+      delDlg: { show: false, idx: -1 }
     }
   },
   computed: {
@@ -202,16 +218,15 @@ export default {
       uni.previewImage({ urls: this.photos, current: idx })
     },
     removePhoto(idx: number) {
-      uni.showModal({
-        title: '删除照片',
-        content: '确定删除这张照片吗？',
-        success: (r) => {
-          if (r.confirm) {
-            this.photos.splice(idx, 1)
-            this.fileIds.splice(idx, 1)
-          }
-        }
-      })
+      this.delDlg = { show: true, idx: idx }
+    },
+    onDelPhotoConfirm() {
+      const idx = this.delDlg.idx
+      if (idx >= 0) {
+        this.photos.splice(idx, 1)
+        this.fileIds.splice(idx, 1)
+      }
+      this.delDlg.idx = -1
     },
     submit() {
       if (this.submitting || this.uploading) return

@@ -14,15 +14,31 @@
       <button class="pdf" @click="openPdf">查看 PDF</button>
     </view>
     <view v-else class="loading">加载中…</view>
+
+    <!-- 驳回原因弹窗（自绘，替代原生 showModal editable；确认带回输入值，空值不提交） -->
+    <AppDialog
+      :visible="rejectDlgShow"
+      kind="danger"
+      title="驳回报告"
+      :editable="true"
+      placeholder="请输入驳回原因"
+      :default-value="rejectReason"
+      confirm-text="驳回"
+      cancel-text="取消"
+      @update:visible="rejectDlgShow = $event"
+      @confirm="onRejectConfirm"
+    />
   </view>
 </template>
 
 <script lang="ts">
 import { apiReportDetail, apiSignStep, apiReportPdfTicket, type ReportDetail, type ReportSignReq } from '@/services/api'
 import { Colors } from '@/utils/theme'
+import AppDialog from '@/components/AppDialog.vue'
 
 export default {
-  data() { return { colors: Colors, d: null as ReportDetail | null, busy: false, reportId: '' } },
+  components: { AppDialog },
+  data() { return { colors: Colors, d: null as ReportDetail | null, busy: false, reportId: '', rejectDlgShow: false, rejectReason: '' } },
   computed: {
     currentStep(): any { return this.d?.review_steps?.[this.d.review_step] },
     canSign(): boolean {
@@ -37,7 +53,14 @@ export default {
     statusLabel(status: string) { return status === 'approved' ? '已通过' : '待审核' },
     async submit(req: ReportSignReq, message: string) { if (!this.d) return; this.busy = true; try { await apiSignStep(this.d.id, this.d.review_step, req); uni.showToast({ title: message, icon: 'none' }); await this.load() } finally { this.busy = false } },
     approve() { this.submit({ action: 'approve' }, '审核已提交') },
-    reject() { uni.showModal({ title: '驳回报告', editable: true, placeholderText: '请输入驳回原因' }).then((res: any) => { if (res.confirm && res.content) this.submit({ action: 'reject', reason: res.content }, '已驳回') }) },
+    reject() { this.rejectReason = ''; this.rejectDlgShow = true },
+    onRejectConfirm(reason: string) {
+      this.rejectReason = reason
+      const v = (reason || '').trim()
+      // 空值不触发提交：提示并保持弹窗打开（update:visible 先置关，此处再开回）
+      if (v == '') { uni.showToast({ title: '请填写驳回原因', icon: 'none' }); this.rejectDlgShow = true; return }
+      this.submit({ action: 'reject', reason: v }, '已驳回')
+    },
     async openPdf() { const ticket = await apiReportPdfTicket(this.reportId); uni.navigateTo({ url: `/pages/webview/index?url=${encodeURIComponent(ticket)}` }) }
   }
 }

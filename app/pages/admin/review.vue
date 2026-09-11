@@ -165,6 +165,18 @@
         </view>
       </view>
     </view>
+
+    <!-- 审核通过确认（自绘，替代原生 showModal） -->
+    <AppDialog
+      :visible="passDlgShow"
+      kind="success"
+      title="审核通过"
+      content="确认该打卡记录审核通过？"
+      confirm-text="通过"
+      cancel-text="取消"
+      @update:visible="passDlgShow = $event"
+      @confirm="onPassConfirm"
+    />
   </view>
 </template>
 
@@ -176,6 +188,7 @@ import AppBottomSheet from '@/components/AppBottomSheet.vue'
 import AppListShell from '@/components/AppListShell.vue'
 import AppSegmentTabs from '@/components/AppSegmentTabs.vue'
 import AppListFooter from '@/components/AppListFooter.vue'
+import AppDialog from '@/components/AppDialog.vue'
 
 const PAGE_SIZE = 20
 
@@ -196,6 +209,8 @@ type ReviewData = {
   acting: boolean
   /** 消息深链带入的记录 ID：首屏加载后自动打开该记录详情 */
   focusId: string
+  /** 审核通过确认弹窗 */
+  passDlgShow: boolean
 }
 
 function typeTextOf(t: string): string {
@@ -211,7 +226,7 @@ function photoUrl(p: { url: string; watermarked_url: string }): string {
 }
 
 export default {
-  components: { AppBottomSheet, AppListShell, AppListFooter, AppSegmentTabs },
+  components: { AppBottomSheet, AppListShell, AppListFooter, AppSegmentTabs, AppDialog },
   data(): ReviewData {
     return {
       colors: Colors,
@@ -232,7 +247,8 @@ export default {
       rejecting: false,
       rejectReason: '',
       acting: false,
-      focusId: ''
+      focusId: '',
+      passDlgShow: false
     }
   },
   computed: {
@@ -334,28 +350,24 @@ export default {
     },
     onPass() {
       if (this.detail == null || this.acting) return
+      this.passDlgShow = true
+    },
+    onPassConfirm() {
+      if (this.detail == null || this.acting) return
       const id = this.detail.id
-      uni.showModal({
-        title: '审核通过',
-        content: '确认该打卡记录审核通过？',
-        confirmText: '通过',
-        success: (res) => {
-          if (!res.confirm) return
-          this.acting = true
-          apiReviewPass(id)
-            .then(() => {
-              uni.showToast({ title: '已通过', icon: 'none' })
-              this.closeDetail()
-              this.reload()
-            })
-            .catch((e: Error) => {
-              uni.showToast({ title: e.message, icon: 'none' })
-            })
-            .finally(() => {
-              this.acting = false
-            })
-        }
-      })
+      this.acting = true
+      apiReviewPass(id)
+        .then(() => {
+          uni.showToast({ title: '已通过', icon: 'none' })
+          this.closeDetail()
+          this.reload()
+        })
+        .catch((e: Error) => {
+          uni.showToast({ title: e.message, icon: 'none' })
+        })
+        .finally(() => {
+          this.acting = false
+        })
     },
     onRejectTap() {
       this.rejectReason = ''

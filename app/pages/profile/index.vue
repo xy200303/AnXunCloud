@@ -72,6 +72,25 @@
     <!-- 手写签名板（个人中心配置入口：保存即写入签章资产，下次签字直接用） -->
     <SignaturePad ref="pad" :show-save-option="false" @save="onPadSave" />
 
+    <!-- 切换公司面板 / 退出登录确认（自绘，替代原生 showActionSheet/showModal） -->
+    <AppActionSheet
+      :visible="tenantSheetShow"
+      title="切换公司"
+      :items="tenantNames"
+      @update:visible="tenantSheetShow = $event"
+      @select="onTenantSelect"
+    />
+    <AppDialog
+      :visible="logoutDlgShow"
+      kind="danger"
+      title="退出登录"
+      content="确定要退出当前账号吗？"
+      confirm-text="退出"
+      cancel-text="取消"
+      @update:visible="logoutDlgShow = $event"
+      @confirm="onLogoutConfirm"
+    />
+
     <view class="tabbar-space"></view>
   </view>
 </template>
@@ -85,6 +104,8 @@ import { useAuthStore } from '@/stores/auth'
 import { useTenantStore } from '@/stores/tenant'
 import { toAbsUrl } from '@/utils/url'
 import SignaturePad from '@/components/SignaturePad.vue'
+import AppDialog from '@/components/AppDialog.vue'
+import AppActionSheet from '@/components/AppActionSheet.vue'
 
 type ProfileData = {
   colors: ColorTokens
@@ -94,16 +115,24 @@ type ProfileData = {
   equipmentDueCount: number
   /** 维保确认角标：待确认登记数 */
   equipmentPendingCount: number
+  /** 切换公司面板：待选租户列表（面板选择时按下标回取） */
+  tenantSheetShow: boolean
+  tenantList: Array<{ id: string; name: string }>
+  /** 退出登录确认弹窗 */
+  logoutDlgShow: boolean
 }
 
 export default {
-  components: { SignaturePad },
+  components: { SignaturePad, AppDialog, AppActionSheet },
   data(): ProfileData {
     return {
       colors: Colors,
       appVersion: APP_VERSION,
       equipmentDueCount: 0,
-      equipmentPendingCount: 0
+      equipmentPendingCount: 0,
+      tenantSheetShow: false,
+      tenantList: [],
+      logoutDlgShow: false
     }
   },
   onLoad() {
@@ -198,6 +227,10 @@ export default {
     currentTenantName(): string {
       const t = useTenantStore().tenantName
       return t != '' ? t : '默认租户'
+    },
+    /** 切换公司面板的选项文案 */
+    tenantNames(): string[] {
+      return this.tenantList.map((t) => t.name)
     }
   },
   onShow() {
@@ -227,7 +260,7 @@ export default {
     goPassword() {
       uni.navigateTo({ url: '/pages/profile/password' })
     },
-    /** 超管切换「当前公司」：拉租户列表 → 选择器 → 写租户上下文（后续请求按所选租户隔离） */
+    /** 超管切换「当前公司」：拉租户列表 → 底部面板选择 → 写租户上下文（后续请求按所选租户隔离） */
     switchTenant() {
       uni.showLoading({ title: '加载中…', mask: true })
       apiTenants()
@@ -237,21 +270,19 @@ export default {
             uni.showToast({ title: '暂无公司', icon: 'none' })
             return
           }
-          uni.showActionSheet({
-            itemList: list.map((t) => t.name),
-            success: (r) => {
-              const t = list[r.tapIndex]
-              if (t == null) return
-              useTenantStore().set(t.id, t.name)
-              uni.showToast({ title: '已切换到「' + t.name + '」', icon: 'none' })
-            },
-            fail: (_e: any) => {}
-          })
+          this.tenantList = list
+          this.tenantSheetShow = true
         })
         .catch((e: Error) => {
           uni.hideLoading()
           uni.showToast({ title: e.message, icon: 'none' })
         })
+    },
+    onTenantSelect(idx: number) {
+      const t = this.tenantList[idx]
+      if (t == null) return
+      useTenantStore().set(t.id, t.name)
+      uni.showToast({ title: '已切换到「' + t.name + '」', icon: 'none' })
     },
     /** 关于页 */
     goAbout() {
@@ -310,16 +341,10 @@ export default {
         })
     },
     onLogout() {
-      uni.showModal({
-        title: '退出登录',
-        content: '确定要退出当前账号吗？',
-        confirmText: '退出',
-        success: (res) => {
-          if (res.confirm) {
-            useAuthStore().logout()
-          }
-        }
-      })
+      this.logoutDlgShow = true
+    },
+    onLogoutConfirm() {
+      useAuthStore().logout()
     }
   }
 }

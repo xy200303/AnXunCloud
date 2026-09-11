@@ -78,6 +78,14 @@
     </view>
 
     <view class="tabbar-space"></view>
+
+    <!-- 消息详情查看弹窗（无跳转映射时展示完整内容；自绘，替代原生 showModal） -->
+    <AppDialog
+      :visible="msgDlg.show"
+      :title="msgDlg.title"
+      :content="msgDlg.content"
+      @update:visible="msgDlg.show = $event"
+    />
   </view>
 </template>
 
@@ -88,6 +96,7 @@ import { useMessageStore } from '@/stores/message'
 import { syncBadge } from '@/utils/push'
 import AppListShell from '@/components/AppListShell.vue'
 import AppListFooter from '@/components/AppListFooter.vue'
+import AppDialog from '@/components/AppDialog.vue'
 
 const PAGE_SIZE = 20
 
@@ -105,6 +114,8 @@ type MessagesData = {
   noticeLoading: boolean
   notices: AnnouncementItem[]
   lastLoadedAt: number
+  /** 消息详情查看弹窗（无图标单按钮） */
+  msgDlg: { show: boolean; title: string; content: string }
 }
 
 /** 消息类型展示（对齐后端 SysMessage 写入点：report 月报 / checkin_audit 打卡审核 / task 任务（派单/逾期） / announcement 公告 / equipment_maint_pending 维保待确认） */
@@ -127,7 +138,7 @@ function typeColorOf(t: string): string {
 }
 
 export default {
-  components: { AppListShell, AppListFooter },
+  components: { AppListShell, AppListFooter, AppDialog },
   data(): MessagesData {
     return {
       colors: Colors,
@@ -142,7 +153,8 @@ export default {
       noticeShow: false,
       noticeLoading: false,
       notices: [] as AnnouncementItem[],
-      lastLoadedAt: 0
+      lastLoadedAt: 0,
+      msgDlg: { show: false, title: '', content: '' }
     }
   },
   onLoad() {
@@ -271,11 +283,11 @@ export default {
           uni.navigateTo({ url: '/pages/admin/review?id=' + encodeURIComponent(biz) })
           return
         }
-        uni.showModal({ title: m.title, content: m.content, showCancel: false, confirmText: '知道了' })
+        this.msgDlg = { show: true, title: m.title, content: m.content }
         return
       }
       // 无跳转映射：直接展示完整内容
-      uni.showModal({ title: m.title, content: m.content, showCancel: false, confirmText: '知道了' })
+      this.msgDlg = { show: true, title: m.title, content: m.content }
     },
 
     // ===== 公告 =====

@@ -241,6 +241,19 @@
       </view>
       <view class="bottom-space"></view>
     </view>
+
+    <!-- 通用确认/结果弹窗（自绘，替代原生 showModal）：action 区分确认去向 -->
+    <AppDialog
+      :visible="dlg.show"
+      :kind="dlg.kind"
+      :title="dlg.title"
+      :content="dlg.content"
+      :confirm-text="dlg.confirmText"
+      :cancel-text="dlg.cancelText"
+      @update:visible="dlg.show = $event"
+      @confirm="onDlgConfirm"
+      @cancel="onDlgCancel"
+    />
   </view>
 </template>
 
@@ -252,6 +265,7 @@ import { extractPointCode } from '@/utils/scan'
 import { getLocationGcj02 } from '@/utils/geo'
 import { compressForUpload } from '@/utils/image'
 import { enqueueOfflineCheckin, uuidv7, NETWORK_ERR_PREFIX, OfflinePhoto } from '@/utils/offline'
+import AppDialog from '@/components/AppDialog.vue'
 
 /** 检查项视图模型：模板项 + 录入状态 */
 type ItemView = {
@@ -374,6 +388,11 @@ type FormData = {
   maxAttempts: number
   /** 强制提交标记（用户确认后重发带 force=true） */
   forceSubmit: boolean
+  /** 通用弹窗状态：action 标记确认去向（photo-del/offline-exit/ok-exit/ai-dismiss/force-submit/quality-retake） */
+  dlg: { show: boolean; kind: string; title: string; content: string; confirmText: string; cancelText: string; action: string }
+  /** 删除照片确认期间暂存的目标列表与下标 */
+  photoDelList: string[] | null
+  photoDelIdx: number
 }
 
 /** haversine 距离（米） */
@@ -401,6 +420,7 @@ function fmtDateTime(d: Date): string {
 }
 
 export default {
+  components: { AppDialog },
   data(): FormData {
     return {
       colors: Colors,
@@ -426,7 +446,10 @@ export default {
       photoBusy: false,
       qualityAttempts: 0,
       maxAttempts: 3,
-      forceSubmit: false
+      forceSubmit: false,
+      dlg: { show: false, kind: '', title: '', content: '', confirmText: '知道了', cancelText: '', action: '' },
+      photoDelList: null,
+      photoDelIdx: -1
     }
   },
   computed: {
@@ -755,13 +778,32 @@ export default {
       })
     },
     removePhoto(list: string[], idx: number) {
-      uni.showModal({
-        title: '删除照片',
-        content: '确定删除这张照片吗？',
-        success: (r) => {
-          if (r.confirm) list.splice(idx, 1)
-        }
-      })
+      this.photoDelList = list
+      this.photoDelIdx = idx
+      this.openDlg('danger', '删除照片', '确定删除这张照片吗？', '删除', '取消', 'photo-del')
+    },
+    /** 打开通用弹窗（自绘，替代 uni.showModal） */
+    openDlg(kind: string, title: string, content: string, confirmText: string, cancelText: string, action: string) {
+      this.dlg = { show: true, kind: kind, title: title, content: content, confirmText: confirmText, cancelText: cancelText, action: action }
+    },
+    onDlgConfirm() {
+      const a = this.dlg.action
+      if (a == 'photo-del') {
+        if (this.photoDelList != null && this.photoDelIdx >= 0) this.photoDelList.splice(this.photoDelIdx, 1)
+        this.photoDelList = null
+        this.photoDelIdx = -1
+      } else if (a == 'offline-exit' || a == 'ok-exit' || a == 'ai-dismiss') {
+        // 记录已提交/已暂存：确认后返回任务页
+        uni.navigateBack()
+      } else if (a == 'force-submit') {
+        this.forceSubmit = true
+        this.submit()
+      }
+      // quality-retake：仅关闭，留在原地重拍
+    },
+    onDlgCancel() {
+      // 「AI 初判存疑」两个出口均返回任务页（记录已提交，重新打卡需管理端驳回/重开）
+      if (this.dlg.action == 'ai-dismiss') uni.navigateBack()
     },
     /** 提交前校验，返回错误文案（空串 = 通过） */
     validate(): string {
@@ -859,15 +901,7 @@ export default {
       enqueueOfflineCheckin(req, photosLocal)
       uni.hideLoading()
       this.submitting = false
-      uni.showModal({
-        title: pt.point_name,
-        content: '当前无网络，打卡已离线暂存，网络恢复后自动补传',
-        showCancel: false,
-        confirmText: '知道了',
-        success: () => {
-          uni.navigateBack()
-        }
-      })
+      this.openDlg('primary', pt.point_name, '当前无网络，打卡已离线暂存，网络恢复后自动补传', '知道了', '', 'offline-exit')
     },
     /**
      * 轮询逐项 AI 结论：2.5s 后取一次，全部项仍无结论且 retries>0 时再补一次；
@@ -896,16 +930,7 @@ export default {
       const suspicious = (aiItems ?? []).filter((it) => it.ai_verdict == 'review' || it.ai_verdict == 'error')
       if (suspicious.length > 0) {
         const aiLines = suspicious.map((it) => it.name + (it.ai_reason != '' ? ' - ' + it.ai_reason : ''))
-        uni.showModal({
-          title: 'AI 初判存疑',
-          content: aiLines.join('\n') + '\n请确认或重新拍摄',
-          cancelText: '重新打卡',
-          confirmText: '仍要提交',
-          success: () => {
-            // 两个出口均返回任务页：记录已提交，「重新打卡」需管理端驳回/重开后方可再次打卡
-            uni.navigateBack()
-          }
-        })
+        this.openDlg('warning', 'AI 初判存疑', aiLines.join('\n') + '\n请确认或重新拍摄', '仍要提交', '重新打卡', 'ai-dismiss')
         return
       }
       const tp = res.task_progress
@@ -916,15 +941,7 @@ export default {
       if (this.items.some((it) => !it.pass)) {
         lines.push('异常已记录，已通知管理员')
       }
-      uni.showModal({
-        title: pt.point_name,
-        content: lines.join('\n'),
-        showCancel: false,
-        confirmText: '知道了',
-        success: () => {
-          uni.navigateBack()
-        }
-      })
+      this.openDlg('success', pt.point_name, lines.join('\n'), '知道了', '', 'ok-exit')
     },
     /** 在线提交：上传照片换 file_id → POST /checkin；网络异常转离线暂存 */
     submitOnline() {
@@ -999,26 +1016,24 @@ export default {
             const max = e.data != null && typeof e.data.max_attempts == 'number' ? e.data.max_attempts : this.maxAttempts
             this.maxAttempts = max
             if (this.qualityAttempts >= max) {
-              uni.showModal({
-                title: '照片仍未通过检查',
-                content: e.message + '\n已达重拍上限，可强制提交，由管理员人工复核。',
-                confirmText: '强制提交',
-                cancelText: '重新拍摄',
-                success: (r) => {
-                  if (r.confirm) {
-                    this.forceSubmit = true
-                    this.submit()
-                  }
-                }
-              })
+              this.openDlg(
+                'warning',
+                '照片仍未通过检查',
+                e.message + '\n已达重拍上限，可强制提交，由管理员人工复核。',
+                '强制提交',
+                '重新拍摄',
+                'force-submit'
+              )
               return
             }
-            uni.showModal({
-              title: '照片不合格',
-              content: e.message + '\n请重新拍摄（第 ' + this.qualityAttempts + ' 次，' + max + ' 次后可强制提交）',
-              showCancel: false,
-              confirmText: '重新拍摄'
-            })
+            this.openDlg(
+              'danger',
+              '照片不合格',
+              e.message + '\n请重新拍摄（第 ' + this.qualityAttempts + ' 次，' + max + ' 次后可强制提交）',
+              '重新拍摄',
+              '',
+              'quality-retake'
+            )
             return
           }
           uni.showToast({ title: e.message, icon: 'none' })

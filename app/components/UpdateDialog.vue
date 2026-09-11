@@ -44,6 +44,15 @@
         </view>
       </view>
     </view>
+
+    <!-- 安装失败提示（自绘，替代原生 showModal） -->
+    <AppDialog
+      :visible="errDlgShow"
+      kind="warning"
+      title="无法自动安装"
+      :content="errDlgContent"
+      @update:visible="errDlgShow = $event"
+    />
   </view>
 </template>
 
@@ -52,6 +61,7 @@ import { Colors, ColorTokens } from '@/utils/theme'
 import { getPublicOrigin } from '@/services/request'
 import { LatestRelease } from '@/utils/update'
 import { platformOf } from '@/utils/nfc'
+import AppDialog from '@/components/AppDialog.vue'
 
 /** 安装包本地缓存键：{version, path}——按版本匹配，同版本直接安装不重下 */
 const CACHE_KEY = 'update_pkg_cache'
@@ -67,9 +77,13 @@ type UpdData = {
   progress: number
   /** 可直接安装的本地包路径（phase=ready 时有效） */
   cachedPath: string
+  /** 安装失败提示弹窗 */
+  errDlgShow: boolean
+  errDlgContent: string
 }
 
 export default {
+  components: { AppDialog },
   data(): UpdData {
     return {
       colors: Colors,
@@ -77,7 +91,9 @@ export default {
       info: null,
       phase: 'idle',
       progress: 0,
-      cachedPath: ''
+      cachedPath: '',
+      errDlgShow: false,
+      errDlgContent: ''
     }
   },
   computed: {
@@ -179,12 +195,8 @@ export default {
         {},
         () => {},
         () => {
-          uni.showModal({
-            title: '无法自动安装',
-            content: '请前往官网下载页手动安装：' + getPublicOrigin() + '/download',
-            showCancel: false,
-            confirmText: '知道了'
-          })
+          this.errDlgContent = '请前往官网下载页手动安装：' + getPublicOrigin() + '/download'
+          this.errDlgShow = true
         }
       )
       // #endif

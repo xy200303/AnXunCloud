@@ -169,6 +169,24 @@
         <text class="overlay-sub" :style="{ color: colors.textSecondary }">{{ overlaySub }}</text>
       </view>
     </view>
+
+    <!-- 拍照项逃生入口：异常类型面板 + 佐证拍摄确认（自绘，替代原生 showActionSheet/showModal） -->
+    <AppActionSheet
+      :visible="escapeSheetShow"
+      :items="['设备确实不存在', '现场无法拍摄']"
+      @update:visible="escapeSheetShow = $event"
+      @select="onEscapeSheetSelect"
+    />
+    <AppDialog
+      :visible="escapeDlgShow"
+      kind="warning"
+      title="上报项目异常"
+      :content="'请拍摄现场佐证照片后提交“' + (escapeType == 'device_missing' ? '设备确实不存在' : '现场无法拍摄') + '”异常。'"
+      confirm-text="拍摄佐证"
+      cancel-text="取消"
+      @update:visible="escapeDlgShow = $event"
+      @confirm="onEscapeDlgConfirm"
+    />
   </view>
 </template>
 
@@ -200,6 +218,8 @@ import QuickItemCard from '@/components/QuickItemCard.vue'
 import QuickIssuePanel from '@/components/QuickIssuePanel.vue'
 import QuickCredentialCard from '@/components/QuickCredentialCard.vue'
 import QuickGateCard from '@/components/QuickGateCard.vue'
+import AppDialog from '@/components/AppDialog.vue'
+import AppActionSheet from '@/components/AppActionSheet.vue'
 
 /** 向导阶段：cred 凭证 / items 逐项 / gate 提交本点位 / retake 补拍 / abnormal 异常确认 / pointDone 点位完成 / taskDone 任务完成 */
 type Phase = 'cred' | 'items' | 'gate' | 'retake' | 'abnormal' | 'pointDone' | 'taskDone'
@@ -266,6 +286,12 @@ type QuickData = {
   captureToken: number
   /** 手动退出放行标记（exitWizard 时 onBackPress 不拦截） */
   forceExit: boolean
+  /** 拍照项逃生入口：异常类型面板 / 佐证确认弹窗状态 */
+  escapeSheetShow: boolean
+  escapeDlgShow: boolean
+  /** 面板选择确认期间暂存的当前项与异常类型 */
+  escapeItem: WizardItemSnap | null
+  escapeType: string
 }
 
 /** haversine 距离（米） */
@@ -351,7 +377,7 @@ function freshPoint(p: TaskPoint): WizardPointSnap {
 }
 
 export default {
-  components: { QuickItemCard, QuickIssuePanel, QuickCredentialCard, QuickGateCard },
+  components: { QuickItemCard, QuickIssuePanel, QuickCredentialCard, QuickGateCard, AppDialog, AppActionSheet },
   data(): QuickData {
     return {
       colors: Colors,
@@ -393,7 +419,11 @@ export default {
       overlayWatchdog: null,
       captureBusy: false,
       captureToken: 0,
-      forceExit: false
+      forceExit: false,
+      escapeSheetShow: false,
+      escapeDlgShow: false,
+      escapeItem: null,
+      escapeType: ''
     }
   },
   computed: {
@@ -987,25 +1017,20 @@ export default {
       if (exceptionType == 'unable_to_capture') return '已上报：现场无法拍摄（点击可重新上报）'
       return '设备不存在 / 无法拍摄？点击这里上报异常'
     },
-    /** 拍照项逃生入口：明确区分设备不存在与现场无法拍摄。 */
+    /** 拍照项逃生入口：面板选择异常类型（设备不存在/现场无法拍摄），再确认拍摄佐证 */
     reportPhotoItemMissing() {
       const it = this.curItem
       if (it == null || !this.curItemIsPhoto || this.captureBusy || this.overlayMsg != '' || this.submitting) return
-      uni.showActionSheet({
-        itemList: ['设备确实不存在', '现场无法拍摄'],
-        success: (r) => {
-          const exceptionType = r.tapIndex == 0 ? 'device_missing' : 'unable_to_capture'
-          const label = exceptionType == 'device_missing' ? '设备确实不存在' : '现场无法拍摄'
-          uni.showModal({
-            title: '上报项目异常',
-            content: '请拍摄现场佐证照片后提交“' + label + '”异常。',
-            confirmText: '拍摄佐证',
-            success: (confirm) => {
-              if (confirm.confirm) this.shootFor(it, true, 'escape', exceptionType)
-            }
-          })
-        }
-      })
+      this.escapeItem = it
+      this.escapeSheetShow = true
+    },
+    onEscapeSheetSelect(idx: number) {
+      this.escapeType = idx == 0 ? 'device_missing' : 'unable_to_capture'
+      this.escapeDlgShow = true
+    },
+    onEscapeDlgConfirm() {
+      const it = this.escapeItem
+      if (it != null) this.shootFor(it, true, 'escape', this.escapeType)
     },
     /** 补拍步重拍：重拍 = 重新拍照上传重新建 job，停留在补拍列表 */
     retakePhoto(it: WizardItemSnap) {

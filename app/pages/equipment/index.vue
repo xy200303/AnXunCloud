@@ -64,6 +64,14 @@
         <AppListFooter :loading-more="loadingMore" :no-more="noMore" :visible="list.length > 0" :colors="colors" />
       </template>
     </AppListShell>
+
+    <!-- 小区筛选面板（自绘，替代原生 showActionSheet；首项为全部） -->
+    <AppActionSheet
+      :visible="communitySheetShow"
+      :items="communitySheetItems"
+      @update:visible="communitySheetShow = $event"
+      @select="onCommunitySheetSelect"
+    />
   </view>
 </template>
 
@@ -74,6 +82,7 @@ import AppListShell from '@/components/AppListShell.vue'
 import AppListFooter from '@/components/AppListFooter.vue'
 import AppChipScroller from '@/components/AppChipScroller.vue'
 import AppFilterField from '@/components/AppFilterField.vue'
+import AppActionSheet from '@/components/AppActionSheet.vue'
 
 const PAGE_SIZE = 20
 
@@ -93,6 +102,8 @@ type ListData = {
   total: number
   list: EquipmentListItem[]
   lastLoadedAt: number
+  /** 小区筛选面板 */
+  communitySheetShow: boolean
 }
 
 /** 状态灯颜色：normal 绿 / warning 黄 / overdue 红 / scrap 红 / none、label_missing 灰 */
@@ -111,7 +122,7 @@ function todayZero(): number {
 }
 
 export default {
-  components: { AppListShell, AppListFooter, AppChipScroller, AppFilterField },
+  components: { AppListShell, AppListFooter, AppChipScroller, AppFilterField, AppActionSheet },
   data(): ListData {
     return {
       colors: Colors,
@@ -128,7 +139,8 @@ export default {
       page: 1,
       total: 0,
       list: [] as EquipmentListItem[],
-      lastLoadedAt: 0
+      lastLoadedAt: 0,
+      communitySheetShow: false
     }
   },
   computed: {
@@ -153,6 +165,10 @@ export default {
     },
     noMore(): boolean {
       return this.loaded && this.list.length >= this.total
+    },
+    /** 小区筛选面板选项（首项为全部） */
+    communitySheetItems(): string[] {
+      return ['全部小区'].concat(this.communities.map((c) => c.name))
     }
   },
   onLoad(options: any) {
@@ -199,16 +215,13 @@ export default {
       return parts.length > 0 ? parts.join(' · ') : (e.remark != '' ? e.remark : '未绑定位置')
     },
     openCommunitySheet() {
-      const names = ['全部小区'].concat(this.communities.map((c) => c.name))
-      uni.showActionSheet({
-        itemList: names,
-        success: (res) => {
-          const id = res.tapIndex == 0 ? '' : this.communities[res.tapIndex - 1].id
-          if (id == this.communityId) return
-          this.communityId = id
-          this.reload()
-        }
-      })
+      this.communitySheetShow = true
+    },
+    onCommunitySheetSelect(idx: number) {
+      const id = idx == 0 ? '' : this.communities[idx - 1].id
+      if (id == this.communityId) return
+      this.communityId = id
+      this.reload()
     },
     pickType(v: string) {
       this.typeFilter = v

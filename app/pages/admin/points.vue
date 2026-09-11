@@ -68,6 +68,14 @@
       <AppListFooter :loading-more="loadingMore" :no-more="noMore" :visible="list.length > 0" :colors="colors" />
     </template>
     </AppListShell>
+
+    <!-- 企业/小区/楼栋筛选面板（自绘，替代原生 showActionSheet；sheetFor 区分三组选项） -->
+    <AppActionSheet
+      :visible="sheetShow"
+      :items="sheetItems"
+      @update:visible="sheetShow = $event"
+      @select="onSheetSelect"
+    />
   </view>
 </template>
 
@@ -79,6 +87,7 @@ import AppListShell from '@/components/AppListShell.vue'
 import AppListFooter from '@/components/AppListFooter.vue'
 import AppChipScroller from '@/components/AppChipScroller.vue'
 import AppFilterField from '@/components/AppFilterField.vue'
+import AppActionSheet from '@/components/AppActionSheet.vue'
 
 const PAGE_SIZE = 20
 
@@ -107,6 +116,9 @@ type ListData = {
   total: number
   list: PointView[]
   lastLoadedAt: number
+  /** 筛选面板：sheetFor 区分企业/小区/楼栋三组选项 */
+  sheetShow: boolean
+  sheetFor: string
 }
 
 function credentialTextOf(c: string): string {
@@ -139,7 +151,7 @@ function toPointView(p: PointItem): PointView {
 }
 
 export default {
-  components: { AppListShell, AppListFooter, AppChipScroller, AppFilterField },
+  components: { AppListShell, AppListFooter, AppChipScroller, AppFilterField, AppActionSheet },
   data(): ListData {
     return {
       colors: Colors,
@@ -158,7 +170,9 @@ export default {
       page: 1,
       total: 0,
       list: [] as PointView[],
-      lastLoadedAt: 0
+      lastLoadedAt: 0,
+      sheetShow: false,
+      sheetFor: ''
     }
   },
   computed: {
@@ -218,6 +232,12 @@ export default {
     },
     noMore(): boolean {
       return this.loaded && this.list.length >= this.total
+    },
+    /** 筛选面板选项（按 sheetFor 取对应维度，首项均为全部） */
+    sheetItems(): string[] {
+      if (this.sheetFor == 'tenant') return ['全部企业'].concat(this.tenantOptions.map((t) => t.name))
+      if (this.sheetFor == 'building') return ['全部楼栋/区域'].concat(this.buildings.map((b) => b.name))
+      return ['全部小区'].concat(this.visibleCommunities.map((c) => c.name))
     }
   },
   onLoad() {
@@ -245,46 +265,42 @@ export default {
         })
         .catch((_e: any) => {})
     },
-    /** 小区筛选：action sheet 选择（首项为全部） */
+    /** 小区筛选：底部面板选择（首项为全部） */
     openCommunitySheet() {
-      const names = ['全部小区'].concat(this.visibleCommunities.map((c) => c.name))
-      uni.showActionSheet({
-        itemList: names,
-        success: (res) => {
-          const id = res.tapIndex == 0 ? '' : this.visibleCommunities[res.tapIndex - 1].id
-          if (id == this.communityId) return
-          this.communityId = id
-          this.buildingId = ''
-          this.reload()
-        }
-      })
+      this.sheetFor = 'community'
+      this.sheetShow = true
     },
     /** 企业筛选：仅超级管理员可见，首项为全部 */
     openTenantSheet() {
-      const names = ['全部企业'].concat(this.tenantOptions.map((t) => t.name))
-      uni.showActionSheet({
-        itemList: names,
-        success: (res) => {
-          const id = res.tapIndex == 0 ? '' : this.tenantOptions[res.tapIndex - 1].id
-          if (id == this.tenantId) return
-          this.tenantId = id
-          this.communityId = ''
-          this.reload()
-        }
-      })
+      this.sheetFor = 'tenant'
+      this.sheetShow = true
     },
     /** 楼栋/区域筛选：当前小区的楼栋与区域行（首项为全部） */
     openBuildingSheet() {
-      const names = ['全部楼栋/区域'].concat(this.buildings.map((b) => b.name))
-      uni.showActionSheet({
-        itemList: names,
-        success: (res) => {
-          const id = res.tapIndex == 0 ? '' : this.buildings[res.tapIndex - 1].id
-          if (id == this.buildingId) return
-          this.buildingId = id
-          this.reload()
-        }
-      })
+      this.sheetFor = 'building'
+      this.sheetShow = true
+    },
+    onSheetSelect(idx: number) {
+      if (this.sheetFor == 'tenant') {
+        const id = idx == 0 ? '' : this.tenantOptions[idx - 1].id
+        if (id == this.tenantId) return
+        this.tenantId = id
+        this.communityId = ''
+        this.reload()
+        return
+      }
+      if (this.sheetFor == 'building') {
+        const id = idx == 0 ? '' : this.buildings[idx - 1].id
+        if (id == this.buildingId) return
+        this.buildingId = id
+        this.reload()
+        return
+      }
+      const id = idx == 0 ? '' : this.visibleCommunities[idx - 1].id
+      if (id == this.communityId) return
+      this.communityId = id
+      this.buildingId = ''
+      this.reload()
     },
     pickType(v: string) {
       this.typeFilter = v

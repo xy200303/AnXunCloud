@@ -79,6 +79,18 @@
         <text v-else-if="noMore" class="loadmore-text" :style="{ color: colors.textSecondary }">没有更多了</text>
       </view>
     </view>
+
+    <!-- 催办确认（自绘，替代原生 showModal） -->
+    <AppDialog
+      :visible="remindDlgShow"
+      kind="primary"
+      title="任务催办"
+      :content="remindTask != null ? '给 ' + remindTask.inspector_name + ' 发送「' + remindTask.plan_name + '」的催办提醒？' : ''"
+      confirm-text="催办"
+      cancel-text="取消"
+      @update:visible="remindDlgShow = $event"
+      @confirm="onRemindConfirm"
+    />
   </view>
 </template>
 
@@ -86,6 +98,7 @@
 import { Colors, ColorTokens } from '@/utils/theme'
 import { apiAdminDashboard, apiTaskMonitorList, apiTaskRemind, DashboardData, MonitorTask } from '@/services/api'
 import AppSegmentTabs from '@/components/AppSegmentTabs.vue'
+import AppDialog from '@/components/AppDialog.vue'
 
 const PAGE_SIZE = 20
 
@@ -108,6 +121,9 @@ type BoardData = {
   total: number
   tasks: TaskView[]
   reminding: boolean
+  /** 催办确认弹窗：待催办任务在打开时暂存 */
+  remindDlgShow: boolean
+  remindTask: TaskView | null
 }
 
 function emptyBoard(): BoardData['board'] {
@@ -140,7 +156,7 @@ function toTaskView(t: MonitorTask): TaskView {
 }
 
 export default {
-  components: { AppSegmentTabs },
+  components: { AppSegmentTabs, AppDialog },
   data(): BoardData {
     return {
       colors: Colors,
@@ -158,7 +174,9 @@ export default {
       page: 1,
       total: 0,
       tasks: [] as TaskView[],
-      reminding: false
+      reminding: false,
+      remindDlgShow: false,
+      remindTask: null
     }
   },
   computed: {
@@ -250,25 +268,23 @@ export default {
     /** 催办：确认弹窗 → POST remind → toast 结果（已完成任务后端报错文案直接 toast） */
     onRemind(t: TaskView) {
       if (this.reminding) return
-      uni.showModal({
-        title: '任务催办',
-        content: '给 ' + t.inspector_name + ' 发送「' + t.plan_name + '」的催办提醒？',
-        confirmText: '催办',
-        success: (res) => {
-          if (!res.confirm) return
-          this.reminding = true
-          apiTaskRemind(t.id)
-            .then(() => {
-              uni.showToast({ title: '已提醒执行人', icon: 'none' })
-            })
-            .catch((e: Error) => {
-              uni.showToast({ title: e.message, icon: 'none' })
-            })
-            .finally(() => {
-              this.reminding = false
-            })
-        }
-      })
+      this.remindTask = t
+      this.remindDlgShow = true
+    },
+    onRemindConfirm() {
+      const t = this.remindTask
+      if (t == null || this.reminding) return
+      this.reminding = true
+      apiTaskRemind(t.id)
+        .then(() => {
+          uni.showToast({ title: '已提醒执行人', icon: 'none' })
+        })
+        .catch((e: Error) => {
+          uni.showToast({ title: e.message, icon: 'none' })
+        })
+        .finally(() => {
+          this.reminding = false
+        })
     }
   }
 }

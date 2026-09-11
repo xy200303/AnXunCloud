@@ -17,6 +17,6 @@ const parts = coreVersion.split('.').map((part) => Number(part))
 const versionCode = parts[0] * 100 + parts[1] * 10 + parts[2]
 let manifest = fs.readFileSync(manifestPath, 'utf8')
 manifest = manifest.replace(/("versionName"\s*:\s*")[^"]*(")/, `$1${version}$2`)
-manifest = manifest.replace(/("versionCode"\s*:\s*)\d+/, `$1${versionCode}`)
+manifest = manifest.replace(/("versionCode"\s*:\s*)"?(\d+)"?/, `$1"${versionCode}"`)
 fs.writeFileSync(manifestPath, manifest)
 console.log(`Synchronized manifest version: ${version} (${versionCode})`)

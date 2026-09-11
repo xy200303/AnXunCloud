@@ -1,7 +1,7 @@
 // 小区/楼栋接口（接口文档 §2.10）
 import { request, type PageResult } from '@/utils/request'
 import type { CommunityItem, BuildingItem, PostDictItem, StaffItem, StaffForm, DutyBindingItem } from './biz-types'
-import type { ReviewFlowView } from './post'
+import type { ReviewFlowView, ReviewFlowStep } from './post'
 
 export function listCommunities(params?: { page?: number; page_size?: number; name?: string; status?: number | '' }) {
   return request<PageResult<CommunityItem>>({ url: '/communities', method: 'get', params })
@@ -84,7 +84,7 @@ export function getReviewFlow(communityId: string) {
   return request<ReviewFlowView>({ url: `/communities/${communityId}/review-flow`, method: 'get' })
 }
 
-export function saveReviewFlow(communityId: string, steps: { slot: string; name: string }[]) {
+export function saveReviewFlow(communityId: string, steps: ReviewFlowStep[]) {
   return request<null>({ url: `/communities/${communityId}/review-flow`, method: 'put', data: { steps } })
 }
 
@@ -93,6 +93,15 @@ export function getReportReviewFlow(communityId: string) {
   return request<ReviewFlowView>({ url: `/communities/${communityId}/report-review-flow`, method: 'get' })
 }
 
-export function saveReportReviewFlow(communityId: string, steps: { slot: string; name: string; mode?: 'any' | 'all' }[]) {
+export function saveReportReviewFlow(communityId: string, steps: ReviewFlowStep[]) {
   return request<null>({ url: `/communities/${communityId}/report-review-flow`, method: 'put', data: { steps } })
+}
+
+// 项目级维保审核链（空链 = 维保登记即生效；支持 AI 闸门环节）
+export function getMaintReviewFlow(communityId: string) {
+  return request<ReviewFlowView>({ url: `/communities/${communityId}/maint-review-flow`, method: 'get' })
+}
+
+export function saveMaintReviewFlow(communityId: string, steps: ReviewFlowStep[]) {
+  return request<null>({ url: `/communities/${communityId}/maint-review-flow`, method: 'put', data: { steps } })
 }

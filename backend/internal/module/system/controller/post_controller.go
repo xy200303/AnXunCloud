@@ -131,10 +131,10 @@ func (ctl *PostController) GetReviewFlow(c *gin.Context) {
 	writePost(c, data, be)
 }
 
-// SaveReviewFlow PUT /posts/review-flow（写 tenant_id=上下文租户 的审核链覆盖行）
+// SaveReviewFlow PUT /posts/review-flow（写 tenant_id=上下文租户 的审核链覆盖行；空 = 默认通过）
 func (ctl *PostController) SaveReviewFlow(c *gin.Context) {
 	var req struct {
-		Steps types.FlowStepArray `json:"steps" binding:"required"`
+		Steps types.FlowStepArray `json:"steps"`
 	}
 	if be := bind.JSON(c, &req); be != nil {
 		response.Fail(c, be)
@@ -146,6 +146,34 @@ func (ctl *PostController) SaveReviewFlow(c *gin.Context) {
 		return
 	}
 	writePost(c, nil, ctl.svc.SaveReviewFlow(&tid, req.Steps))
+}
+
+// GetMaintReviewFlow GET /posts/maint-review-flow（租户级维保审核链视图）
+func (ctl *PostController) GetMaintReviewFlow(c *gin.Context) {
+	tid, be := middleware.EffectiveTenantID(c, ctl.db)
+	if be != nil {
+		response.Fail(c, be)
+		return
+	}
+	data, be := ctl.svc.GetMaintReviewFlow(&tid)
+	writePost(c, data, be)
+}
+
+// SaveMaintReviewFlow PUT /posts/maint-review-flow（空 = 登记即生效）
+func (ctl *PostController) SaveMaintReviewFlow(c *gin.Context) {
+	var req struct {
+		Steps types.FlowStepArray `json:"steps"`
+	}
+	if be := bind.JSON(c, &req); be != nil {
+		response.Fail(c, be)
+		return
+	}
+	tid, be := middleware.EffectiveTenantID(c, ctl.db)
+	if be != nil {
+		response.Fail(c, be)
+		return
+	}
+	writePost(c, nil, ctl.svc.SaveMaintReviewFlow(&tid, req.Steps))
 }
 
 func (ctl *PostController) GetReportReviewFlow(c *gin.Context) {
@@ -248,16 +276,34 @@ func (ctl *PostTemplateController) GetReviewFlow(c *gin.Context) {
 	writePost(c, data, be)
 }
 
-// SaveReviewFlow PUT /post-templates/review-flow（写平台默认审核链行）
+// SaveReviewFlow PUT /post-templates/review-flow（写平台默认审核链行；空 = 默认通过）
 func (ctl *PostTemplateController) SaveReviewFlow(c *gin.Context) {
 	var req struct {
-		Steps types.FlowStepArray `json:"steps" binding:"required"`
+		Steps types.FlowStepArray `json:"steps"`
 	}
 	if be := bind.JSON(c, &req); be != nil {
 		response.Fail(c, be)
 		return
 	}
 	writePost(c, nil, ctl.svc.SaveReviewFlow(nil, req.Steps))
+}
+
+// GetMaintReviewFlow GET /post-templates/maint-review-flow（平台默认维保审核链视图）
+func (ctl *PostTemplateController) GetMaintReviewFlow(c *gin.Context) {
+	data, be := ctl.svc.GetMaintReviewFlow(nil)
+	writePost(c, data, be)
+}
+
+// SaveMaintReviewFlow PUT /post-templates/maint-review-flow（空 = 登记即生效）
+func (ctl *PostTemplateController) SaveMaintReviewFlow(c *gin.Context) {
+	var req struct {
+		Steps types.FlowStepArray `json:"steps"`
+	}
+	if be := bind.JSON(c, &req); be != nil {
+		response.Fail(c, be)
+		return
+	}
+	writePost(c, nil, ctl.svc.SaveMaintReviewFlow(nil, req.Steps))
 }
 
 func (ctl *PostTemplateController) GetReportReviewFlow(c *gin.Context) {

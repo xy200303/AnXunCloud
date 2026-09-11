@@ -144,13 +144,41 @@ func (ctl *StaffController) SaveReviewFlow(c *gin.Context) {
 		return
 	}
 	var req struct {
-		Steps types.FlowStepArray `json:"steps" binding:"required"`
+		Steps types.FlowStepArray `json:"steps"` // 空数组 = 默认通过（打卡记录免审直接生效）
 	}
 	if be := bind.JSON(c, &req); be != nil {
 		response.Fail(c, be)
 		return
 	}
 	write(c, nil, ctl.svc.SaveReviewFlow(c, id, req.Steps))
+}
+
+// GetMaintReviewFlow 项目级维保审核链视图（GET /communities/:id/maint-review-flow）。
+func (ctl *StaffController) GetMaintReviewFlow(c *gin.Context) {
+	id, be := pathID(c)
+	if be != nil {
+		response.Fail(c, be)
+		return
+	}
+	data, be := ctl.svc.GetMaintReviewFlow(c, id)
+	write(c, data, be)
+}
+
+// SaveMaintReviewFlow 保存项目级维保审核链覆盖（PUT /communities/:id/maint-review-flow）。
+func (ctl *StaffController) SaveMaintReviewFlow(c *gin.Context) {
+	id, be := pathID(c)
+	if be != nil {
+		response.Fail(c, be)
+		return
+	}
+	var req struct {
+		Steps types.FlowStepArray `json:"steps"` // 空数组 = 登记即生效（默认通过）
+	}
+	if be := bind.JSON(c, &req); be != nil {
+		response.Fail(c, be)
+		return
+	}
+	write(c, nil, ctl.svc.SaveMaintReviewFlow(c, id, req.Steps))
 }
 
 func (ctl *StaffController) GetReportReviewFlow(c *gin.Context) {

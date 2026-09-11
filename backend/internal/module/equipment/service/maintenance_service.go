@@ -11,6 +11,7 @@ import (
 	"gorm.io/gorm/clause"
 
 	"anxuncloud/internal/middleware"
+	communitysvc "anxuncloud/internal/module/community/service"
 	"anxuncloud/internal/module/equipment/dto"
 	"anxuncloud/internal/module/equipment/model"
 	insmodel "anxuncloud/internal/module/inspection/model"
@@ -80,9 +81,10 @@ func checkRegisterAccess(db *gorm.DB, c *gin.Context, e *model.Equipment) *errs.
 
 // Register 维保登记（一键+一拍）：照片必传且归属本人；台账不直接更新，confirmed 才回写。
 // v2.0 打卡融合同步化：AI 可用且非标签缺失登记时，落库后同步核验（超时 ai.sync_timeout_seconds 降级）——
-// 核验结论同步写入 ai_verdict/ai_reason 供经理审批参考（通过/存疑标红）；
-// 是否「可信即自动 confirmed 回写台账」由 equipment.ai_auto_confirm 控制（默认关：甲方口径维保一律经理确认，
-// 经理在 ConfirmList 确认或安排整改）；存疑/读不出保持 pending；调用失败保持 pending 起异步预检兜底（原行为）。
+// 核验结论同步写入 ai_verdict/ai_reason 供审批参考；明显不合格（质量/内容判不像）建单前 43107 拦截。
+// v2.1 通用审批引擎：是否生效/进谁的队列由维保审核链（approval_flow flow_code=maint_review）驱动——
+// 空流程 = 登记即生效回写台账；AI 环节 = 闸门（可信/存疑三分支路由可配）；人工环节 = pending 待确认。
+// 内置默认链由 equipment.ai_auto_confirm 映射（开=[AI 闸门]，关=[经理确认]，甲方口径默认关）。
 // 返回 confirmed=true 表示已自动生效（App 反馈「已生效」/「已提交待确认」用）。
 func (s *MaintenanceService) Register(c *gin.Context, req *dto.MaintenanceRegisterReq) (string, bool, *errs.Error) {
 	identity := middleware.CurrentIdentity(c)
@@ -187,6 +189,8 @@ func (s *MaintenanceService) Register(c *gin.Context, req *dto.MaintenanceRegist
 	if err := s.db.Create(&m).Error; err != nil {
 		return "", false, errs.ErrInternal
 	}
+	// AI 结论与可信判定（供审核链路由与经理审批参考）
+	outcome := sysmodel.AIGateReview // 未核验/存疑 → 存疑桶（转人工方向）
 	switch {
 	case s.aiCli == nil || !s.aiCli.Enabled():
 		// AI 未启用：不预检（ai_verdict 留 NULL，ConfirmList 排后）
@@ -194,28 +198,21 @@ func (s *MaintenanceService) Register(c *gin.Context, req *dto.MaintenanceRegist
 		// 标签缺失登记无可读日期，不同步核验：维持异步预检（只验证照片有效性）
 		go s.aiPreCheck(m.ID)
 	case syncFailed || !syncChecked:
-		// 同步核验调用失败：异步预检兜底（原行为）
+		// 同步核验调用失败：异步预检兜底（写结论供经理参考，不改变路由）
 		logger.L.Warn("维保登记同步 AI 核验失败，转异步预检兜底", zap.String("rec_id", m.ID))
 		go s.aiPreCheck(m.ID)
 	default:
-		// 已有同步结论：可信判定（JudgeLabelTrust）
 		reason := syncReason
 		trusted, suspectReplace, trustNote := JudgeLabelTrust(syncVerdict, syncReading, m.MaintenanceDate, e.ManufactureDate)
 		if trusted {
-			// AI 核对通过：equipment.ai_auto_confirm 开才自动生效；默认关（甲方口径）则标注待经理确认
-			if cfgBool(s.db, "equipment.ai_auto_confirm", false) {
-				if be := s.confirmByAI(&m); be != nil {
-					return "", false, be
-				}
-				return m.ID, true, nil
-			}
+			outcome = sysmodel.AIGatePass
 			s.db.Model(&m).Updates(map[string]any{
 				"ai_verdict": model.AIVerdictPass,
-				"ai_reason":  truncateStr2(appendReason(reason, "AI 核对通过，待经理确认"), 500),
+				"ai_reason":  truncateStr2(appendReason(reason, "AI 核对通过"), 500),
 			})
 			break
 		}
-		// 存疑/读不出兜底：保持 pending 进确认链，同步写入结论（疑似更换标注在 ai_reason）
+		// 存疑/读不出兜底：同步写入结论（疑似更换标注在 ai_reason）
 		if suspectReplace {
 			reason = appendReason(reason, trustNote)
 		} else if syncVerdict == model.AIVerdictPass {
@@ -226,9 +223,79 @@ func (s *MaintenanceService) Register(c *gin.Context, req *dto.MaintenanceRegist
 			"ai_reason":  truncateStr2(reason, 500),
 		})
 	}
-	// 凡 pending 进确认链：通知项目经理/租户管理员（甲方口径：经理确认或安排整改）
-	s.notifyPendingConfirm(&e, &m)
-	return m.ID, false, nil
+	// 审核链路由（maint_review，与打卡链同一引擎）：空流程 = 登记即生效回写台账；
+	// AI 环节 = 闸门（三分支可配）；人工环节 = pending 待确认（通知环节名单，空名单回落角色兜底）
+	return s.routeMaintenance(&e, &m, outcome, 0)
+}
+
+// routeMaintenance 维保审核链路由（communitysvc.WalkFlow）：
+// Finish → 自动确认 + 回写台账（空流程 confirm_mode=auto，AI 闸门 confirm_mode=ai）；
+// Reject → 驳回并通知登记人；pending → 落定环节（confirm_step）+ 通知环节名单（兜底回落角色通知）。
+// startIdx > 0 用于人工环节推进到 AI 环节的续走（Confirm 链路）。
+// 返回（记录ID, 是否已生效, 错误）。
+func (s *MaintenanceService) routeMaintenance(e *model.Equipment, m *model.EquipmentMaintenance, outcome string, startIdx int) (string, bool, *errs.Error) {
+	flow := communitysvc.ResolveFlow(s.db, e.CommunityID, sysmodel.FlowMaintReview)
+	walk := communitysvc.WalkFlow(flow, startIdx, outcome, false)
+	switch {
+	case walk.Finish:
+		if be := s.confirmAuto(m, len(flow) == 0); be != nil {
+			return "", false, be
+		}
+		return m.ID, true, nil
+	case walk.Reject:
+		reason := "AI 核对不通过"
+		if m.AIReason != nil && *m.AIReason != "" {
+			reason = *m.AIReason
+		}
+		if err := s.db.Model(m).Updates(map[string]any{
+			"confirm_status": model.ConfirmRejected, "reject_reason": truncateStr2(reason, 255),
+		}).Error; err != nil {
+			return "", false, errs.ErrInternal
+		}
+		s.notifyMaintRejected(e, m, reason)
+		return m.ID, false, nil
+	default: // pending
+		if walk.Step > 0 {
+			s.db.Model(m).Update("confirm_step", walk.Step)
+		}
+		if walk.NotifyIdx >= 0 && !walk.Fallback {
+			s.notifyMaintStep(e, m, flow, walk.NotifyIdx)
+		} else {
+			// 兜底：角色通知（项目经理/租户管理员，甲方口径现状）
+			s.notifyPendingConfirm(e, m)
+		}
+		return m.ID, false, nil
+	}
+}
+
+// confirmAuto 自动确认（AI 闸门通过 / 空流程直通）：confirmed + 台账回写（幂等跳过由 ApplyLedgerWriteback 保证）。
+func (s *MaintenanceService) confirmAuto(m *model.EquipmentMaintenance, emptyFlow bool) *errs.Error {
+	mode := model.ConfirmModeAI
+	if emptyFlow {
+		mode = model.ConfirmModeAuto
+	}
+	return s.confirmByAI(m, mode)
+}
+
+// notifyMaintStep 通知环节名单（空名单回落角色兜底，与 notifyPendingConfirm 同口径）。
+func (s *MaintenanceService) notifyMaintStep(e *model.Equipment, m *model.EquipmentMaintenance, flow types.FlowStepArray, stepIdx int) {
+	recipients := communitysvc.SlotUserIDs(s.db, e.CommunityID, flow[stepIdx].Slot)
+	if len(recipients) == 0 || e.TenantID == nil {
+		s.notifyPendingConfirm(e, m)
+		return
+	}
+	content := fmt.Sprintf("设备「%s（%s）」已拍新标签提交维保登记（经办：%s），待您执行「%s」。", e.Name, e.Code, m.OperatorName, flow[stepIdx].Name)
+	if err := s.notifier.SendBatch(recipients, e.TenantID, MsgTypeMaintPending, "维保待确认", content, &m.ID); err != nil {
+		logger.L.Warn("维保待确认通知发送失败", zap.String("maintenance_id", m.ID), zap.Error(err))
+	}
+}
+
+// notifyMaintRejected 驳回通知登记人（Reject 与 AI 闸门自动打回共用）。
+func (s *MaintenanceService) notifyMaintRejected(e *model.Equipment, m *model.EquipmentMaintenance, reason string) {
+	content := fmt.Sprintf("设备「%s（%s）」的维保登记被驳回：%s。请重新登记。", e.Name, e.Code, reason)
+	if err := s.notifier.Send(m.CreatedBy, MsgTypeMaintReject, "维保登记被驳回", content, &m.ID); err != nil {
+		logger.L.Warn("维保驳回通知发送失败", zap.String("maintenance_id", m.ID), zap.Error(err))
+	}
 }
 
 // notifyPendingConfirm 维保待确认通知：接收人为该设备租户内 project_admin/tenant_admin 角色的启用账号
@@ -256,9 +323,10 @@ func appendReason(base, add string) string {
 	return base + "；" + add
 }
 
-// confirmByAI AI 可信自动确认：同事务 confirmed（confirm_mode=ai，confirmed_by 置空）+ 台账回写。
+// confirmByAI 自动确认：同事务 confirmed（confirmed_by 置空）+ 台账回写。
+// mode：ConfirmModeAI（AI 闸门通过）/ ConfirmModeAuto（空审核链默认直通）。
 // 幂等：台账 last_maintenance_date 已被更新的记录推进 → ApplyLedgerWriteback 跳过回写，流水保留并注明。
-func (s *MaintenanceService) confirmByAI(m *model.EquipmentMaintenance) *errs.Error {
+func (s *MaintenanceService) confirmByAI(m *model.EquipmentMaintenance, mode string) *errs.Error {
 	rules, _ := NewEquipmentService(s.db).typeRules()
 	err := s.db.Transaction(func(tx *gorm.DB) error {
 		var e model.Equipment
@@ -266,13 +334,16 @@ func (s *MaintenanceService) confirmByAI(m *model.EquipmentMaintenance) *errs.Er
 			return errs.ErrInternal
 		}
 		now := time.Now()
-		if err := tx.Model(&model.EquipmentMaintenance{}).Where("id = ?", m.ID).Updates(map[string]any{
+		updates := map[string]any{
 			"confirm_status": model.ConfirmConfirmed,
-			"confirmed_by":   nil, // AI 自动确认无人工确认人
+			"confirmed_by":   nil, // 自动确认无人工确认人
 			"confirmed_at":   now,
-			"confirm_mode":   model.ConfirmModeAI,
-			"ai_verdict":     model.AIVerdictPass,
-		}).Error; err != nil {
+			"confirm_mode":   mode,
+		}
+		if mode == model.ConfirmModeAI {
+			updates["ai_verdict"] = model.AIVerdictPass
+		}
+		if err := tx.Model(&model.EquipmentMaintenance{}).Where("id = ?", m.ID).Updates(updates).Error; err != nil {
 			return errs.ErrInternal
 		}
 		skipped, werr := ApplyLedgerWriteback(tx, m, &e, rules[e.Type])
@@ -323,13 +394,15 @@ func ledgerFixDates(m *model.EquipmentMaintenance) (manufacture, lastMaint *time
 // ConfirmResult 批量确认结果。
 type ConfirmResult struct {
 	Confirmed int      `json:"confirmed"`
-	Skipped   int      `json:"skipped"` // 非 pending（已确认/已驳回）幂等跳过
+	Advanced  int      `json:"advanced"` // 多环节链：通过当前环节、推进下一环节（仍 pending）
+	Skipped   int      `json:"skipped"`  // 非 pending（已确认/已驳回）幂等跳过
 	NotFound  []string `json:"not_found"`
 }
 
-// Confirm 批量确认：事务内逐条 pending→confirmed 并回写台账（last_maintenance_date、
-// ledger_fix 时同时回写 manufacture_date、按类型规则重算 next_due_date 与 scrap_date）。
-// 跨租户记录整条拒绝（不暴露存在性）；已 confirmed 跳过（幂等）。
+// Confirm 批量确认（按维保审核链 maint_review 推进）：
+// 当前环节是人工环节 → RouteHumanPass：末环节 confirmed + 回写台账；非末环节 confirm_step 推进并通知下一环节名单；
+// 停在 AI 环节的（兜底人工）直接 confirmed。跨租户记录整条拒绝（不暴露存在性）；已 confirmed 跳过（幂等）。
+// 台账回写：last_maintenance_date、ledger_fix 时同时回写 manufacture_date、按类型规则重算 next_due_date 与 scrap_date。
 func (s *MaintenanceService) Confirm(c *gin.Context, req *dto.ConfirmReq) (*ConfirmResult, *errs.Error) {
 	identity := middleware.CurrentIdentity(c)
 	if identity == nil {
@@ -337,6 +410,12 @@ func (s *MaintenanceService) Confirm(c *gin.Context, req *dto.ConfirmReq) (*Conf
 	}
 	result := &ConfirmResult{NotFound: []string{}}
 	rules, _ := NewEquipmentService(s.db).typeRules()
+	flowCache := map[string]types.FlowStepArray{} // community_id → 审核链（事务内缓存）
+	var advances []struct {
+		m    *model.EquipmentMaintenance
+		flow types.FlowStepArray
+		next int
+	}
 	err := s.db.Transaction(func(tx *gorm.DB) error {
 		for _, id := range req.IDs {
 			var m model.EquipmentMaintenance
@@ -357,11 +436,37 @@ func (s *MaintenanceService) Confirm(c *gin.Context, req *dto.ConfirmReq) (*Conf
 				result.NotFound = append(result.NotFound, id)
 				continue
 			}
+			flow, ok := flowCache[e.CommunityID]
+			if !ok {
+				flow = communitysvc.ResolveFlow(s.db, e.CommunityID, sysmodel.FlowMaintReview)
+				flowCache[e.CommunityID] = flow
+			}
+			idx := int(m.ConfirmStep)
+			// 人工环节且非末位：推进下一环节（仍 pending）
+			if idx < len(flow) && flow[idx].Kind != sysmodel.FlowStepKindAI {
+				if d := communitysvc.RouteHumanPass(flow, idx); !d.Finish {
+					if err := tx.Model(&m).Updates(map[string]any{
+						"confirm_step": d.NextIdx, "confirmed_by": identity.UserID, "confirmed_at": time.Now(),
+					}).Error; err != nil {
+						return errs.ErrInternal
+					}
+					result.Advanced++
+					mCopy := m
+					advances = append(advances, struct {
+						m    *model.EquipmentMaintenance
+						flow types.FlowStepArray
+						next int
+					}{&mCopy, flow, d.NextIdx})
+					continue
+				}
+			}
+			// 末环节/AI 环节停放/空流程兜底：confirmed + 回写台账
 			now := time.Now()
 			if err := tx.Model(&m).Updates(map[string]any{
 				"confirm_status": model.ConfirmConfirmed,
 				"confirmed_by":   identity.UserID,
 				"confirmed_at":   now,
+				"confirm_mode":   model.ConfirmModeManual,
 			}).Error; err != nil {
 				return errs.ErrInternal
 			}
@@ -379,7 +484,65 @@ func (s *MaintenanceService) Confirm(c *gin.Context, req *dto.ConfirmReq) (*Conf
 		}
 		return nil, errs.ErrInternal
 	}
+	// 推进通知（事务外）：下一环节是 AI 闸门 → 触发闸门路由；人工环节 → 通知名单
+	for _, adv := range advances {
+		if adv.flow[adv.next].Kind == sysmodel.FlowStepKindAI {
+			s.runMaintGate(adv.m, adv.flow, adv.next)
+			continue
+		}
+		var e model.Equipment
+		if s.db.Select("code", "name", "community_id", "tenant_id").First(&e, "id = ?", adv.m.EquipmentID).Error == nil {
+			s.notifyMaintStep(&e, adv.m, adv.flow, adv.next)
+		}
+	}
 	return result, nil
+}
+
+// runMaintGate 维保 AI 闸门（人工环节推进到 AI 环节时触发）：按已有结论走链落定。
+// 不再调大模型（登记/修改时已同步核验）；无结论按存疑路由。
+func (s *MaintenanceService) runMaintGate(m *model.EquipmentMaintenance, flow types.FlowStepArray, idx int) {
+	var cur model.EquipmentMaintenance
+	if err := s.db.First(&cur, "id = ?", m.ID).Error; err != nil || cur.ConfirmStatus != model.ConfirmPending {
+		return
+	}
+	outcome := sysmodel.AIGateReview
+	if cur.AIVerdict != nil && *cur.AIVerdict == model.AIVerdictPass {
+		outcome = sysmodel.AIGatePass
+	}
+	walk := communitysvc.WalkFlow(flow, idx, outcome, false)
+	switch {
+	case walk.Finish:
+		if be := s.confirmAuto(&cur, false); be != nil {
+			logger.L.Warn("维保闸门自动确认失败", zap.String("maintenance_id", cur.ID), zap.String("err", be.Msg))
+		}
+	case walk.Reject:
+		reason := "AI 核对不通过"
+		if cur.AIReason != nil && *cur.AIReason != "" {
+			reason = *cur.AIReason
+		}
+		s.db.Model(&cur).Updates(map[string]any{
+			"confirm_status": model.ConfirmRejected, "reject_reason": truncateStr2(reason, 255),
+		})
+		var e model.Equipment
+		if s.db.Select("code", "name").First(&e, "id = ?", cur.EquipmentID).Error == nil {
+			s.notifyMaintRejected(&e, &cur, reason)
+		}
+	default:
+		if walk.Step != idx {
+			s.db.Model(&cur).Update("confirm_step", walk.Step)
+		}
+		if walk.NotifyIdx >= 0 && !walk.Fallback {
+			var e model.Equipment
+			if s.db.Select("code", "name", "community_id", "tenant_id").First(&e, "id = ?", cur.EquipmentID).Error == nil {
+				s.notifyMaintStep(&e, &cur, flow, walk.NotifyIdx)
+			}
+		} else {
+			var e model.Equipment
+			if s.db.Select("code", "name", "community_id", "tenant_id").First(&e, "id = ?", cur.EquipmentID).Error == nil {
+				s.notifyPendingConfirm(&e, &cur)
+			}
+		}
+	}
 }
 
 // ApplyLedgerWriteback 台账回写（confirmed 流水是台账唯一写入口；Confirm 与 AI 自动确认/打卡融合链路共用）：
@@ -439,11 +602,7 @@ func (s *MaintenanceService) Reject(c *gin.Context, req *dto.RejectReq) *errs.Er
 	// 通知登记人（附设备编号/名称与驳回理由）
 	var e model.Equipment
 	if s.db.Select("code", "name").First(&e, "id = ?", m.EquipmentID).Error == nil {
-		title := "维保登记被驳回"
-		content := fmt.Sprintf("设备「%s（%s）」的维保登记被驳回：%s。请重新登记。", e.Name, e.Code, strings.TrimSpace(req.Reason))
-		if err := s.notifier.Send(m.CreatedBy, MsgTypeMaintReject, title, content, &m.ID); err != nil {
-			return errs.ErrInternal
-		}
+		s.notifyMaintRejected(&e, &m, strings.TrimSpace(req.Reason))
 	}
 	return nil
 }
@@ -681,14 +840,38 @@ func (s *MaintenanceService) Update(c *gin.Context, id string, req *dto.Maintena
 	if err := s.db.Model(&model.EquipmentMaintenance{}).Where("id = ?", m.ID).Updates(updates).Error; err != nil {
 		return false, errs.ErrInternal
 	}
-	// AI 可信且开关开：自动生效（与 Register 同口径；默认关，等经理确认）
-	if aiVerdict == model.AIVerdictPass && cfgBool(s.db, "equipment.ai_auto_confirm", false) {
-		if be := s.confirmByAI(&m); be != nil {
-			return false, be
+	// 审核链路由（与 Register 同引擎）：AI 环节按结论重走路由；人工环节保持 pending 不重复通知（避免骚扰）
+	if aiVerdict == model.AIVerdictPass || aiVerdict == model.AIVerdictReview {
+		flow := communitysvc.ResolveFlow(s.db, e.CommunityID, sysmodel.FlowMaintReview)
+		walk := communitysvc.WalkFlow(flow, int(m.ConfirmStep), gateOutcomeOf(aiVerdict), false)
+		switch {
+		case walk.Finish:
+			if be := s.confirmAuto(&m, len(flow) == 0); be != nil {
+				return false, be
+			}
+			return true, nil
+		case walk.Reject:
+			reason := "AI 核对不通过"
+			if m.AIReason != nil && *m.AIReason != "" {
+				reason = *m.AIReason
+			}
+			s.db.Model(&m).Updates(map[string]any{
+				"confirm_status": model.ConfirmRejected, "reject_reason": truncateStr2(reason, 255),
+			})
+			s.notifyMaintRejected(&e, &m, reason)
+		case walk.Step > 0:
+			s.db.Model(&m).Update("confirm_step", walk.Step)
 		}
-		return true, nil
 	}
 	return false, nil
+}
+
+// gateOutcomeOf 维保 AI 结论 → 闸门票仓（pass=可信；其余=存疑转人工方向）。
+func gateOutcomeOf(aiVerdict string) string {
+	if aiVerdict == model.AIVerdictPass {
+		return sysmodel.AIGatePass
+	}
+	return sysmodel.AIGateReview
 }
 
 // DueDevices mp 端待维保设备列表：本租户临期+逾期+应报废在用设备（带点位/小区名，逾期/报废在前）。

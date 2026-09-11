@@ -1,4 +1,4 @@
-<!-- 审批流程模板（平台管理，仅超管）：平台默认打卡审批流程 + 报告签字流程。
+<!-- 审批流程模板（平台管理，仅超管）：平台默认打卡审批流程 + 维保审核流程 + 报告签字流程。
      未配置审批流程的租户/项目回落到此默认；再未配置时回落代码内置默认。 -->
 <template>
   <div class="app-container">
@@ -6,10 +6,11 @@
       <el-alert
         type="info"
         :closable="false"
-        title="此处为平台默认：新开通租户与未自行配置的租户/项目均回落到此默认。修改即时生效（对已有自定义配置的租户无影响）。报告签字流程保存为空表示报告生成后直接归档。"
+        title="此处为平台默认：新开通租户与未自行配置的租户/项目均回落到此默认。修改即时生效（对已有自定义配置的租户无影响）。打卡/维保流程保存为空分别表示打卡默认通过、维保登记即生效；报告签字流程保存为空表示报告生成后直接归档。"
         style="margin-bottom: 16px"
       />
       <ReviewFlowEditor :api="flowApi" :slot-options="slotOptions" save-perm="platform:reviewflow:update" />
+      <ReviewFlowEditor kind="maint" :api="maintFlowApi" :slot-options="slotOptions" save-perm="platform:reviewflow:update" />
       <ReviewFlowEditor kind="report" :api="reportFlowApi" :slot-options="slotOptions" save-perm="platform:reviewflow:update" />
     </div>
   </div>
@@ -17,12 +18,17 @@
 
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
-import { getPostTemplateReviewFlow, savePostTemplateReviewFlow, getPostTemplateReportReviewFlow, savePostTemplateReportReviewFlow, listPostTemplateDutyBindings, type ReviewFlowStep, type PostDutyBindingView } from '@/api/post'
+import { getPostTemplateReviewFlow, savePostTemplateReviewFlow, getPostTemplateReportReviewFlow, savePostTemplateReportReviewFlow, getPostTemplateMaintReviewFlow, savePostTemplateMaintReviewFlow, listPostTemplateDutyBindings, type ReviewFlowStep, type PostDutyBindingView } from '@/api/post'
 import ReviewFlowEditor from '@/components/ReviewFlowEditor.vue'
 
 const flowApi = {
   listFlow: getPostTemplateReviewFlow,
   saveFlow: (s: ReviewFlowStep[]) => savePostTemplateReviewFlow(s) as Promise<unknown>
+}
+
+const maintFlowApi = {
+  listFlow: getPostTemplateMaintReviewFlow,
+  saveFlow: (s: ReviewFlowStep[]) => savePostTemplateMaintReviewFlow(s) as Promise<unknown>
 }
 
 const reportFlowApi = {

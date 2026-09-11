@@ -394,16 +394,60 @@ func (s *PostService) GetReviewFlow(tenantID *string) (gin.H, *errs.Error) {
 }
 
 func (s *PostService) resolveReviewFlow(tenantID *string) (types.FlowStepArray, string) {
+	return s.resolveFlowByCode(tenantID, model.FlowCheckinReview)
+}
+
+// resolveFlowByCode 租户/平台级审核链解析：记录存在即命中（含显式空 = 默认通过/直通），无记录才回落内置默认。
+func (s *PostService) resolveFlowByCode(tenantID *string, flowCode string) (types.FlowStepArray, string) {
 	var f model.ApprovalFlow
 	if tenantID != nil {
-		if err := s.db.Where("project_id IS NULL AND tenant_id = ? AND flow_code = ?", *tenantID, model.FlowCheckinReview).First(&f).Error; err == nil && len(f.Steps) > 0 {
+		if err := s.db.Where("project_id IS NULL AND tenant_id = ? AND flow_code = ?", *tenantID, flowCode).First(&f).Error; err == nil {
 			return f.Steps, "tenant"
 		}
 	}
-	if err := s.db.Where("project_id IS NULL AND tenant_id IS NULL AND flow_code = ?", model.FlowCheckinReview).First(&f).Error; err == nil && len(f.Steps) > 0 {
+	if err := s.db.Where("project_id IS NULL AND tenant_id IS NULL AND flow_code = ?", flowCode).First(&f).Error; err == nil {
 		return f.Steps, "platform"
 	}
+	if flowCode == model.FlowMaintReview {
+		return communitysvc.DefaultMaintReviewFlow(s.db), "default"
+	}
 	return communitysvc.DefaultCheckinReviewFlow(), "default"
+}
+
+// GetMaintReviewFlow 维保审核链视图（tenantID nil=平台视角）。
+func (s *PostService) GetMaintReviewFlow(tenantID *string) (gin.H, *errs.Error) {
+	steps, source := s.resolveFlowByCode(tenantID, model.FlowMaintReview)
+	return gin.H{"flow_code": model.FlowMaintReview, "steps": steps, "source": source}, nil
+}
+
+// SaveMaintReviewFlow 保存维保审核链（tenantID nil=平台默认行；upsert 按作用域唯一行；空 = 登记即生效）。
+func (s *PostService) SaveMaintReviewFlow(tenantID *string, steps types.FlowStepArray) *errs.Error {
+	return s.saveFlowByCode(tenantID, model.FlowMaintReview, steps)
+}
+
+// saveFlowByCode 按 flow_code upsert 审核链（打卡/维保链同一校验：允许空与 AI 环节）。
+func (s *PostService) saveFlowByCode(tenantID *string, flowCode string, steps types.FlowStepArray) *errs.Error {
+	if be := communitysvc.ValidateFlowSteps(s.db, steps); be != nil {
+		return be
+	}
+	var f model.ApprovalFlow
+	q := s.db.Where("flow_code = ?", flowCode)
+	if tenantID == nil {
+		q = q.Where("tenant_id IS NULL AND project_id IS NULL")
+	} else {
+		q = q.Where("tenant_id = ? AND project_id IS NULL", *tenantID)
+	}
+	if err := q.First(&f).Error; err != nil {
+		f = model.ApprovalFlow{TenantID: tenantID, FlowCode: flowCode, Steps: steps}
+		if err := s.db.Create(&f).Error; err != nil {
+			return errs.ErrInternal
+		}
+		return nil
+	}
+	if err := s.db.Model(&f).Update("steps", steps).Error; err != nil {
+		return errs.ErrInternal
+	}
+	return nil
 }
 
 // SaveReviewFlow 保存审核链（tenantID nil=写平台默认行；非空=写租户级覆盖行；upsert 按作用域唯一行）。

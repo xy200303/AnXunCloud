@@ -347,6 +347,17 @@
           />
         </el-tab-pane>
 
+        <el-tab-pane label="维保审核流程" name="maint-flow">
+          <ReviewFlowEditor
+            v-if="staffCommunityId"
+            :key="`${staffCommunityId}-maint`"
+            :api="maintReviewFlowApi"
+            :slot-options="dutySlotOptions"
+            save-perm="community:duty:edit"
+            kind="maint"
+          />
+        </el-tab-pane>
+
         <el-tab-pane label="报告签字流程" name="report-flow">
           <ReviewFlowEditor
             v-if="staffCommunityId"
@@ -413,10 +424,10 @@ import {
   listCommunities, createCommunity, updateCommunity, deleteCommunity,
   listCommunityTree, listBuildings, createBuilding, updateBuilding, deleteBuilding,
   listPostDict, listStaff, createStaff, updateStaff, deleteStaff, listDutyBindings, saveDutyBindings,
-  getReviewFlow, saveReviewFlow, getReportReviewFlow, saveReportReviewFlow
+  getReviewFlow, saveReviewFlow, getReportReviewFlow, saveReportReviewFlow, getMaintReviewFlow, saveMaintReviewFlow
 } from '@/api/community'
 import { listPoints } from '@/api/point'
-import { POST_LINES } from '@/api/post'
+import { POST_LINES, type ReviewFlowStep } from '@/api/post'
 import { listUsers } from '@/api/user'
 import { useUserStore } from '@/store/user'
 import ReviewFlowEditor from '@/components/ReviewFlowEditor.vue'
@@ -715,11 +726,16 @@ const dutyList = ref<DutyBindingItem[]>([])
 // 打卡审批流程（项目级覆盖；环节选项复用职责槽位列表）
 const flowApi = computed(() => ({
   listFlow: () => getReviewFlow(staffCommunityId.value),
-  saveFlow: (s: { slot: string; name: string }[]) => saveReviewFlow(staffCommunityId.value, s) as Promise<unknown>
+  saveFlow: (s: ReviewFlowStep[]) => saveReviewFlow(staffCommunityId.value, s) as Promise<unknown>
+}))
+// 维保审核流程（项目级覆盖；空链 = 登记即生效，支持 AI 闸门环节）
+const maintReviewFlowApi = computed(() => ({
+  listFlow: () => getMaintReviewFlow(staffCommunityId.value),
+  saveFlow: (s: ReviewFlowStep[]) => saveMaintReviewFlow(staffCommunityId.value, s) as Promise<unknown>
 }))
 const reportFlowApi = computed(() => ({
   listFlow: () => getReportReviewFlow(staffCommunityId.value),
-  saveFlow: (s: { slot: string; name: string; mode?: 'any' | 'all' }[]) => saveReportReviewFlow(staffCommunityId.value, s) as Promise<unknown>
+  saveFlow: (s: ReviewFlowStep[]) => saveReportReviewFlow(staffCommunityId.value, s) as Promise<unknown>
 }))
 const dutySlotOptions = computed(() => dutyList.value.map((d) => ({ slot: d.slot, name: d.name })))
 // 逐槽位编辑值（slot → post_codes）；dutyOriginal 记录加载时快照，仅提交有变更的槽位（upsert 语义，避免把平台默认固化成项目覆盖）

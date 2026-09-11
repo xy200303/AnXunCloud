@@ -36,8 +36,15 @@ const spotcheckAILimit = 50
 type ReviewService struct {
 	db       *gorm.DB
 	aiCli    *ai.Client
+	// checkinAIGate 打卡 AI 闸门回调（mp 模块装配注入；人工环节推进到 AI 环节时触发），为 nil 跳过（记录停 AI 环节等人工兜底）。
+	checkinAIGate func(recID string)
 	store    *storage.Storage // 可空；逐项照片 file_id 转 URL 用
 	notifier *notify.Notifier
+}
+
+// BindCheckinAIGate 注入打卡 AI 闸门回调（router 装配：mp.CheckinService.RunAIGate）。
+func (s *ReviewService) BindCheckinAIGate(gate func(recID string)) {
+	s.checkinAIGate = gate
 }
 
 func NewReviewService(db *gorm.DB, notifier *notify.Notifier) *ReviewService {
@@ -122,6 +129,10 @@ func (s *ReviewService) Pass(c *gin.Context, id string) *errs.Error {
 	step := flow[stepIdx]
 	patrolType := s.patrolTypeOf(r.TaskID)
 	slot := communitysvc.FlowStepSlot(s.db, r.CommunityID, patrolType, step.Slot)
+	if step.Kind == sysmodel.FlowStepKindAI {
+		// AI 环节停放记录（闸门无下游/兜底）：由汇报线名单人工处置
+		slot = communitysvc.FlowStepSlot(s.db, r.CommunityID, patrolType, sysmodel.SlotPatrolReportLine)
+	}
 	if !communitysvc.SlotAuthorized(s.db, r.CommunityID, slot, middleware.CurrentIdentity(c)) {
 		return errs.ErrNotInSlot.WithMsg("当前用户不在「" + step.Name + "」环节授权名单内")
 	}
@@ -151,6 +162,13 @@ func (s *ReviewService) Pass(c *gin.Context, id string) *errs.Error {
 		return errs.ErrConflict.WithMsg("审核状态已被其他人更新")
 	}
 	next := flow[stepIdx+1]
+	if next.Kind == sysmodel.FlowStepKindAI {
+		// 下一环节是 AI 闸门：触发异步判定路由（无结论现判；AI 不可用按存疑转下游/兜底）
+		if s.checkinAIGate != nil {
+			go s.checkinAIGate(r.ID)
+		}
+		return nil
+	}
 	nextSlot := communitysvc.FlowStepSlot(s.db, r.CommunityID, patrolType, next.Slot)
 	ptName := pointName(s.db, r.PointID)
 	for _, uid := range communitysvc.SlotUserIDs(s.db, r.CommunityID, nextSlot) {
@@ -300,6 +318,10 @@ func (s *ReviewService) Reject(c *gin.Context, id, reason string) *errs.Error {
 	}
 	step := flow[stepIdx]
 	slot := communitysvc.FlowStepSlot(s.db, r.CommunityID, s.patrolTypeOf(r.TaskID), step.Slot)
+	if step.Kind == sysmodel.FlowStepKindAI {
+		// AI 环节停放记录：汇报线兜底名单人工处置
+		slot = communitysvc.FlowStepSlot(s.db, r.CommunityID, s.patrolTypeOf(r.TaskID), sysmodel.SlotPatrolReportLine)
+	}
 	if !communitysvc.SlotAuthorized(s.db, r.CommunityID, slot, middleware.CurrentIdentity(c)) {
 		return errs.ErrNotInSlot.WithMsg("当前用户不在「" + step.Name + "」环节授权名单内")
 	}

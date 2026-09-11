@@ -275,6 +275,28 @@ const (
 const (
 	FlowCheckinReview = "checkin_review" // 打卡审核链
 	FlowReportReview  = "report_review"  // 报告审核链
+	FlowMaintReview   = "maint_review"   // 维保登记审核链（与打卡链同一引擎：AI 闸门 + 人工环节 + 空流程默认生效）
+)
+
+// 审批链环节类型（FlowStep.Kind；''=人工环节）
+const (
+	FlowStepKindAI = "ai" // AI 闸门环节：按审核结果路由（OnPass/OnFail）
+)
+
+// AI 环节结果路由（FlowStep.OnPass/OnAbnormal/OnReview）
+const (
+	FlowRouteFinish = "finish" // 直接生效（整单通过，流程结束）
+	FlowRouteNext   = "next"   // 进入下一环节（无下一环节时转汇报线兜底人工）
+	FlowRouteReject = "reject" // 直接打回（OnPass 不允许）
+	// FlowRouteGotoPrefix 跳到指定环节："goto:N"（N 为 1 起环节序号，仅可向后跳，校验保证无环）
+	FlowRouteGotoPrefix = "goto:"
+)
+
+// AI 判定三分支（RouteAIStep outcome 入参）
+const (
+	AIGatePass     = "pass"     // 无异常
+	AIGateAbnormal = "abnormal" // 有异常（巡检成果）
+	AIGateReview   = "review"   // 存疑/识别失败/AI 不可用/强制人工（如上报待处理）
 )
 
 // DutySlot 槽位定义（系统固定枚举，名称用于前端展示）。

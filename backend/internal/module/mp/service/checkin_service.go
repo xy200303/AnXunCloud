@@ -292,9 +292,8 @@ func (s *CheckinService) doCheckinLocked(ctx context.Context, inspectorID string
 		}
 		s.applyConfirmedAI(&rec, checkItems, req)
 	}
-	// 审核与识别统一：audit_status 完全由识别状态推导。未经 AI 识别（同步判定关闭/离线补传）
-	// 的记录有效性未被机器确认，落库即 pending；事务后 AI 可用则异步补识别（pass/abnormal 自动放行），
-	// AI 未启用则直接待人工审核。识别出确定性结论（含 abnormal）的记录一律 auto_pass。
+	// 未经 AI 识别（同步判定关闭/离线补传）的记录打标待复核原因；最终 audit_status 由下方
+	// 审批链路由（checkin_review）统一裁定：空流程默认通过，AI 环节由闸门接力，人工环节 pending。
 	if !useSyncAI && !req.Force && !req.AIConfirmed {
 		rec.AuditStatus = insmodel.AuditPending
 		rec.AIReason = "未经 AI 识别，待复核"
@@ -308,7 +307,7 @@ func (s *CheckinService) doCheckinLocked(ctx context.Context, inspectorID string
 		}
 	}
 	// 上报待处理（任一异常项 disposition=report_pending）：记录强制转人工审核（必通知审核人），
-	// AI 不得自动放行（异步补识别的放行分支按记录逐项排除，见 aiReview）
+	// AI 不得自动放行（异步闸门的放行分支按记录逐项排除，见 walkFlow/review 桶）
 	reportPending := false
 	for i := range checkItems {
 		if checkItems[i].Disposition == insmodel.DispositionReportPending {
@@ -317,6 +316,40 @@ func (s *CheckinService) doCheckinLocked(ctx context.Context, inspectorID string
 		}
 	}
 	if reportPending {
+		rec.AuditStatus = insmodel.AuditPending
+	}
+
+	// ===== 通用审批引擎路由（打卡链 checkin_review）=====
+	// 空流程 = 默认通过；AI 环节 = 闸门（按结论三分支路由）；人工环节 = pending 待审。
+	// 强制人工（上报待处理/台账判异常/强制提交）按「存疑」桶路由；未识别记录停在 AI 环节由异步闸门接力。
+	flow := communitysvc.ResolveFlow(s.db, task.CommunityID, sysmodel.FlowCheckinReview)
+	outcome := ""
+	if rec.AIVerdict != "" {
+		outcome = gateBucketOf(rec.AIVerdict)
+	}
+	forcedHuman := reportPending || equipmentForced || req.Force
+	if forcedHuman {
+		outcome = sysmodel.AIGateReview
+	}
+	// 路由原因（通知/打回备注用）
+	routeReason := rec.AIReason
+	switch {
+	case reportPending:
+		routeReason = appendItemNote("存在上报待处理异常项", routeReason)
+	case equipmentForced:
+		routeReason = equipmentNote
+	case req.Force:
+		routeReason = "强制提交"
+	}
+	walk := communitysvc.WalkFlow(flow, 0, outcome, forcedHuman)
+	rec.AuditStep = int16(walk.Step)
+	switch {
+	case walk.Finish:
+		rec.AuditStatus = insmodel.AuditAutoPass
+	case walk.Reject:
+		rec.AuditStatus = insmodel.AuditRejected
+		rec.AuditRemark = "AI 审核不通过：" + routeReason
+	default:
 		rec.AuditStatus = insmodel.AuditPending
 	}
 
@@ -416,31 +449,15 @@ func (s *CheckinService) doCheckinLocked(ctx context.Context, inspectorID string
 	}
 	// 打卡触发的 pending 维保流水：通知项目经理/租户管理员确认或安排整改（甲方口径）
 	s.notifyPendingMaintenances(&rec, maintActions)
-	// 审核分支（识别即审核）：已完成识别的路径（同步判定/强制提交/逐项识别确认）状态已定型，pending 直接通知；
-	// 未经识别路径：AI 可用 → 异步补识别（pass/abnormal 自动放行，存疑/失败保持 pending 并通知）；AI 未启用 → 直接通知人工审核。
+	// 审核动作（按走链结果）：停在 AI 环节且无结论 → 异步闸门接力；落人工环节/兜底 → 通知名单；AI 直接打回 → 通知巡检员
 	switch {
-	case useSyncAI || req.Force || req.AIConfirmed:
-		if rec.AuditStatus == insmodel.AuditPending {
-			reason := rec.AIReason
-			if reportPending {
-				reason = appendItemNote("存在上报待处理异常项", reason)
-			}
-			s.notifyAuditors(rec.ID, point.Name, reason)
-		}
-	default:
-		if equipmentForced {
-			// 台账判异常直接转人工：跳过异步补识别，避免 AI pass 把记录自动放行出审核队列
-			s.notifyAuditors(rec.ID, point.Name, equipmentNote)
-		} else if s.aiCli.Enabled() {
-			// 异步补识别（report_pending 记录在放行分支被排除，见 aiReview）
-			go s.aiReview(rec.ID, &point, checkItems, req.Remark)
-		} else {
-			reason := "未启用 AI 识别，转人工审核"
-			if reportPending {
-				reason = appendItemNote("存在上报待处理异常项", reason)
-			}
-			s.notifyAuditors(rec.ID, point.Name, reason)
-		}
+	case walk.NeedGate:
+		go s.RunAIGate(rec.ID)
+	case walk.Fallback || walk.NotifyIdx >= 0:
+		s.notifyStepReviewers(rec.ID, point.Name, walk.Step, walk.Fallback, routeReason)
+	case walk.Reject:
+		_ = s.notifier.Send(inspectorID, "checkin_audit", "打卡记录被打回",
+			fmt.Sprintf("你在点位「%s」的打卡记录经 AI 审核不通过：%s。请核实后按要求补巡。", point.Name, routeReason), &rec.ID)
 	}
 	// 任务进度缓存失效
 	s.rdb.Del(ctx, "cache:task:progress:"+task.ID)
@@ -1077,73 +1094,6 @@ func (s *CheckinService) applyWatermarks(rec *insmodel.CheckinRecord, point *ins
 	}
 }
 
-// aiReview 异步补识别（goroutine 内运行，请求 ctx 已结束故用 Background）。
-// 识别即审核的统一语义：走这条路径的记录落库时未经 AI 识别（audit_status=pending）；
-// 识别出确定性结论（pass，或存在明确异常项 → abnormal）→ 自动放行（仅当仍 pending 且人工未介入，不覆盖人工结论）；
-// review（存疑）→ 保持 pending 并通知审核人；调用失败 → ai_verdict=error 保持 pending 并通知。
-// 逐项结论（模型返回时）落到 checkin_record_item.ai_verdict/ai_reason/ai_reading；
-// 质量判定结果只记 ai_quality_* 字段（异步路径不参与打卡放行）。
-func (s *CheckinService) aiReview(recID string, point *insmodel.InspectionPoint, items []insmodel.CheckinRecordItem, remark string) {
-	defer func() {
-		if r := recover(); r != nil {
-			logger.L.Error("AI 补识别 panic", zap.String("rec_id", recID), zap.Any("panic", r))
-		}
-	}()
-	res, err := s.aiCli.ReviewCheckin(context.Background(), s.buildReviewInput(point, items, remark))
-	if err != nil {
-		logger.L.Warn("AI 补识别调用失败", zap.String("rec_id", recID), zap.Error(err))
-		s.db.Model(&insmodel.CheckinRecord{}).Where("id = ? AND audit_status = ?", recID, insmodel.AuditPending).
-			Updates(map[string]any{"ai_verdict": insmodel.AIVerdictError, "ai_reason": truncateStr(err.Error(), 200)})
-		s.notifyAuditors(recID, point.Name, "AI 识别失败，转人工审核")
-		return
-	}
-	writeItemVerdicts(s.db, recID, res.Items)
-	quality := map[string]any{
-		"ai_quality_pass":  res.Quality.Pass,
-		"ai_quality_issue": truncateStr(res.Quality.Issue, 255),
-	}
-	// 有明确异常项：记录级 ai_verdict=abnormal（AI 判异常；异常是巡检成果，同样自动放行）
-	hasAbnormalItem := false
-	for _, iv := range res.Items {
-		if iv.Verdict == insmodel.AIVerdictAbnormal {
-			hasAbnormalItem = true
-			break
-		}
-	}
-	if res.Verdict == insmodel.AIVerdictPass {
-		quality["ai_verdict"] = insmodel.AIVerdictPass
-		if hasAbnormalItem {
-			quality["ai_verdict"] = insmodel.AIVerdictAbnormal
-		}
-		quality["ai_reason"] = truncateStr(res.Reason, 500)
-		// 存在「上报待处理」异常项的记录禁止自动放行（必转人工）：仍回写 AI 结论，保持 pending 并通知
-		if s.hasReportPendingItem(recID) {
-			res2 := s.db.Model(&insmodel.CheckinRecord{}).Where("id = ? AND audit_status = ?", recID, insmodel.AuditPending).
-				Updates(quality)
-			if res2.Error == nil && res2.RowsAffected > 0 {
-				s.notifyAuditors(recID, point.Name, "存在上报待处理异常项，转人工审核")
-			}
-			return
-		}
-		// 识别成功 = 记录有效：自动放行（audit_step=0 确保人工未介入，不覆盖人工结论）
-		quality["audit_status"] = insmodel.AuditAutoPass
-		s.db.Model(&insmodel.CheckinRecord{}).Where("id = ? AND audit_status = ? AND audit_step = 0", recID, insmodel.AuditPending).
-			Updates(quality)
-		return
-	}
-	// review（存疑）→ 记录有效性未确认，保持 pending 并通知审核角色
-	quality["ai_verdict"] = insmodel.AIVerdictReview
-	quality["ai_reason"] = truncateStr(res.Reason, 500)
-	res2 := s.db.Model(&insmodel.CheckinRecord{}).Where("id = ? AND audit_status = ?", recID, insmodel.AuditPending).
-		Updates(quality)
-	if res2.Error != nil {
-		logger.L.Warn("AI 补识别回写失败", zap.String("rec_id", recID), zap.Error(res2.Error))
-		return
-	}
-	if res2.RowsAffected > 0 {
-		s.notifyAuditors(recID, point.Name, res.Reason)
-	}
-}
 
 // writeItemVerdicts 逐项 AI 结论落库（按 record_id+name 匹配快照行；模型未返回逐项结论时为空不做事）。
 func writeItemVerdicts(db *gorm.DB, recID string, items []ai.ItemVerdict) {
@@ -1208,34 +1158,6 @@ func (s *CheckinService) hasReportPendingItem(recID string) bool {
 	s.db.Model(&insmodel.CheckinRecordItem{}).
 		Where("record_id = ? AND disposition = ?", recID, insmodel.DispositionReportPending).Count(&cnt)
 	return cnt > 0
-}
-
-// notifyAuditors AI 转人工时通知当前项目审批链首环节名单。
-func (s *CheckinService) notifyAuditors(recID, pointName, reason string) {
-	var rec struct {
-		CommunityID string
-		TaskID      string
-	}
-	if s.db.Model(&insmodel.CheckinRecord{}).Select("community_id", "task_id").Where("id = ?", recID).First(&rec).Error != nil {
-		return
-	}
-	var task struct {
-		PatrolType string
-	}
-	if s.db.Model(&insmodel.InspectionTask{}).Select("patrol_type").Where("id = ?", rec.TaskID).First(&task).Error != nil {
-		return
-	}
-	flow := communitysvc.ResolveFlow(s.db, rec.CommunityID, sysmodel.FlowCheckinReview)
-	if len(flow) == 0 {
-		return
-	}
-	slot := communitysvc.FlowStepSlot(s.db, rec.CommunityID, task.PatrolType, flow[0].Slot)
-	for _, uid := range communitysvc.SlotUserIDs(s.db, rec.CommunityID, slot) {
-		_ = s.notifier.Send(uid, "checkin_audit",
-			"AI 审核转人工："+pointName,
-			fmt.Sprintf("点位「%s」的打卡记录经大模型审核存疑，已转人工审核。理由：%s", pointName, reason),
-			&recID)
-	}
 }
 
 // resultView 打卡响应视图。syncRes 为同步 AI 判定结果（非空时附带质量与逐项结论摘要，App 无需轮询）。

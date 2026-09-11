@@ -280,10 +280,19 @@ func toBytes(src any) ([]byte, error) {
 }
 
 // FlowStep 审批链环节（approval_flow.steps JSONB；slot 引用职责槽位 code，名单解析复用槽位体系）。
+// Kind：''=人工环节（默认，slot 必填）/ 'ai'=AI 闸门环节（无槽位，按审核结果三分支路由）。
+// OnPass/OnAbnormal/OnReview 仅 AI 环节有效，取值：finish=直接生效 / next=进下一环节 /
+// reject=直接打回（OnPass 不允许）/ goto:N=跳到第 N 环节（1 起，仅可向后跳）。
+// 缺省值保持旧行为：OnPass=finish、OnAbnormal=finish（异常是巡检成果）、OnReview=next（存疑转人工）。
+// 空流程 = 记录提交即默认通过（打卡链/维保链同语义）。
 type FlowStep struct {
-	Slot string `json:"slot"`
-	Name string `json:"name"`
-	Mode string `json:"mode,omitempty"` // any=任一候选人，all=全部候选人
+	Slot       string `json:"slot"`
+	Name       string `json:"name"`
+	Mode       string `json:"mode,omitempty"`        // any=任一候选人，all=全部候选人
+	Kind       string `json:"kind,omitempty"`        // ''=人工 / ai=AI 闸门（打卡/维保链）
+	OnPass     string `json:"on_pass,omitempty"`     // AI 判无异常去向：finish（默认）/next/goto:N
+	OnAbnormal string `json:"on_abnormal,omitempty"` // AI 判有异常去向：finish（默认）/next/reject/goto:N
+	OnReview   string `json:"on_review,omitempty"`   // AI 存疑/失败/不可用去向：next（默认）/reject/goto:N
 }
 
 // FlowStepArray 映射 jsonb 审批链环节数组。

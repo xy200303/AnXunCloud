@@ -49,6 +49,7 @@ const (
 const (
 	ConfirmModeManual = "manual" // 经理人工确认
 	ConfirmModeAI     = "ai"     // AI 核验可信自动确认（confirmed_by 置空）
+	ConfirmModeAuto   = "auto"   // 空审核链默认直通（confirmed_by 置空）
 )
 
 // Equipment 设备台账：一具设备一行记当前状态；到期判定只看 NextDueDate。
@@ -102,8 +103,10 @@ type EquipmentMaintenance struct {
 	Source string `gorm:"size:16;default:form" json:"source"`
 	// CheckinRecordID 来源打卡记录（source=checkin 时非空；checkin_record 为分区表不加 FK）
 	CheckinRecordID *string `gorm:"type:uuid" json:"checkin_record_id"`
-	// ConfirmMode 确认方式：manual=人工确认 / ai=AI 核验可信自动确认（confirmed_by 置空）
-	ConfirmMode string        `gorm:"size:8;default:manual" json:"confirm_mode"`
+	// ConfirmMode 确认方式：manual=人工确认 / ai=AI 核验可信自动确认（confirmed_by 置空）/ auto=空审核链默认直通
+	ConfirmMode string `gorm:"size:8;default:manual" json:"confirm_mode"`
+	// ConfirmStep 维保审核链当前环节下标（approval_flow flow_code=maint_review；与打卡链 audit_step 同语义）
+	ConfirmStep int16         `gorm:"default:0" json:"confirm_step"`
 	CreatedBy   string        `gorm:"type:uuid" json:"created_by"`
 	CreatedAt       time.Time     `json:"created_at"`
 	UpdatedAt       time.Time     `json:"updated_at"`

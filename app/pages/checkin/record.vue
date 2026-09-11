@@ -29,7 +29,7 @@
         </view>
         <view v-else-if="auditStatus != ''" class="meta-row">
           <text class="meta-label" :style="{ color: colors.textSecondary }">审核状态</text>
-          <text class="meta-value" :style="{ color: auditStatus == 'pass' ? colors.success : colors.warning }">{{ auditStatus == 'pass' ? '已通过' : '审核中' }}</text>
+          <text class="meta-value" :style="{ color: auditStatus == 'pass' || auditStatus == 'auto_pass' ? colors.success : colors.warning }">{{ auditStatusText }}</text>
         </view>
         <view class="meta-row">
           <text class="meta-label" :style="{ color: colors.textSecondary }">打卡时间</text>
@@ -139,6 +139,12 @@ export default {
   computed: {
     checkinTypeText(): string {
       return checkinTypeTextOf(this.checkinType)
+    },
+    /** 审核状态文案：pending 审核中 / pass 已通过 / auto_pass 已通过（系统自动） */
+    auditStatusText(): string {
+      if (this.auditStatus == 'pass') return '已通过'
+      if (this.auditStatus == 'auto_pass') return '已通过（系统自动）'
+      return '审核中'
     },
     /** 定位辅助信息文案：海拔 xx 米 · 精度 xx 米（仅有值的部分） */
     locInfoText(): string {

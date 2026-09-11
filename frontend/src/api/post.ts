@@ -84,9 +84,13 @@ export function savePostDutyBindings(bindings: { slot: string; post_codes: strin
 // ===== 打卡审核链（扩展方案 §3；steps 有序环节，环节引用职责槽位） =====
 
 export interface ReviewFlowStep {
-  slot: string
+  slot: string // 人工环节：职责槽位 code；AI 环节为空串
   name: string
-  mode?: 'any' | 'all'
+  mode?: 'any' | 'all' // 仅报告签字链用
+  kind?: '' | 'ai' // 'ai' = AI 审核闸门环节（打卡链/维保链可用；报告链不允许）
+  on_pass?: string // AI 判无异常去向：finish(默认)/next/goto:N（不允许 reject）
+  on_abnormal?: string // AI 判有异常去向：finish(默认)/next/reject/goto:N
+  on_review?: string // AI 存疑/失败去向：next(默认)/reject/goto:N
 }
 export interface ReviewFlowView {
   flow_code: string
@@ -109,6 +113,15 @@ export function getReportReviewFlow() {
 
 export function saveReportReviewFlow(steps: ReviewFlowStep[]) {
   return request<null>({ url: '/system/report-review-flow', method: 'put', data: { steps } })
+}
+
+// 租户级维保审核链（空流程=维保登记即生效；支持 AI 闸门环节）
+export function getMaintReviewFlow() {
+  return request<ReviewFlowView>({ url: '/system/maint-review-flow', method: 'get' })
+}
+
+export function saveMaintReviewFlow(steps: ReviewFlowStep[]) {
+  return request<null>({ url: '/system/maint-review-flow', method: 'put', data: { steps } })
 }
 
 // ===== 岗位模板库（平台管理 /system/post-templates，仅超管；开通租户时的初始拷贝源） =====
@@ -154,4 +167,13 @@ export function getPostTemplateReportReviewFlow() {
 
 export function savePostTemplateReportReviewFlow(steps: ReviewFlowStep[]) {
   return request<null>({ url: '/system/report-review-flow-template', method: 'put', data: { steps } })
+}
+
+// 平台默认维保审核链
+export function getPostTemplateMaintReviewFlow() {
+  return request<ReviewFlowView>({ url: '/system/maint-review-flow-template', method: 'get' })
+}
+
+export function savePostTemplateMaintReviewFlow(steps: ReviewFlowStep[]) {
+  return request<null>({ url: '/system/maint-review-flow-template', method: 'put', data: { steps } })
 }

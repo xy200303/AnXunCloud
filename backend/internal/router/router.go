@@ -93,6 +93,7 @@ func New(cfg *config.Config, db *gorm.DB, rdb *redis.Client) (*gin.Engine, *insp
 	reportSvc := reportsvc.NewReportService(db, rdb, store, configSvc.Get, notifier)
 	mpSvc := mpsvc.NewMPService(db, rdb, sess, jwtm, cfg.Wechat)
 	checkinSvc := mpsvc.NewCheckinService(db, rdb, store, configSvc.Get, notifier)
+	reviewSvc.BindCheckinAIGate(checkinSvc.RunAIGate) // 审批链推进到 AI 环节时触发打卡闸门
 	checkinSvc.StartAIItemWorkers() // 逐项 AI 识别队列消费 worker（ai.worker_concurrency，随 router 装配启动）
 	uploadSvc := mpsvc.NewUploadService(db, store, cfg.Upload, cfg.OSS)
 	scheduler := inspectionsvc.NewScheduler(db, planSvc, reportSvc, configSvc.Get)
@@ -247,6 +248,8 @@ func New(cfg *config.Config, db *gorm.DB, rdb *redis.Client) (*gin.Engine, *insp
 		secured.PUT("/communities/:id/review-flow", middleware.RequirePerm("community:duty:edit"), middleware.OperLog(db, "community", "review_flow_save"), staffCtl.SaveReviewFlow)
 		secured.GET("/communities/:id/report-review-flow", middleware.RequirePerm("community:staff:list"), staffCtl.GetReportReviewFlow)
 		secured.PUT("/communities/:id/report-review-flow", middleware.RequirePerm("community:duty:edit"), middleware.OperLog(db, "community", "report_review_flow_save"), staffCtl.SaveReportReviewFlow)
+		secured.GET("/communities/:id/maint-review-flow", middleware.RequirePerm("community:staff:list"), staffCtl.GetMaintReviewFlow)
+		secured.PUT("/communities/:id/maint-review-flow", middleware.RequirePerm("community:duty:edit"), middleware.OperLog(db, "community", "maint_review_flow_save"), staffCtl.SaveMaintReviewFlow)
 
 		// 巡检管理：点位
 		points := secured.Group("/inspection/points")
@@ -579,10 +582,14 @@ func registerSystemRoutes(sys *gin.RouterGroup, db *gorm.DB,
 	sys.PUT("/review-flow", middleware.RequirePerm("system:reviewflow:update"), middleware.OperLog(db, "system", "review_flow_save"), postCtl.SaveReviewFlow)
 	sys.GET("/report-review-flow", middleware.RequirePerm("system:reviewflow:list"), postCtl.GetReportReviewFlow)
 	sys.PUT("/report-review-flow", middleware.RequirePerm("system:reviewflow:update"), middleware.OperLog(db, "system", "report_review_flow_save"), postCtl.SaveReportReviewFlow)
+	sys.GET("/maint-review-flow", middleware.RequirePerm("system:reviewflow:list"), postCtl.GetMaintReviewFlow)
+	sys.PUT("/maint-review-flow", middleware.RequirePerm("system:reviewflow:update"), middleware.OperLog(db, "system", "maint_review_flow_save"), postCtl.SaveMaintReviewFlow)
 	sys.GET("/review-flow-template", middleware.RequirePerm("platform:reviewflow:list"), postTmplCtl.GetReviewFlow)
 	sys.PUT("/review-flow-template", middleware.RequirePerm("platform:reviewflow:update"), middleware.OperLog(db, "system", "review_flow_save"), postTmplCtl.SaveReviewFlow)
 	sys.GET("/report-review-flow-template", middleware.RequirePerm("platform:reviewflow:list"), postTmplCtl.GetReportReviewFlow)
 	sys.PUT("/report-review-flow-template", middleware.RequirePerm("platform:reviewflow:update"), middleware.OperLog(db, "system", "report_review_flow_save"), postTmplCtl.SaveReportReviewFlow)
+	sys.GET("/maint-review-flow-template", middleware.RequirePerm("platform:reviewflow:list"), postTmplCtl.GetMaintReviewFlow)
+	sys.PUT("/maint-review-flow-template", middleware.RequirePerm("platform:reviewflow:update"), middleware.OperLog(db, "system", "maint_review_flow_save"), postTmplCtl.SaveMaintReviewFlow)
 
 	// 岗位管理（系统管理，租户上下文）与岗位模板库（平台管理，仅超管）
 	posts := sys.Group("/posts")

@@ -556,6 +556,38 @@ func (s *StaffService) GetReportReviewFlow(c *gin.Context, projectID string) (gi
 	return gin.H{"flow_code": sysmodel.FlowReportReview, "steps": steps, "source": source}, nil
 }
 
+// GetMaintReviewFlow 项目级维保审核链视图（GET /communities/:id/maint-review-flow）。
+func (s *StaffService) GetMaintReviewFlow(c *gin.Context, projectID string) (gin.H, *errs.Error) {
+	if be := middleware.CheckCommunity(s.db, c, projectID); be != nil {
+		return nil, be
+	}
+	steps, source := ResolveFlowWithSource(s.db, projectID, sysmodel.FlowMaintReview)
+	return gin.H{"flow_code": sysmodel.FlowMaintReview, "steps": steps, "source": source}, nil
+}
+
+// SaveMaintReviewFlow 保存项目级维保审核链覆盖（PUT /communities/:id/maint-review-flow；upsert project_id 行）。
+func (s *StaffService) SaveMaintReviewFlow(c *gin.Context, projectID string, steps types.FlowStepArray) *errs.Error {
+	if be := middleware.CheckCommunity(s.db, c, projectID); be != nil {
+		return be
+	}
+	if be := ValidateFlowSteps(s.db, steps); be != nil {
+		return be
+	}
+	var f sysmodel.ApprovalFlow
+	err := s.db.Where("project_id = ? AND flow_code = ?", projectID, sysmodel.FlowMaintReview).First(&f).Error
+	if err != nil {
+		f = sysmodel.ApprovalFlow{ProjectID: &projectID, FlowCode: sysmodel.FlowMaintReview, Steps: steps}
+		if err := s.db.Create(&f).Error; err != nil {
+			return errs.ErrInternal
+		}
+		return nil
+	}
+	if err := s.db.Model(&f).Update("steps", steps).Error; err != nil {
+		return errs.ErrInternal
+	}
+	return nil
+}
+
 func (s *StaffService) SaveReportReviewFlow(c *gin.Context, projectID string, steps types.FlowStepArray) *errs.Error {
 	if be := middleware.CheckCommunity(s.db, c, projectID); be != nil {
 		return be

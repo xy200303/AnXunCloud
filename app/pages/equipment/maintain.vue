@@ -96,7 +96,7 @@
 
 <script lang="ts">
 import { Colors, ColorTokens } from '@/utils/theme'
-import { apiEquipmentDetail, apiEquipmentRegister, apiUploadLocal, EquipmentDetail } from '@/services/api'
+import { apiEquipmentDetail, apiEquipmentRegister, apiUploadLocal, EquipmentDetail, CODE_QUALITY_FAIL } from '@/services/api'
 import { compressForUpload } from '@/utils/image'
 import AppDialog from '@/components/AppDialog.vue'
 
@@ -253,11 +253,15 @@ export default {
           const autoOk = r.confirm_status == 'confirmed' || r.confirm_mode == 'ai'
           this.openResult(autoOk ? 'ok' : 'pending', autoOk ? '维保已生效' : '提交成功', autoOk ? '系统核对通过，台账已更新' : '已提交，经理确认后生效')
         })
-        .catch((e: Error) => {
+        .catch((e: any) => {
           uni.hideLoading()
           this.submitting = false
-          // 失败留在原地可重试（照片已上传，重试不丢）
-          this.openResult('fail', '提交失败', e.message)
+          // 失败留在原地可重试；43107=AI 判照片明显不合格（质量/不像标签），引导重拍
+          if (e != null && e.code == CODE_QUALITY_FAIL) {
+            this.openResult('fail', '照片不合格，请重新拍摄', e.message)
+            return
+          }
+          this.openResult('fail', '提交失败', e != null ? e.message : '网络异常，请重试')
         })
     },
     /** 打开结果弹窗：ok=绿勾（已生效）/pending=蓝点（待经理确认）/fail=红叉（留在原地可重试） */

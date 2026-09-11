@@ -37,9 +37,11 @@ const aiPreCheckPromptLabelMissing = "这是设备「标签缺失」登记照片
 // CheckMaintenanceLabel 维保标签照片核验核心（异步预检 / Register 同步化 / mp 打卡融合链路共用）：
 // 大模型读标签日期（prompt 同源）+ 照片有效性分类；质量不达标、内容判不像、EXIF 拍摄时间偏差
 // 超阈值（suspectCheck 口径）一律折算 review；日期比对不在此做（由调用方按场景口径判定）。
-// 返回结论（pass/review）、理由、reading 原文（M/W 紧凑格式，可信判定用）。
+// 返回结论（pass/review）、理由、reading 原文（M/W 紧凑格式，可信判定用）、blocked——
+// blocked=true 表示「明显不合格」（照片质量不达标 / 大模型判内容不像标签设备），调用方应硬拦截
+// （与打卡 43107 质量拦截同口径），而不是生成待确认流水让烂照片进经理队列。
 // 无可用照片/调用失败返回 err——调用方自行降级（保持 pending 兜底）。
-func CheckMaintenanceLabel(ctx context.Context, aiCli *ai.Client, db *gorm.DB, pointName, pointType string, fileIDs []string, labelMissing bool) (verdict, reason, reading string, err error) {
+func CheckMaintenanceLabel(ctx context.Context, aiCli *ai.Client, db *gorm.DB, pointName, pointType string, fileIDs []string, labelMissing bool) (verdict, reason, reading string, blocked bool, err error) {
 	// 照片引用
 	refs := make([]ai.PhotoRef, 0, len(fileIDs))
 	var exifTimes []time.Time
@@ -54,9 +56,9 @@ func CheckMaintenanceLabel(ctx context.Context, aiCli *ai.Client, db *gorm.DB, p
 		}
 	}
 	if len(refs) == 0 {
-		return "", "", "", errors.New("无可用照片")
+		return "", "", "", false, errors.New("无可用照片")
 	}
-	// ④ EXIF 拍摄时间偏差（复用 suspectCheck 口径：偏差超阈值记存疑点）
+	// ④ EXIF 拍摄时间偏差（复用 suspectCheck 口径：偏差超阈值记存疑点，不硬拦截——老照片补录场景存在）
 	var issues []string
 	limit := cfgInt(db, "inspection.exif_deviation_seconds", 300)
 	for _, et := range exifTimes {
@@ -82,15 +84,19 @@ func CheckMaintenanceLabel(ctx context.Context, aiCli *ai.Client, db *gorm.DB, p
 		}},
 	})
 	if err != nil {
-		return "", "", "", err
+		return "", "", "", false, err
 	}
 	verdict, reason = res.Verdict, res.Reason
+	rawItemVerdict := ""
 	for _, iv := range res.Items {
 		if iv.Name == "维保标签" {
 			verdict, reason, reading = iv.Verdict, iv.Reason, iv.Reading
+			rawItemVerdict = iv.Verdict
 			break
 		}
 	}
+	// 硬拦截判定：照片质量不达标（与打卡 43107 同源）或内容被判「不像」（翻拍屏幕/无关场景等）
+	blocked = !res.Quality.Pass || rawItemVerdict == ai.VerdictAbnormal
 	// 照片有效性：质量不达标或内容判不像 → review
 	if !res.Quality.Pass {
 		verdict = model.AIVerdictReview
@@ -114,7 +120,7 @@ func CheckMaintenanceLabel(ctx context.Context, aiCli *ai.Client, db *gorm.DB, p
 			reason = "AI 未给出明确结论"
 		}
 	}
-	return verdict, reason, reading, nil
+	return verdict, reason, reading, blocked, nil
 }
 
 // JudgeLabelTrust AI 标签核验可信判定（纯函数；Register 同步化与打卡融合链路共用，方案决策 4）：
@@ -172,7 +178,7 @@ func (s *MaintenanceService) aiPreCheck(recID string) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
-	verdict, reason, reading, err := CheckMaintenanceLabel(ctx, s.aiCli, s.db, e.Name, e.Type, m.FileIDs, m.LabelMissing)
+	verdict, reason, reading, _, err := CheckMaintenanceLabel(ctx, s.aiCli, s.db, e.Name, e.Type, m.FileIDs, m.LabelMissing)
 	if err != nil {
 		logger.L.Warn("维保登记 AI 预检调用失败，留 NULL", zap.String("rec_id", recID), zap.Error(err))
 		return

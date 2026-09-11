@@ -59,16 +59,20 @@ func (s *CheckinService) resolveCheckinMaintenances(ctx context.Context, point *
 			continue
 		}
 		action := checkinMaintAction{equipmentID: equipmentID, equipName: e.Name, equipCode: e.Code, fileIDs: []string(it.Photos)}
-		it.Disposition = insmodel.DispositionMaintenanceReg
 		if s.aiCli.Enabled() {
 			timeout := s.cfgInt("ai.sync_timeout_seconds", 15)
 			actx, cancel := context.WithTimeout(ctx, time.Duration(timeout)*time.Second)
-			verdict, reason, reading, err := eqsvc.CheckMaintenanceLabel(actx, s.aiCli, s.db, point.Name, point.Type, action.fileIDs, false)
+			verdict, reason, reading, blocked, err := eqsvc.CheckMaintenanceLabel(actx, s.aiCli, s.db, point.Name, point.Type, action.fileIDs, false)
 			cancel()
-			if err != nil {
+			switch {
+			case err != nil:
 				// 调用失败/超时：降级 pending（ai_verdict 落 NULL），不阻塞打卡
 				logger.L.Warn("打卡维保标签同步核验失败，降级待确认", zap.String("equipment_id", equipmentID), zap.Error(err))
-			} else {
+			case blocked:
+				// 明显不合格（质量/内容判不像）：硬拦截不落流水——未登记，备注说明，设备维持逾期可重新拍
+				it.Note = truncateStr(appendItemNote(it.Note, "新标签照片未通过系统核验（"+reason+"），未登记维保，请重新拍摄"), 512)
+				continue
+			default:
 				trusted, suspectReplace, trustNote := eqsvc.JudgeLabelTrust(verdict, reading, time.Now(), e.ManufactureDate)
 				action.aiVerdict, action.aiReason = verdict, reason
 				switch {
@@ -87,6 +91,8 @@ func (s *CheckinService) resolveCheckinMaintenances(ctx context.Context, point *
 				}
 			}
 		}
+		// 走到这里 = 生成维保流水（blocked 已 continue）；登记的项回填处置方式
+		it.Disposition = insmodel.DispositionMaintenanceReg
 		if action.confirmed {
 			it.Pass = true
 			it.Note = truncateStr(appendItemNote(it.Note, "已拍新标签，系统核对通过，维保已生效"), 512)

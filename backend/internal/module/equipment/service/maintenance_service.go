@@ -161,6 +161,29 @@ func (s *MaintenanceService) Register(c *gin.Context, req *dto.MaintenanceRegist
 			}
 		}
 	}
+	// 同步 AI 核验在建单之前（标签缺失登记无日期可读，跳过同步走异步）：明显不合格
+	// （质量不达标/内容判不像）直接 43107 拦截不落库——与打卡质量拦截同口径，
+	// 烂照片不应生成待确认流水进经理队列；调用失败降级为建单后异步预检兜底。
+	syncChecked := false
+	syncFailed := false
+	syncVerdict, syncReason, syncReading := "", "", ""
+	if s.aiCli != nil && s.aiCli.Enabled() && !m.LabelMissing {
+		timeout := time.Duration(cfgInt(s.db, "ai.sync_timeout_seconds", 15)) * time.Second
+		ctx, cancel := context.WithTimeout(c.Request.Context(), timeout)
+		verdict, reason, reading, blocked, aiErr := CheckMaintenanceLabel(ctx, s.aiCli, s.db, e.Name, e.Type, m.FileIDs, false)
+		cancel()
+		switch {
+		case aiErr != nil:
+			syncFailed = true
+		case blocked:
+			return "", false, errs.ErrPhotoQuality.WithMsg("照片未通过系统核验（" + reason + "），请重新拍摄")
+		default:
+			syncChecked = true
+			syncVerdict, syncReason, syncReading = verdict, truncateStr2(reason, 500), reading
+			m.AIVerdict = &syncVerdict
+			m.AIReason = &syncReason
+		}
+	}
 	if err := s.db.Create(&m).Error; err != nil {
 		return "", false, errs.ErrInternal
 	}
@@ -170,18 +193,14 @@ func (s *MaintenanceService) Register(c *gin.Context, req *dto.MaintenanceRegist
 	case m.LabelMissing:
 		// 标签缺失登记无可读日期，不同步核验：维持异步预检（只验证照片有效性）
 		go s.aiPreCheck(m.ID)
+	case syncFailed || !syncChecked:
+		// 同步核验调用失败：异步预检兜底（原行为）
+		logger.L.Warn("维保登记同步 AI 核验失败，转异步预检兜底", zap.String("rec_id", m.ID))
+		go s.aiPreCheck(m.ID)
 	default:
-		// 同步 AI 核验（超时降级）：可信即自动确认回写；失败起异步预检兜底
-		timeout := time.Duration(cfgInt(s.db, "ai.sync_timeout_seconds", 15)) * time.Second
-		ctx, cancel := context.WithTimeout(c.Request.Context(), timeout)
-		verdict, reason, reading, aiErr := CheckMaintenanceLabel(ctx, s.aiCli, s.db, e.Name, e.Type, m.FileIDs, false)
-		cancel()
-		if aiErr != nil {
-			logger.L.Warn("维保登记同步 AI 核验失败，转异步预检兜底", zap.String("rec_id", m.ID), zap.Error(aiErr))
-			go s.aiPreCheck(m.ID)
-			break
-		}
-		trusted, suspectReplace, trustNote := JudgeLabelTrust(verdict, reading, m.MaintenanceDate, e.ManufactureDate)
+		// 已有同步结论：可信判定（JudgeLabelTrust）
+		reason := syncReason
+		trusted, suspectReplace, trustNote := JudgeLabelTrust(syncVerdict, syncReading, m.MaintenanceDate, e.ManufactureDate)
 		if trusted {
 			// AI 核对通过：equipment.ai_auto_confirm 开才自动生效；默认关（甲方口径）则标注待经理确认
 			if cfgBool(s.db, "equipment.ai_auto_confirm", false) {
@@ -199,7 +218,7 @@ func (s *MaintenanceService) Register(c *gin.Context, req *dto.MaintenanceRegist
 		// 存疑/读不出兜底：保持 pending 进确认链，同步写入结论（疑似更换标注在 ai_reason）
 		if suspectReplace {
 			reason = appendReason(reason, trustNote)
-		} else if verdict == model.AIVerdictPass {
+		} else if syncVerdict == model.AIVerdictPass {
 			reason = appendReason(reason, "未读出可信维修日期，待人工确认")
 		}
 		s.db.Model(&m).Updates(map[string]any{

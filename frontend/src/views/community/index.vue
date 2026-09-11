@@ -344,6 +344,7 @@
             :api="flowApi"
             :slot-options="dutySlotOptions"
             save-perm="community:duty:edit"
+            hide-title
           />
         </el-tab-pane>
 
@@ -355,7 +356,8 @@
             :slot-options="dutySlotOptions"
             save-perm="community:duty:edit"
             kind="maint"
-          />
+
+            hide-title          />
         </el-tab-pane>
 
         <el-tab-pane label="报告签字流程" name="report-flow">
@@ -366,7 +368,8 @@
             :slot-options="dutySlotOptions"
             save-perm="community:duty:edit"
             kind="report"
-          />
+
+            hide-title          />
         </el-tab-pane>
       </el-tabs>
     </el-drawer>

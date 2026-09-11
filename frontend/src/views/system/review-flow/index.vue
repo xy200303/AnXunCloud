@@ -6,12 +6,20 @@
       <el-alert
         type="info"
         :closable="false"
-        title="此处为公司级默认，对本公司全部小区生效；单个小区可在「小区管理 → 编制」中单独配置。打卡审批流程管打卡记录的逐级审批（空流程=默认通过）；维保审核流程管维保登记的审核（空流程=登记即生效）；报告签字流程管报告生成后的签字审核（保存空流程表示生成后直接归档）。"
+        title="此处为公司级默认，对本公司全部小区生效；单个小区可在「小区管理 → 编制」中单独配置。空流程语义：打卡=默认通过；维保=登记即生效；报告=生成后直接归档。"
         style="margin-bottom: 16px"
       />
-      <ReviewFlowEditor :api="flowApi" :slot-options="slotOptions" save-perm="system:reviewflow:update" />
-      <ReviewFlowEditor kind="maint" :api="maintFlowApi" :slot-options="slotOptions" save-perm="system:reviewflow:update" />
-      <ReviewFlowEditor kind="report" :api="reportFlowApi" :slot-options="slotOptions" save-perm="system:reviewflow:update" />
+      <el-tabs v-model="activeTab">
+        <el-tab-pane label="打卡审批流程" name="checkin">
+          <ReviewFlowEditor :api="flowApi" :slot-options="slotOptions" save-perm="system:reviewflow:update" hide-title />
+        </el-tab-pane>
+        <el-tab-pane label="维保审核流程" name="maint">
+          <ReviewFlowEditor kind="maint" :api="maintFlowApi" :slot-options="slotOptions" save-perm="system:reviewflow:update" hide-title />
+        </el-tab-pane>
+        <el-tab-pane label="报告签字流程" name="report">
+          <ReviewFlowEditor kind="report" :api="reportFlowApi" :slot-options="slotOptions" save-perm="system:reviewflow:update" hide-title />
+        </el-tab-pane>
+      </el-tabs>
     </div>
   </div>
 </template>
@@ -20,6 +28,8 @@
 import { computed, onMounted, ref } from 'vue'
 import { getReviewFlow, saveReviewFlow, getReportReviewFlow, saveReportReviewFlow, getMaintReviewFlow, saveMaintReviewFlow, listPostDutyBindings, type ReviewFlowStep, type PostDutyBindingView } from '@/api/post'
 import ReviewFlowEditor from '@/components/ReviewFlowEditor.vue'
+
+const activeTab = ref('checkin')
 
 const flowApi = {
   listFlow: getReviewFlow,

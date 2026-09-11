@@ -3,8 +3,8 @@
      报告签字链不支持 AI 环节与跳转，仅 name+slot+mode。租户级 / 平台模板 / 项目级三处共用。 -->
 <template>
   <div class="flow-editor">
-    <div class="flow-head">
-      <span class="flow-title">{{ title }}</span>
+    <div class="flow-head" :class="{ 'only-badge': hideTitle }">
+      <span v-if="!hideTitle" class="flow-title">{{ title }}</span>
       <el-tag v-if="sourceLabel" size="small" :type="source === 'platform' || source === 'tenant' ? 'warning' : source === 'project' ? 'success' : 'info'" effect="plain">
         {{ sourceLabel }}
       </el-tag>
@@ -127,6 +127,8 @@ const props = defineProps<{
   slotOptions: { slot: string; name: string }[]
   savePerm: string
   kind?: 'checkin' | 'report' | 'maint'
+  /** 选项卡内使用时隐藏标题（标签页已承担命名），仅保留来源徽标 */
+  hideTitle?: boolean
 }>()
 
 const userStore = useUserStore()
@@ -354,6 +356,9 @@ onMounted(fetchFlow)
   align-items: center;
   gap: $spacing-sm;
   margin-bottom: $spacing-sm;
+}
+.flow-head.only-badge {
+  justify-content: flex-end;
 }
 .flow-title {
   font-weight: 600;

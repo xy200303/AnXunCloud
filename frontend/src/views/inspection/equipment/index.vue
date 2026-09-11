@@ -92,6 +92,12 @@
           <el-table-column label="位置" min-width="180" show-overflow-tooltip>
             <template #default="{ row }">{{ locationText(row) }}</template>
           </el-table-column>
+          <el-table-column label="点位" min-width="140" show-overflow-tooltip>
+            <template #default="{ row }">
+              <span v-if="row.point_name">{{ row.point_name }}</span>
+              <el-tag v-else type="warning" size="small" effect="plain">未绑定</el-tag>
+            </template>
+          </el-table-column>
           <el-table-column prop="last_maintenance_date" label="最近维保" width="100" align="center">
             <template #default="{ row }">{{ row.last_maintenance_date || '--' }}</template>
           </el-table-column>

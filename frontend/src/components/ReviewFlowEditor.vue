@@ -1,6 +1,6 @@
-<!-- 审核流程节点链设计器（类钉钉审批流）：开始 → 环节卡片 → … → 结束，连线上「+」插入环节。
-     环节分人工（引用职责槽位）与 AI 审核闸门（按结果分流：finish/next/reject/goto:N，仅可向后跳到人工环节）；
-     报告签字链不支持 AI 环节与跳转，仅 name+slot+mode。租户级 / 平台模板 / 项目级三处共用。 -->
+<!-- 审批流程图设计器（Vue Flow + dagre 自动布局）：开始 → 环节节点 → 结束，AI 环节三分支语义色连线，
+     主链边上「+」插入环节；AI 环节右侧彩色锚点支持拖线配置分支去向（goto:N/finish/reject，仅可向后跳到人工环节）。
+     环节分人工（引用职责槽位）与 AI 审核闸门；报告签字链不支持 AI 环节与跳转，仅 name+slot+mode。租户级 / 平台模板 / 项目级三处共用。 -->
 <template>
   <div class="flow-editor">
     <div class="flow-head" :class="{ 'only-badge': hideTitle }">
@@ -10,63 +10,119 @@
       </el-tag>
     </div>
     <el-alert type="info" :closable="false" :title="tip" class="flow-tip" />
+
     <div v-loading="loading" class="flow-canvas">
-      <div class="flow-node start-node">开始</div>
+      <VueFlow
+        :nodes="nodes"
+        :edges="edges"
+        :fit-view-on-init="true"
+        :min-zoom="0.2"
+        :max-zoom="1.5"
+        :nodes-draggable="true"
+        :nodes-connectable="canEdit"
+        :edges-focusable="false"
+        :delete-key-code="null"
+        :is-valid-connection="isValidConnection"
+        @connect="onConnect"
+        @connect-start="onConnectStart"
+        @connect-end="onConnectEnd"
+      >
+        <Background :gap="18" pattern-color="#dcdfe6" />
+        <Controls :show-interactive="false" />
 
-      <template v-for="(step, idx) in steps" :key="idx">
-        <div class="flow-join">
-          <div class="join-line" />
-          <el-dropdown v-if="canEdit" trigger="click" @command="(c: string) => insertStep(idx, c as 'manual' | 'ai')">
-            <span class="join-add" title="添加环节"><el-icon :size="12"><Plus /></el-icon></span>
-            <template #dropdown>
-              <el-dropdown-menu>
-                <el-dropdown-item command="manual"><el-icon><User /></el-icon>人工审核</el-dropdown-item>
-                <el-dropdown-item v-if="allowAi" command="ai"><el-icon><Cpu /></el-icon>AI 审核</el-dropdown-item>
-              </el-dropdown-menu>
-            </template>
-          </el-dropdown>
-        </div>
+        <template #node-start>
+          <div class="vf-pill start-pill" :class="{ 'connect-blocked': isBlockedTarget('start') }">开始</div>
+          <Handle id="chain-s" type="source" :position="Position.Bottom" class="ghost-handle" :connectable="false" />
+        </template>
 
-        <div class="node-card" :class="{ 'ai-card': step.kind === 'ai', clickable: canEdit }" @click="canEdit && openEdit(idx)">
-          <div class="card-head" :class="{ 'ai-head': step.kind === 'ai' }">
-            <el-icon v-if="step.kind === 'ai'" class="head-icon"><Cpu /></el-icon>
-            <el-icon v-else class="head-icon"><User /></el-icon>
-            <span class="card-title">{{ step.name || (step.kind === 'ai' ? 'AI 审核' : '未命名环节') }}</span>
-            <template v-if="canEdit">
-              <el-icon class="head-op" :class="{ disabled: idx === 0 }" title="上移" @click.stop="moveStep(idx, -1)"><Top /></el-icon>
-              <el-icon class="head-op" :class="{ disabled: idx === steps.length - 1 }" title="下移" @click.stop="moveStep(idx, 1)"><Bottom /></el-icon>
-              <el-icon class="head-op danger" title="删除" @click.stop="removeStep(idx)"><Delete /></el-icon>
-            </template>
-          </div>
-          <div class="card-body">
-            <template v-if="step.kind === 'ai'">
-              <div v-for="b in aiSummary(step, idx)" :key="b.label" class="branch-line" :class="{ invalid: b.invalid }">
-                {{ b.label }} → {{ b.target }}<template v-if="b.invalid">（目标失效，请修正）</template>
-              </div>
-            </template>
-            <div v-else class="human-line">
-              <span>{{ slotLabel(step.slot) }}</span>
-              <el-tag v-if="kind === 'report'" size="small" effect="plain">{{ step.mode === 'all' ? '全部人' : '任一人' }}</el-tag>
+        <template #node-step="{ data }">
+          <div
+            v-if="steps[data.idx]"
+            class="node-card"
+            :class="{ 'ai-card': steps[data.idx].kind === 'ai', clickable: canEdit, 'connect-blocked': isBlockedTarget(`step-${data.idx}`) }"
+            @click="canEdit && openEdit(data.idx)"
+          >
+            <div class="card-head" :class="{ 'ai-head': steps[data.idx].kind === 'ai' }">
+              <el-icon v-if="steps[data.idx].kind === 'ai'" class="head-icon"><Cpu /></el-icon>
+              <el-icon v-else class="head-icon"><User /></el-icon>
+              <span class="card-title">{{ steps[data.idx].name || (steps[data.idx].kind === 'ai' ? 'AI 审核' : '未命名环节') }}</span>
+              <span class="card-seq">环节{{ data.idx + 1 }}</span>
+              <template v-if="canEdit">
+                <el-icon class="head-op" :class="{ disabled: data.idx === 0 }" title="上移" @click.stop="moveStep(data.idx, -1)"><Top /></el-icon>
+                <el-icon class="head-op" :class="{ disabled: data.idx === steps.length - 1 }" title="下移" @click.stop="moveStep(data.idx, 1)"><Bottom /></el-icon>
+                <el-icon class="head-op danger" title="删除" @click.stop="removeStep(data.idx)"><Delete /></el-icon>
+              </template>
             </div>
+            <div class="card-body">
+              <template v-if="steps[data.idx].kind === 'ai'">
+                <div v-for="b in aiSummary(steps[data.idx], data.idx)" :key="b.field" class="branch-line" :class="{ invalid: b.invalid }">
+                  <span class="branch-dot" :style="{ background: b.color }" />
+                  <span class="branch-text">{{ b.label }} → {{ b.target }}<template v-if="b.invalid">（目标失效，请修正）</template></span>
+                  <Handle
+                    :id="b.field"
+                    type="source"
+                    :position="Position.Right"
+                    class="branch-source nodrag"
+                    :style="{ background: b.color }"
+                    :connectable="canEdit"
+                    :title="`拖线设置「${b.label}」去向`"
+                  />
+                </div>
+              </template>
+              <div v-else class="human-line">
+                <span>{{ slotLabel(steps[data.idx].slot) }}</span>
+                <el-tag v-if="kind === 'report'" size="small" effect="plain">{{ steps[data.idx].mode === 'all' ? '全部人' : '任一人' }}</el-tag>
+              </div>
+            </div>
+            <Handle id="chain-t" type="target" :position="Position.Top" class="ghost-handle" :connectable="false" />
+            <Handle id="chain-s" type="source" :position="Position.Bottom" class="ghost-handle" :connectable="false" />
+            <Handle v-if="steps[data.idx].kind !== 'ai'" id="branch-t" type="target" :position="Position.Left" class="branch-target" :connectable="canEdit" />
           </div>
-        </div>
-      </template>
+        </template>
+
+        <template #node-end>
+          <div class="vf-pill end-pill">结束</div>
+          <Handle id="chain-t" type="target" :position="Position.Top" class="ghost-handle" :connectable="false" />
+          <Handle id="branch-t" type="target" :position="Position.Left" class="branch-target" :connectable="canEdit" />
+        </template>
+
+        <template #node-reject>
+          <div class="vf-pill reject-pill" :class="{ 'connect-blocked': isBlockedTarget('reject') }">打回</div>
+          <Handle id="branch-t" type="target" :position="Position.Left" class="branch-target" :connectable="canEdit" />
+        </template>
+
+        <template #edge-chain="{ sourceX, sourceY, targetX, targetY, data, markerEnd }">
+          <BaseEdge :path="`M ${sourceX} ${sourceY} L ${targetX} ${targetY}`" :marker-end="markerEnd" class="chain-edge" />
+          <EdgeLabelRenderer v-if="canEdit">
+            <div class="edge-add nodrag nopan" :style="{ transform: `translate(-50%, -50%) translate(${(sourceX + targetX) / 2}px, ${(sourceY + targetY) / 2}px)` }">
+              <el-dropdown trigger="click" @command="(c: string) => insertStep(data.at, c as 'manual' | 'ai')">
+                <span class="join-add" title="添加环节"><el-icon :size="12"><Plus /></el-icon></span>
+                <template #dropdown>
+                  <el-dropdown-menu>
+                    <el-dropdown-item command="manual"><el-icon><User /></el-icon>人工审核</el-dropdown-item>
+                    <el-dropdown-item v-if="allowAi" command="ai"><el-icon><Cpu /></el-icon>AI 审核</el-dropdown-item>
+                  </el-dropdown-menu>
+                </template>
+              </el-dropdown>
+            </div>
+          </EdgeLabelRenderer>
+        </template>
+
+        <template #edge-branch="p">
+          <BaseEdge :id="p.id" :path="branchEdgePath(p)[0]" :marker-end="p.markerEnd" :style="p.style" :class="{ 'edge-invalid': p.data.invalid }" />
+          <EdgeLabelRenderer>
+            <div
+              class="branch-label nodrag nopan"
+              :class="{ invalid: p.data.invalid }"
+              :style="{ transform: `translate(-50%, -50%) translate(${branchEdgePath(p)[1]}px, ${branchEdgePath(p)[2]}px)`, borderColor: p.data.color, color: p.data.color }"
+            >
+              {{ p.data.text }}<template v-if="p.data.invalid">·目标失效</template>
+            </div>
+          </EdgeLabelRenderer>
+        </template>
+      </VueFlow>
 
       <div v-if="!steps.length" class="flow-empty">{{ emptyText }}</div>
-
-      <div class="flow-join">
-        <div class="join-line" />
-        <el-dropdown v-if="canEdit" trigger="click" @command="(c: string) => insertStep(steps.length, c as 'manual' | 'ai')">
-          <span class="join-add" title="添加环节"><el-icon :size="12"><Plus /></el-icon></span>
-          <template #dropdown>
-            <el-dropdown-menu>
-              <el-dropdown-item command="manual"><el-icon><User /></el-icon>人工审核</el-dropdown-item>
-              <el-dropdown-item v-if="allowAi" command="ai"><el-icon><Cpu /></el-icon>AI 审核</el-dropdown-item>
-            </el-dropdown-menu>
-          </template>
-        </el-dropdown>
-      </div>
-      <div class="flow-node end-node">结束</div>
     </div>
 
     <div class="flow-footer">
@@ -113,11 +169,20 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Top, Bottom, Delete, Plus, User, Cpu } from '@element-plus/icons-vue'
+import { VueFlow, Handle, Position, BaseEdge, EdgeLabelRenderer, MarkerType, useVueFlow, getBezierPath } from '@vue-flow/core'
+import type { Connection, Edge, EdgeProps, Node, OnConnectStartParams } from '@vue-flow/core'
+import { Controls } from '@vue-flow/controls'
+import { Background } from '@vue-flow/background'
+import { graphlib, layout as dagreLayout } from '@dagrejs/dagre'
 import { useUserStore } from '@/store/user'
 import type { ReviewFlowStep, ReviewFlowView } from '@/api/post'
+
+import '@vue-flow/core/dist/style.css'
+import '@vue-flow/core/dist/theme-default.css'
+import '@vue-flow/controls/dist/style.css'
 
 const props = defineProps<{
   api: {
@@ -142,10 +207,11 @@ const tip = computed(() => {
   if (kind.value === 'report') {
     return '报告生成后按环节顺序签字审核；每个环节可要求任一人或全部人员完成。保存空流程表示报告生成后直接归档。'
   }
+  const drag = canEdit.value ? '；可直接从 AI 环节右侧彩色锚点拖线到后续环节 / 结束 / 打回节点配置分支去向' : ''
   if (kind.value === 'maint') {
-    return '维保登记按环节顺序逐级审核：空流程 = 登记即生效；AI 环节 = 标签核对结果分流（无异常 / 有异常 / 存疑各配去向，可跳到后续人工环节）；人工环节审核人 = 负责岗位在该项目编制里的在职成员。'
+    return '维保登记按环节顺序逐级审核：空流程 = 登记即生效；AI 环节 = 标签核对结果分流（无异常 / 有异常 / 存疑各配去向，可跳到后续人工环节）；人工环节审核人 = 负责岗位在该项目编制里的在职成员' + drag + '。'
   }
-  return '打卡记录按环节顺序逐级审核：当前环节名单成员通过后进入下一环节，末环节通过才生效；驳回即打回。空流程 = 打卡默认通过；AI 环节 = 按结果分流（无异常 / 有异常 / 存疑各配去向，可跳到后续人工环节）；人工环节审核人 = 负责岗位在该项目编制里的在职成员。'
+  return '打卡记录按环节顺序逐级审核：当前环节名单成员通过后进入下一环节，末环节通过才生效；驳回即打回。空流程 = 打卡默认通过；AI 环节 = 按结果分流（无异常 / 有异常 / 存疑各配去向，可跳到后续人工环节）；人工环节审核人 = 负责岗位在该项目编制里的在职成员' + drag + '。'
 })
 const emptyText = computed(() =>
   kind.value === 'report' ? '未配置环节 —— 报告生成后将直接归档' : kind.value === 'maint' ? '未配置环节 —— 维保登记将登记即生效' : '未配置环节 —— 打卡记录将默认通过'
@@ -190,7 +256,14 @@ function slotLabel(slot: string) {
   return props.slotOptions.find((s) => s.slot === slot)?.name || (slot ? `未知槽位（${slot}）` : '未选择审核人')
 }
 
-// ===== goto 路由合法性（N 为 1 起序号，只能指向后面的人工环节） =====
+// ===== 分支定义与 goto 路由合法性（N 为 1 起序号，只能指向后面的人工环节） =====
+type BranchField = 'on_pass' | 'on_abnormal' | 'on_review'
+const BRANCHES: { field: BranchField; text: string; color: string; fallback: string }[] = [
+  { field: 'on_pass', text: '无异常', color: '#2ba471', fallback: 'finish' },
+  { field: 'on_abnormal', text: '有异常', color: '#d54941', fallback: 'finish' },
+  { field: 'on_review', text: '存疑失败', color: '#ed7b2f', fallback: 'next' }
+]
+
 function routeValid(idx: number, route: string | undefined, allowReject: boolean): boolean {
   if (!route) return true
   if (route.startsWith('goto:')) {
@@ -215,7 +288,9 @@ function routeLabel(route: string | undefined, fallback: string): string {
   if (v === 'next') return '进入下一环节'
   if (v === 'reject') return '直接打回'
   if (v.startsWith('goto:')) {
-    const n = Number(v.slice(5))
+    const raw = v.slice(5)
+    if (raw.startsWith('!')) return '目标环节已删除'
+    const n = Number(raw)
     const t = steps.value[n - 1]
     return t ? `跳到「${t.name || `环节${n}`}」` : '目标环节不存在'
   }
@@ -223,11 +298,28 @@ function routeLabel(route: string | undefined, fallback: string): string {
 }
 
 function aiSummary(step: ReviewFlowStep, idx: number) {
-  return [
-    { label: '无异常', target: routeLabel(step.on_pass, 'finish'), invalid: !routeValid(idx, step.on_pass, false) },
-    { label: '有异常', target: routeLabel(step.on_abnormal, 'finish'), invalid: !routeValid(idx, step.on_abnormal, true) },
-    { label: '存疑/失败', target: routeLabel(step.on_review, 'next'), invalid: !routeValid(idx, step.on_review, true) }
-  ]
+  return BRANCHES.map((b) => ({
+    field: b.field,
+    color: b.color,
+    label: b.text,
+    target: routeLabel(step[b.field], b.fallback),
+    invalid: !routeValid(idx, step[b.field], b.field !== 'on_pass')
+  }))
+}
+
+// ===== goto 序号重映射：环节增删移后按旧序号 → 新序号改写；目标被删除置为失效标记 goto:!N（标红待修正） =====
+function remapGoto(map: (oldIdx: number) => number | null) {
+  for (const s of steps.value) {
+    if (s.kind !== 'ai') continue
+    for (const f of ['on_pass', 'on_abnormal', 'on_review'] as const) {
+      const v = s[f]
+      if (!v || !v.startsWith('goto:') || v.slice(5).startsWith('!')) continue
+      const n = Number(v.slice(5))
+      if (!Number.isInteger(n)) continue
+      const t = map(n - 1)
+      s[f] = t === null ? `goto:!${n}` : `goto:${t + 1}`
+    }
+  }
 }
 
 // ===== 节点增删移 =====
@@ -241,6 +333,7 @@ function insertStep(at: number, type: 'manual' | 'ai') {
       ? { slot: '', name: '', kind: 'ai', on_pass: 'finish', on_abnormal: 'finish', on_review: 'next' }
       : { slot: '', name: '', ...(kind.value === 'report' ? { mode: 'any' as const } : {}) }
   steps.value.splice(at, 0, step)
+  remapGoto((old) => (old < at ? old : old + 1))
   openEdit(at)
 }
 
@@ -251,10 +344,223 @@ function moveStep(idx: number, dir: number) {
   const tmp = arr[idx]
   arr[idx] = arr[j]
   arr[j] = tmp
+  remapGoto((old) => (old === idx ? j : old === j ? idx : old))
 }
 
 function removeStep(idx: number) {
   steps.value.splice(idx, 1)
+  remapGoto((old) => (old === idx ? null : old > idx ? old - 1 : old))
+}
+
+// ===== 画布：dagre 分层自动布局（TB），steps 变化即重算；用户可临时拖动节点，重算后回弹 =====
+const NODE_W = 280
+const PILL_W = 96
+const PILL_H = 34
+const MANUAL_H = 92
+const AI_H = 156
+
+const { fitView } = useVueFlow()
+const nodes = ref<Node[]>([])
+
+const rejectUsed = computed(() => steps.value.some((s) => s.kind === 'ai' && (s.on_pass === 'reject' || s.on_abnormal === 'reject' || s.on_review === 'reject')))
+// 打回节点：可编辑时恒显示（拖线目标）；只读时仅在有 reject 分支时显示
+const showRejectNode = computed(() => canEdit.value || rejectUsed.value)
+
+function stepNodeId(idx: number) {
+  return `step-${idx}`
+}
+
+function branchTargetNode(idx: number, route: string | undefined, fallback: string): string {
+  const v = route || fallback
+  if (v === 'finish') return 'end'
+  if (v === 'reject') return 'reject'
+  if (v === 'next') return idx + 1 < steps.value.length ? stepNodeId(idx + 1) : 'end'
+  if (v.startsWith('goto:')) {
+    const n = Number(v.slice(5))
+    if (Number.isInteger(n) && n >= 1 && n <= steps.value.length) return stepNodeId(n - 1)
+    return 'end' // 失效跳转：落到结束节点并标红提示
+  }
+  return 'end'
+}
+
+function buildEdges(): Edge[] {
+  const list: Edge[] = []
+  const chainIds = ['start', ...steps.value.map((_, i) => stepNodeId(i)), 'end']
+  for (let k = 0; k < chainIds.length - 1; k++) {
+    list.push({
+      id: `chain-${k}`,
+      source: chainIds[k],
+      target: chainIds[k + 1],
+      sourceHandle: 'chain-s',
+      targetHandle: 'chain-t',
+      type: 'chain',
+      selectable: false,
+      focusable: false,
+      data: { at: k },
+      style: { stroke: '#c9cdd4', strokeWidth: 1.5 },
+      markerEnd: { type: MarkerType.ArrowClosed, width: 14, height: 14, color: '#c9cdd4' }
+    })
+  }
+  steps.value.forEach((s, i) => {
+    if (s.kind !== 'ai') return
+    for (const b of BRANCHES) {
+      const target = branchTargetNode(i, s[b.field], b.fallback)
+      if (target === 'reject' && !showRejectNode.value) continue
+      const invalid = !routeValid(i, s[b.field], b.field !== 'on_pass')
+      list.push({
+        id: `branch-${i}-${b.field}`,
+        source: stepNodeId(i),
+        sourceHandle: b.field,
+        target,
+        targetHandle: 'branch-t',
+        type: 'branch',
+        selectable: false,
+        focusable: false,
+        data: { text: b.text, color: b.color, invalid },
+        style: { stroke: invalid ? '#d54941' : b.color, strokeWidth: 2, ...(invalid ? { strokeDasharray: '5 4' } : {}) },
+        markerEnd: { type: MarkerType.ArrowClosed, width: 16, height: 16, color: b.color }
+      })
+    }
+  })
+  return list
+}
+
+const edges = computed<Edge[]>(() => buildEdges())
+
+function branchEdgePath(p: EdgeProps) {
+  return getBezierPath({
+    sourceX: p.sourceX,
+    sourceY: p.sourceY,
+    sourcePosition: p.sourcePosition,
+    targetX: p.targetX,
+    targetY: p.targetY,
+    targetPosition: p.targetPosition
+  })
+}
+
+function rebuild() {
+  const g = new graphlib.Graph()
+  g.setDefaultEdgeLabel(() => ({}))
+  g.setGraph({ rankdir: 'TB', nodesep: 56, ranksep: 84, marginx: 24, marginy: 24 })
+
+  const dims: Record<string, { w: number; h: number }> = {
+    start: { w: PILL_W, h: PILL_H },
+    end: { w: PILL_W, h: PILL_H }
+  }
+  steps.value.forEach((s, i) => {
+    dims[stepNodeId(i)] = { w: NODE_W, h: s.kind === 'ai' ? AI_H : MANUAL_H }
+  })
+  if (showRejectNode.value) dims.reject = { w: PILL_W, h: PILL_H }
+  for (const [id, d] of Object.entries(dims)) g.setNode(id, { width: d.w, height: d.h })
+  for (const e of buildEdges()) g.setEdge(e.source, e.target)
+  dagreLayout(g)
+
+  const pos = (id: string) => {
+    const n = g.node(id)
+    const d = dims[id]
+    return { x: n.x - d.w / 2, y: n.y - d.h / 2 }
+  }
+
+  const list: Node[] = [
+    { id: 'start', type: 'start', position: pos('start'), data: {}, selectable: false, connectable: false },
+    ...steps.value.map<Node>((_, i) => ({
+      id: stepNodeId(i),
+      type: 'step',
+      position: pos(stepNodeId(i)),
+      data: { idx: i },
+      selectable: false,
+      connectable: canEdit.value
+    })),
+    { id: 'end', type: 'end', position: pos('end'), data: {}, selectable: false, connectable: canEdit.value }
+  ]
+  if (showRejectNode.value) {
+    let rejectPos = pos('reject')
+    if (!rejectUsed.value) {
+      // 尚无分支指向打回节点：不参与布局约束，固定放到结束节点右侧
+      const endN = g.node('end')
+      rejectPos = { x: endN.x + PILL_W / 2 + 120, y: endN.y - PILL_H / 2 }
+    }
+    list.push({ id: 'reject', type: 'reject', position: rejectPos, data: {}, selectable: false, connectable: canEdit.value })
+  }
+  nodes.value = list
+  nextTick(() => fitView({ padding: 0.2 }))
+}
+
+watch(steps, rebuild, { deep: true })
+watch(canEdit, rebuild)
+
+// ===== 拖线配置分支去向：AI 环节右侧三个彩色锚点 → 目标节点 =====
+const connectSource = ref<{ idx: number; field: BranchField } | null>(null)
+
+function onConnectStart(p: OnConnectStartParams) {
+  if (p.handleType === 'source' && p.nodeId?.startsWith('step-') && (p.handleId || '').startsWith('on_')) {
+    connectSource.value = { idx: Number(p.nodeId.slice(5)), field: p.handleId as BranchField }
+  }
+}
+
+function onConnectEnd() {
+  connectSource.value = null
+}
+
+function isValidConnection(conn: Connection): boolean {
+  if (!canEdit.value) return false
+  const field = conn.sourceHandle as BranchField | null
+  if (!conn.source?.startsWith('step-') || !field || !(field + '').startsWith('on_')) return false
+  if (conn.targetHandle !== 'branch-t') return false
+  const i = Number(conn.source.slice(5))
+  const t = conn.target
+  if (t === 'end') return true
+  if (t === 'reject') return field !== 'on_pass'
+  if (t?.startsWith('step-')) {
+    const j = Number(t.slice(5))
+    return j > i && steps.value[j]?.kind !== 'ai'
+  }
+  return false
+}
+
+function denyReason(conn: Connection): string {
+  const field = conn.sourceHandle
+  const t = conn.target
+  if (t === 'reject' && field === 'on_pass') return '「无异常」分支不允许直接打回'
+  if (t?.startsWith('step-') && conn.source?.startsWith('step-')) {
+    const i = Number(conn.source.slice(5))
+    const j = Number(t.slice(5))
+    if (j <= i) return '只能连接到本环节之后的环节'
+    if (steps.value[j]?.kind === 'ai') return '分支去向不能是 AI 环节，请选择人工环节'
+  }
+  return '无法连接到该节点'
+}
+
+function onConnect(conn: Connection) {
+  if (!isValidConnection(conn)) {
+    ElMessage.warning(denyReason(conn))
+    return
+  }
+  const idx = Number(conn.source.slice(5))
+  const field = conn.sourceHandle as BranchField
+  let v: string
+  if (conn.target === 'end') v = 'finish'
+  else if (conn.target === 'reject') v = 'reject'
+  else {
+    const j = Number(conn.target.slice(5))
+    v = j === idx + 1 ? 'next' : `goto:${j + 1}`
+  }
+  steps.value[idx][field] = v
+  const b = BRANCHES.find((x) => x.field === field)
+  ElMessage.success(`已设置「${b?.text || field}」去向：${routeLabel(v, b?.fallback || '')}`)
+}
+
+// 拖线过程中目标节点的禁用态（视觉提示）
+function isBlockedTarget(nodeId: string): boolean {
+  const cs = connectSource.value
+  if (!cs) return false
+  if (nodeId === 'end') return false
+  if (nodeId === 'reject') return cs.field === 'on_pass'
+  if (nodeId.startsWith('step-')) {
+    const j = Number(nodeId.slice(5))
+    return !(j > cs.idx && steps.value[j]?.kind !== 'ai')
+  }
+  return true
 }
 
 // ===== 编辑抽屉 =====
@@ -368,63 +674,38 @@ onMounted(fetchFlow)
   margin-bottom: $spacing-md;
 }
 .flow-canvas {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  padding: $spacing-sm 0;
+  position: relative;
+  height: 480px;
+  border: 1px solid $color-border;
+  border-radius: $radius-card;
+  background: $color-bg-page;
+  overflow: hidden;
 }
-.flow-node {
-  padding: 4px 28px;
-  border-radius: 16px;
+.vf-pill {
+  padding: 5px 28px;
+  border-radius: 17px;
   font-size: 13px;
   color: $color-white;
   line-height: 20px;
+  text-align: center;
+  white-space: nowrap;
 }
-.start-node {
+.start-pill {
   background: $color-primary;
 }
-.end-node {
+.end-pill {
   background: $color-text-secondary;
 }
-.flow-join {
-  position: relative;
-  display: flex;
-  justify-content: center;
-  width: 100%;
-  height: 32px;
-}
-.join-line {
-  width: 2px;
-  height: 100%;
-  background: $color-border-dark;
-}
-.join-add {
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  transform: translate(-50%, -50%);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 20px;
-  height: 20px;
-  border-radius: 50%;
-  background: $color-white;
-  border: 1px solid $color-primary;
-  color: $color-primary;
-  cursor: pointer;
-  &:hover {
-    background: $color-primary;
-    color: $color-white;
-  }
+.reject-pill {
+  background: $color-danger;
 }
 .node-card {
-  width: 300px;
+  width: 280px;
   border: 1px solid $color-border;
   border-radius: 8px;
   background: $color-bg-card;
   box-shadow: 0 1px 4px rgba(31, 35, 41, 0.06);
-  overflow: hidden;
+  overflow: visible;
   &.clickable {
     cursor: pointer;
     &:hover {
@@ -438,6 +719,11 @@ onMounted(fetchFlow)
     }
   }
 }
+.connect-blocked {
+  opacity: 0.35;
+  filter: grayscale(0.7);
+  transition: opacity 0.15s;
+}
 .card-head {
   display: flex;
   align-items: center;
@@ -445,6 +731,7 @@ onMounted(fetchFlow)
   padding: 6px $spacing-sm;
   background: $color-table-header;
   border-bottom: 1px solid $color-border;
+  border-radius: 8px 8px 0 0;
   &.ai-head {
     background: $color-primary-light;
     color: $color-primary;
@@ -468,6 +755,11 @@ onMounted(fetchFlow)
   .ai-head & {
     color: $color-primary;
   }
+}
+.card-seq {
+  flex-shrink: 0;
+  font-size: 11px;
+  color: $color-text-placeholder;
 }
 .head-op {
   font-size: 13px;
@@ -493,21 +785,131 @@ onMounted(fetchFlow)
   display: flex;
   align-items: center;
   gap: $spacing-sm;
+  min-height: 22px;
 }
 .branch-line {
-  line-height: 20px;
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  line-height: 26px;
   &.invalid {
     color: $color-danger;
   }
 }
+.branch-dot {
+  flex-shrink: 0;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+.branch-text {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.edge-add {
+  position: absolute;
+  pointer-events: all;
+}
+.join-add {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: $color-white;
+  border: 1px solid $color-primary;
+  color: $color-primary;
+  cursor: pointer;
+  &:hover {
+    background: $color-primary;
+    color: $color-white;
+  }
+}
+.branch-label {
+  position: absolute;
+  pointer-events: all;
+  padding: 1px 8px;
+  border-radius: 10px;
+  border: 1px solid;
+  background: $color-white;
+  font-size: 11px;
+  line-height: 16px;
+  white-space: nowrap;
+  &.invalid {
+    color: $color-danger !important;
+    border-color: $color-danger !important;
+  }
+}
 .flow-empty {
-  margin: $spacing-sm 0;
+  position: absolute;
+  left: 50%;
+  bottom: $spacing-md;
+  transform: translateX(-50%);
   font-size: 12px;
   color: $color-text-secondary;
+  pointer-events: none;
 }
 .flow-footer {
   display: flex;
   justify-content: space-between;
   margin-top: $spacing-sm;
+}
+</style>
+
+<style lang="scss">
+// Vue Flow 画布内部元素的全局覆盖（scoped 无法穿透）
+.flow-canvas {
+  .vue-flow__node {
+    // 自定义节点外观完全由模板承担
+    border: none;
+    background: none;
+    padding: 0;
+    font-size: inherit;
+    color: inherit;
+    text-align: initial;
+  }
+  .vue-flow__handle {
+    &.ghost-handle {
+      opacity: 0;
+      pointer-events: none;
+      width: 1px;
+      height: 1px;
+      min-width: 0;
+      min-height: 0;
+      border: none;
+    }
+    &.branch-target {
+      width: 10px;
+      height: 10px;
+      background: $color-white;
+      border: 2px solid $color-primary;
+      opacity: 0.45;
+      transition: opacity 0.15s;
+      &:hover,
+      &.connectingto,
+      &.valid {
+        opacity: 1;
+      }
+    }
+    &.branch-source {
+      width: 12px;
+      height: 12px;
+      border: 2px solid $color-white;
+      box-shadow: 0 0 0 1px $color-border-dark;
+      right: -7px;
+      top: 50%;
+      transform: translateY(-50%);
+      cursor: crosshair;
+    }
+  }
+  .vue-flow__controls {
+    box-shadow: $shadow-popup;
+    border-radius: $radius-small;
+    overflow: hidden;
+  }
 }
 </style>

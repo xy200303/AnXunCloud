@@ -24,7 +24,7 @@
           hover-class="hover-dim"
           class="card"
           :style="{ backgroundColor: colors.bgCard }"
-          @click="goDetail(e.id)"
+          @click="goDetail(e)"
         >
           <view class="card-head">
             <view class="card-title-row">
@@ -54,6 +54,8 @@ import AppChipScroller from '@/components/AppChipScroller.vue'
 type PageData = {
   colors: ColorTokens
   dueFilter: string
+  /** 'pick' = 选设备模式（今日任务维保待办卡片跳入）：点卡片直达维保拍照页 */
+  mode: string
   loading: boolean
   loaded: boolean
   errorMsg: string
@@ -82,6 +84,7 @@ export default {
     return {
       colors: Colors,
       dueFilter: '',
+      mode: '',
       loading: true,
       loaded: false,
       errorMsg: '',
@@ -106,6 +109,11 @@ export default {
   onLoad(options: any) {
     // 今日任务「维保待办」卡片带筛选跳入（due_state=overdue/warning）
     if (options && options.due_state) this.dueFilter = String(options.due_state)
+    // 选设备模式：点卡片直达维保拍照页
+    if (options && options.mode == 'pick') {
+      this.mode = 'pick'
+      uni.setNavigationBarTitle({ title: '选择维保设备' })
+    }
     this.load()
   },
   onShow() {
@@ -151,9 +159,19 @@ export default {
           uni.stopPullDownRefresh()
         })
     },
-    goDetail(id: string) {
+    goDetail(e: EquipmentListItem) {
       this.lastLoadedAt = 0
-      uni.navigateTo({ url: '/pages/equipment/detail?id=' + encodeURIComponent(id) })
+      if (this.mode == 'pick') {
+        // 选设备模式：直达维保拍照页（name/code 作详情拉取失败时的回显兜底）
+        uni.navigateTo({
+          url:
+            '/pages/equipment/maintain?equipment_id=' + encodeURIComponent(e.id) +
+            '&name=' + encodeURIComponent(e.name) +
+            '&code=' + encodeURIComponent(e.code)
+        })
+        return
+      }
+      uni.navigateTo({ url: '/pages/equipment/detail?id=' + encodeURIComponent(e.id) })
     }
   }
 }

@@ -156,6 +156,9 @@ func cfgInt(db *gorm.DB, key string, def int) int {
 	return def
 }
 
+// cfgBool 读取系统参数布尔值（委托 spotcheck.go 的导出实现，包内调用统一小写）。
+func cfgBool(db *gorm.DB, key string, def bool) bool { return CfgBool(db, key, def) }
+
 // EquipmentService 设备台账服务。
 type EquipmentService struct {
 	db *gorm.DB

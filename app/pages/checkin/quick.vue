@@ -94,7 +94,7 @@
           @manual-abnormal="tapManualAbnormal"
           @update:manual-note="manualNote = $event"
           @confirm-manual-abnormal="confirmManualAbnormal"
-          @register="goEquipRegister"
+          @equip-label-photo="takeEquipLabelPhoto"
           @spot-photo="takeSpotPhoto"
           @spot-ai="aiReadSpotLabel"
           @spot-field="onSpotField"
@@ -127,6 +127,8 @@
           :colors="colors"
           :shadow="shadow"
           @update-note="onAbnNoteChange"
+          @update-disposition="onAbnDisposition"
+          @resolution-photo="takeResolutionPhoto"
           @confirm="confirmAbnormalSubmit"
         />
       </block>
@@ -314,7 +316,10 @@ function freshItem(name: string, requirement: string, judgeType: string, autoJud
     spot_maint: '',
     spot_no_sticker: false,
     spot_label_missing: false,
-    spot_ai_loading: false
+    spot_ai_loading: false,
+    disposition: '',
+    res_photos: [],
+    res_file_ids: []
   }
   // 台账有效期合成项（v1.6 逐台独立）：按服务端判定预置展示态，初始化即落定；
   // 不上送、不参与人工分流（服务端提交时实时逐台判定，逾期记录级强制异常兜底）
@@ -1242,15 +1247,37 @@ export default {
       it.verdict = 'pass' // 展示用占位；结论以服务端四规则比对为准
       this.nextStep()
     },
-    /** 台账有效期合成项「已完成维保？登记」：跳维保登记页（逐台：该设备自己的上下文；登记后回到向导原位） */
-    goEquipRegister() {
-      const aj = this.curEquipJudge
-      if (aj == null || aj.equipment_id == '') return
-      uni.navigateTo({
-        url:
-          '/pages/equipment/register?equipment_id=' + encodeURIComponent(aj.equipment_id) +
-          '&name=' + encodeURIComponent(aj.equipment_name) +
-          '&code=' + encodeURIComponent(aj.equipment_code)
+    /** 台账有效期合成项「已维保？拍新标签」（仅相机，至多 3 张）：照片即登记凭证，提交时服务端 AI 核对 */
+    takeEquipLabelPhoto() {
+      const it = this.curItem
+      if (it == null || it.judge_type != 'equipment_validity' || this.captureBusy || this.submitting) return
+      if (it.file_ids.length >= 3) {
+        uni.showToast({ title: '新标签照片至多 3 张', icon: 'none' })
+        return
+      }
+      uni.chooseImage({
+        count: 1,
+        sourceType: ['camera'],
+        success: (res) => {
+          const path = (res.tempFilePaths || [])[0]
+          if (path == null) return
+          this.captureBusy = true
+          this.overlayMsg = '上传中…'
+          compressForUpload(path)
+            .then((p) => apiUploadLocal(p))
+            .then((up) => {
+              it.photos.push(up.url)
+              it.file_ids.push(up.file_id)
+              it.img_error = false
+            })
+            .catch((e: any) => {
+              uni.showToast({ title: (e && e.message) || '上传失败，请重试', icon: 'none' })
+            })
+            .finally(() => {
+              this.captureBusy = false
+              this.overlayMsg = ''
+            })
+        }
       })
     },
     /** 感官项：正常一次过 */
@@ -1544,8 +1571,62 @@ export default {
     onAbnNoteChange(payload: { item: WizardItemSnap; value: string }) {
       payload.item.note = payload.value
     },
-    /** 异常确认：确认后真正 POST /checkin → 下一处 */
+    /** 异常项处置方式切换：改回「上报待处理」时清掉已拍处置照片（避免误带旧凭证） */
+    onAbnDisposition(payload: { item: WizardItemSnap; value: '' | 'on_site_resolved' | 'report_pending' }) {
+      const it = payload.item
+      it.disposition = payload.value
+      if (payload.value != 'on_site_resolved') {
+        it.res_photos = []
+        it.res_file_ids = []
+      }
+    },
+    /** 异常项「现场已处理」处置拍照（仅相机，至多 3 张）：复用抽查项上传链路，写 res_photos/res_file_ids */
+    takeResolutionPhoto(payload: { item: WizardItemSnap }) {
+      const it = payload.item
+      if (it == null || this.captureBusy || this.submitting) return
+      const resIds = it.res_file_ids != null ? it.res_file_ids : []
+      if (resIds.length >= 3) {
+        uni.showToast({ title: '处置照片至多 3 张', icon: 'none' })
+        return
+      }
+      uni.chooseImage({
+        count: 1,
+        sourceType: ['camera'],
+        success: (res) => {
+          const path = (res.tempFilePaths || [])[0]
+          if (path == null) return
+          this.captureBusy = true
+          this.overlayMsg = '上传中…'
+          compressForUpload(path)
+            .then((p) => apiUploadLocal(p))
+            .then((up) => {
+              if (it.res_photos == null) it.res_photos = []
+              if (it.res_file_ids == null) it.res_file_ids = []
+              it.res_photos.push(up.url)
+              it.res_file_ids.push(up.file_id)
+            })
+            .catch((e: any) => {
+              uni.showToast({ title: (e && e.message) || '上传失败，请重试', icon: 'none' })
+            })
+            .finally(() => {
+              this.captureBusy = false
+              this.overlayMsg = ''
+            })
+        }
+      })
+    },
+    /** 异常确认：确认后真正 POST /checkin → 下一处（「现场已处理」项必拍处置照片，未拍拦截） */
     confirmAbnormalSubmit() {
+      const wp = this.curWizPoint
+      if (wp == null) return
+      for (let i = 0; i < this.abnormalIdxs.length; i++) {
+        const it = wp.items[this.abnormalIdxs[i]]
+        if (it == null) continue
+        if (it.disposition == 'on_site_resolved' && (it.res_file_ids == null || it.res_file_ids.length == 0)) {
+          uni.showToast({ title: '「' + it.name + '」选了现场已处理，请拍处置照片', icon: 'none' })
+          return
+        }
+      }
       this.doCheckin('abnormal', this.abnormalIdxs.slice())
     },
     /** 真正提交打卡（ai_confirmed；已打卡未锁定点位重复提交 = 覆盖修改，服务端处理） */
@@ -1559,12 +1640,21 @@ export default {
       abnIdxs.forEach((i) => {
         abnSet[i] = true
       })
-      // 台账有效期合成项不上送（服务端按点位实时逐台判定追加快照）；abnSet 键为 wp.items 原始下标，过滤时保留
+      // 台账有效期合成项默认不上送（服务端按点位实时逐台判定追加快照）；
+      // 但已拍新标签照片的需上送（photos=新标签照片，服务端 AI 核对，可信自动回写台账）；
+      // abnSet 键为 wp.items 原始下标，过滤时保留
       const checkItems: any[] = []
       wp.items.forEach((it, i) => {
-        if (it.judge_type == 'equipment_validity') return
+        if (it.judge_type == 'equipment_validity') {
+          if (it.file_ids.length > 0) {
+            checkItems.push({ name: it.name, pass: true, note: '', photos: it.file_ids.slice() })
+          }
+          return
+        }
         const isAbn = abnSet[i] == true
         const isSpot = it.judge_type == 'equipment_date_spot'
+        // 异常项处置方式：未选默认上报待处理；现场已处理必带处置照片（确认步已拦截校验）
+        const disp = isAbn ? (it.disposition != null && it.disposition != '' ? it.disposition : 'report_pending') : ''
         checkItems.push({
           name: it.name,
           pass: isSpot ? true : !isAbn, // 抽查项 pass 由服务端四规则比对决定
@@ -1577,7 +1667,10 @@ export default {
           spot_manufacture_date: isSpot ? it.spot_mfg : undefined,
           spot_maintenance_date: isSpot ? it.spot_maint : undefined,
           spot_no_sticker: isSpot ? it.spot_no_sticker : undefined,
-          spot_label_missing: isSpot ? it.spot_label_missing : undefined
+          spot_label_missing: isSpot ? it.spot_label_missing : undefined,
+          disposition: disp != '' ? disp : undefined,
+          resolution_file_ids: disp == 'on_site_resolved' && it.res_file_ids != null ? it.res_file_ids.slice() : undefined,
+          resolution_note: disp == 'on_site_resolved' && it.note != '' ? it.note : undefined
         })
       })
       const remark = wp.items

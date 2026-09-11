@@ -211,6 +211,12 @@ export type CheckinItemReqPayload = {
   ai_reading?: string
   /** 异常逃生入口的项目异常类型；由服务端草稿校验后写入正式记录 */
   exception_type?: 'device_missing' | 'unable_to_capture' | ''
+  /** 异常项处置方式：'' / on_site_resolved 现场已处理 / maintenance_registered 已登记维保 / report_pending 上报待处理 */
+  disposition?: '' | 'on_site_resolved' | 'maintenance_registered' | 'report_pending'
+  /** 处置照片 upload_file.id（disposition=on_site_resolved 时必带） */
+  resolution_file_ids?: string[]
+  /** 处置说明 */
+  resolution_note?: string
   /** 标签抽查合成项（equipment_date_spot）：生产日期/维修日期/无贴纸/标签缺失（服务端四规则比对，pass 被忽略） */
   spot_manufacture_date?: string
   spot_maintenance_date?: string
@@ -317,6 +323,8 @@ export type CheckinItemAI = {
   note?: string
   /** 逐项照片可访问 URL（优先水印图；记录卡展示用） */
   photo_urls?: string[]
+  /** 异常项处置方式（'' / on_site_resolved / maintenance_registered / report_pending） */
+  disposition?: string
 }
 
 /** 照片元素（后端 types.PhotoItem，打卡/审核记录通用） */
@@ -1930,7 +1938,7 @@ export function apiEquipmentDue(): Promise<EquipmentListItem[]> {
   })
 }
 
-/** 维保登记 POST /equipment/maintenance（一键+一拍；ledger_fix 可随单补录日期，经理确认后回写台账） */
+/** 维保登记 POST /equipment/maintenance（拍新标签即登记；后端同步 AI 核对：可信直接 confirmed 回写台账，存疑 pending 待经理确认） */
 export function apiEquipmentRegister(req: {
   equipment_id: string
   maintenance_type?: string
@@ -1940,9 +1948,9 @@ export function apiEquipmentRegister(req: {
   file_ids: string[]
   manufacture_date?: string
   last_maintenance_date?: string
-}): Promise<{ id: string }> {
-  return new Promise<{ id: string }>((resolve, reject) => {
-    httpPost<{ id: string }>('/equipment/maintenance', req as unknown as Record<string, any>)
+}): Promise<{ id: string; confirm_status?: string; confirm_mode?: string }> {
+  return new Promise<{ id: string; confirm_status?: string; confirm_mode?: string }>((resolve, reject) => {
+    httpPost<{ id: string; confirm_status?: string; confirm_mode?: string }>('/equipment/maintenance', req as unknown as Record<string, any>)
       .then((d) => resolve(d ?? { id: '' }))
       .catch(reject)
   })

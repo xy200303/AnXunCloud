@@ -4,6 +4,7 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"anxuncloud/internal/module/equipment/dto"
+	"anxuncloud/internal/module/equipment/model"
 	"anxuncloud/internal/module/equipment/service"
 	"anxuncloud/internal/pkg/bind"
 	"anxuncloud/internal/pkg/response"
@@ -19,14 +20,19 @@ func NewMaintenanceController(maintenance *service.MaintenanceService) *Maintena
 }
 
 // Register POST /equipment/maintenance（admin 端登记；与 mp 登记共用同一 service）
+// v2.0 同步化：AI 核验可信即自动生效（confirm_status=confirmed），否则 pending 进确认链。
 func (ctl *MaintenanceController) Register(c *gin.Context) {
 	var req dto.MaintenanceRegisterReq
 	if be := bind.JSON(c, &req); be != nil {
 		response.Fail(c, be)
 		return
 	}
-	id, be := ctl.maintenance.Register(c, &req)
-	write(c, gin.H{"id": id}, be)
+	id, confirmed, be := ctl.maintenance.Register(c, &req)
+	status := model.ConfirmPending
+	if confirmed {
+		status = model.ConfirmConfirmed
+	}
+	write(c, gin.H{"id": id, "confirm_status": status}, be)
 }
 
 // PendingList GET /equipment/maintenance-pending（待确认列表：review 置顶）

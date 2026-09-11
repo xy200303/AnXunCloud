@@ -107,11 +107,12 @@ type MessagesData = {
   lastLoadedAt: number
 }
 
-/** 消息类型展示（对齐后端 SysMessage 写入点：report 月报 / checkin_audit 打卡审核 / task 任务（派单/逾期） / announcement 公告） */
+/** 消息类型展示（对齐后端 SysMessage 写入点：report 月报 / checkin_audit 打卡审核 / task 任务（派单/逾期） / announcement 公告 / equipment_maint_pending 维保待确认） */
 function typeTextOf(t: string): string {
   if (t == 'report') return '月报'
   if (t == 'checkin_audit') return '审核'
   if (t == 'task') return '任务'
+  if (t == 'equipment_maint_pending') return '维保'
   if (t == 'announcement' || t == 'notice') return '公告'
   return '系统'
 }
@@ -120,6 +121,7 @@ function typeColorOf(t: string): string {
   if (t == 'report') return Colors.warning
   if (t == 'checkin_audit') return Colors.danger
   if (t == 'task') return Colors.warning
+  if (t == 'equipment_maint_pending') return Colors.primary
   if (t == 'announcement' || t == 'notice') return Colors.success
   return Colors.info
 }

@@ -44,6 +44,12 @@ export type WizardItemSnap = {
   pass: boolean
   /** 异常描述（AI 描述或巡检员手填，可编辑） */
   note: string
+  /** 异常项处置方式：'' 未选 / on_site_resolved 现场已处理 / report_pending 上报待处理（默认） */
+  disposition?: '' | 'on_site_resolved' | 'report_pending'
+  /** 处置照片展示地址（disposition=on_site_resolved 时必传 ≥1 张） */
+  res_photos?: string[]
+  /** 处置照片已上传的 upload_file.id（与 res_photos 一一对应） */
+  res_file_ids?: string[]
 }
 
 /** 向导内单点位状态 */

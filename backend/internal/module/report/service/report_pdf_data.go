@@ -284,8 +284,16 @@ func (s *ReportService) pdfData(r *model.InspectionReport) pdf.MonthlyReportData
 				}
 			}
 		}
-		// 处理情况列：异常打卡的复核结论（无整改闭环流程后以此替代）
-		row.FixText = auditStatusCN(rec.AuditStatus)
+		// 处置照片：逐项处置留痕（file_id，渲染取首张）
+		for _, ci := range itemsByRec[rec.ID] {
+			for _, ref := range ci.ResolutionFileIDs {
+				if f, err := uploadfile.ByID(s.db, ref); err == nil {
+					row.FixPhotoIDs = append(row.FixPhotoIDs, f.ID)
+				}
+			}
+		}
+		// 处理情况列：优先汇总各项处置方式（真实闭环），无处置方式时回落复核结论
+		row.FixText = fixTextOf(itemsByRec[rec.ID], rec.AuditStatus)
 		d.Ledger = append(d.Ledger, row)
 	}
 
@@ -418,7 +426,7 @@ func checkinProblem(rec insmodel.CheckinRecord) string {
 	return "打卡异常"
 }
 
-// auditStatusCN 打卡复核状态中文（台账「处理情况」列）。
+// auditStatusCN 打卡复核状态中文（台账「处理情况」列回落口径）。
 func auditStatusCN(status string) string {
 	switch status {
 	case insmodel.AuditPending:
@@ -431,6 +439,37 @@ func auditStatusCN(status string) string {
 		return "自动通过"
 	}
 	return status
+}
+
+// dispositionCN 逐项处置方式中文（台账「处理情况」列汇总用）。
+func dispositionCN(d string) string {
+	switch d {
+	case "on_site_resolved":
+		return "现场已处理"
+	case "maintenance_registered":
+		return "已登记维保"
+	case "report_pending":
+		return "上报待处理"
+	}
+	return d
+}
+
+// fixTextOf 台账「处理情况」列：汇总该记录各项非空处置方式（去重、顿号拼接）；
+// 全部为空（存量数据）则回落复核结论。
+func fixTextOf(items []insmodel.CheckinRecordItem, auditStatus string) string {
+	seen := map[string]bool{}
+	texts := make([]string, 0, len(items))
+	for _, it := range items {
+		if it.Disposition == "" || seen[it.Disposition] {
+			continue
+		}
+		seen[it.Disposition] = true
+		texts = append(texts, dispositionCN(it.Disposition))
+	}
+	if len(texts) == 0 {
+		return auditStatusCN(auditStatus)
+	}
+	return strings.Join(texts, "、")
 }
 
 // userNamesOf 批量反查用户姓名。

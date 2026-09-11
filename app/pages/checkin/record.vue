@@ -56,6 +56,7 @@
           @click="preview(it)"
         />
         <text v-if="it.ai_reason != null && it.ai_reason != ''" class="item-ai" :style="{ color: colors.textSecondary }">{{ it.ai_reason }}</text>
+        <text v-if="dispositionText(it) != ''" class="item-disp" :style="{ color: it.disposition == 'report_pending' ? colors.warning : colors.success }">处置：{{ dispositionText(it) }}</text>
         <text v-if="it.note != null && it.note != ''" class="item-note" :style="{ color: colors.textRegular }">备注：{{ it.note }}</text>
       </view>
       <view v-if="items.length == 0" class="card" :style="{ backgroundColor: colors.bgCard, boxShadow: shadow }">
@@ -187,6 +188,13 @@ export default {
       if (it.photo_urls == null || it.photo_urls.length == 0) return
       uni.previewImage({ urls: it.photo_urls })
     },
+    /** 异常项处置方式文案（有 disposition 才展示行） */
+    dispositionText(it: CheckinItemAI): string {
+      if (it.disposition == 'on_site_resolved') return '现场已处理'
+      if (it.disposition == 'maintenance_registered') return '已登记维保'
+      if (it.disposition == 'report_pending') return '上报待处理'
+      return ''
+    },
     /** 修改 = 重走该点位向导（逐项重拍 + AI 重识别，提交覆盖原记录并留痕） */
     goModify() {
       if (!this.canModify) return
@@ -292,6 +300,11 @@ export default {
   font-size: 26rpx;
   margin-top: 16rpx;
   line-height: 1.6;
+}
+
+.item-disp {
+  font-size: 26rpx;
+  margin-top: 12rpx;
 }
 
 .item-note {

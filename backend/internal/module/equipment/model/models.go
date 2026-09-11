@@ -39,6 +39,18 @@ const (
 	AIVerdictReview = "review"
 )
 
+// 维保流水来源
+const (
+	SourceForm    = "form"    // 登记表单（mp/admin Register）
+	SourceCheckin = "checkin" // 打卡拍新标签自动生成
+)
+
+// 确认方式
+const (
+	ConfirmModeManual = "manual" // 经理人工确认
+	ConfirmModeAI     = "ai"     // AI 核验可信自动确认（confirmed_by 置空）
+)
+
 // Equipment 设备台账：一具设备一行记当前状态；到期判定只看 NextDueDate。
 // 台账只被 confirmed 维保流水回写（唯一写入口），或后台直接编辑/人工覆盖到期日。
 type Equipment struct {
@@ -86,7 +98,13 @@ type EquipmentMaintenance struct {
 	AIVerdict       *string       `gorm:"size:16" json:"ai_verdict"` // pass/review（只标记不拦截）
 	AIReason        *string       `gorm:"size:512" json:"ai_reason"`
 	Payload         types.JSONMap `gorm:"type:jsonb;default:'{}'" json:"payload"` // 随单附加数据（ledger_fix 补录日期等）
-	CreatedBy       string        `gorm:"type:uuid" json:"created_by"`
+	// Source 流水来源：form=登记表单 / checkin=打卡拍新标签自动生成（打卡融合 v2.0）
+	Source string `gorm:"size:16;default:form" json:"source"`
+	// CheckinRecordID 来源打卡记录（source=checkin 时非空；checkin_record 为分区表不加 FK）
+	CheckinRecordID *string `gorm:"type:uuid" json:"checkin_record_id"`
+	// ConfirmMode 确认方式：manual=人工确认 / ai=AI 核验可信自动确认（confirmed_by 置空）
+	ConfirmMode string        `gorm:"size:8;default:manual" json:"confirm_mode"`
+	CreatedBy   string        `gorm:"type:uuid" json:"created_by"`
 	CreatedAt       time.Time     `json:"created_at"`
 	UpdatedAt       time.Time     `json:"updated_at"`
 }

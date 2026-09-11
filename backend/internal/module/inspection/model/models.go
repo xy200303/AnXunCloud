@@ -409,9 +409,22 @@ type CheckinRecordItem struct {
 	// AIReading AI 读取的表计读数文本（metric 类检查项；NULL=无读数）
 	AIReading     *string   `gorm:"size:64" json:"ai_reading"`
 	ExceptionType string    `gorm:"size:24;default:''" json:"exception_type"` // device_missing / unable_to_capture
-	Sort          int       `json:"sort"`
-	CreatedAt     time.Time `json:"created_at"`
+	// Disposition 异常项处置方式（仅 !pass 项可填）：''=未处置 / on_site_resolved=现场已处理 /
+	// maintenance_registered=登记维保（有效期项由服务端在生成维保流水后回填）/ report_pending=上报待处理（强制转人工审核）
+	Disposition string `gorm:"size:24;default:''" json:"disposition"`
+	// ResolutionFileIDs 处置照片 file_id 数组（on_site_resolved 必传 ≥1 张，归属校验同逐项照片）
+	ResolutionFileIDs types.StringArray `gorm:"type:jsonb" json:"resolution_file_ids"`
+	ResolutionNote    string            `gorm:"size:512" json:"resolution_note"`
+	Sort              int               `json:"sort"`
+	CreatedAt         time.Time         `json:"created_at"`
 }
+
+// 异常项处置方式（CheckinRecordItem.Disposition）
+const (
+	DispositionOnSiteResolved = "on_site_resolved"       // 现场已处理（须附处置照片）
+	DispositionMaintenanceReg = "maintenance_registered" // 登记维保（服务端生成维保流水后回填）
+	DispositionReportPending  = "report_pending"         // 上报待处理（强制转人工审核并通知审核人）
+)
 
 func (CheckinRecordItem) TableName() string { return "checkin_record_item" }
 

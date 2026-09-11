@@ -79,6 +79,7 @@ func (s *ReviewService) loadReviewBatch(rows []model.CheckinRecord) *reviewBatch
 		for i := range items {
 			itemsByRecPut(ctx, items[i].RecordID, items[i])
 			refs = append(refs, items[i].Photos...)
+			refs = append(refs, items[i].ResolutionFileIDs...)
 		}
 		ctx.filesByID = uploadfile.ByIDs(s.db, refs)
 	}
@@ -118,12 +119,24 @@ func (s *ReviewService) reviewItemBatch(r *model.CheckinRecord, ctx *reviewBatch
 				urls = append(urls, f.URL)
 			}
 		}
+		// 处置照片（disposition=on_site_resolved 时非空；优先水印图）
+		resURLs := make([]string, 0, len(ci.ResolutionFileIDs))
+		for _, ref := range ci.ResolutionFileIDs {
+			f := ctx.filesByID[ref]
+			if f.WatermarkedURL != "" {
+				resURLs = append(resURLs, f.WatermarkedURL)
+			} else {
+				resURLs = append(resURLs, f.URL)
+			}
+		}
 		views = append(views, gin.H{
 			"name": ci.Name, "pass": ci.Pass, "note": ci.Note,
 			"photos": ci.Photos, "photo_urls": urls,
 			"requirement": ci.Requirement, "ai_hint": ci.AIHint,
 			"judge_type": ci.JudgeType, "judge_config": ci.JudgeConfig,
 			"ai_verdict": ci.AIVerdict, "ai_reason": ci.AIReason, "ai_reading": ci.AIReading,
+			"disposition": ci.Disposition, "resolution_note": ci.ResolutionNote,
+			"resolution_file_ids": ci.ResolutionFileIDs, "resolution_photo_urls": resURLs,
 		})
 	}
 	// 审批链环节（同 flowStepViews，flow 来自预载）

@@ -812,7 +812,9 @@ func (s *MPService) CheckinItems(inspectorID, checkinID string) ([]gin.H, *errs.
 			"ai_reading":     strVal(it.AIReading),
 			"note":           it.Note,
 			"exception_type": it.ExceptionType,
-			"photo_urls":     inssvc.ItemPhotoURLs(s.db, it.Photos),
+			"disposition":    it.Disposition, "resolution_note": it.ResolutionNote,
+			"photo_urls":            inssvc.ItemPhotoURLs(s.db, it.Photos),
+			"resolution_photo_urls": inssvc.ItemPhotoURLs(s.db, it.ResolutionFileIDs),
 		})
 	}
 	return out, nil

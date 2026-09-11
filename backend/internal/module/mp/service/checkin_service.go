@@ -202,6 +202,9 @@ func (s *CheckinService) doCheckinLocked(ctx context.Context, inspectorID string
 	if be != nil {
 		return nil, nil, be
 	}
+	// 打卡 × 维保融合：带新标签照片的有效期合成项逐项同步 AI 核验（网络调用在打卡事务前，
+	// 超时/失败降级 pending 动作），可信项翻转正常；动作落库由 persistCheckinMaintenances 同事务完成
+	maintActions := s.resolveCheckinMaintenances(ctx, &point, checkItems)
 	// 台账有效期/标签抽查合成项判异常（逾期/报废/抽查不符/标签缺失，不可人工改判）：记录级强制异常并转人工审核
 	equipmentForced, equipmentNote := false, ""
 	for i := range checkItems {
@@ -304,6 +307,18 @@ func (s *CheckinService) doCheckinLocked(ctx context.Context, inspectorID string
 			rec.Remark = equipmentNote
 		}
 	}
+	// 上报待处理（任一异常项 disposition=report_pending）：记录强制转人工审核（必通知审核人），
+	// AI 不得自动放行（异步补识别的放行分支按记录逐项排除，见 aiReview）
+	reportPending := false
+	for i := range checkItems {
+		if checkItems[i].Disposition == insmodel.DispositionReportPending {
+			reportPending = true
+			break
+		}
+	}
+	if reportPending {
+		rec.AuditStatus = insmodel.AuditPending
+	}
 
 	overwrite := false // 覆盖修改模式：同任务同点位已有未锁定记录时置真（事务外写操作日志用）
 	var supersededID string
@@ -343,6 +358,10 @@ func (s *CheckinService) doCheckinLocked(ctx context.Context, inspectorID string
 			if err := tx.Create(&checkItems).Error; err != nil {
 				return err
 			}
+		}
+		// 打卡触发的维保流水同事务落库（source=checkin；confirmed 动作同事务回写台账，幂等跳过）
+		if err := s.persistCheckinMaintenances(tx, &rec, maintActions, inspectorID); err != nil {
+			return err
 		}
 		// 最终落库：点位正式提交成功，逐项识别过程草稿同事务清除（草稿仅"进行中"有效）
 		if err := tx.Where("task_id = ? AND point_id = ?", currentTask.ID, req.PointID).
@@ -395,21 +414,32 @@ func (s *CheckinService) doCheckinLocked(ctx context.Context, inspectorID string
 	if s.cfgBool("inspection.watermark_enabled", true) {
 		go s.applyWatermarks(&rec, &point, checkItems, inspectorID)
 	}
+	// 打卡触发的 pending 维保流水：通知项目经理/租户管理员确认或安排整改（甲方口径）
+	s.notifyPendingMaintenances(&rec, maintActions)
 	// 审核分支（识别即审核）：已完成识别的路径（同步判定/强制提交/逐项识别确认）状态已定型，pending 直接通知；
 	// 未经识别路径：AI 可用 → 异步补识别（pass/abnormal 自动放行，存疑/失败保持 pending 并通知）；AI 未启用 → 直接通知人工审核。
 	switch {
 	case useSyncAI || req.Force || req.AIConfirmed:
 		if rec.AuditStatus == insmodel.AuditPending {
-			s.notifyAuditors(rec.ID, point.Name, rec.AIReason)
+			reason := rec.AIReason
+			if reportPending {
+				reason = appendItemNote("存在上报待处理异常项", reason)
+			}
+			s.notifyAuditors(rec.ID, point.Name, reason)
 		}
 	default:
 		if equipmentForced {
 			// 台账判异常直接转人工：跳过异步补识别，避免 AI pass 把记录自动放行出审核队列
 			s.notifyAuditors(rec.ID, point.Name, equipmentNote)
 		} else if s.aiCli.Enabled() {
+			// 异步补识别（report_pending 记录在放行分支被排除，见 aiReview）
 			go s.aiReview(rec.ID, &point, checkItems, req.Remark)
 		} else {
-			s.notifyAuditors(rec.ID, point.Name, "未启用 AI 识别，转人工审核")
+			reason := "未启用 AI 识别，转人工审核"
+			if reportPending {
+				reason = appendItemNote("存在上报待处理异常项", reason)
+			}
+			s.notifyAuditors(rec.ID, point.Name, reason)
 		}
 	}
 	// 任务进度缓存失效
@@ -635,8 +665,10 @@ func nfcMatch(reqID, pointID string) bool {
 // 点位必须已绑定模板（v21 起强制，无模板概念已消除）；模板每项都必须有提交结果（按 name 匹配）；
 // 逐项照片硬约束（一项一图）：每项最多 1 张；不合格项（pass=false）与模板 photo_required=required 的项须恰好 1 张，
 // file_id 逐一上传确认（43104/43106）；照片唯一归属逐项，无记录级照片。
-// 台账有效期合成项客户端不提交（服务端实时逐台判定追加）；标签抽查合成项触发即必交
+// 台账有效期合成项客户端可仅上送 name+photos（≤3 张新标签照片，归属校验；pass 忽略仍以服务端判定为准，
+// 提交时按 name 对应服务端合成项触发维保核验）；标签抽查合成项触发即必交
 // （必拍 1 张 + 生产日期/维修日期，服务端按四规则与台账比对，客户端 pass 被忽略）。
+// 异常项可携带处置方式（disposition）与处置照片（resolution_file_ids，on_site_resolved 必传 ≥1 张）。
 // 返回逐项快照行 + upload_file 索引（EXIF 判定/AI 输入/水印共用）；
 // name/requirement/ai_hint/photo_required 打卡当时从模板项复制。
 func (s *CheckinService) resolveCheckItems(req *dto.CheckinReq, task *insmodel.InspectionTask, point *insmodel.InspectionPoint, ownerID string) ([]insmodel.CheckinRecordItem, map[string]sysmodel.UploadFile, *errs.Error) {
@@ -675,6 +707,7 @@ func (s *CheckinService) resolveCheckItems(req *dto.CheckinReq, task *insmodel.I
 	files := map[string]sysmodel.UploadFile{}
 	seenItems := make(map[string]bool, len(req.CheckItems))
 	spotSubmitted := map[string]bool{}
+	validityPhotos := map[string][]string{} // 有效期合成项新标签照片（name → file_ids）
 	for i, it := range req.CheckItems {
 		if seenItems[it.Name] {
 			return nil, nil, errs.ErrParam.WithMsg("检查项「" + it.Name + "」重复提交")
@@ -682,7 +715,7 @@ func (s *CheckinService) resolveCheckItems(req *dto.CheckinReq, task *insmodel.I
 		seenItems[it.Name] = true
 		ti := tplByName[it.Name]
 		if ti == nil {
-			// 抽查合成项：服务端比对落快照；有效期合成项：客户端不应提交（忽略，服务端重算）
+			// 抽查合成项：服务端比对落快照；有效期合成项：允许携带新标签照片（服务端重算判定）
 			if sj, ok := spotMap[it.Name]; ok {
 				row, f, be := s.resolveSpotItem(it, sj, ownerID)
 				if be != nil {
@@ -695,6 +728,27 @@ func (s *CheckinService) resolveCheckItems(req *dto.CheckinReq, task *insmodel.I
 				continue
 			}
 			if strings.HasPrefix(it.Name, "设备维保·") {
+				// 台账有效期合成项：仅接收 name+photos（≤3 张新标签照片，归属校验同逐项照片）；
+				// pass/disposition 忽略——判定以服务端重算为准，处置方式由服务端在生成维保流水后回填
+				if len(it.Photos) > 3 {
+					return nil, nil, errs.ErrParam.WithMsg("检查项「" + it.Name + "」新标签照片最多 3 张")
+				}
+				photoIDs := make([]string, 0, len(it.Photos))
+				for _, ref := range it.Photos {
+					if _, ok := files[ref]; ok {
+						photoIDs = append(photoIDs, ref)
+						continue
+					}
+					f, err := uploadfile.ByID(s.db, ref)
+					if err != nil || f.UserID != ownerID {
+						return nil, nil, errs.ErrPhotoNotUploaded
+					}
+					files[f.ID] = f
+					photoIDs = append(photoIDs, f.ID)
+				}
+				if len(photoIDs) > 0 {
+					validityPhotos[it.Name] = photoIDs
+				}
 				continue
 			}
 			return nil, nil, errs.ErrParam.WithMsg("检查项「" + it.Name + "」不属于该点位模板")
@@ -714,6 +768,11 @@ func (s *CheckinService) resolveCheckItems(req *dto.CheckinReq, task *insmodel.I
 		if exceptionType != "" && it.Pass {
 			return nil, nil, errs.ErrParam.WithMsg("检查项「" + it.Name + "」已上报项目异常，结果必须为异常")
 		}
+		// 处置方式（disposition）白名单/照片约束校验（纯函数规则见 checkItemDisposition）
+		disposition := strings.TrimSpace(it.Disposition)
+		if msg := checkItemDisposition(disposition, it.Pass, len(it.ResolutionFileIDs)); msg != "" {
+			return nil, nil, errs.ErrParam.WithMsg("检查项「" + it.Name + "」" + msg)
+		}
 		if !isEqValidity && ti.PhotoRequired == types.PhotoReqRequired && len(it.Photos) == 0 {
 			return nil, nil, errs.ErrPhotoMissing.WithMsg("检查项「" + it.Name + "」要求必拍，须至少上传 1 张该项照片")
 		}
@@ -730,11 +789,27 @@ func (s *CheckinService) resolveCheckItems(req *dto.CheckinReq, task *insmodel.I
 			files[f.ID] = f
 			photoIDs = append(photoIDs, f.ID)
 		}
+		// 处置照片归属校验（与逐项照片同口径）
+		resIDs := make([]string, 0, len(it.ResolutionFileIDs))
+		for _, ref := range it.ResolutionFileIDs {
+			if _, ok := files[ref]; ok {
+				resIDs = append(resIDs, ref)
+				continue
+			}
+			f, err := uploadfile.ByID(s.db, ref)
+			if err != nil || f.UserID != ownerID {
+				return nil, nil, errs.ErrPhotoNotUploaded
+			}
+			files[f.ID] = f
+			resIDs = append(resIDs, f.ID)
+		}
 		row := insmodel.CheckinRecordItem{
 			Name: it.Name, Pass: it.Pass, Note: it.Note, ExceptionType: exceptionType,
 			Photos: types.StringArray(photoIDs), PhotoRequired: ti.PhotoRequired,
 			Requirement: ti.Requirement, AIHint: ti.AIHint,
 			JudgeType: ti.JudgeType, JudgeConfig: ti.JudgeConfig, Sort: i,
+			Disposition: disposition, ResolutionFileIDs: types.StringArray(resIDs),
+			ResolutionNote: strings.TrimSpace(it.ResolutionNote),
 		}
 		items = append(items, row)
 	}
@@ -744,13 +819,42 @@ func (s *CheckinService) resolveCheckItems(req *dto.CheckinReq, task *insmodel.I
 			return nil, nil, errs.ErrParam.WithMsg("标签抽查项「" + name + "」未完成：须拍标签照并填写日期")
 		}
 	}
-	// 台账有效期合成项（§3.5 v1.6：绑定即启用、逐台独立）：客户端不提交合成项，
-	// 服务端按点位实时逐台判定并追加快照——每台在用设备一条；逾期逐台去重（首次产异常，
-	// 持续逾期只标「催办中」，pending 登记标「待确认」），judge_config 携 equipment_id 快照键控
+	// 台账有效期合成项（§3.5 v1.6：绑定即启用、逐台独立）：服务端按点位实时逐台判定并追加快照——
+	// 每台在用设备一条；逾期逐台去重（首次产异常，持续逾期只标「催办中」，pending 登记标「待确认」），
+	// judge_config 携 equipment_id 快照键控；客户端携带的新标签照片按 name 挂到对应合成项快照
 	if be := s.appendEquipmentItems(&items, point); be != nil {
 		return nil, nil, be
 	}
+	if len(validityPhotos) > 0 {
+		for i := range items {
+			if items[i].JudgeType != ai.JudgeEquipmentValidity {
+				continue
+			}
+			if ids, ok := validityPhotos[items[i].Name]; ok {
+				items[i].Photos = types.StringArray(ids)
+			}
+		}
+	}
 	return items, files, nil
+}
+
+// checkItemDisposition 异常项处置方式校验（纯函数）：白名单 ''/on_site_resolved/maintenance_registered/
+// report_pending；仅异常（!pass）项可填非空值；on_site_resolved 必须带 ≥1 张处置照片。返回错误原因（空串=通过）。
+func checkItemDisposition(disposition string, pass bool, resolutionPhotos int) string {
+	switch disposition {
+	case "":
+		return ""
+	case insmodel.DispositionOnSiteResolved, insmodel.DispositionMaintenanceReg, insmodel.DispositionReportPending:
+	default:
+		return "处置方式无效"
+	}
+	if pass {
+		return "正常项无须填写处置方式"
+	}
+	if disposition == insmodel.DispositionOnSiteResolved && resolutionPhotos == 0 {
+		return "现场已处理须至少上传 1 张处置照片"
+	}
+	return ""
 }
 
 // appendEquipmentItems 逐台追加台账有效期合成快照项（无关联设备不追加）。
@@ -1009,6 +1113,15 @@ func (s *CheckinService) aiReview(recID string, point *insmodel.InspectionPoint,
 			quality["ai_verdict"] = insmodel.AIVerdictAbnormal
 		}
 		quality["ai_reason"] = truncateStr(res.Reason, 500)
+		// 存在「上报待处理」异常项的记录禁止自动放行（必转人工）：仍回写 AI 结论，保持 pending 并通知
+		if s.hasReportPendingItem(recID) {
+			res2 := s.db.Model(&insmodel.CheckinRecord{}).Where("id = ? AND audit_status = ?", recID, insmodel.AuditPending).
+				Updates(quality)
+			if res2.Error == nil && res2.RowsAffected > 0 {
+				s.notifyAuditors(recID, point.Name, "存在上报待处理异常项，转人工审核")
+			}
+			return
+		}
 		// 识别成功 = 记录有效：自动放行（audit_step=0 确保人工未介入，不覆盖人工结论）
 		quality["audit_status"] = insmodel.AuditAutoPass
 		s.db.Model(&insmodel.CheckinRecord{}).Where("id = ? AND audit_status = ? AND audit_step = 0", recID, insmodel.AuditPending).
@@ -1079,6 +1192,14 @@ func hasJudgeMeta(it insmodel.CheckinRecordItem) bool {
 		return true
 	}
 	return strVal(it.Requirement) != "" || strVal(it.AIHint) != ""
+}
+
+// hasReportPendingItem 记录是否存在「上报待处理」异常项（存在则禁止 AI 自动放行，必转人工审核）。
+func (s *CheckinService) hasReportPendingItem(recID string) bool {
+	var cnt int64
+	s.db.Model(&insmodel.CheckinRecordItem{}).
+		Where("record_id = ? AND disposition = ?", recID, insmodel.DispositionReportPending).Count(&cnt)
+	return cnt > 0
 }
 
 // notifyAuditors AI 转人工时通知当前项目审批链首环节名单。

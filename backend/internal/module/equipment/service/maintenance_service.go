@@ -1,6 +1,7 @@
 package service
 
 import (
+	"context"
 	"fmt"
 	"strings"
 	"time"
@@ -16,18 +17,22 @@ import (
 	sysmodel "anxuncloud/internal/module/system/model"
 	"anxuncloud/internal/pkg/ai"
 	"anxuncloud/internal/pkg/errs"
+	"anxuncloud/internal/pkg/logger"
 	"anxuncloud/internal/pkg/notify"
 	"anxuncloud/internal/pkg/response"
 	"anxuncloud/internal/pkg/timefmt"
 	"anxuncloud/internal/pkg/types"
 	"anxuncloud/internal/pkg/uploadfile"
+
+	"go.uber.org/zap"
 )
 
 // 站内消息类型
 const (
-	MsgTypeMaintReject = "equipment_maint_reject" // 维保登记驳回
-	MsgTypeExpire      = "equipment_expire"       // 设备到期提醒
-	MsgTypeScrap       = "equipment_scrap"        // 设备报废提醒（v1.7 报废催办链）
+	MsgTypeMaintReject  = "equipment_maint_reject"  // 维保登记驳回
+	MsgTypeMaintPending = "equipment_maint_pending" // 维保待确认（巡检员拍标签提交后通知经理）
+	MsgTypeExpire       = "equipment_expire"        // 设备到期提醒
+	MsgTypeScrap        = "equipment_scrap"         // 设备报废提醒（v1.7 报废催办链）
 )
 
 // 台账补录（ledger_fix）随单补录日期存 payload 列：{manufacture_date, last_maintenance_date}（YYYY-MM-DD），
@@ -73,47 +78,51 @@ func checkRegisterAccess(db *gorm.DB, c *gin.Context, e *model.Equipment) *errs.
 	return middleware.CheckCommunity(db, c, e.CommunityID)
 }
 
-// Register 维保登记（一键+一拍）：照片必传且归属本人；confirm_status=pending；
-// ai_verdict 留 NULL（AI 预检另一任务填充）；台账不更新，等经理确认后回写。
-func (s *MaintenanceService) Register(c *gin.Context, req *dto.MaintenanceRegisterReq) (string, *errs.Error) {
+// Register 维保登记（一键+一拍）：照片必传且归属本人；台账不直接更新，confirmed 才回写。
+// v2.0 打卡融合同步化：AI 可用且非标签缺失登记时，落库后同步核验（超时 ai.sync_timeout_seconds 降级）——
+// 核验结论同步写入 ai_verdict/ai_reason 供经理审批参考（通过/存疑标红）；
+// 是否「可信即自动 confirmed 回写台账」由 equipment.ai_auto_confirm 控制（默认关：甲方口径维保一律经理确认，
+// 经理在 ConfirmList 确认或安排整改）；存疑/读不出保持 pending；调用失败保持 pending 起异步预检兜底（原行为）。
+// 返回 confirmed=true 表示已自动生效（App 反馈「已生效」/「已提交待确认」用）。
+func (s *MaintenanceService) Register(c *gin.Context, req *dto.MaintenanceRegisterReq) (string, bool, *errs.Error) {
 	identity := middleware.CurrentIdentity(c)
 	if identity == nil {
-		return "", errs.ErrUnauthorized
+		return "", false, errs.ErrUnauthorized
 	}
 	var e model.Equipment
 	if err := s.db.First(&e, "id = ?", req.EquipmentID).Error; err != nil {
-		return "", errs.ErrNotFound
+		return "", false, errs.ErrNotFound
 	}
 	if be := checkRegisterAccess(s.db, c, &e); be != nil {
-		return "", be
+		return "", false, be
 	}
 	if e.Status == model.StatusScrapped {
-		return "", errs.ErrConflict.WithMsg("设备已报废，不可登记维保")
+		return "", false, errs.ErrConflict.WithMsg("设备已报废，不可登记维保")
 	}
 	maintType := req.MaintenanceType
 	if maintType == "" {
 		maintType = model.MaintenanceRepair
 	}
 	if !maintenanceTypes[maintType] {
-		return "", errs.ErrParam.WithMsg("maintenance_type 取值非法（repair/maintain/inspect/replace/ledger_fix）")
+		return "", false, errs.ErrParam.WithMsg("maintenance_type 取值非法（repair/maintain/inspect/replace/ledger_fix）")
 	}
 	// 维保日期：缺省今天（巡检员可改为标签上的实际日期）
 	maintDate := truncateDay(time.Now())
 	if strings.TrimSpace(req.MaintenanceDate) != "" {
 		d, be := parseDate(req.MaintenanceDate)
 		if be != nil {
-			return "", be
+			return "", false, be
 		}
 		maintDate = *d
 	}
 	// 照片：至少 1 张，逐一上传确认（存在且归属本人，与 checkin_service 同口径）
 	if len(req.FileIDs) > 9 {
-		return "", errs.ErrParam.WithMsg("照片最多 9 张")
+		return "", false, errs.ErrParam.WithMsg("照片最多 9 张")
 	}
 	for _, fid := range req.FileIDs {
 		f, err := uploadfile.ByID(s.db, fid)
 		if err != nil || f.UserID != identity.UserID {
-			return "", errs.ErrPhotoNotUploaded
+			return "", false, errs.ErrPhotoNotUploaded
 		}
 	}
 	operatorName := strings.TrimSpace(req.OperatorName)
@@ -139,11 +148,11 @@ func (s *MaintenanceService) Register(c *gin.Context, req *dto.MaintenanceRegist
 	if maintType == model.MaintenanceLedger {
 		manufacture, be := parseDate(req.ManufactureDate)
 		if be != nil {
-			return "", be
+			return "", false, be
 		}
 		lastMaint, be := parseDate(req.LastMaintenanceDate)
 		if be != nil {
-			return "", be
+			return "", false, be
 		}
 		if manufacture != nil || lastMaint != nil {
 			m.Payload = types.JSONMap{
@@ -153,13 +162,125 @@ func (s *MaintenanceService) Register(c *gin.Context, req *dto.MaintenanceRegist
 		}
 	}
 	if err := s.db.Create(&m).Error; err != nil {
-		return "", errs.ErrInternal
+		return "", false, errs.ErrInternal
 	}
-	// AI 预检异步执行（v1.7：读日期比对/照片有效性/EXIF 偏差；只标记不拦截，失败留 NULL 不阻塞登记）
-	if s.aiCli != nil && s.aiCli.Enabled() {
+	switch {
+	case s.aiCli == nil || !s.aiCli.Enabled():
+		// AI 未启用：不预检（ai_verdict 留 NULL，ConfirmList 排后）
+	case m.LabelMissing:
+		// 标签缺失登记无可读日期，不同步核验：维持异步预检（只验证照片有效性）
 		go s.aiPreCheck(m.ID)
+	default:
+		// 同步 AI 核验（超时降级）：可信即自动确认回写；失败起异步预检兜底
+		timeout := time.Duration(cfgInt(s.db, "ai.sync_timeout_seconds", 15)) * time.Second
+		ctx, cancel := context.WithTimeout(c.Request.Context(), timeout)
+		verdict, reason, reading, aiErr := CheckMaintenanceLabel(ctx, s.aiCli, s.db, e.Name, e.Type, m.FileIDs, false)
+		cancel()
+		if aiErr != nil {
+			logger.L.Warn("维保登记同步 AI 核验失败，转异步预检兜底", zap.String("rec_id", m.ID), zap.Error(aiErr))
+			go s.aiPreCheck(m.ID)
+			break
+		}
+		trusted, suspectReplace, trustNote := JudgeLabelTrust(verdict, reading, m.MaintenanceDate, e.ManufactureDate)
+		if trusted {
+			// AI 核对通过：equipment.ai_auto_confirm 开才自动生效；默认关（甲方口径）则标注待经理确认
+			if cfgBool(s.db, "equipment.ai_auto_confirm", false) {
+				if be := s.confirmByAI(&m); be != nil {
+					return "", false, be
+				}
+				return m.ID, true, nil
+			}
+			s.db.Model(&m).Updates(map[string]any{
+				"ai_verdict": model.AIVerdictPass,
+				"ai_reason":  truncateStr2(appendReason(reason, "AI 核对通过，待经理确认"), 500),
+			})
+			break
+		}
+		// 存疑/读不出兜底：保持 pending 进确认链，同步写入结论（疑似更换标注在 ai_reason）
+		if suspectReplace {
+			reason = appendReason(reason, trustNote)
+		} else if verdict == model.AIVerdictPass {
+			reason = appendReason(reason, "未读出可信维修日期，待人工确认")
+		}
+		s.db.Model(&m).Updates(map[string]any{
+			"ai_verdict": model.AIVerdictReview,
+			"ai_reason":  truncateStr2(reason, 500),
+		})
 	}
-	return m.ID, nil
+	// 凡 pending 进确认链：通知项目经理/租户管理员（甲方口径：经理确认或安排整改）
+	s.notifyPendingConfirm(&e, &m)
+	return m.ID, false, nil
+}
+
+// notifyPendingConfirm 维保待确认通知：接收人为该设备租户内 project_admin/tenant_admin 角色的启用账号
+// （与 expire_job 接收人解析同口径）；发送失败仅记日志不影响登记。
+func (s *MaintenanceService) notifyPendingConfirm(e *model.Equipment, m *model.EquipmentMaintenance) {
+	if s.notifier == nil || e.TenantID == nil {
+		return
+	}
+	recipients := UserIDsByRoleCodes(s.db, *e.TenantID, []string{sysmodel.ProjectAdminCode, sysmodel.TenantAdminCode})
+	if len(recipients) == 0 {
+		return
+	}
+	content := fmt.Sprintf("设备「%s（%s）」已拍新标签提交维保登记（经办：%s），请到维保确认页核实或安排整改。", e.Name, e.Code, m.OperatorName)
+	if err := s.notifier.SendBatch(recipients, e.TenantID, MsgTypeMaintPending, "维保待确认", content, &m.ID); err != nil {
+		logger.L.Warn("维保待确认通知发送失败", zap.String("maintenance_id", m.ID), zap.Error(err))
+	}
+}
+
+// appendReason 追加理由（分号连接，忽略空段）。
+func appendReason(base, add string) string {
+	base = strings.TrimSpace(base)
+	if base == "" {
+		return add
+	}
+	return base + "；" + add
+}
+
+// confirmByAI AI 可信自动确认：同事务 confirmed（confirm_mode=ai，confirmed_by 置空）+ 台账回写。
+// 幂等：台账 last_maintenance_date 已被更新的记录推进 → ApplyLedgerWriteback 跳过回写，流水保留并注明。
+func (s *MaintenanceService) confirmByAI(m *model.EquipmentMaintenance) *errs.Error {
+	rules, _ := NewEquipmentService(s.db).typeRules()
+	err := s.db.Transaction(func(tx *gorm.DB) error {
+		var e model.Equipment
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(&e, "id = ?", m.EquipmentID).Error; err != nil {
+			return errs.ErrInternal
+		}
+		now := time.Now()
+		if err := tx.Model(&model.EquipmentMaintenance{}).Where("id = ?", m.ID).Updates(map[string]any{
+			"confirm_status": model.ConfirmConfirmed,
+			"confirmed_by":   nil, // AI 自动确认无人工确认人
+			"confirmed_at":   now,
+			"confirm_mode":   model.ConfirmModeAI,
+			"ai_verdict":     model.AIVerdictPass,
+		}).Error; err != nil {
+			return errs.ErrInternal
+		}
+		skipped, werr := ApplyLedgerWriteback(tx, m, &e, rules[e.Type])
+		if werr != nil {
+			return errs.ErrInternal
+		}
+		if skipped {
+			// 台账已被更新的记录推进：流水保留，注明跳过原因
+			note := "台账最近维保日期已不早于本次登记，跳过回写（流水保留）"
+			if m.AIReason != nil {
+				note = appendReason(*m.AIReason, note)
+			}
+			if err := tx.Model(&model.EquipmentMaintenance{}).Where("id = ?", m.ID).
+				Update("ai_reason", truncateStr2(note, 500)).Error; err != nil {
+				return errs.ErrInternal
+			}
+		}
+		m.ConfirmStatus = model.ConfirmConfirmed
+		return nil
+	})
+	if err != nil {
+		if be, ok := err.(*errs.Error); ok {
+			return be
+		}
+		return errs.ErrInternal
+	}
+	return nil
 }
 
 // ledgerFixDates 从 payload 列解析台账补录随单的补录日期。
@@ -225,31 +346,8 @@ func (s *MaintenanceService) Confirm(c *gin.Context, req *dto.ConfirmReq) (*Conf
 			}).Error; err != nil {
 				return errs.ErrInternal
 			}
-			// 回写台账（confirmed 流水是台账唯一写入口）
-			lastMaint := &m.MaintenanceDate
-			updates := map[string]any{"last_maintenance_date": m.MaintenanceDate}
-			if m.MaintenanceType == model.MaintenanceLedger {
-				manufacture, fixLast := ledgerFixDates(&m)
-				if fixLast != nil {
-					lastMaint = fixLast
-					updates["last_maintenance_date"] = *fixLast
-				}
-				if manufacture != nil {
-					updates["manufacture_date"] = *manufacture
-					e.ManufactureDate = manufacture
-				}
-			}
-			rule := rules[e.Type]
-			if nd := CalcNextDueDate(e.ManufactureDate, lastMaint, rule.FirstMonths, rule.CycleMonths); nd != nil {
-				updates["next_due_date"] = *nd
-			}
-			updates["scrap_date"] = CalcScrapDate(e.ManufactureDate, rule.ScrapMonths)
-			// 标签缺失标记随确认链流转：标签缺失单确认后打标（退出自动判定）；
-			// 正常登记/补录确认后清除（覆盖设备换过标签的场景）
-			updates["label_missing"] = m.LabelMissing
-			// 确认后恢复全绿：清掉防打扰标记，下一周期重新提醒
-			updates["last_notified_at"] = nil
-			if err := tx.Model(&e).Updates(updates).Error; err != nil {
+			// 回写台账（confirmed 流水是台账唯一写入口；幂等跳过由 ApplyLedgerWriteback 保证）
+			if _, err := ApplyLedgerWriteback(tx, &m, &e, rules[e.Type]); err != nil {
 				return errs.ErrInternal
 			}
 			result.Confirmed++
@@ -263,6 +361,42 @@ func (s *MaintenanceService) Confirm(c *gin.Context, req *dto.ConfirmReq) (*Conf
 		return nil, errs.ErrInternal
 	}
 	return result, nil
+}
+
+// ApplyLedgerWriteback 台账回写（confirmed 流水是台账唯一写入口；Confirm 与 AI 自动确认/打卡融合链路共用）：
+// last_maintenance_date、ledger_fix 随单补录 manufacture_date、按类型规则重算 next_due_date/scrap_date、
+// label_missing 标记随确认链流转、清除防打扰提醒标记（确认后恢复全绿，下一周期重新提醒）。
+// 幂等（覆盖修改不撤流水）：非补录单且台账 last_maintenance_date 已不早于本次维保日期 → 跳过回写，
+// 流水保留，返回 skipped=true；ledger_fix 是纠错单（可能回拨日期），不参与跳过。
+// 调用方须已对 equipment 行加锁（FOR UPDATE）。
+func ApplyLedgerWriteback(tx *gorm.DB, m *model.EquipmentMaintenance, e *model.Equipment, rule TypeRule) (skipped bool, err error) {
+	lastMaint := &m.MaintenanceDate
+	updates := map[string]any{}
+	if m.MaintenanceType == model.MaintenanceLedger {
+		manufacture, fixLast := ledgerFixDates(m)
+		if fixLast != nil {
+			lastMaint = fixLast
+		}
+		if manufacture != nil {
+			updates["manufacture_date"] = *manufacture
+			e.ManufactureDate = manufacture
+		}
+	} else if e.LastMaintenanceDate != nil && !truncateDay(*e.LastMaintenanceDate).Before(truncateDay(*lastMaint)) {
+		return true, nil
+	}
+	updates["last_maintenance_date"] = *lastMaint
+	if nd := CalcNextDueDate(e.ManufactureDate, lastMaint, rule.FirstMonths, rule.CycleMonths); nd != nil {
+		updates["next_due_date"] = *nd
+	}
+	updates["scrap_date"] = CalcScrapDate(e.ManufactureDate, rule.ScrapMonths)
+	// 标签缺失标记随确认链流转：标签缺失单确认后打标（退出自动判定）；
+	// 正常登记/补录确认后清除（覆盖设备换过标签的场景）
+	updates["label_missing"] = m.LabelMissing
+	updates["last_notified_at"] = nil
+	if err := tx.Model(e).Updates(updates).Error; err != nil {
+		return false, err
+	}
+	return false, nil
 }
 
 // Reject 驳回登记：pending→rejected + 理由，通知登记人重新登记（台账不变）。

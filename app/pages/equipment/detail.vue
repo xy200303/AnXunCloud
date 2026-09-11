@@ -276,7 +276,12 @@ export default {
       uni.previewImage({ urls: m.photos.map((p) => toAbsUrl(p.url)), current: idx })
     },
     goRegister() {
-      uni.navigateTo({ url: '/pages/equipment/register?equipment_id=' + encodeURIComponent(this.id) })
+      const d = this.detail
+      uni.navigateTo({
+        url:
+          '/pages/equipment/maintain?equipment_id=' + encodeURIComponent(this.id) +
+          (d != null ? '&name=' + encodeURIComponent(d.name) + '&code=' + encodeURIComponent(d.code) : '')
+      })
     }
   }
 }

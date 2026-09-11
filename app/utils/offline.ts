@@ -17,10 +17,11 @@ const KEY_QUEUE = 'offline_checkins'
 /** 网络异常错误文案前缀（request.ts 网络失败 / api.ts 上传失败） */
 export const NETWORK_ERR_PREFIX = '网络异常'
 
-/** 队列条目本地照片引用：item=检查项名（照片唯一归属逐项） */
+/** 队列条目本地照片引用：item=检查项名（照片唯一归属逐项）；kind=resolution 表示处置照片（回填 resolution_file_ids 而非 photos） */
 export type OfflinePhoto = {
   item: string
   local_path: string
+  kind?: 'resolution'
 }
 
 /** 队列条目 */
@@ -149,17 +150,24 @@ async function runQueue(): Promise<number> {
 /** 补传单条：上传照片换 file_id 回填 req，再调 offline-sync；服务端业务失败也视为失败（保留重试） */
 async function syncOne(entry: OfflineEntry): Promise<void> {
   const req = entry.req
-  // 上传本地照片，按检查项名归组 file_id
+  // 上传本地照片，按检查项名归组 file_id；处置照片（kind=resolution）单独归组
   const keysByItem: Record<string, string[]> = {}
+  const resKeysByItem: Record<string, string[]> = {}
   for (let i = 0; i < entry.photos_local.length; i++) {
     const ph = entry.photos_local[i]
     const r = await apiUploadLocal(ph.local_path, 'checkin')
-    if (keysByItem[ph.item] == null) keysByItem[ph.item] = []
-    keysByItem[ph.item].push(r.file_id)
+    if (ph.kind == 'resolution') {
+      if (resKeysByItem[ph.item] == null) resKeysByItem[ph.item] = []
+      resKeysByItem[ph.item].push(r.file_id)
+    } else {
+      if (keysByItem[ph.item] == null) keysByItem[ph.item] = []
+      keysByItem[ph.item].push(r.file_id)
+    }
   }
-  // 回填逐项 photos（照片唯一归属逐项，无记录级照片）
+  // 回填逐项 photos / resolution_file_ids（照片唯一归属逐项，无记录级照片）
   req.check_items.forEach((ci) => {
     ci.photos = keysByItem[ci.name] ?? []
+    if (resKeysByItem[ci.name] != null) ci.resolution_file_ids = resKeysByItem[ci.name]
   })
   const res = await apiOfflineSync([req])
   // 服务端逐条处理：出现在 failed 列表视为本条失败（保留在队列，下轮重试；幂等键保证不产生重复）

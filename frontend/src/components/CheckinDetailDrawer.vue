@@ -83,6 +83,27 @@
                 </el-tag>
               </template>
             </el-table-column>
+            <!-- 异常项处置方式（打卡巡检×设备维保融合）；处置照片随处置方式展示 -->
+            <el-table-column label="处置方式" min-width="120">
+              <template #default="{ row: item }">
+                <el-tag v-if="item.disposition" :type="dispositionTag(item.disposition).type" size="small">
+                  {{ dispositionTag(item.disposition).label }}
+                </el-tag>
+                <span v-else class="text-secondary">--</span>
+                <div v-if="item.resolution_photo_urls?.length" class="item-photos">
+                  <el-image
+                    v-for="(url, i) in item.resolution_photo_urls"
+                    :key="i"
+                    :src="url"
+                    :preview-src-list="item.resolution_photo_urls"
+                    :initial-index="i"
+                    fit="cover"
+                    preview-teleported
+                    class="item-photo-thumb"
+                  />
+                </div>
+              </template>
+            </el-table-column>
             <!-- 逐项 AI 初判（辅助参考，最终以人工审核为准，不阻断操作） -->
             <el-table-column label="AI 结论" min-width="130">
               <template #default="{ row: item }">
@@ -168,6 +189,17 @@ const emit = defineEmits<{
 
 function checkinTypeLabel(t: string) {
   return { qrcode: '扫码', fence: '围栏', offline: '离线补传', nfc: 'NFC' }[t] || t
+}
+
+// 处置方式：on_site_resolved 现场已处理-绿 / maintenance_registered 已登记维保-蓝 / report_pending 上报待处理-橙
+function dispositionTag(d: string): { label: string; type: 'info' | 'warning' | 'success' | 'danger' | 'primary' } {
+  return (
+    {
+      on_site_resolved: { label: '现场已处理', type: 'success' },
+      maintenance_registered: { label: '已登记维保', type: 'primary' },
+      report_pending: { label: '上报待处理', type: 'warning' }
+    }[d] || { label: d, type: 'info' }
+  ) as { label: string; type: 'info' | 'warning' | 'success' | 'danger' | 'primary' }
 }
 
 // 审核状态：auto_pass 默认通过-灰 / pending 待审核-橙 / pass 人工通过-绿 / rejected 已打回-红

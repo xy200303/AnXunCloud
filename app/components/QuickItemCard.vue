@@ -110,15 +110,34 @@
         </text>
         <text v-if="equipJudge.has_pending_register" class="equip-pending" :style="{ color: colors.primary }">已登记维保，待经理确认</text>
       </view>
-      <view
-        v-if="equipJudge.show_register"
-        hover-class="hover-dim"
-        class="btn-outline equip-register"
-        :style="{ borderColor: colors.primary }"
-        @click="$emit('register')"
-      >
-        <text class="btn-outline-text" :style="{ color: colors.primary }">{{ equipJudge.status == 'no_data' ? '台账补录' : '已完成维保？登记' }}</text>
-      </view>
+      <!-- 逾期/缺数据时：已维保的拍新维修标签（随打卡上送，服务端 AI 核对，可信自动回写台账，存疑转经理确认） -->
+      <block v-if="canLabelPhoto">
+        <view class="spot-photo" :style="{ borderColor: item.file_ids.length > 0 ? colors.success : colors.primary }" @click="$emit('equip-label-photo')">
+          <image
+            v-if="item.photos.length > 0 && !item.img_error"
+            :src="item.photos[0]"
+            class="spot-img"
+            mode="aspectFill"
+            @click.stop="$emit('preview-photo')"
+            @error="$emit('image-error')"
+          />
+          <text v-else class="spot-photo-text" :style="{ color: colors.primary }">已维保？点这里拍新标签</text>
+        </view>
+        <view v-if="item.photos.length > 1" class="equip-thumbs">
+          <image
+            v-for="(p, pi) in item.photos"
+            :key="pi"
+            :src="p"
+            class="equip-thumb"
+            mode="aspectFill"
+            @click="$emit('preview-photo')"
+            @error="$emit('image-error')"
+          />
+        </view>
+        <text v-if="item.file_ids.length > 0" class="equip-photo-hint" :style="{ color: colors.textSecondary }">
+          已拍 {{ item.file_ids.length }} 张新标签{{ item.file_ids.length < 3 ? '（点上方可补拍，至多 3 张）' : '' }}，提交时系统自动核对
+        </text>
+      </block>
       <view hover-class="hover-dim" class="btn-big" :style="{ backgroundColor: colors.primary }" @click="$emit('next')">
         <text class="btn-big-text" :style="{ color: colors.white }">下一项</text>
       </view>
@@ -184,13 +203,19 @@ export default {
     'manual-abnormal',
     'update:manual-note',
     'confirm-manual-abnormal',
-    'register',
+    'equip-label-photo',
     'spot-photo',
     'spot-ai',
     'spot-field',
     'spot-confirm'
   ],
   computed: {
+    /** 台账有效期项「拍新标签」入口：逾期/缺数据（或后端仍下发展示登记入口）时才出现 */
+    canLabelPhoto(): boolean {
+      const aj = this.equipJudge
+      if (aj == null) return false
+      return aj.show_register || aj.status == 'overdue' || aj.status == 'no_data'
+    },
     /** 台账有效期状态文案（逐台：equipJudge 即该设备自己的判定） */
     equipText(): string {
       const aj = this.equipJudge
@@ -460,8 +485,23 @@ export default {
   margin-top: 8rpx;
 }
 
-.equip-register {
+/* 台账有效期项「拍新标签」缩略图行与提示 */
+.equip-thumbs {
+  flex-direction: row;
+  flex-wrap: wrap;
+  margin-top: 16rpx;
   width: 100%;
-  margin-top: 24rpx;
+}
+
+.equip-thumb {
+  width: 120rpx;
+  height: 120rpx;
+  border-radius: 12rpx;
+  margin-right: 16rpx;
+}
+
+.equip-photo-hint {
+  font-size: 24rpx;
+  margin-top: 12rpx;
 }
 </style>

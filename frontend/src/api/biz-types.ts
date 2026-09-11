@@ -344,6 +344,10 @@ export interface CheckinCheckItem {
   // 打卡当时的判定类型快照
   judge_type?: string
   judge_config?: Record<string, unknown> | null
+  // 异常项处置方式（''=未处置；打卡巡检×设备维保融合）
+  disposition?: '' | 'on_site_resolved' | 'maintenance_registered' | 'report_pending'
+  // 处置照片 URL 列表（file_id 已转 url）
+  resolution_photo_urls?: string[]
 }
 
 export interface CheckinDetail extends CheckinItem {

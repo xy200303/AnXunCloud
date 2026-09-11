@@ -133,14 +133,28 @@
             <text class="spot-hint" :style="{ color: colors.textSecondary }">抽查只核对不改台账；比对不符将转经理审核</text>
           </view>
 
-          <!-- 台账有效期合成项：该设备临期/逾期/缺数据时的登记/补录入口（逐台独立） -->
-          <view
-            v-if="isEquipAuto(it) && it.auto_judge != null && it.auto_judge.show_register"
-            class="equip-register"
-            :style="{ borderColor: colors.primary }"
-            @click="goRegister(it)"
-          >
-            <text class="equip-register-text" :style="{ color: colors.primary }">{{ it.auto_judge != null && it.auto_judge.status == 'no_data' ? '台账补录' : '已完成维保？登记' }}</text>
+          <!-- 台账有效期合成项：该设备临期/逾期/缺数据时的「拍新标签」入口（逐台独立；照片即登记凭证，提交时系统自动核对） -->
+          <view v-if="isEquipAuto(it) && canLabelPhoto(it)" class="spot-block" :style="{ borderColor: colors.border }">
+            <view class="photos">
+              <image
+                v-for="(ph, pi) in it.photos"
+                :key="pi"
+                class="photo"
+                :src="ph"
+                mode="aspectFill"
+                lazy-load
+                @longpress="removePhoto(it.photos, pi)"
+              />
+              <view
+                v-if="it.photos.length < 3"
+                class="photo-add"
+                :style="{ borderColor: colors.border }"
+                @click="takePhotos(it.photos, 3)"
+              >
+                <text class="photo-add-text" :style="{ color: colors.textSecondary }">+拍新标签</text>
+              </view>
+            </view>
+            <text class="spot-hint" :style="{ color: colors.textSecondary }">已维保？拍新维修标签（至多 3 张）；提交时系统自动核对，核对通过自动更新台账</text>
           </view>
           <!-- 台账有效期合成项：自动判定备注（逾期/缺数据）只读展示 -->
           <text v-if="isEquipAuto(it) && it.note != ''" class="item-req" :style="{ color: equipStateColor(it.auto_judge) }">{{ it.note }}</text>
@@ -153,6 +167,39 @@
             placeholder="请填写该项异常情况（必填）"
             :maxlength="200"
           />
+          <!-- 异常项处置方式：默认上报待处理；现场已处理须拍处置照片留痕 -->
+          <view v-if="!it.pass && !isEquipAuto(it) && !isEquipSpot(it)" class="disp-row">
+            <text
+              class="toggle-btn"
+              :style="it.disposition != 'on_site_resolved' ? { color: colors.white, backgroundColor: colors.danger } : { color: colors.textSecondary, backgroundColor: colors.bgPage }"
+              @click="setDisposition(it, 'report_pending')"
+            >上报待处理</text>
+            <text
+              class="toggle-btn"
+              :style="it.disposition == 'on_site_resolved' ? { color: colors.white, backgroundColor: colors.success } : { color: colors.textSecondary, backgroundColor: colors.bgPage }"
+              @click="setDisposition(it, 'on_site_resolved')"
+            >现场已处理</text>
+          </view>
+          <view v-if="!it.pass && !isEquipAuto(it) && !isEquipSpot(it) && it.disposition == 'on_site_resolved'" class="photos">
+            <image
+              v-for="(ph, pi) in it.res_photos"
+              :key="pi"
+              class="photo"
+              :src="ph"
+              mode="aspectFill"
+              lazy-load
+              @longpress="removePhoto(it.res_photos, pi)"
+            />
+            <view
+              v-if="it.res_photos.length < 3"
+              class="photo-add"
+              :style="{ borderColor: colors.border }"
+              @click="takePhotos(it.res_photos, 3)"
+            >
+              <text class="photo-add-text" :style="{ color: colors.textSecondary }">+拍处置照片</text>
+            </view>
+          </view>
+          <text v-if="!it.pass && !isEquipAuto(it) && !isEquipSpot(it) && it.disposition == 'on_site_resolved'" class="spot-hint" :style="{ color: colors.textSecondary }">必拍至少 1 张处置后的照片，作为已处理凭证</text>
           <!-- 该项照片（异常项与必拍项展示；一项一图硬约束，最多 1 张，重拍先长按删除） -->
           <view v-if="showItemPhotos(it)" class="photos">
             <image
@@ -225,6 +272,10 @@ type ItemView = {
   spot_no_sticker: boolean
   spot_label_missing: boolean
   spot_ai_loading: boolean
+  /** 异常项处置方式：'' 未选（按 report_pending 处理）/ on_site_resolved 现场已处理 / report_pending 上报待处理 */
+  disposition: '' | 'on_site_resolved' | 'report_pending'
+  /** 处置照片本地路径（disposition=on_site_resolved 时必传 ≥1 张，提交时上传换 file_id） */
+  res_photos: string[]
 }
 
 /** 台账有效期合成项（v1.6：绑定即启用、逐台独立——点位每台在用设备一条合成项，只读展示） */
@@ -235,6 +286,39 @@ function isEquipAuto(it: ItemView): boolean {
 /** 标签抽查合成项（v1.7：触发才出现；必拍+填日期，服务端四规则比对） */
 function isEquipSpot(it: ItemView): boolean {
   return it.judge_type == 'equipment_date_spot'
+}
+
+/** 台账有效期项「拍新标签」入口：逾期/缺数据（或后端仍下发展示登记入口）时才出现 */
+function canLabelPhoto(it: ItemView): boolean {
+  const aj = it.auto_judge
+  if (aj == null) return false
+  return aj.show_register || aj.status == 'overdue' || aj.status == 'no_data'
+}
+
+/**
+ * 组装逐项提交载荷：
+ * - 台账有效期项仅在有新标签照片时上送（photos=新标签照片，服务端 AI 核对；pass 忽略）
+ * - 异常项（非抽查）带处置方式；「现场已处理」带处置照片 file_id（未选按上报待处理）
+ */
+function toCheckinPayload(it: ItemView, photoIds: string[], resIds: string[]): CheckinItemReqPayload {
+  if (isEquipAuto(it)) {
+    return { name: it.name, pass: true, note: '', photos: photoIds }
+  }
+  const spot = isEquipSpot(it)
+  const disp = !it.pass && !spot ? (it.disposition != '' ? it.disposition : 'report_pending') : ''
+  return {
+    name: it.name,
+    pass: it.pass,
+    note: it.note.trim(),
+    photos: photoIds,
+    spot_manufacture_date: spot ? it.spot_mfg : undefined,
+    spot_maintenance_date: spot ? it.spot_maint : undefined,
+    spot_no_sticker: spot ? it.spot_no_sticker : undefined,
+    spot_label_missing: spot ? it.spot_label_missing : undefined,
+    disposition: disp != '' ? disp : undefined,
+    resolution_file_ids: disp == 'on_site_resolved' && resIds.length > 0 ? resIds : undefined,
+    resolution_note: disp == 'on_site_resolved' && it.note.trim() != '' ? it.note.trim() : undefined
+  }
 }
 
 /** 台账有效期状态文案（逐台：auto_judge 即该设备自己的判定；报废日已过优先） */
@@ -397,6 +481,7 @@ export default {
   methods: {
     isEquipAuto,
     isEquipSpot,
+    canLabelPhoto,
     equipStateText,
     equipStateColor,
     load() {
@@ -435,7 +520,8 @@ export default {
               photos: [],
               judge_type: c.judge_type,
               auto_judge: c.auto_judge ?? null,
-              spot_mfg: '', spot_maint: '', spot_no_sticker: false, spot_label_missing: false, spot_ai_loading: false
+              spot_mfg: '', spot_maint: '', spot_no_sticker: false, spot_label_missing: false, spot_ai_loading: false,
+              disposition: '', res_photos: [] as string[]
             }
             // 台账有效期合成项：按服务端逐台判定预置结论（逾期判异常，客户端不可改，提交时不上送）
             if (isEquipAuto(it) && it.auto_judge != null) {
@@ -546,7 +632,20 @@ export default {
     setPass(idx: number, pass: boolean) {
       // 台账有效期项由服务端判定，不接受人工改判
       if (isEquipAuto(this.items[idx])) return
-      this.items[idx].pass = pass
+      const it = this.items[idx]
+      it.pass = pass
+      // 改回正常时清掉处置选择与处置照片，避免误带旧凭证
+      if (pass) {
+        it.disposition = ''
+        it.res_photos = []
+      } else if (it.disposition == '') {
+        it.disposition = 'report_pending'
+      }
+    },
+    /** 异常项处置方式切换：改回「上报待处理」时清掉已拍处置照片 */
+    setDisposition(it: ItemView, value: '' | 'on_site_resolved' | 'report_pending') {
+      it.disposition = value
+      if (value != 'on_site_resolved') it.res_photos = []
     },
     /** 一键全部正常并清空逐项备注；不跳过必拍照片校验；台账有效期项（服务端判定）不动 */
     allNormal() {
@@ -554,6 +653,8 @@ export default {
         if (isEquipAuto(it)) return
         it.pass = true
         it.note = ''
+        it.disposition = ''
+        it.res_photos = []
       })
       const needPhoto = this.items.some((it) => !isEquipAuto(it) && it.photo_required == 'required' && it.photos.length == 0)
       if (needPhoto) {
@@ -627,20 +728,9 @@ export default {
           })
       }, 1500)
     },
-    /** 台账有效期合成项「已完成维保？登记」入口：跳登记页（逐台：该设备自己的上下文） */
     /** 横幅点击：滚动到第一个设备合成项 */
     scrollToEquip() {
       uni.pageScrollTo({ selector: '.equip-anchor-mark', duration: 200, fail: () => {} })
-    },
-    goRegister(it: ItemView) {
-      const aj = it.auto_judge
-      if (aj == null || aj.equipment_id == '') return
-      uni.navigateTo({
-        url:
-          '/pages/equipment/register?equipment_id=' + encodeURIComponent(aj.equipment_id) +
-          '&name=' + encodeURIComponent(aj.equipment_name) +
-          '&code=' + encodeURIComponent(aj.equipment_code)
-      })
     },
     /** 拍照（仅相机防相册作弊）→ 定标压缩（1920px/q80）后入列表；一项一图硬约束（max=1）；水印由服务端在打卡后统一烧录 */
     takePhotos(list: string[], max: number) {
@@ -701,6 +791,10 @@ export default {
         if ((!it.pass || it.photo_required == 'required') && it.photos.length == 0) {
           return '「' + it.name + '」须至少拍 1 张照片'
         }
+        // 「现场已处理」须拍处置照片留痕
+        if (!it.pass && it.disposition == 'on_site_resolved' && it.res_photos.length == 0) {
+          return '「' + it.name + '」选了现场已处理，请拍处置照片'
+        }
       }
       // 后端硬约束：异常打卡整单备注必填
       const abnormal = this.items.some((it) => !it.pass)
@@ -736,6 +830,8 @@ export default {
     saveOffline() {
       const pt = this.point as TaskPoint
       const abnormal = this.items.some((it) => !it.pass)
+      // 台账有效期项仅带新标签照片时上送；照片留空待补传回填（含处置照片 kind=resolution）
+      const subs = this.items.filter((it) => !isEquipAuto(it) || it.photos.length > 0)
       const req: CheckinReqPayload = {
         id: uuidv7(),
         task_id: this.taskId,
@@ -748,22 +844,16 @@ export default {
         client_time: fmtDateTime(new Date()),
         result: abnormal ? 'abnormal' : 'normal',
         remark: this.remark.trim(),
-        check_items: this.items.filter((it) => !isEquipAuto(it)).map((it) => ({
-          name: it.name,
-          pass: it.pass,
-          note: it.note.trim(),
-          photos: [],
-          spot_manufacture_date: isEquipSpot(it) ? it.spot_mfg : undefined,
-          spot_maintenance_date: isEquipSpot(it) ? it.spot_maint : undefined,
-          spot_no_sticker: isEquipSpot(it) ? it.spot_no_sticker : undefined,
-          spot_label_missing: isEquipSpot(it) ? it.spot_label_missing : undefined
-        }))
+        check_items: subs.map((it) => toCheckinPayload(it, [], []))
       }
-      // 照片保留本地路径（不删本地文件）：item=检查项名（照片唯一归属逐项）
+      // 照片保留本地路径（不删本地文件）：item=检查项名（照片唯一归属逐项）；处置照片标 kind=resolution
       const photosLocal: OfflinePhoto[] = []
       this.items.forEach((it) => {
         it.photos.forEach((p) => {
           photosLocal.push({ item: it.name, local_path: p })
+        })
+        it.res_photos.forEach((p) => {
+          photosLocal.push({ item: it.name, local_path: p, kind: 'resolution' })
         })
       })
       enqueueOfflineCheckin(req, photosLocal)
@@ -841,9 +931,11 @@ export default {
       const pt = this.point as TaskPoint
       this.submitting = true
       uni.showLoading({ title: '上传中…', mask: true })
-      // 台账有效期合成项不上送（服务端实时逐台判定追加）；抽查项须上送（含 spot_* 字段）；逐项照片 file_id 与提交项同序
-      const subs = this.items.filter((it) => !isEquipAuto(it))
+      // 台账有效期合成项仅带新标签照片时上送（服务端 AI 核对，可信自动回写台账）；
+      // 抽查项须上送（含 spot_* 字段）；逐项照片 file_id 与提交项同序，处置照片单列 resKeys
+      const subs = this.items.filter((it) => !isEquipAuto(it) || it.photos.length > 0)
       const itemKeys: string[][] = subs.map(() => [])
+      const resKeys: string[][] = subs.map(() => [])
       let chain: Promise<void> = Promise.resolve()
       subs.forEach((it, idx) => {
         it.photos.forEach((p) => {
@@ -851,6 +943,13 @@ export default {
             .then(() => apiUploadLocal(p))
             .then((r) => {
               itemKeys[idx].push(r.file_id)
+            })
+        })
+        it.res_photos.forEach((p) => {
+          chain = chain
+            .then(() => apiUploadLocal(p))
+            .then((r) => {
+              resKeys[idx].push(r.file_id)
             })
         })
       })
@@ -871,16 +970,7 @@ export default {
             client_time: fmtDateTime(new Date()),
             result: abnormal ? 'abnormal' : 'normal',
             remark: this.remark.trim(),
-            check_items: subs.map((it, idx) => ({
-              name: it.name,
-              pass: it.pass,
-              note: it.note.trim(),
-              photos: itemKeys[idx],
-              spot_manufacture_date: isEquipSpot(it) ? it.spot_mfg : undefined,
-              spot_maintenance_date: isEquipSpot(it) ? it.spot_maint : undefined,
-              spot_no_sticker: isEquipSpot(it) ? it.spot_no_sticker : undefined,
-              spot_label_missing: isEquipSpot(it) ? it.spot_label_missing : undefined
-            })),
+            check_items: subs.map((it, idx) => toCheckinPayload(it, itemKeys[idx], resKeys[idx])),
             force: this.forceSubmit || undefined
           })
         })
@@ -1140,7 +1230,7 @@ export default {
   margin-left: 16rpx;
 }
 
-/* 台账有效期项：服务端判定结果展示 + 登记入口 */
+/* 台账有效期项：服务端判定结果展示 + 「拍新标签」入口 */
 .equip-state-wrap {
   flex-direction: column;
   align-items: flex-end;
@@ -1156,19 +1246,10 @@ export default {
   margin-top: 4rpx;
 }
 
-.equip-register {
+/* 处置方式选择 */
+.disp-row {
+  flex-direction: row;
   margin-top: 16rpx;
-  height: 72rpx;
-  border-width: 2rpx;
-  border-style: solid;
-  border-radius: 12rpx;
-  align-items: center;
-  justify-content: center;
-}
-
-.equip-register-text {
-  font-size: 28rpx;
-  font-weight: 600;
 }
 
 .item-note {

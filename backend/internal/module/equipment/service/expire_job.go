@@ -194,10 +194,10 @@ func (s *ExpireService) scanScrap(now time.Time, intervalDays int) (int, error) 
 	return notified, nil
 }
 
-// userIDsByRoles 租户内挂指定角色编码（启用角色）且账号启用的用户 ID 列表。
-func (s *ExpireService) userIDsByRoles(tenantID string, roleCodes []string) []string {
+// UserIDsByRoleCodes 租户内挂指定角色编码（启用角色）且账号启用的用户 ID 列表（导出供维保确认通知等复用）。
+func UserIDsByRoleCodes(db *gorm.DB, tenantID string, roleCodes []string) []string {
 	var roleIDs []string
-	s.db.Model(&sysmodel.SysRole{}).
+	db.Model(&sysmodel.SysRole{}).
 		Where("code IN ? AND status = ?", roleCodes, sysmodel.StatusEnabled).
 		Pluck("id", &roleIDs)
 	if len(roleIDs) == 0 {
@@ -211,9 +211,14 @@ func (s *ExpireService) userIDsByRoles(tenantID string, roleCodes []string) []st
 		args = append(args, fmt.Sprintf(`["%s"]`, rid))
 	}
 	var userIDs []string
-	s.db.Model(&sysmodel.SysUser{}).
+	db.Model(&sysmodel.SysUser{}).
 		Where("tenant_id = ? AND status = ?", tenantID, sysmodel.StatusEnabled).
 		Where(strings.Join(conds, " OR "), args...).
 		Pluck("id", &userIDs)
 	return userIDs
+}
+
+// userIDsByRoles 租户内挂指定角色编码（启用角色）且账号启用的用户 ID 列表。
+func (s *ExpireService) userIDsByRoles(tenantID string, roleCodes []string) []string {
+	return UserIDsByRoleCodes(s.db, tenantID, roleCodes)
 }

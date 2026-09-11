@@ -205,8 +205,6 @@ type TodayData = {
   offlineCount: number
   /** 导航栏「+」菜单是否展开 */
   menuOpen: boolean
-  /** 「+」菜单项（数据驱动，后续加功能在此追加一行即可） */
-  plusItems: Array<{ key: string; label: string; icon: string }>
   /** 维保待办台数（0 = 不显示卡片；临期+逾期合计） */
   dueCount: number
   /** 最早逾期天数（0 = 无逾期，仅临期） */
@@ -265,15 +263,16 @@ export default {
       typeChips: [{ label: '全部', value: '' }] as Array<{ label: string; value: string }>,
       offlineCount: 0,
       menuOpen: false,
+      dueCount: 0,
+      dueMaxOverdue: 0,
+      dueTipVisible: false,
+      dueTipText: '',
+      // 「+」菜单项（静态三项；维保入口收敛到待办卡片/巡检向导内，不再放全局菜单）
       plusItems: [
         { key: 'nearby', label: '附近点位', icon: '◎' },
         { key: 'nfc', label: 'NFC 识别', icon: '≋' },
         { key: 'history', label: '历史任务', icon: '◷' }
-      ] as Array<{ key: string; label: string; icon: string }>,
-      dueCount: 0,
-      dueMaxOverdue: 0,
-      dueTipVisible: false,
-      dueTipText: ''
+      ] as Array<{ key: string; label: string; icon: string }>
     }
   },
   computed: {
@@ -430,11 +429,11 @@ export default {
     closeDueTip() {
       this.dueTipVisible = false
     },
-    /** 待办卡片/弹窗「去处理」：跳维保待办页（巡检员无台账权限也能看；有逾期按已逾期筛选，否则按临期） */
+    /** 待办卡片/弹窗「去处理」：跳维保待办页选设备模式（点卡片直达维保拍照页；有逾期按已逾期筛选，否则按临期） */
     goEquipmentDue() {
       this.dueTipVisible = false
       uni.navigateTo({
-        url: '/pages/equipment/due?due_state=' + (this.dueMaxOverdue > 0 ? 'overdue' : 'warning')
+        url: '/pages/equipment/due?mode=pick&due_state=' + (this.dueMaxOverdue > 0 ? 'overdue' : 'warning')
       })
     },
     /** 类型筛选 chip：按当日任务实际类型动态生成（label 走后端字典，新类型零改动生效） */

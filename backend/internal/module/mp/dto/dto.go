@@ -17,13 +17,20 @@ type CheckinItemReq struct {
 	Name string `json:"name" binding:"required"`
 	Pass bool   `json:"pass"`
 	Note string `json:"note"`
-	// Photos 该项照片 file_id（一项一图硬约束：最多 1 张；不合格项与模板 required 项强制恰好 1 张）
-	Photos []string `json:"photos" binding:"omitempty,max=1"`
+	// Photos 该项照片 file_id（一项一图硬约束：最多 1 张；不合格项与模板 required 项强制恰好 1 张；
+	// 台账有效期合成项例外：允许携带 ≤3 张新标签照片，提交时触发服务端维保核验，pass 字段忽略）
+	Photos []string `json:"photos" binding:"omitempty,max=3"`
 	// AIVerdict/AIReason/AIReading 逐项 AI 识别确认提交（ai_confirmed=true）时带回的结论（均可空）
 	AIVerdict     string `json:"ai_verdict"`
 	AIReason      string `json:"ai_reason"`
 	AIReading     string `json:"ai_reading"`
 	ExceptionType string `json:"exception_type"`
+	// Disposition 异常项处置方式（仅 !pass 项可填）：on_site_resolved=现场已处理（须带处置照片 ≥1 张）/
+	// maintenance_registered=登记维保 / report_pending=上报待处理（记录强制转人工审核并通知审核人）
+	Disposition string `json:"disposition"`
+	// ResolutionFileIDs 处置照片 file_id（归属校验同 photos 口径）
+	ResolutionFileIDs []string `json:"resolution_file_ids" binding:"omitempty,max=9"`
+	ResolutionNote    string   `json:"resolution_note"`
 	// 标签抽查合成项（judge_type=equipment_date_spot）提交字段：生产日期/维修日期（YYYY-MM-DD，可空）、
 	// 无贴纸标记、标签缺失标记（勾缺失则日期免填、强制异常进审核）；服务端按四规则与台账比对，客户端 pass 被忽略
 	SpotManufactureDate string `json:"spot_manufacture_date"`

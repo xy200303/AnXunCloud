@@ -202,9 +202,9 @@
       }
     },
     {
-      "path": "pages/equipment/register",
+      "path": "pages/equipment/maintain",
       "style": {
-        "navigationBarTitleText": "维保登记"
+        "navigationBarTitleText": "维保拍照"
       }
     },
     {

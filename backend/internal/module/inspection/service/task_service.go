@@ -591,6 +591,8 @@ func (s *TaskService) CheckinDetail(c *gin.Context, id string) (gin.H, *errs.Err
 			"requirement": ci.Requirement, "ai_hint": ci.AIHint,
 			"judge_type": ci.JudgeType, "judge_config": ci.JudgeConfig,
 			"ai_verdict": ci.AIVerdict, "ai_reason": ci.AIReason, "ai_reading": ci.AIReading, "exception_type": ci.ExceptionType,
+			"disposition": ci.Disposition, "resolution_note": ci.ResolutionNote,
+			"resolution_photo_urls": ItemPhotoURLs(s.db, ci.ResolutionFileIDs),
 		})
 	}
 	return gin.H{

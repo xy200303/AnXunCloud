@@ -673,6 +673,7 @@ func ledgerDetailTitle(idx int, typeName string) string {
 
 // drawLedgerDetailHeader 明细表头：序号/位置编号 + 检查项竖排窄列 + 问题说明/巡检人/巡检时间。
 // 检查项列宽随项数均分，表头文字逐字竖排（对齐甲方样稿）。
+// 行高按最长检查项动态撑开（竖排总高+留白）；超长兜底压缩字高，封顶 42mm 防溢出。
 func drawLedgerDetailHeader(p *gofpdf.Fpdf, items []string) []float64 {
 	itemW := (contentW - 9 - 32 - 37 - 20 - 17) / float64(len(items))
 	widths := []float64{9, 32}
@@ -683,7 +684,23 @@ func drawLedgerDetailHeader(p *gofpdf.Fpdf, items []string) []float64 {
 	labels := []string{"序号", "位置/编号"}
 	labels = append(labels, items...)
 	labels = append(labels, "问题说明", "巡检人", "巡检时间")
-	x0, y0, h := margin, p.GetY(), 17.0
+	maxChars := 0
+	for _, it := range items {
+		if n := len([]rune(it)); n > maxChars {
+			maxChars = n
+		}
+	}
+	h, charH := 17.0, 3.9
+	if maxChars > 0 {
+		if need := float64(maxChars)*charH + 6; need > h {
+			h = need
+		}
+		if h > 42 {
+			charH = (42 - 6) / float64(maxChars)
+			h = 42
+		}
+	}
+	x0, y0 := margin, p.GetY()
 	p.SetFillColor(oliveHeader[0], oliveHeader[1], oliveHeader[2])
 	for idx, label := range labels {
 		x := x0
@@ -694,11 +711,11 @@ func drawLedgerDetailHeader(p *gofpdf.Fpdf, items []string) []float64 {
 		p.SetFont("noto", "B", 8)
 		if idx >= 2 && idx < 2+len(items) {
 			chars := []rune(label)
-			cy := y0 + (h-float64(len(chars))*3.9)/2
+			cy := y0 + (h-float64(len(chars))*charH)/2
 			for _, char := range chars {
 				p.SetXY(x, cy)
-				p.CellFormat(widths[idx], 3.9, string(char), "", 0, "C", false, 0, "")
-				cy += 3.9
+				p.CellFormat(widths[idx], charH, string(char), "", 0, "C", false, 0, "")
+				cy += charH
 			}
 		} else {
 			p.SetXY(x, y0+(h-4.5)/2)

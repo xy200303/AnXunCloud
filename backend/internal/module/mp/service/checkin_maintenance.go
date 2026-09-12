@@ -150,6 +150,7 @@ func (s *CheckinService) persistCheckinMaintenances(tx *gorm.DB, rec *insmodel.C
 			CheckinRecordID: &rec.ID,
 			ConfirmStatus:   eqmodel.ConfirmPending,
 			CreatedBy:       inspectorID,
+			FlowSnapshot:    a.flow, // 流程快照固化：确认全程按登记时的链推进
 		}
 		if a.aiVerdict != "" {
 			v := truncateStr(a.aiVerdict, 16)

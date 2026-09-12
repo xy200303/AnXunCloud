@@ -106,8 +106,10 @@ type EquipmentMaintenance struct {
 	// ConfirmMode 确认方式：manual=人工确认 / ai=AI 核验可信自动确认（confirmed_by 置空）/ auto=空审核链默认直通
 	ConfirmMode string `gorm:"size:8;default:manual" json:"confirm_mode"`
 	// ConfirmStep 维保审核链当前环节下标（approval_flow flow_code=maint_review；与打卡链 audit_step 同语义）
-	ConfirmStep int16         `gorm:"default:0" json:"confirm_step"`
-	CreatedBy   string        `gorm:"type:uuid" json:"created_by"`
+	ConfirmStep int16 `gorm:"default:0" json:"confirm_step"`
+	// FlowSnapshot 登记时命中的审核链快照（FlowStepArray JSON；NULL=存量/空流程，确认时回落现配）
+	FlowSnapshot types.FlowStepArray `gorm:"type:jsonb" json:"flow_snapshot"`
+	CreatedBy    string              `gorm:"type:uuid" json:"created_by"`
 	CreatedAt       time.Time     `json:"created_at"`
 	UpdatedAt       time.Time     `json:"updated_at"`
 }

@@ -365,6 +365,8 @@ type CheckinRecord struct {
 	SuspectReason string     `gorm:"size:255" json:"suspect_reason"`
 	AuditStatus   string     `gorm:"size:16" json:"audit_status"`
 	AuditStep     int16      `json:"audit_step"` // 审批链当前进度：已通过环节数（0=待第 1 环节，扩展方案 §3）
+	// FlowSnapshot 提交时命中的审核链快照（FlowStepArray JSON；NULL=存量/空流程，审核时回落现配）
+	FlowSnapshot  types.FlowStepArray `gorm:"type:jsonb" json:"flow_snapshot"`
 	AuditBy       *string    `gorm:"type:uuid" json:"audit_by"`
 	AuditAt       *time.Time `json:"audit_at"`
 	AuditRemark   string     `gorm:"size:512" json:"audit_remark"`

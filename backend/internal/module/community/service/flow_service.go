@@ -136,6 +136,16 @@ func WalkFlow(flow types.FlowStepArray, startIdx int, outcome string, forcedHuma
 	}
 	return WalkResult{Finish: true, Step: len(flow), NotifyIdx: -1}
 }
+// FlowOrResolve 记录审核时取链：快照优先（在途记录按提交时的规则审完，改流程只影响新单）。
+// 快照为空（存量 NULL/空流程——FlowStepArray.Scan 把 NULL 读成空数组）才回落现配：
+// 只有带环节的链才有"停在第 N 环节"的冻结语义，空流程（默认通过+兜底）跟随最新配置即可。
+func FlowOrResolve(db *gorm.DB, snapshot types.FlowStepArray, projectID, flowCode string) types.FlowStepArray {
+	if len(snapshot) > 0 {
+		return snapshot
+	}
+	return ResolveFlow(db, projectID, flowCode)
+}
+
 // ValidateReportFlowSteps 报告审核链校验（0-5 环节；不允许 AI 环节——报告签字是人的动作）。
 func ValidateReportFlowSteps(db *gorm.DB, steps types.FlowStepArray) *errs.Error {
 	if len(steps) > 5 {

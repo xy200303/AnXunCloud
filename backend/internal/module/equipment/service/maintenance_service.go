@@ -235,6 +235,11 @@ func (s *MaintenanceService) Register(c *gin.Context, req *dto.MaintenanceRegist
 // 返回（记录ID, 是否已生效, 错误）。
 func (s *MaintenanceService) routeMaintenance(e *model.Equipment, m *model.EquipmentMaintenance, outcome string, startIdx int) (string, bool, *errs.Error) {
 	flow := communitysvc.ResolveFlow(s.db, e.CommunityID, sysmodel.FlowMaintReview)
+	// 流程快照固化：登记时点的链落记录，审核全程按快照推进（改流程只影响新单；空流程无冻结语义）
+	if len(flow) > 0 {
+		m.FlowSnapshot = flow
+		s.db.Model(m).Update("flow_snapshot", flow)
+	}
 	walk := communitysvc.WalkFlow(flow, startIdx, outcome, false)
 	switch {
 	case walk.Finish:
@@ -436,10 +441,15 @@ func (s *MaintenanceService) Confirm(c *gin.Context, req *dto.ConfirmReq) (*Conf
 				result.NotFound = append(result.NotFound, id)
 				continue
 			}
-			flow, ok := flowCache[e.CommunityID]
-			if !ok {
-				flow = communitysvc.ResolveFlow(s.db, e.CommunityID, sysmodel.FlowMaintReview)
-				flowCache[e.CommunityID] = flow
+			// 快照优先：记录按登记时固化的流程推进；无快照（存量/空流程）才按小区缓存的现配
+			flow := m.FlowSnapshot
+			if len(flow) == 0 {
+				var ok bool
+				flow, ok = flowCache[e.CommunityID]
+				if !ok {
+					flow = communitysvc.ResolveFlow(s.db, e.CommunityID, sysmodel.FlowMaintReview)
+					flowCache[e.CommunityID] = flow
+				}
 			}
 			idx := int(m.ConfirmStep)
 			// 人工环节且非末位：推进下一环节（仍 pending）

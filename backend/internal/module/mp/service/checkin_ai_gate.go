@@ -17,6 +17,7 @@ import (
 	insmodel "anxuncloud/internal/module/inspection/model"
 	sysmodel "anxuncloud/internal/module/system/model"
 	"anxuncloud/internal/pkg/logger"
+	"anxuncloud/internal/pkg/types"
 
 	"go.uber.org/zap"
 )
@@ -52,7 +53,7 @@ func (s *CheckinService) runAIGate(recID string) {
 	if rec.AuditStatus != insmodel.AuditPending {
 		return // 人工已处理
 	}
-	flow := communitysvc.ResolveFlow(s.db, rec.CommunityID, sysmodel.FlowCheckinReview)
+	flow := communitysvc.FlowOrResolve(s.db, rec.FlowSnapshot, rec.CommunityID, sysmodel.FlowCheckinReview)
 	idx := int(rec.AuditStep)
 	if idx >= len(flow) || flow[idx].Kind != sysmodel.FlowStepKindAI {
 		return // 不在 AI 环节（流程配置已变更等）
@@ -162,10 +163,11 @@ func (s *CheckinService) settleGate(rec *insmodel.CheckinRecord, point *insmodel
 // AI 环节/下标越界/名单为空 → 汇报线通用槽位兜底。reason 为空表示常规待审。
 func (s *CheckinService) notifyStepReviewers(recID, pointName string, stepIdx int, forceFallback bool, reason string) {
 	var rec struct {
-		CommunityID string
-		TaskID      string
+		CommunityID  string
+		TaskID       string
+		FlowSnapshot types.FlowStepArray
 	}
-	if err := s.db.Model(&insmodel.CheckinRecord{}).Select("community_id", "task_id").Where("id = ?", recID).First(&rec).Error; err != nil {
+	if err := s.db.Model(&insmodel.CheckinRecord{}).Select("community_id", "task_id", "flow_snapshot").Where("id = ?", recID).First(&rec).Error; err != nil {
 		return
 	}
 	var task struct {
@@ -174,7 +176,7 @@ func (s *CheckinService) notifyStepReviewers(recID, pointName string, stepIdx in
 	if err := s.db.Model(&insmodel.InspectionTask{}).Select("patrol_type").Where("id = ?", rec.TaskID).First(&task).Error; err != nil {
 		return
 	}
-	flow := communitysvc.ResolveFlow(s.db, rec.CommunityID, sysmodel.FlowCheckinReview)
+	flow := communitysvc.FlowOrResolve(s.db, rec.FlowSnapshot, rec.CommunityID, sysmodel.FlowCheckinReview)
 	slot := ""
 	if !forceFallback && stepIdx < len(flow) && flow[stepIdx].Kind != sysmodel.FlowStepKindAI {
 		slot = communitysvc.FlowStepSlot(s.db, rec.CommunityID, task.PatrolType, flow[stepIdx].Slot)

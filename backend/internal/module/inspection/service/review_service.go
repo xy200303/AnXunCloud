@@ -121,24 +121,27 @@ func (s *ReviewService) Pass(c *gin.Context, id string) *errs.Error {
 	if be != nil {
 		return be
 	}
-	flow := communitysvc.ResolveFlow(s.db, r.CommunityID, sysmodel.FlowCheckinReview)
+	flow := communitysvc.FlowOrResolve(s.db, r.FlowSnapshot, r.CommunityID, sysmodel.FlowCheckinReview)
 	stepIdx := int(r.AuditStep)
-	if stepIdx >= len(flow) {
-		return errs.ErrConflict.WithMsg("该记录已完成全部审核环节")
-	}
-	step := flow[stepIdx]
 	patrolType := s.patrolTypeOf(r.TaskID)
-	slot := communitysvc.FlowStepSlot(s.db, r.CommunityID, patrolType, step.Slot)
-	if step.Kind == sysmodel.FlowStepKindAI {
-		// AI 环节停放记录（闸门无下游/兜底）：由汇报线名单人工处置
-		slot = communitysvc.FlowStepSlot(s.db, r.CommunityID, patrolType, sysmodel.SlotPatrolReportLine)
+	// 越界保险丝：流程已变短/空流程兜底单（audit_step 超出现行链长度）→ 汇报线名单处置，通过即整单生效
+	overEnd := stepIdx >= len(flow)
+	stepName := "主管审核"
+	slot := communitysvc.FlowStepSlot(s.db, r.CommunityID, patrolType, sysmodel.SlotPatrolReportLine)
+	if !overEnd {
+		step := flow[stepIdx]
+		stepName = step.Name
+		if step.Kind != sysmodel.FlowStepKindAI {
+			slot = communitysvc.FlowStepSlot(s.db, r.CommunityID, patrolType, step.Slot)
+		}
+		// AI 环节停放记录（闸门无下游/兜底）：slot 保持汇报线兜底
 	}
 	if !communitysvc.SlotAuthorized(s.db, r.CommunityID, slot, middleware.CurrentIdentity(c)) {
-		return errs.ErrNotInSlot.WithMsg("当前用户不在「" + step.Name + "」环节授权名单内")
+		return errs.ErrNotInSlot.WithMsg("当前用户不在「" + stepName + "」环节授权名单内")
 	}
 	now := time.Now()
 	by := middleware.CurrentUserID(c)
-	if stepIdx+1 >= len(flow) { // 末环节 → 审核通过
+	if overEnd || stepIdx+1 >= len(flow) { // 末环节/越界兜底 → 审核通过
 		updates := map[string]any{
 			"audit_status": model.AuditPass, "audit_step": stepIdx + 1,
 			"audit_by": by, "audit_at": now, "audit_remark": "",
@@ -174,7 +177,7 @@ func (s *ReviewService) Pass(c *gin.Context, id string) *errs.Error {
 	for _, uid := range communitysvc.SlotUserIDs(s.db, r.CommunityID, nextSlot) {
 		_ = s.notifier.Send(uid, "checkin_audit",
 			"打卡记录待"+next.Name,
-			fmt.Sprintf("点位「%s」的打卡记录已通过「%s」，待您执行「%s」。", ptName, step.Name, next.Name),
+			fmt.Sprintf("点位「%s」的打卡记录已通过「%s」，待您执行「%s」。", ptName, stepName, next.Name),
 			&r.ID)
 	}
 	return nil
@@ -311,19 +314,20 @@ func (s *ReviewService) Reject(c *gin.Context, id, reason string) *errs.Error {
 	if be != nil {
 		return be
 	}
-	flow := communitysvc.ResolveFlow(s.db, r.CommunityID, sysmodel.FlowCheckinReview)
+	flow := communitysvc.FlowOrResolve(s.db, r.FlowSnapshot, r.CommunityID, sysmodel.FlowCheckinReview)
 	stepIdx := int(r.AuditStep)
-	if stepIdx >= len(flow) {
-		return errs.ErrConflict.WithMsg("该记录已完成全部审核环节")
-	}
-	step := flow[stepIdx]
-	slot := communitysvc.FlowStepSlot(s.db, r.CommunityID, s.patrolTypeOf(r.TaskID), step.Slot)
-	if step.Kind == sysmodel.FlowStepKindAI {
-		// AI 环节停放记录：汇报线兜底名单人工处置
-		slot = communitysvc.FlowStepSlot(s.db, r.CommunityID, s.patrolTypeOf(r.TaskID), sysmodel.SlotPatrolReportLine)
+	// 越界保险丝（同 Pass）：流程变短/空流程兜底单 → 汇报线名单可打回
+	stepName := "主管审核"
+	slot := communitysvc.FlowStepSlot(s.db, r.CommunityID, s.patrolTypeOf(r.TaskID), sysmodel.SlotPatrolReportLine)
+	if stepIdx < len(flow) {
+		step := flow[stepIdx]
+		stepName = step.Name
+		if step.Kind != sysmodel.FlowStepKindAI {
+			slot = communitysvc.FlowStepSlot(s.db, r.CommunityID, s.patrolTypeOf(r.TaskID), step.Slot)
+		}
 	}
 	if !communitysvc.SlotAuthorized(s.db, r.CommunityID, slot, middleware.CurrentIdentity(c)) {
-		return errs.ErrNotInSlot.WithMsg("当前用户不在「" + step.Name + "」环节授权名单内")
+		return errs.ErrNotInSlot.WithMsg("当前用户不在「" + stepName + "」环节授权名单内")
 	}
 	now := time.Now()
 	by := middleware.CurrentUserID(c)

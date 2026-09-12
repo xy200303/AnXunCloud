@@ -323,6 +323,7 @@ func (s *CheckinService) doCheckinLocked(ctx context.Context, inspectorID string
 	// 空流程 = 默认通过；AI 环节 = 闸门（按结论三分支路由）；人工环节 = pending 待审。
 	// 强制人工（上报待处理/台账判异常/强制提交）按「存疑」桶路由；未识别记录停在 AI 环节由异步闸门接力。
 	flow := communitysvc.ResolveFlow(s.db, task.CommunityID, sysmodel.FlowCheckinReview)
+	rec.FlowSnapshot = flow // 流程快照固化：在途记录按提交时的规则审完，改流程只影响新单
 	outcome := ""
 	if rec.AIVerdict != "" {
 		outcome = gateBucketOf(rec.AIVerdict)

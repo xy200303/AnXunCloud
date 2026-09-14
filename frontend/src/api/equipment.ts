@@ -58,8 +58,11 @@ export interface EquipmentQuery {
   point_id?: string
   status?: EquipmentStatus | ''
   due_state?: DueState | ''
+  bind_state?: BindState | ''
   keyword?: string
 }
+
+export type BindState = 'bound' | 'unbound'
 
 export interface EquipmentForm {
   community_id: string
@@ -112,6 +115,7 @@ export function batchDeleteEquipment(data: {
   point_id?: string
   status?: string
   due_state?: string
+  bind_state?: string
   keyword?: string
 }) {
   return request<{ deleted: number }>({ url: '/equipment/batch-delete', method: 'post', data })

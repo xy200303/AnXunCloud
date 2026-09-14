@@ -13,6 +13,7 @@ type ListQuery struct {
 	PointID     string `form:"point_id"` // 按关联点位反查（一点多具；点位详情「关联设备」区块用）
 	Status      string `form:"status"`    // in_service/maintaining/stopped/scrapped
 	DueState    string `form:"due_state"` // normal/warning/overdue/none（无到期日）
+	BindState   string `form:"bind_state"` // bound=已绑定点位 / unbound=未绑定
 	Keyword     string `form:"keyword"`   // 设备编号或名称模糊
 }
 
@@ -43,6 +44,7 @@ type BatchDeleteReq struct {
 	PointID     string   `json:"point_id"`
 	Status      string   `json:"status"`
 	DueState    string   `json:"due_state"`
+	BindState   string   `json:"bind_state"`
 	Keyword     string   `json:"keyword"`
 }
 

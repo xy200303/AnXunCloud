@@ -225,6 +225,12 @@ func (s *EquipmentService) filtered(c *gin.Context, q *dto.ListQuery) *gorm.DB {
 	if q.Status != "" {
 		db = db.Where("status = ?", q.Status)
 	}
+	switch q.BindState {
+	case "bound":
+		db = db.Where("point_id IS NOT NULL")
+	case "unbound":
+		db = db.Where("point_id IS NULL")
+	}
 	if q.Keyword != "" {
 		kw := "%" + q.Keyword + "%"
 		db = db.Where("code LIKE ? OR name LIKE ?", kw, kw)
@@ -495,7 +501,7 @@ func (s *EquipmentService) BatchDelete(c *gin.Context, req *dto.BatchDeleteReq) 
 	if req.All {
 		q := &dto.ListQuery{
 			Type: req.Type, CommunityID: req.CommunityID, PointID: req.PointID,
-			Status: req.Status, DueState: req.DueState, Keyword: req.Keyword,
+			Status: req.Status, DueState: req.DueState, BindState: req.BindState, Keyword: req.Keyword,
 		}
 		var ids []string
 		if err := s.filtered(c, q).Limit(2001).Pluck("id", &ids).Error; err != nil {

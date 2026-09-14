@@ -38,6 +38,12 @@
               <el-option v-for="s in statusOptions" :key="s.value" :label="s.label" :value="s.value" />
             </el-select>
           </el-form-item>
+          <el-form-item label="点位绑定">
+            <el-select v-model="query.bind_state" placeholder="全部" clearable style="width: 110px">
+              <el-option label="已绑定" value="bound" />
+              <el-option label="未绑定" value="unbound" />
+            </el-select>
+          </el-form-item>
           <el-form-item label="关键字">
             <el-input v-model="query.keyword" placeholder="编号或名称" clearable style="width: 150px" @keyup.enter="handleSearch" />
           </el-form-item>
@@ -458,7 +464,7 @@ import {
   listEquipment, createEquipment, updateEquipment, deleteEquipment, batchDeleteEquipment,
   registerMaintenance, listMaintenancePending, listMaintenanceHistory,
   importEquipment,
-  type EquipmentItem, type EquipmentQuery, type EquipmentStatus, type DueState,
+  type EquipmentItem, type EquipmentQuery, type EquipmentStatus, type DueState, type BindState,
   type MaintenanceItem, type MaintenanceType, type ConfirmStatus, type EquipmentImportResult
 } from '@/api/equipment'
 import { uploadImage, withFileToken } from '@/api/upload'
@@ -490,7 +496,7 @@ const statusOptions: { label: string; value: EquipmentStatus }[] = [
 const loading = ref(false)
 const list = ref<EquipmentItem[]>([])
 const total = ref(0)
-const query = reactive<EquipmentQuery>({ page: 1, page_size: 20, type: '', community_id: '', status: '', due_state: '', keyword: '' })
+const query = reactive<EquipmentQuery>({ page: 1, page_size: 20, type: '', community_id: '', status: '', due_state: '', bind_state: '', keyword: '' })
 
 async function fetchList() {
   loading.value = true
@@ -502,6 +508,7 @@ async function fetchList() {
       community_id: query.community_id || undefined,
       status: (query.status || undefined) as EquipmentStatus | undefined,
       due_state: (query.due_state || undefined) as DueState | undefined,
+      bind_state: (query.bind_state || undefined) as BindState | undefined,
       keyword: query.keyword || undefined
     })
     list.value = data.list
@@ -522,6 +529,7 @@ function handleReset() {
   query.community_id = ''
   query.status = ''
   query.due_state = ''
+  query.bind_state = ''
   query.keyword = ''
   handleSearch()
 }
@@ -754,6 +762,7 @@ async function handleBatchDelete() {
           community_id: query.community_id || undefined,
           status: query.status || undefined,
           due_state: query.due_state || undefined,
+          bind_state: query.bind_state || undefined,
           keyword: query.keyword || undefined
         }
       : { ids: selectedRows.value.map((r) => r.id) }
@@ -916,6 +925,7 @@ function handleExport() {
     community_id: query.community_id || undefined,
     status: query.status || undefined,
     due_state: query.due_state || undefined,
+    bind_state: query.bind_state || undefined,
     keyword: query.keyword || undefined
   }, '设备台账.xlsx')
 }

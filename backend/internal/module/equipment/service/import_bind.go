@@ -10,14 +10,18 @@ import (
 // ========== 导入时点位自动推理绑定（戎安台账实测驱动；两侧共用同一归一化） ==========
 //
 // 算法：设备文本（安装位置 → 管控区域 → 设备名称 → 机房名称，取第一个同时解析出楼栋+楼层的）
-// 与点位（楼栋名称归一化/无楼栋时从点位名解析 + 点位名解析楼层）归一成同一键 "b{楼栋}|f{楼层}"，
+// 与点位（楼栋名称归一化/无楼栋时从点位名解析 + 结构化 floor 字段优先/未填时点位名解析）归一成同一键 "b{楼栋}|f{楼层}"，
 // 恰好 1 个候选点位才绑（0=无对应，>1=歧义，都跳过）；只填 NULL 的 point_id，绝不动人工已绑。
+// 负楼层兼容写法：负1层 / 负1F / B1层 / 裸 B1（批量建点 {floor} 渲染形态），型号里的 B/F 段不误吃。
 
 // buildingRe 楼栋号：数字 + 栋/号楼/#楼/#（"11栋" 整体捕获为 11，不被 "1栋" 误匹配——\d+ 贪婪）。
 var buildingRe = regexp.MustCompile(`(\d+)\s*(?:栋|号楼|#楼|#)`)
 
-// floorNegRe 负楼层：负/B + 数字 + 楼/层（负1层/B2 楼）。
-var floorNegRe = regexp.MustCompile(`(?:负|B)(\d+)\s*(?:楼|层)`)
+// floorNegRe 负楼层：负/B + 数字 + 楼/层/F（负1层/B2 楼/负1F）。
+var floorNegRe = regexp.MustCompile(`(?:负|B)(\d+)\s*(楼|层|F)`)
+
+// floorNegBareRe 裸负楼层：负/B + 数字，无后缀（批量建点 {floor} 渲染 B1 的点位名，如「1栋B1通道灭火器」）。
+var floorNegBareRe = regexp.MustCompile(`(?:负|B)(\d+)`)
 
 // floorRe 正楼层：数字 + 楼/层/F（F 后紧跟英文字母时跳过该匹配，防误吃型号；RE2 不支持 lookahead，用索引手工判定）。
 var floorRe = regexp.MustCompile(`(\d+)\s*(楼|层|F)`)
@@ -56,28 +60,46 @@ func parseBuildingKey(text string) string {
 	return ""
 }
 
-// parseFloor 楼层：架空层→0；负n/Bn→-n；n楼/n层/nF→n（nF 后紧跟英文字母视为型号，跳过）。无法解析返回 (0, false)。
+// parseFloor 楼层：架空层→0；负n/Bn→-n（带 楼/层/F 后缀或裸写，F 后紧跟英文字母、B 前紧贴字母数字时视为型号跳过）；n楼/n层/nF→n。无法解析返回 (0, false)。
 func parseFloor(text string) (int, bool) {
 	text = normalizeLocText(text)
 	if strings.Contains(text, "架空层") {
 		return 0, true
 	}
-	if m := floorNegRe.FindStringSubmatch(text); m != nil {
-		n := atoiSafe(m[1])
-		return -n, true
+	for _, m := range floorNegRe.FindAllStringSubmatchIndex(text, -1) {
+		if isModelFSuffix(text, m[4], m[5], m[1]) {
+			continue
+		}
+		return -atoiSafe(text[m[2]:m[3]]), true
+	}
+	for _, m := range floorNegBareRe.FindAllStringSubmatchIndex(text, -1) {
+		if text[m[0]] == 'B' && m[0] > 0 {
+			prev := text[m[0]-1]
+			if isASCIIByteLetter(prev) || (prev >= '0' && prev <= '9') {
+				continue // 型号里的 B（如 XB12/2B10）
+			}
+		}
+		return -atoiSafe(text[m[2]:m[3]]), true
 	}
 	for _, m := range floorRe.FindAllStringSubmatchIndex(text, -1) {
-		// m: [匹配起, 匹配止, 数字组起, 数字组止, 后缀组起, 后缀组止]
-		suffix := text[m[4]:m[5]]
-		if suffix == "F" && m[1] < len(text) {
-			nxt := text[m[1]]
-			if (nxt >= 'a' && nxt <= 'z') || (nxt >= 'A' && nxt <= 'Z') {
-				continue // 型号里的 F（如 4F-xxx 后的字母段不算楼层）
-			}
+		if isModelFSuffix(text, m[4], m[5], m[1]) {
+			continue
 		}
 		return atoiSafe(text[m[2]:m[3]]), true
 	}
 	return 0, false
+}
+
+// isModelFSuffix F 后缀紧跟英文字母时视为型号（如 4F-xxx 后的字母段不算楼层）。
+func isModelFSuffix(text string, sStart, sEnd, mEnd int) bool {
+	if text[sStart:sEnd] != "F" || mEnd >= len(text) {
+		return false
+	}
+	return isASCIIByteLetter(text[mEnd])
+}
+
+func isASCIIByteLetter(b byte) bool {
+	return (b >= 'a' && b <= 'z') || (b >= 'A' && b <= 'Z')
 }
 
 func atoiSafe(s string) int {
@@ -135,8 +157,8 @@ func parseDeviceLocation(texts []string) (string, bool) {
 	return "", false
 }
 
-// pointLocationKey 点位侧键：楼栋取所属楼栋名称归一化（无楼栋信息时从点位名解析），楼层从点位名解析。
-func pointLocationKey(pointName, buildingName string) (string, bool) {
+// pointLocationKey 点位侧键：楼栋取所属楼栋名称归一化（无楼栋信息时从点位名解析）；楼层优先取结构化 floor 字段（负数=地下层），未填时从点位名解析。
+func pointLocationKey(pointName, buildingName string, floor *int) (string, bool) {
 	b := ""
 	if buildingName != "" {
 		b = parseBuildingKey(buildingName)
@@ -146,6 +168,9 @@ func pointLocationKey(pointName, buildingName string) (string, bool) {
 	}
 	if b == "" {
 		return "", false
+	}
+	if floor != nil && *floor != 0 {
+		return locKey(b, *floor), true
 	}
 	f, ok := parseFloor(pointName)
 	if !ok {
@@ -184,7 +209,7 @@ func buildPointBindIndex(buildings []insmodel.Building, points []insmodel.Inspec
 		if p.BuildingID != nil {
 			bName = buildingName[*p.BuildingID]
 		}
-		key, ok := pointLocationKey(p.Name, bName)
+		key, ok := pointLocationKey(p.Name, bName, p.Floor)
 		if !ok {
 			continue
 		}

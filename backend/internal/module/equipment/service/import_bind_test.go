@@ -27,6 +27,11 @@ func TestParseDeviceLocation(t *testing.T) {
 		{"管控区域", []string{"", "1栋4层", "灭火器1栋4F-002", ""}, "b1|f4", true},
 		{"安装位置优先", []string{"2栋3层", "1栋4层", "", ""}, "b2|f3", true},
 		{"车库负一层", []string{"车库负1层", "", "", ""}, "b车库|f-1", true},
+		{"负楼层F后缀", []string{"", "", "消火栓1栋负1F-001", ""}, "b1|f-1", true},
+		{"负二层F后缀", []string{"", "", "灭火器2栋负2F-001", ""}, "b2|f-2", true},
+		{"裸B1无后缀", []string{"", "", "1栋B1通道灭火器", ""}, "b1|f-1", true},
+		{"裸负n无后缀", []string{"", "1栋负2泵房", "", ""}, "b1|f-2", true},
+		{"型号B不误吃", []string{"", "", "1栋XB12对讲机", ""}, "", false},
 		{"架空层", []string{"1栋架空层", "", "", ""}, "b1|f0", true},
 		{"范围楼栋保守跳过", []string{"1-5栋楼道", "", "", ""}, "", false}, // 楼栋只能取到 5栋 且无楼层
 		{"全空", []string{"", "", "", ""}, "", false},
@@ -77,6 +82,7 @@ func TestPointBindIndex(t *testing.T) {
 		return p
 	}
 	b1, b2 := "b-1", "b-2"
+	neg1, neg2 := -1, -2
 	buildings := []insmodel.Building{mkBuilding(b1, "1栋"), mkBuilding(b2, "2栋")}
 	points := []insmodel.InspectionPoint{
 		mkPoint("p-1-1", "1栋1楼大厅消火栓", &b1),
@@ -85,6 +91,13 @@ func TestPointBindIndex(t *testing.T) {
 		mkPoint("p-2-1b", "2栋1楼通道消火栓", &b2), // 与 p-2-1 同键 → 歧义
 		mkPoint("p-no-b", "3栋5楼消火栓", nil),    // 无楼栋信息时从点位名解析
 	}
+	// 结构化楼层（批量建点写入 floor=-1/-2，名称渲染 B1 无后缀也能归位）
+	pB1 := mkPoint("p-1-b1", "1栋B1通道灭火器", &b1)
+	pB1.Floor = &neg1
+	pB2 := mkPoint("p-1-b2", "1栋负2层通道灭火器", &b1)
+	pB2.Floor = &neg2
+	pB1Name := mkPoint("p-2-b1", "2栋B1通道灭火器", &b2) // 无结构化楼层，靠裸 B1 名称解析
+	points = append(points, pB1, pB2, pB1Name)
 	idx := buildPointBindIndex(buildings, points)
 
 	// 唯一匹配才绑
@@ -104,6 +117,20 @@ func TestPointBindIndex(t *testing.T) {
 	c = idx.lookup("b3|f5")
 	if c == nil || c.pointID != "p-no-b" || c.buildingID != nil {
 		t.Fatalf("b3|f5 应命中无楼栋点位: %+v", c)
+	}
+	// 负楼层：结构化 floor 优先（名称 B1 无后缀也命中）
+	c = idx.lookup("b1|f-1")
+	if c == nil || c.pointID != "p-1-b1" {
+		t.Fatalf("b1|f-1 应命中结构化楼层点位: %+v", c)
+	}
+	c = idx.lookup("b1|f-2")
+	if c == nil || c.pointID != "p-1-b2" {
+		t.Fatalf("b1|f-2 应命中: %+v", c)
+	}
+	// 负楼层：无结构化楼层时裸 B1 名称解析
+	c = idx.lookup("b2|f-1")
+	if c == nil || c.pointID != "p-2-b1" {
+		t.Fatalf("b2|f-1 应命中裸B1名称点位: %+v", c)
 	}
 	// "11栋"不被"1栋"误匹配：b1 键不会命中 11栋 的点位
 	points2 := []insmodel.InspectionPoint{mkPoint("p-11", "11栋1楼消火栓", nil)}

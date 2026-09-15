@@ -344,7 +344,7 @@ func (s *ReviewService) Reject(c *gin.Context, id, reason string) *errs.Error {
 	// 站内通知巡检员 + App 推送
 	ptName := pointName(s.db, r.PointID)
 	_ = s.notifier.Send(r.InspectorID, "checkin_audit",
-		"打卡记录被打回",
+		"打卡记录被驳回",
 		fmt.Sprintf("你在点位「%s」的打卡记录审核未通过，原因：%s。请核实后按要求补巡。", ptName, reason),
 		&r.ID)
 	return nil

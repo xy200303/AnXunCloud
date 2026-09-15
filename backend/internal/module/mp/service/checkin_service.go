@@ -457,7 +457,7 @@ func (s *CheckinService) doCheckinLocked(ctx context.Context, inspectorID string
 	case walk.Fallback || walk.NotifyIdx >= 0:
 		s.notifyStepReviewers(rec.ID, point.Name, walk.Step, walk.Fallback, routeReason)
 	case walk.Reject:
-		_ = s.notifier.Send(inspectorID, "checkin_audit", "打卡记录被打回",
+		_ = s.notifier.Send(inspectorID, "checkin_audit", "打卡记录被驳回",
 			fmt.Sprintf("你在点位「%s」的打卡记录经 AI 审核不通过：%s。请核实后按要求补巡。", point.Name, routeReason), &rec.ID)
 	}
 	// 任务进度缓存失效

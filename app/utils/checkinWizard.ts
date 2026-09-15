@@ -50,6 +50,12 @@ export type WizardItemSnap = {
   res_photos?: string[]
   /** 处置照片已上传的 upload_file.id（与 res_photos 一一对应） */
   res_file_ids?: string[]
+  /** 上传失败待补传的本地压缩照片路径（''/undefined = 无待补传；仅会话内有效，页面重进后该项按云端草稿回到待拍） */
+  pending_local?: string
+  /** 待补传链路：'ai' 拍照识别 / 'escape' 异常佐证（重试成功后继续原链路） */
+  pending_mode?: '' | 'ai' | 'escape'
+  /** escape 链路的异常类型（device_missing / unable_to_capture） */
+  pending_exception_type?: string
 }
 
 /** 向导内单点位状态 */

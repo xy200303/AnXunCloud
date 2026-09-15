@@ -869,7 +869,7 @@ async function fetchPoints() {
 // 打卡方式展示：凭证 + 围栏两个维度组合成一句话
 function checkinModeLabel(p: { credential: string; require_fence: boolean }) {
   const cred = { qrcode: '扫码', nfc: 'NFC', none: '' }[p.credential] ?? p.credential
-  if (p.credential === 'none') return p.require_fence ? '围栏' : '免核验'
+  if (p.credential === 'none') return p.require_fence ? '围栏' : '不需要'
   return p.require_fence ? `${cred}+围栏` : cred
 }
 

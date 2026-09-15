@@ -48,7 +48,7 @@
           <el-select v-model="reviewedStatus" style="width: 120px">
             <el-option label="全部" value="all" />
             <el-option label="人工通过" value="pass" />
-            <el-option label="已打回" value="rejected" />
+            <el-option label="已驳回" value="rejected" />
           </el-select>
         </el-form-item>
         <el-form-item label="疑似作弊">
@@ -156,7 +156,7 @@
             <el-button link type="primary" @click.stop="openDetail(row)">详情</el-button>
             <template v-if="activeTab === 'pending'">
               <el-button v-perms="'inspection:checkin:review'" link type="success" @click="handlePass(row)">通过</el-button>
-              <el-button v-perms="'inspection:checkin:review'" link type="danger" @click="handleReject(row)">打回</el-button>
+              <el-button v-perms="'inspection:checkin:review'" link type="danger" @click="handleReject(row)">驳回</el-button>
             </template>
             <el-button
               v-if="activeTab === 'reviewed'"
@@ -283,7 +283,7 @@ function auditStatusTag(s: string): { label: string; type: 'info' | 'warning' | 
       auto_pass: { label: '默认通过', type: 'info' },
       pending: { label: '待审核', type: 'warning' },
       pass: { label: '人工通过', type: 'success' },
-      rejected: { label: '已打回', type: 'danger' }
+      rejected: { label: '已驳回', type: 'danger' }
     }[s] || { label: s || '--', type: 'info' }
   ) as { label: string; type: 'info' | 'warning' | 'success' | 'danger' }
 }
@@ -458,18 +458,18 @@ async function handlePass(row: CheckinItem) {
 async function handleReject(row: CheckinItem) {
   let reason = ''
   try {
-    const res = await ElMessageBox.prompt('请输入打回原因', '打回记录', {
+    const res = await ElMessageBox.prompt('请输入驳回原因', '驳回记录', {
       confirmButtonText: '确定',
       cancelButtonText: '取消',
       inputPlaceholder: '如：照片模糊，请重新打卡',
-      inputValidator: (v: string) => (v && v.trim() ? true : '打回原因不能为空')
+      inputValidator: (v: string) => (v && v.trim() ? true : '驳回原因不能为空')
     })
     reason = res.value.trim()
   } catch {
     return
   }
   await rejectReview(row.id, reason)
-  ElMessage.success('已打回')
+  ElMessage.success('已驳回')
   fetchList()
 }
 

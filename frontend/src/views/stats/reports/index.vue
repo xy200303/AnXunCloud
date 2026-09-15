@@ -468,7 +468,7 @@ function auditStatusTag(s: string): { label: string; type: 'info' | 'warning' | 
       auto_pass: { label: '默认通过', type: 'info' },
       pending: { label: '待审核', type: 'warning' },
       pass: { label: '人工通过', type: 'success' },
-      rejected: { label: '已打回', type: 'danger' }
+      rejected: { label: '已驳回', type: 'danger' }
     }[s] || { label: s || '--', type: 'info' }
   ) as { label: string; type: 'info' | 'warning' | 'success' | 'danger' }
 }

@@ -88,10 +88,11 @@
           @spot-ai="aiReadSpotLabel"
           @spot-field="onSpotField"
           @spot-confirm="confirmSpot"
+          @retry-upload="retryCurUpload"
         />
       </block>
 
-      <QuickGateCard v-if="phase == 'gate'" :item-count="curItemCount" :stats="gateStats" :submit-error="gateSubmitError" :colors="colors" :shadow="shadow" @submit="submitPoint" />
+      <QuickGateCard v-if="phase == 'gate'" :item-count="curItemCount" :stats="gateStats" :submit-error="gateSubmitError" :pending-names="pendingNames" :colors="colors" :shadow="shadow" @submit="submitPoint" />
 
       <!-- 补拍步（质量不合格 / 识别失败） -->
       <block v-if="phase == 'retake'">
@@ -198,6 +199,7 @@ import {
   TaskPoint
 } from '@/services/api'
 import { isNfcSupported, readCardOnce, toastNfcUnavailable } from '@/utils/nfc'
+import { NETWORK_ERR_PREFIX } from '@/utils/offline'
 import { extractPointCode, resolvePointCode } from '@/utils/scan'
 import { getLocationGcj02 } from '@/utils/geo'
 import { playVoice } from '@/utils/voice'
@@ -523,6 +525,12 @@ export default {
       if (wp == null) return []
       return this.abnormalIdxs.map((i) => wp.items[i]).filter((it) => it != null)
     },
+    /** 当前点位待补传项名称（上传失败照片保留待重试；收尾步橙色警示条与提交闸门用） */
+    pendingNames(): string[] {
+      const wp = this.curWizPoint
+      if (wp == null) return []
+      return wp.items.filter((it) => (it.pending_local ?? '') != '').map((it) => it.name)
+    },
     /** 底部「上一项」：主推进阶段且遮盖层未开启时显示 */
     showPrev(): boolean {
       if (this.overlayMsg != '' || this.submitting || this.captureBusy) return false
@@ -550,12 +558,18 @@ export default {
     }
     const sys = uni.getSystemInfoSync()
     this.statusBarHeight = sys.statusBarHeight != null ? sys.statusBarHeight : 0
+    uni.onNetworkStatusChange(this.onNetChange)
     this.load()
+  },
+  onShow() {
+    // 回到页面（如接电话切回）：自动补传待补传照片（无网/处理中自动跳过）
+    this.retryPendingItems()
   },
   onUnload() {
     this.destroyed = true
     this.captureToken += 1
     this.captureBusy = false
+    uni.offNetworkStatusChange(this.onNetChange)
     this.stopPoll()
     if (this.overlayWatchdog != null) {
       clearTimeout(this.overlayWatchdog)
@@ -1075,33 +1089,7 @@ export default {
               .then((j) => {
                 if (j == null || !this.captureIsCurrent(captureToken)) return
                 this.overlayMsg = ''
-                // 展示用服务端 URL（重启后仍可加载）；本地临时路径仅兜底
-                it.photos = [fileUrl != '' ? fileUrl : raw]
-                it.img_error = false
-                it.file_ids = [fileId]
-                it.exception_type = mode == 'escape' ? exceptionType : ''
-                it.file_id = fileId
-                it.job_id = j.job_id
-                if (mode == 'escape') {
-                  it.status = 'done'
-                  it.verdict = 'abnormal'
-                  it.reason = exceptionType == 'device_missing' ? '设备确实不存在，已上报异常' : '现场无法拍摄，已上报异常'
-                  it.reading = ''
-                  it.quality_pass = true
-                  it.quality_issue = ''
-                  it.pass = false
-                  it.note = it.reason
-                  uni.showToast({ title: '异常已上报', icon: 'success' })
-                } else {
-                  it.status = 'recognizing'
-                  it.verdict = ''
-                  it.reason = ''
-                  it.reading = ''
-                  it.quality_pass = true
-                  it.quality_issue = ''
-                  it.pass = true
-                  it.note = ''
-                }
+                this.applyPhotoSuccess(it, raw, fileId, fileUrl, j.job_id, mode, exceptionType)
                 this.captureBusy = false
                 // 拍照项：立即推进下一项，不等识别结果
                 if (advance) this.nextStep()
@@ -1115,7 +1103,14 @@ export default {
                   uni.showToast({ title: 'AI 未启用，请改用手动模式', icon: 'none' })
                   return
                 }
-                uni.showToast({ title: (e && e.message) || '拍照失败，请重试', icon: 'none' })
+                const msg = (e && e.message) || ''
+                // 网络异常（上传/建 job）：压缩图保留在项上置待补传态，联网/回页后点该项或自动重试
+                if (msg.indexOf(NETWORK_ERR_PREFIX) == 0) {
+                  this.markPendingUpload(it, raw, mode, exceptionType)
+                  uni.showToast({ title: '网络异常，照片已保留，联网后点该项重试', icon: 'none' })
+                  return
+                }
+                uni.showToast({ title: msg || '拍照失败，请重试', icon: 'none' })
               })
               .then(() => {
                 if (this.captureToken == captureToken) this.captureBusy = false
@@ -1134,6 +1129,147 @@ export default {
     },
     captureIsCurrent(token: number): boolean {
       return !this.destroyed && this.captureToken == token
+    },
+    /** 上传+建 job 成功后的逐项落定（shootFor 与待补传重试共用）；escape=异常佐证直接落定异常 */
+    applyPhotoSuccess(it: WizardItemSnap, raw: string, fileId: string, fileUrl: string, jobId: string, mode: 'ai' | 'escape', exceptionType: string) {
+      it.pending_local = ''
+      it.pending_mode = ''
+      it.pending_exception_type = ''
+      // 展示用服务端 URL（重启后仍可加载）；本地临时路径仅兜底
+      it.photos = [fileUrl != '' ? fileUrl : raw]
+      it.img_error = false
+      it.file_ids = [fileId]
+      it.exception_type = mode == 'escape' ? exceptionType : ''
+      it.file_id = fileId
+      it.job_id = jobId
+      if (mode == 'escape') {
+        it.status = 'done'
+        it.verdict = 'abnormal'
+        it.reason = exceptionType == 'device_missing' ? '设备确实不存在，已上报异常' : '现场无法拍摄，已上报异常'
+        it.reading = ''
+        it.quality_pass = true
+        it.quality_issue = ''
+        it.pass = false
+        it.note = it.reason
+        uni.showToast({ title: '异常已上报', icon: 'success' })
+      } else {
+        it.status = 'recognizing'
+        it.verdict = ''
+        it.reason = ''
+        it.reading = ''
+        it.quality_pass = true
+        it.quality_issue = ''
+        it.pass = true
+        it.note = ''
+      }
+    },
+    /** 上传失败置待补传态：压缩图保留在项上（本地路径仅会话内有效），卡片显示「照片待补传，点击重试」 */
+    markPendingUpload(it: WizardItemSnap, raw: string, mode: 'ai' | 'escape', exceptionType: string) {
+      it.pending_local = raw
+      it.pending_mode = mode
+      it.pending_exception_type = exceptionType
+      it.photos = [raw]
+      it.img_error = false
+      it.file_ids = []
+      it.job_id = ''
+      it.status = 'failed'
+      it.quality_issue = '照片待补传'
+    },
+    /** 待补传项重试：重新上传保留的本地压缩图 → 继续原链路（ai=建识别 job / escape=异常上报草稿），成功清 pending 标记 */
+    retryPendingUpload(it: WizardItemSnap, pointId: string) {
+      const raw = it.pending_local
+      if (raw == null || raw == '') return
+      if (this.captureBusy || this.submitting || this.overlayMsg != '' || this.destroyed) return
+      const mode: 'ai' | 'escape' = it.pending_mode == 'escape' ? 'escape' : 'ai'
+      const exceptionType = it.pending_exception_type ?? ''
+      this.captureBusy = true
+      this.overlayMsg = '照片补传中…'
+      let fileId = ''
+      let fileUrl = ''
+      apiUploadLocal(raw)
+        .then((r) => {
+          fileId = r.file_id
+          fileUrl = r.url
+          if (mode == 'escape') {
+            return apiItemDraftPhotoAbnormal({
+              task_id: this.taskId,
+              point_id: pointId,
+              name: it.name,
+              file_ids: [fileId],
+              note: exceptionType == 'device_missing' ? '设备确实不存在，已上报异常' : '现场无法拍摄，已上报异常',
+              exception_type: exceptionType
+            }).then(() => ({ job_id: '' }))
+          }
+          return apiAiItemJobCreate({
+            task_id: this.taskId,
+            point_id: pointId,
+            name: it.name,
+            file_ids: [fileId]
+          })
+        })
+        .then((j) => {
+          if (this.destroyed) return
+          this.overlayMsg = ''
+          this.captureBusy = false
+          this.applyPhotoSuccess(it, raw, fileId, fileUrl, j.job_id, mode, exceptionType)
+          if (mode != 'escape') uni.showToast({ title: '照片补传成功', icon: 'success' })
+          // 继续补传其余待补传项（逐项串行，弱网防雪崩）
+          this.retryNextPending()
+        })
+        .catch((e: any) => {
+          if (this.destroyed) return
+          this.overlayMsg = ''
+          this.captureBusy = false
+          const code = e != null && typeof e.code == 'number' ? e.code : 0
+          if (code == CODE_AI_DISABLED) {
+            uni.showToast({ title: 'AI 未启用，请改用手动模式', icon: 'none' })
+            return
+          }
+          // 仍是网络异常：照片继续保留待补传；业务错误原样提示（本地图失效可在卡片上点「重新拍」）
+          const msg = (e && e.message) || ''
+          if (msg.indexOf(NETWORK_ERR_PREFIX) == 0) {
+            uni.showToast({ title: '仍无法上传，照片已保留，联网后自动重试', icon: 'none' })
+            return
+          }
+          uni.showToast({ title: msg || '补传失败，请重试', icon: 'none' })
+        })
+    },
+    /** 逐项扫描向导快照，补传第一个待补传项（成功后由其 then 链继续下一项） */
+    retryNextPending() {
+      if (this.captureBusy || this.submitting || this.overlayMsg != '' || this.destroyed) return
+      for (let p = 0; p < this.wizPoints.length; p++) {
+        const wp = this.wizPoints[p]
+        for (let i = 0; i < wp.items.length; i++) {
+          const it = wp.items[i]
+          if ((it.pending_local ?? '') != '') {
+            this.retryPendingUpload(it, wp.point_id)
+            return
+          }
+        }
+      }
+    },
+    /** 回到页面 / 网络恢复时自动补传：无网或处理中则跳过（loaded 前快照未建，不跑） */
+    retryPendingItems() {
+      if (!this.loaded || this.destroyed) return
+      if (this.captureBusy || this.submitting || this.overlayMsg != '') return
+      uni.getNetworkType({
+        success: (net) => {
+          if (net.networkType == 'none') return
+          this.retryNextPending()
+        },
+        fail: () => {}
+      })
+    },
+    /** 卡片「照片待补传，点击重试」点击：补传当前项 */
+    retryCurUpload() {
+      const it = this.curItem
+      const wp = this.curWizPoint
+      if (it == null || wp == null || (it.pending_local ?? '') == '') return
+      this.retryPendingUpload(it, wp.point_id)
+    },
+    /** 网络状态变化：恢复连接即自动补传待补传项 */
+    onNetChange(res: { isConnected?: boolean }) {
+      if (res != null && res.isConnected == true) this.retryPendingItems()
     },
     /** 抽查项字段更新（QuickItemCard picker/勾选透传；标签缺失勾选后清空日期） */
     onSpotField(payload: { field: string; value: any }) {
@@ -1417,6 +1553,14 @@ export default {
     submitPoint() {
       const wp = this.curWizPoint
       if (wp == null || this.submitting || this.captureBusy) return
+      // 提交闸门：有待补传照片阻止提交并明示哪几项（联网后点该项重试 / 自动补传）
+      if (this.pendingNames.length > 0) {
+        uni.showToast({
+          title: '照片待补传：' + this.pendingNames.join('、') + '，联网后点该项重试',
+          icon: 'none'
+        })
+        return
+      }
       if (!this.credOk) {
         uni.showToast({ title: '请先完成点位核验', icon: 'none' })
         return

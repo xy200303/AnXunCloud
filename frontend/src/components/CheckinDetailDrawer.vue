@@ -162,7 +162,7 @@
             </el-descriptions-item>
             <el-descriptions-item v-if="detail.audit_by_name" label="审核人">{{ detail.audit_by_name }}</el-descriptions-item>
             <el-descriptions-item v-if="detail.audit_at" label="审核时间">{{ detail.audit_at }}</el-descriptions-item>
-            <el-descriptions-item v-if="detail.audit_remark" label="打回原因">
+            <el-descriptions-item v-if="detail.audit_remark" label="驳回原因">
               <span class="danger-text">{{ detail.audit_remark }}</span>
             </el-descriptions-item>
           </el-descriptions>
@@ -209,7 +209,7 @@ function auditStatusTag(s: string): { label: string; type: 'info' | 'warning' | 
       auto_pass: { label: '默认通过', type: 'info' },
       pending: { label: '待审核', type: 'warning' },
       pass: { label: '人工通过', type: 'success' },
-      rejected: { label: '已打回', type: 'danger' }
+      rejected: { label: '已驳回', type: 'danger' }
     }[s] || { label: s, type: 'info' }
   ) as { label: string; type: 'info' | 'warning' | 'success' | 'danger' }
 }

@@ -66,7 +66,7 @@ type PageData = {
 }
 
 function credentialTextOf(credential: string, requireFence: boolean): string {
-  let base = '免凭证'
+  let base = '不需要'
   if (credential == 'qrcode') base = '扫码'
   else if (credential == 'nfc') base = 'NFC'
   else if (credential == 'any') base = '扫码/NFC'

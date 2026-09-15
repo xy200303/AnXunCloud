@@ -106,7 +106,7 @@
                 >
                   <el-option v-for="o in branchOptionsFor(idx, b.field)" :key="o.value" :label="o.label" :value="o.value" />
                 </el-select>
-                <div class="lane-pop-hint">只能跳到本环节之后的人工环节；「无异常」不允许直接打回</div>
+                <div class="lane-pop-hint">只能跳到本环节之后的人工环节；「无异常」不允许直接驳回</div>
               </div>
             </el-popover>
           </div>
@@ -207,7 +207,7 @@ const tip = computed(() => {
   if (kind.value === 'maint') {
     return '维保登记按环节顺序逐级审核：空流程 = 登记即生效；AI 环节 = 标签核对结果分流（无异常 / 有异常 / 存疑各配去向，可跳到后续人工环节）；人工环节审核人 = 负责岗位在该项目编制里的在职成员' + lane + '。'
   }
-  return '打卡记录按环节顺序逐级审核：当前环节名单成员通过后进入下一环节，末环节通过才生效；驳回即打回。空流程 = 打卡默认通过；AI 环节 = 按结果分流（无异常 / 有异常 / 存疑各配去向，可跳到后续人工环节）；人工环节审核人 = 负责岗位在该项目编制里的在职成员' + lane + '。'
+  return '打卡记录按环节顺序逐级审核：当前环节名单成员通过后进入下一环节，末环节通过才生效；驳回即退回。空流程 = 打卡默认通过；AI 环节 = 按结果分流（无异常 / 有异常 / 存疑各配去向，可跳到后续人工环节）；人工环节审核人 = 负责岗位在该项目编制里的在职成员' + lane + '。'
 })
 const emptyText = computed(() =>
   kind.value === 'report' ? '未配置环节 —— 报告生成后将直接归档' : kind.value === 'maint' ? '未配置环节 —— 维保登记将登记即生效' : '未配置环节 —— 打卡记录将默认通过'
@@ -282,7 +282,7 @@ function routeLabel(route: string | undefined, fallback: string): string {
   const v = route || fallback
   if (v === 'finish') return '通过并生效'
   if (v === 'next') return '进入下一环节'
-  if (v === 'reject') return '直接打回'
+  if (v === 'reject') return '直接驳回'
   if (v.startsWith('goto:')) {
     const raw = v.slice(5)
     if (raw.startsWith('!')) return '目标环节已删除'
@@ -396,7 +396,7 @@ function branchOptionsFor(idx: number, field: BranchField) {
   else opts.push({ value: 'next', label: '进入下一环节（默认）' })
   if (field === 'on_pass') opts.push({ value: 'next', label: '进入下一环节' })
   if (field === 'on_abnormal') opts.push({ value: 'finish', label: '通过并生效' })
-  if (field !== 'on_pass') opts.push({ value: 'reject', label: '直接打回' })
+  if (field !== 'on_pass') opts.push({ value: 'reject', label: '直接驳回' })
   for (let j = idx + 1; j < steps.value.length; j++) {
     const t = steps.value[j]
     if (t.kind === 'ai') continue

@@ -1559,6 +1559,8 @@ export type AdminCheckinDetail = {
   remark: string
   is_suspect: boolean
   suspect_reason: string
+  /** 整单照片（由逐项照片聚合，含 EXIF 校验结论 exif_check） */
+  photos: OrderPhoto[]
   check_items: Array<{
     name: string
     pass: boolean
@@ -1567,8 +1569,14 @@ export type AdminCheckinDetail = {
     requirement: string | null
     ai_verdict: string | null
     ai_reason: string | null
+    /** ''=未处置 / on_site_resolved / maintenance_registered / report_pending */
+    disposition: string
+    resolution_note: string
+    resolution_photo_urls: string[]
   }>
   audit_status: string
+  audit_at: string | null
+  audit_remark: string
   ai_verdict: string
   ai_reason: string
 }
@@ -1609,7 +1617,20 @@ export type ReviewRecord = {
   is_suspect: boolean
   suspect_reason: string
   photos: OrderPhoto[]
-  check_items: Array<{ name: string; pass: boolean; note: string; photos: string[]; photo_urls?: string[]; requirement: string | null }>
+  check_items: Array<{
+    name: string
+    pass: boolean
+    note: string
+    photos: string[]
+    photo_urls?: string[]
+    requirement: string | null
+    ai_verdict?: string | null
+    ai_reason?: string | null
+    /** ''=未处置 / on_site_resolved / maintenance_registered / report_pending */
+    disposition?: string
+    resolution_note?: string
+    resolution_photo_urls?: string[]
+  }>
   /** pending/passed/rejected */
   audit_status: string
   audit_by: string | null

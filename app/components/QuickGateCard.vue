@@ -8,6 +8,9 @@
         <view class="gate-stat"><text class="gate-stat-num" :style="{ color: colors.danger }">{{ stats.abnormal }}</text><text class="gate-stat-label" :style="{ color: colors.textSecondary }">异常</text></view>
       </view>
       <text class="gate-sub" :style="{ color: colors.textSecondary }">{{ stats.recognizing > 0 ? '提交后将等待 AI 检查完成' : '提交后 AI 统一检查' }}</text>
+      <view v-if="pendingNames.length > 0" class="gate-error" :style="{ backgroundColor: colors.warning }">
+        <text class="gate-error-text" :style="{ color: colors.white }">照片待补传：{{ pendingNames.join('、') }}，联网后回到该项点击重试</text>
+      </view>
       <view v-if="submitError != ''" class="gate-error" :style="{ backgroundColor: colors.danger }">
         <text class="gate-error-text" :style="{ color: colors.white }">上次提交失败（{{ submitError }}），请点下方按钮重试</text>
       </view>
@@ -29,6 +32,8 @@ export default {
     stats: { type: Object as () => GateStats, required: true },
     /** 上次提交失败原因（空 = 不显示红色状态条） */
     submitError: { type: String, default: '' },
+    /** 待补传项名称（非空显示橙色警示条；提交被闸门阻止） */
+    pendingNames: { type: Array as () => string[], default: () => [] },
     colors: { type: Object as () => ColorTokens, required: true },
     shadow: { type: String, default: '' }
   },

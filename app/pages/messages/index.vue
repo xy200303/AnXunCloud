@@ -260,8 +260,9 @@ export default {
         return
       }
       if (m.type == 'checkin_audit') {
-        // 巡检员收到「打卡被打回」：biz_id = 打卡记录 ID，查摘要定位任务/点位，直达记录卡（可修改重交）
-        if (m.title.indexOf('打回') >= 0) {
+        // 巡检员收到「打卡被驳回」：biz_id = 打卡记录 ID，查摘要定位任务/点位，直达记录卡（可修改重交）
+        // 兼容存量消息：标题历史文案为「被打回」，两种都匹配
+        if (m.title.indexOf('驳回') >= 0 || m.title.indexOf('打回') >= 0) {
           if (biz != null && biz != '') {
             apiCheckinBrief(biz)
               .then((b) => {

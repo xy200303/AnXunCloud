@@ -343,6 +343,30 @@ function isEquipAuto(it: ItemView): boolean {
   return it.judge_type == 'equipment_validity' && it.auto_judge != null
 }
 
+/** 本地草稿 storage key（按任务+点位隔离） */
+function draftKey(taskId: string, pointId: string): string {
+  return 'checkin_draft:' + taskId + ':' + pointId
+}
+
+/** 草稿逐项内容：结论/备注/处置方式/抽查日期；照片本地路径不持久化（重启后临时路径可能失效） */
+type FormDraftItem = {
+  name: string
+  pass: boolean
+  note: string
+  disposition: '' | 'on_site_resolved' | 'report_pending'
+  spot_mfg: string
+  spot_maint: string
+  spot_no_sticker: boolean
+  spot_label_missing: boolean
+}
+
+/** 草稿整体：逐项 + 整单备注 + 保存时间 */
+type FormDraft = {
+  saved_at: string
+  remark: string
+  items: FormDraftItem[]
+}
+
 /** 标签抽查合成项（v1.7：触发才出现；必拍+填日期，服务端四规则比对） */
 function isEquipSpot(it: ItemView): boolean {
   return it.judge_type == 'equipment_date_spot'
@@ -443,6 +467,10 @@ type FormData = {
   /** 删除照片确认期间暂存的目标列表与下标 */
   photoDelList: string[] | null
   photoDelIdx: number
+  /** 草稿防抖定时器（500ms；null = 无待写入） */
+  draftTimer: any
+  /** 草稿写入闸门：加载与草稿恢复完成后才置真（避免初始化/恢复过程把空态/草稿原样写回） */
+  draftReady: boolean
 }
 
 /** haversine 距离（米） */
@@ -501,7 +529,9 @@ export default {
       forceSubmit: false,
       dlg: { show: false, kind: '', title: '', content: '', confirmText: '知道了', cancelText: '', action: '' },
       photoDelList: null,
-      photoDelIdx: -1
+      photoDelIdx: -1,
+      draftTimer: null,
+      draftReady: false
     }
   },
   computed: {
@@ -540,6 +570,18 @@ export default {
       return Colors.textRegular
     }
   },
+  watch: {
+    /** 逐项字段/整单备注变更 → 防抖 500ms 写本地草稿（draftReady 前不写，避免初始化与恢复过程回写） */
+    items: {
+      deep: true,
+      handler() {
+        this.scheduleDraftSave()
+      }
+    },
+    remark() {
+      this.scheduleDraftSave()
+    }
+  },
   onLoad(options: any) {
     this.taskId = options && options.task_id ? String(options.task_id) : ''
     this.pointId = options && options.point_id ? String(options.point_id) : ''
@@ -548,6 +590,14 @@ export default {
       this.scannedNo = String(options.no).trim()
     }
     this.load()
+  },
+  onUnload() {
+    // 退出页面前把防抖窗口内的最后改动落盘（已提交/已暂存的页面 clearDraft 已关闸门，不会回写）
+    if (this.draftTimer != null) {
+      clearTimeout(this.draftTimer)
+      this.draftTimer = null
+      this.writeDraft()
+    }
   },
   methods: {
     isEquipAuto,
@@ -609,6 +659,9 @@ export default {
           })
           this.loading = false
           this.loaded = true
+          // 本地草稿恢复（逐项结论/备注/处置方式/抽查日期；照片路径不持久化）→ 完成后才开草稿写入闸门
+          this.restoreDraft()
+          this.draftReady = true
           // 加载完成自动定位一次
           this.locate()
         })
@@ -645,6 +698,88 @@ export default {
     onLocTap() {
       // 非定位中即可点击重新定位（走近后主动刷新围栏距离，不必等失败）
       if (!this.locating) this.locate()
+    },
+    /** 防抖 500ms 写本地草稿（字段变更即触发；加载/恢复完成前或提交后闸门关闭不写） */
+    scheduleDraftSave() {
+      if (!this.draftReady) return
+      if (this.draftTimer != null) clearTimeout(this.draftTimer)
+      this.draftTimer = setTimeout(() => {
+        this.draftTimer = null
+        this.writeDraft()
+      }, 500)
+    },
+    /** 写本地草稿：逐项 pass/note/disposition/抽查日期 + 整单备注；照片本地路径不持久化 */
+    writeDraft() {
+      if (!this.draftReady || this.taskId == '' || this.pointId == '') return
+      const draft: FormDraft = {
+        saved_at: new Date().toISOString(),
+        remark: this.remark,
+        items: this.items.map((it) => ({
+          name: it.name,
+          pass: it.pass,
+          note: it.note,
+          disposition: it.disposition,
+          spot_mfg: it.spot_mfg,
+          spot_maint: it.spot_maint,
+          spot_no_sticker: it.spot_no_sticker,
+          spot_label_missing: it.spot_label_missing
+        }))
+      }
+      try {
+        uni.setStorageSync(draftKey(this.taskId, this.pointId), JSON.stringify(draft))
+      } catch (e) {
+        // 存储失败（容量等）静默：草稿是增强不是硬依赖
+      }
+    },
+    /** 清除本地草稿并关写入闸门（提交成功/离线暂存后调用；防 onUnload 防抖 flush 回写） */
+    clearDraft() {
+      this.draftReady = false
+      if (this.draftTimer != null) {
+        clearTimeout(this.draftTimer)
+        this.draftTimer = null
+      }
+      if (this.taskId == '' || this.pointId == '') return
+      try {
+        uni.removeStorageSync(draftKey(this.taskId, this.pointId))
+      } catch (e) {}
+    },
+    /** 恢复本地草稿：按检查项名匹配回填（台账有效期项由服务端判定不恢复；旧草稿若残留照片路径字段一律忽略） */
+    restoreDraft() {
+      if (this.taskId == '' || this.pointId == '') return
+      const raw = uni.getStorageSync(draftKey(this.taskId, this.pointId)) as string
+      if (raw == null || raw == '') return
+      let draft: FormDraft
+      try {
+        draft = JSON.parse(raw) as FormDraft
+      } catch (e) {
+        return
+      }
+      if (draft == null || !Array.isArray(draft.items)) return
+      const byName: Record<string, FormDraftItem> = {}
+      draft.items.forEach((d) => {
+        if (d != null && typeof d.name == 'string') byName[d.name] = d
+      })
+      let applied = false
+      this.items.forEach((it) => {
+        if (isEquipAuto(it)) return
+        const d = byName[it.name]
+        if (d == null) return
+        it.pass = d.pass !== false
+        it.note = typeof d.note == 'string' ? d.note : ''
+        it.disposition = d.disposition == 'on_site_resolved' || d.disposition == 'report_pending' ? d.disposition : ''
+        if (isEquipSpot(it)) {
+          it.spot_mfg = typeof d.spot_mfg == 'string' ? d.spot_mfg : ''
+          it.spot_maint = typeof d.spot_maint == 'string' ? d.spot_maint : ''
+          it.spot_no_sticker = d.spot_no_sticker == true
+          it.spot_label_missing = d.spot_label_missing == true
+        }
+        if (!it.pass || it.note != '' || it.disposition != '') applied = true
+      })
+      if (typeof draft.remark == 'string' && draft.remark != '') {
+        this.remark = draft.remark
+        applied = true
+      }
+      if (applied) uni.showToast({ title: '已恢复上次未提交的填写', icon: 'none' })
     },
     scanCredential() {
       uni.scanCode({
@@ -1079,6 +1214,7 @@ export default {
         })
       }
       enqueueOfflineCheckin(req, photosLocal)
+      this.clearDraft()
       uni.hideLoading()
       this.submitting = false
       this.openDlg('primary', pt.point_name, '当前无网络，打卡已离线暂存，网络恢复后自动补传', '知道了', '', 'offline-exit')
@@ -1182,6 +1318,8 @@ export default {
           })
         })
         .then((res: CheckinResult) => {
+          // 提交成功：清除本地草稿（并关写入闸门，防 onUnload 防抖 flush 回写）
+          this.clearDraft()
           // AI 审核为后端异步执行：启用时延迟轮询逐项结论（2.5s×2，超时静默按无结论处理），
           // 未启用直接走原成功提示，不白等
           if (res.ai_enabled) {

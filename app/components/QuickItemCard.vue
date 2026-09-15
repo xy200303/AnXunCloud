@@ -4,8 +4,30 @@
     <text class="item-hint" :style="{ color: colors.textSecondary }">{{ item.requirement != '' ? item.requirement : (isPhoto ? '拍一张该项的照片' : '这项正常吗？') }}</text>
 
     <template v-if="isPhoto">
+      <!-- 待补传态：上传失败压缩图保留在项上，点橙色按钮重试补传（成功继续原 AI 链路）；本地图失效可重拍 -->
+      <block v-if="item.pending_local">
+        <view class="shot-preview" :style="{ backgroundColor: colors.bgPage }" @click="$emit('preview-photo')">
+          <image
+            v-if="item.photos.length > 0 && !item.img_error"
+            :src="item.photos[0]"
+            class="shot-img"
+            mode="aspectFill"
+            lazy-load
+            @error="$emit('image-error')"
+          />
+          <view v-else class="shot-img shot-img-fallback">
+            <text class="shot-img-fallback-text">照片已保留，待补传</text>
+          </view>
+        </view>
+        <view hover-class="hover-dim" class="btn-big shot-next" :style="{ backgroundColor: colors.warning }" @click="$emit('retry-upload')">
+          <text class="btn-big-text" :style="{ color: colors.white }">照片待补传，点击重试</text>
+        </view>
+        <view hover-class="hover-dim" class="btn-outline reshot" :style="{ borderColor: colors.primary }" @click="$emit('take-photo')">
+          <text class="btn-outline-text" :style="{ color: colors.primary }">重新拍</text>
+        </view>
+      </block>
       <view
-        v-if="item.status == 'todo' || item.status == 'failed'"
+        v-else-if="item.status == 'todo' || item.status == 'failed'"
         hover-class="hover-dim"
         class="shot-empty"
         :style="{ borderColor: item.status == 'failed' ? colors.danger : colors.primary }"
@@ -207,7 +229,8 @@ export default {
     'spot-photo',
     'spot-ai',
     'spot-field',
-    'spot-confirm'
+    'spot-confirm',
+    'retry-upload'
   ],
   computed: {
     /** 台账有效期项「拍新标签」入口：逾期/缺数据（或后端仍下发展示登记入口）时才出现 */

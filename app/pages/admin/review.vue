@@ -62,78 +62,8 @@
             <text class="sheet-close" :style="{ color: colors.textSecondary }" @click="closeDetail">×</text>
           </view>
 
-          <!-- 基本信息 -->
-          <view class="card" :style="{ backgroundColor: colors.bgCard }">
-            <text class="info-line" :style="{ color: colors.textRegular }">小区：{{ detail.community_name }}</text>
-            <text class="info-line" :style="{ color: colors.textRegular }">巡检员：{{ detail.inspector_name }}</text>
-            <text class="info-line" :style="{ color: colors.textRegular }">打卡时间：{{ detail.checkin_time }}</text>
-            <text class="info-line" :style="{ color: colors.textRegular }">打卡方式：{{ typeTextOf(detail.checkin_type) }}</text>
-            <text v-if="detail.distance_to_point != null" class="info-line" :style="{ color: colors.textRegular }">
-              距点位：{{ detail.distance_to_point }} m
-            </text>
-            <text class="info-line" :style="{ color: detail.result == 'abnormal' ? colors.danger : colors.success }">
-              结果：{{ detail.result == 'abnormal' ? '异常' : '正常' }}
-            </text>
-            <text v-if="detail.is_suspect" class="info-line" :style="{ color: colors.warning }">
-              疑似作弊：{{ detail.suspect_reason != '' ? detail.suspect_reason : '系统标记' }}
-            </text>
-            <text v-if="detail.remark != ''" class="info-line" :style="{ color: colors.textRegular }">备注：{{ detail.remark }}</text>
-          </view>
-
-          <!-- AI 结论（有才显示） -->
-          <view v-if="detail.ai_verdict != ''" class="card" :style="{ backgroundColor: colors.bgCard }">
-            <text class="sec-title" :style="{ color: colors.textPrimary }">AI 审核结论</text>
-            <text class="info-line" :style="{ color: colors.textRegular }">结论：{{ detail.ai_verdict }}</text>
-            <text v-if="detail.ai_reason != ''" class="info-line" :style="{ color: colors.textSecondary }">{{ detail.ai_reason }}</text>
-          </view>
-
-          <!-- 检查项逐项结果 -->
-          <view v-if="detail.check_items.length > 0" class="card" :style="{ backgroundColor: colors.bgCard }">
-            <text class="sec-title" :style="{ color: colors.textPrimary }">检查项</text>
-            <view v-for="(it, idx) in detail.check_items" :key="idx" class="check-item">
-              <view class="check-item-head">
-                <text class="check-item-name" :style="{ color: colors.textPrimary }">{{ it.name }}</text>
-                <text class="check-item-result" :style="{ color: it.pass ? colors.success : colors.danger }">{{ it.pass ? '正常' : '异常' }}</text>
-              </view>
-              <text v-if="it.note != ''" class="check-item-note" :style="{ color: colors.textSecondary }">{{ it.note }}</text>
-              <view v-if="itemPhotoUrls(it).length > 0" class="photos">
-                <image
-                  v-for="(u, pi) in itemPhotoUrls(it)"
-                  :key="pi"
-                  class="photo"
-                  :src="u"
-                  mode="aspectFill"
-                  lazy-load
-                  @click="preview(itemPhotoUrls(it), pi)"
-                />
-              </view>
-            </view>
-          </view>
-
-          <!-- 现场照片墙 -->
-          <view v-if="photoUrls.length > 0" class="card" :style="{ backgroundColor: colors.bgCard }">
-            <text class="sec-title" :style="{ color: colors.textPrimary }">现场照片</text>
-            <view class="photos">
-              <image
-                v-for="(u, pi) in photoUrls"
-                :key="pi"
-                class="photo"
-                :src="u"
-                mode="aspectFill"
-                lazy-load
-                @click="preview(photoUrls, pi)"
-              />
-            </view>
-          </view>
-
-          <!-- 已审核信息 -->
-          <view v-if="detail.audit_status != 'pending'" class="card" :style="{ backgroundColor: colors.bgCard }">
-            <text class="sec-title" :style="{ color: colors.textPrimary }">审核结果</text>
-            <text class="info-line" :style="{ color: detail.audit_status == 'passed' ? colors.success : colors.danger }">
-              {{ detail.audit_status == 'passed' ? '已通过' : '已驳回' }}<text v-if="detail.audit_at != null"> · {{ detail.audit_at }}</text>
-            </text>
-            <text v-if="detail.audit_remark != ''" class="info-line" :style="{ color: colors.textSecondary }">意见：{{ detail.audit_remark }}</text>
-          </view>
+          <!-- 详情主体：与独立详情页共用 CheckinDetailView（ReviewRecord 结构对齐其 props，可直接传入） -->
+          <CheckinDetailView :record="detail" />
         </scroll-view>
 
         <!-- 待审核操作 -->
@@ -183,12 +113,12 @@
 <script lang="ts">
 import { Colors, ColorTokens } from '@/utils/theme'
 import { apiReviewRecords, apiReviewPass, apiReviewReject, ReviewRecord } from '@/services/api'
-import { toAbsUrl } from '@/utils/url'
 import AppBottomSheet from '@/components/AppBottomSheet.vue'
 import AppListShell from '@/components/AppListShell.vue'
 import AppSegmentTabs from '@/components/AppSegmentTabs.vue'
 import AppListFooter from '@/components/AppListFooter.vue'
 import AppDialog from '@/components/AppDialog.vue'
+import CheckinDetailView from '@/components/CheckinDetailView.vue'
 
 const PAGE_SIZE = 20
 
@@ -220,13 +150,8 @@ function typeTextOf(t: string): string {
   return '围栏'
 }
 
-/** 照片展示：优先水印图，其次原图，统一转绝对地址 */
-function photoUrl(p: { url: string; watermarked_url: string }): string {
-  return toAbsUrl(p.watermarked_url != '' ? p.watermarked_url : p.url)
-}
-
 export default {
-  components: { AppBottomSheet, AppListShell, AppListFooter, AppSegmentTabs, AppDialog },
+  components: { AppBottomSheet, AppListShell, AppListFooter, AppSegmentTabs, AppDialog, CheckinDetailView },
   data(): ReviewData {
     return {
       colors: Colors,
@@ -259,11 +184,6 @@ export default {
       if (this.status == 'passed') return '暂无已通过记录'
       if (this.status == 'rejected') return '暂无已驳回记录'
       return '暂无待审核打卡'
-    },
-    /** 详情整单照片绝对地址列表 */
-    photoUrls(): string[] {
-      if (this.detail == null) return []
-      return (this.detail.photos ?? []).map(photoUrl)
     }
   },
   onLoad(options: any) {
@@ -340,13 +260,6 @@ export default {
       this.detail = null
       this.rejecting = false
       this.rejectReason = ''
-    },
-    /** 检查项照片由后端按文件 ID 解析为可访问 URL。 */
-    itemPhotoUrls(it: { photos: string[]; photo_urls?: string[] }): string[] {
-      return (it.photo_urls ?? []).map(toAbsUrl)
-    },
-    preview(urls: string[], idx: number) {
-      uni.previewImage({ urls: urls, current: urls[idx] })
     },
     onPass() {
       if (this.detail == null || this.acting) return
@@ -528,56 +441,6 @@ export default {
   font-size: 48rpx;
   padding: 0 16rpx;
   line-height: 48rpx;
-}
-
-.sec-title {
-  font-size: 30rpx;
-  font-weight: 600;
-  margin-bottom: 16rpx;
-}
-
-.info-line {
-  font-size: 28rpx;
-  margin-top: 8rpx;
-}
-
-.check-item {
-  margin-top: 16rpx;
-}
-
-.check-item-head {
-  flex-direction: row;
-  justify-content: space-between;
-  align-items: center;
-}
-
-.check-item-name {
-  font-size: 28rpx;
-  flex: 1;
-}
-
-.check-item-result {
-  font-size: 26rpx;
-  margin-left: 16rpx;
-}
-
-.check-item-note {
-  font-size: 24rpx;
-  margin-top: 4rpx;
-}
-
-.photos {
-  flex-direction: row;
-  flex-wrap: wrap;
-  margin-top: 16rpx;
-}
-
-.photo {
-  width: 160rpx;
-  height: 160rpx;
-  border-radius: 12rpx;
-  margin-right: 16rpx;
-  margin-bottom: 16rpx;
 }
 
 .sheet-actions {

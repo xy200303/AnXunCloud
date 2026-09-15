@@ -140,7 +140,7 @@ func (s *CheckinService) settleGate(rec *insmodel.CheckinRecord, point *insmodel
 			Updates(map[string]any{"audit_status": insmodel.AuditRejected, "audit_remark": reason, "audit_at": time.Now()})
 		if res.Error == nil && res.RowsAffected > 0 {
 			_ = s.notifier.Send(rec.InspectorID, "checkin_audit",
-				"打卡记录被打回",
+				"打卡记录被驳回",
 				fmt.Sprintf("你在点位「%s」的打卡记录经 AI 审核不通过：%s。请核实后按要求补巡。", point.Name, reason),
 				&rec.ID)
 		}

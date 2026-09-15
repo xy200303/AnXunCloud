@@ -184,7 +184,15 @@ export default {
   },
   onLoad(options: any) {
     this.equipmentId = options && options.equipment_id ? String(options.equipment_id) : ''
-    if (options && options.name) this.eqName = String(options.name)
+    if (options && options.name) {
+      // 路由参数是 URL 编码的（中文设备名会带 %XX），显示前先解码；解码失败兜底原文
+      const raw = String(options.name)
+      try {
+        this.eqName = decodeURIComponent(raw)
+      } catch {
+        this.eqName = raw
+      }
+    }
     if (options && options.code) this.eqCode = String(options.code)
     // 编辑模式（我的提交 → 修改照片）：预填已上传照片，提交走 PUT 修改
     if (options && options.maintenance_id) {

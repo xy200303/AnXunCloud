@@ -55,6 +55,11 @@
       </div>
 
       <div class="table-card">
+        <!-- 台账类型页签：「全部」+ 设备类型字典项；切换即设置 query.type 重新查询，有方案时表格按方案动态列渲染 -->
+        <el-tabs v-model="query.type" class="type-tabs" @tab-change="handleSearch">
+          <el-tab-pane label="全部" name="" />
+          <el-tab-pane v-for="d in typeOptions" :key="d.value" :label="d.label" :name="d.value" />
+        </el-tabs>
         <div class="table-toolbar">
           <div class="table-toolbar-left">
             <el-button v-perms="'equipment:create'" type="primary" :icon="Plus" @click="openForm()">新增设备</el-button>
@@ -78,6 +83,21 @@
 
         <el-table ref="tableRef" v-loading="loading" :data="list" stripe style="width: 100%" row-key="id" @selection-change="handleSelectionChange">
           <el-table-column type="selection" width="45" reserve-selection />
+          <!-- 方案动态列：选中类型且方案 list_columns 非空时按方案渲染，纯文本直出 -->
+          <template v-if="dynamicColumns">
+            <el-table-column
+              v-for="col in dynamicColumns"
+              :key="col.key"
+              :label="col.label"
+              :width="col.width || undefined"
+              :min-width="col.width ? undefined : 130"
+              show-overflow-tooltip
+            >
+              <template #default="{ row }">{{ cellValue(row, col.key) }}</template>
+            </el-table-column>
+          </template>
+          <!-- 通用默认列集：「全部」或该类型无方案时保持现有结构 -->
+          <template v-else>
           <el-table-column label="状态灯" width="70" align="center">
             <template #default="{ row }">
               <el-tooltip :content="dueStateLabel(row.due_state)" placement="top">
@@ -120,6 +140,7 @@
               <el-tag :type="statusTagType(row.status)" size="small">{{ row.status_label || row.status }}</el-tag>
             </template>
           </el-table-column>
+          </template>
           <el-table-column label="操作" width="240" fixed="right">
             <template #default="{ row }">
               <el-button v-perms="'equipment:list'" link type="primary" @click="openDetail(row)">详情</el-button>
@@ -183,7 +204,7 @@
         <el-row :gutter="16">
           <el-col :span="12">
             <el-form-item label="设备类型" prop="type">
-              <el-select v-model="form.type" placeholder="选择类型" filterable style="width: 100%">
+              <el-select v-model="form.type" placeholder="选择类型" filterable style="width: 100%" @change="syncFormSchema">
                 <el-option v-for="d in typeOptions" :key="d.value" :label="d.label" :value="d.value" />
               </el-select>
             </el-form-item>
@@ -214,6 +235,20 @@
         <el-form-item label="备注">
           <el-input v-model="form.remark" placeholder="选填" maxlength="255" />
         </el-form-item>
+        <!-- 类型方案表单专属字段：值存 extra 口袋随提交 -->
+        <template v-if="formFields.length">
+          <el-form-item v-for="f in formFields" :key="f.key" :label="f.label">
+            <el-date-picker
+              v-if="f.type === 'date'"
+              v-model="form.extra[f.key]"
+              type="date"
+              value-format="YYYY-MM-DD"
+              placeholder="选填"
+              style="width: 100%"
+            />
+            <el-input v-else v-model="form.extra[f.key]" placeholder="选填" maxlength="128" />
+          </el-form-item>
+        </template>
       </el-form>
       <template #footer>
         <el-button @click="formVisible = false">取消</el-button>
@@ -463,9 +498,10 @@ import { Search, Refresh, Plus, RefreshRight, Upload, Download, UploadFilled, De
 import {
   listEquipment, createEquipment, updateEquipment, deleteEquipment, batchDeleteEquipment,
   registerMaintenance, listMaintenancePending, listMaintenanceHistory,
-  importEquipment,
+  importEquipment, getTypeSchema,
   type EquipmentItem, type EquipmentQuery, type EquipmentStatus, type DueState, type BindState,
-  type MaintenanceItem, type MaintenanceType, type ConfirmStatus, type EquipmentImportResult
+  type MaintenanceItem, type MaintenanceType, type ConfirmStatus, type EquipmentImportResult,
+  type EquipmentTypeSchema
 } from '@/api/equipment'
 import { uploadImage, withFileToken } from '@/api/upload'
 import { listCommunities, listCommunityTree } from '@/api/community'
@@ -521,7 +557,58 @@ async function fetchList() {
 function handleSearch() {
   query.page = 1
   selectAllFiltered.value = false // 筛选条件变化后跨页全选失效（目标集已变）
+  syncTypeSchema()
   fetchList()
+}
+
+// ===== 类型字段方案（页签动态列 + 表单专属字段）：按类型缓存，无方案记 null 走通用默认 =====
+const schemaCache = new Map<string, EquipmentTypeSchema | null>()
+const schemaInflight = new Map<string, Promise<EquipmentTypeSchema | null>>()
+
+function ensureSchema(type: string): Promise<EquipmentTypeSchema | null> {
+  if (schemaCache.has(type)) return Promise.resolve(schemaCache.get(type) ?? null)
+  let p = schemaInflight.get(type)
+  if (!p) {
+    p = getTypeSchema(type)
+      .then((s) => {
+        schemaCache.set(type, s)
+        return s
+      })
+      .catch(() => {
+        schemaCache.set(type, null) // 拉取失败按无方案处理，不阻断列表
+        return null
+      })
+      .finally(() => {
+        schemaInflight.delete(type)
+      })
+    schemaInflight.set(type, p)
+  }
+  return p
+}
+
+// 当前列表类型（页签/筛选 select 同一 query.type）的方案
+const currentSchema = ref<EquipmentTypeSchema | null>(null)
+const dynamicColumns = computed(() => {
+  const cols = currentSchema.value?.config?.list_columns
+  return cols && cols.length ? cols : null
+})
+
+async function syncTypeSchema() {
+  const t = query.type
+  if (!t) {
+    currentSchema.value = null
+    return
+  }
+  const s = await ensureSchema(t)
+  if (query.type === t) currentSchema.value = s // 防止快速切换时旧响应覆盖新页签
+}
+
+// 方案列取值：key 优先取行顶层字段，取不到回退 extra 口袋
+function cellValue(row: EquipmentItem, key: string) {
+  const v = (row as unknown as Record<string, unknown>)[key]
+  if (v != null && String(v) !== '') return String(v)
+  const ev = row.extra?.[key]
+  return ev != null && String(ev) !== '' ? String(ev) : '--'
 }
 
 function handleReset() {
@@ -586,8 +673,23 @@ const form = reactive({
   manufacture_date: '',
   next_due_date: '',
   status: 'in_service' as EquipmentStatus,
-  remark: ''
+  remark: '',
+  extra: {} as Record<string, string> // 类型方案专属字段值口袋（编辑时先回填整份 extra，避免后端整体替换丢历史键）
 })
+
+// 当前 form.type 方案的表单专属字段
+const formSchema = ref<EquipmentTypeSchema | null>(null)
+const formFields = computed(() => formSchema.value?.config?.form_fields ?? [])
+
+async function syncFormSchema() {
+  const t = form.type
+  if (!t) {
+    formSchema.value = null
+    return
+  }
+  const s = await ensureSchema(t)
+  if (form.type === t) formSchema.value = s
+}
 
 const formRules: FormRules = {
   path: [{ required: true, type: 'array', min: 1, message: '请选择所属小区', trigger: 'change' }],
@@ -658,14 +760,15 @@ async function openForm(row?: EquipmentItem) {
     Object.assign(form, {
       id: row.id, path, code: row.code, name: row.name, type: row.type,
       manufacture_date: row.manufacture_date || '', next_due_date: row.next_due_date || '',
-      status: row.status, remark: row.remark || ''
+      status: row.status, remark: row.remark || '', extra: { ...(row.extra || {}) }
     })
   } else {
     Object.assign(form, {
       id: '', path: [], code: '', name: '', type: '',
-      manufacture_date: '', next_due_date: '', status: 'in_service', remark: ''
+      manufacture_date: '', next_due_date: '', status: 'in_service', remark: '', extra: {}
     })
   }
+  syncFormSchema()
   formVisible.value = true
 }
 
@@ -689,6 +792,10 @@ async function handleSubmit() {
     ElMessage.warning('请选择所属小区')
     return
   }
+  // extra 口袋：剔除空值；编辑时携带整份（后端 SaveReq.Extra 为整体替换）
+  const extraEntries = Object.entries(form.extra)
+    .filter(([, v]) => v != null && String(v).trim() !== '')
+    .map(([k, v]) => [k, String(v)] as [string, string])
   const payload = {
     community_id: communityId,
     building_id: buildingId,
@@ -699,7 +806,8 @@ async function handleSubmit() {
     manufacture_date: form.manufacture_date || '',
     next_due_date: form.next_due_date || '',
     status: form.status,
-    remark: form.remark
+    remark: form.remark,
+    extra: extraEntries.length ? Object.fromEntries(extraEntries) : undefined
   }
   submitting.value = true
   try {
@@ -1041,6 +1149,10 @@ onMounted(() => {
 
 <style scoped lang="scss">
 .main-tabs {
+  margin-bottom: $spacing-md;
+}
+
+.type-tabs {
   margin-bottom: $spacing-md;
 }
 

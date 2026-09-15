@@ -53,6 +53,13 @@ type ExportIdsReq struct {
 	IDs []string `json:"ids" binding:"required"`
 }
 
+// TypeSchemaSaveReq 类型字段方案保存（租户级，整体替换 config）。
+// config 结构：{"list_columns":[{"key","label","width"}],"export_columns":[{"key","label","value"}],
+// "form_fields":[{"key","label","type"}],"import_headers":["列头"]}；export_columns.value 非空=固定文本列。
+type TypeSchemaSaveReq struct {
+	Config map[string]any `json:"config" binding:"required"`
+}
+
 // ========== 维保登记 ==========
 
 // MaintenanceRegisterReq 维保登记（一键+一拍；台账补录 ledger_fix 可同时提交补录日期，确认时一并回写）。

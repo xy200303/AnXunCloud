@@ -121,6 +121,38 @@ export function batchDeleteEquipment(data: {
   return request<{ deleted: number }>({ url: '/equipment/batch-delete', method: 'post', data })
 }
 
+// ===== 类型字段方案（台账类型页签动态列 / 表单专属字段，§6.3） =====
+
+export interface TypeSchemaColumn {
+  key: string
+  label: string
+  width?: number
+}
+
+export interface TypeSchemaFormField {
+  key: string
+  label: string
+  type: string // date 日期 / text 文本（其余按文本处理）
+}
+
+export interface EquipmentTypeSchema {
+  id: string
+  type: string
+  source: 'platform' | 'tenant'
+  config: {
+    list_columns?: TypeSchemaColumn[]
+    export_columns?: TypeSchemaColumn[]
+    form_fields?: TypeSchemaFormField[]
+    import_headers?: string[]
+  }
+  status: string
+}
+
+// 单查类型生效方案（租户级优先、回落平台默认）；该类型无方案返回 null（前端走通用默认列集）
+export function getTypeSchema(type: string) {
+  return request<EquipmentTypeSchema | null>({ url: '/equipment/type-schemas', method: 'get', params: { type } })
+}
+
 // ===== 维保登记 / 确认链 =====
 
 export interface MaintenancePhoto {

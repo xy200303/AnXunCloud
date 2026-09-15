@@ -405,12 +405,73 @@ func isEmptyRow(row []string) bool {
 }
 
 // Export 当前筛选结果全量导出（上限 5000 条，xlsx）。
+// 类型化台账：单类型导出（q.Type 非空）且该类型有生效方案时按方案 export_columns 出列；
+// 无方案或全类型导出保持通用列结构（业务默认视图）。
 func (s *EquipmentService) Export(c *gin.Context, q *dto.ListQuery) (*excelize.File, *errs.Error) {
 	var rows []model.Equipment
 	if err := s.filtered(c, q).Order("code ASC").Limit(equipmentExportMaxRows).Find(&rows).Error; err != nil {
 		return nil, errs.ErrInternal
 	}
+	if q.Type != "" {
+		if cfg, ok := s.exportSchemaFor(c, q.Type); ok {
+			return s.buildExcelBySchema(s.toItems(rows), cfg.ExportColumns)
+		}
+	}
 	return s.buildExcel(s.toItems(rows))
+}
+
+// exportSchemaFor 单类型导出生效方案（租户级优先、回落平台默认；无方案或 export_columns 为空返回 false）。
+func (s *EquipmentService) exportSchemaFor(c *gin.Context, typeValue string) (TypeSchemaConfig, bool) {
+	tenantID, be := middleware.TenantScopeOrDefault(c, s.db)
+	if be != nil {
+		tenantID = ""
+	}
+	row, ok := s.effectiveTypeSchema(tenantID, typeValue)
+	if !ok {
+		return TypeSchemaConfig{}, false
+	}
+	cfg := ParseTypeSchemaConfig(row.Config)
+	if len(cfg.ExportColumns) == 0 {
+		return TypeSchemaConfig{}, false
+	}
+	return cfg, true
+}
+
+// buildExcelBySchema 按类型方案导出列集组装 xlsx（列取值走 ResolveSchemaColumn）。
+func (s *EquipmentService) buildExcelBySchema(items []gin.H, cols []SchemaColumn) (*excelize.File, *errs.Error) {
+	f := excelize.NewFile()
+	sheet := "Sheet1"
+	for i, col := range cols {
+		cell, _ := excelize.CoordinatesToCellName(i+1, 1)
+		if err := f.SetCellValue(sheet, cell, col.Label); err != nil {
+			return nil, errs.ErrInternal
+		}
+	}
+	style, err := f.NewStyle(&excelize.Style{Font: &excelize.Font{Bold: true}})
+	if err != nil {
+		return nil, errs.ErrInternal
+	}
+	lastCell, _ := excelize.CoordinatesToCellName(len(cols), 1)
+	if err := f.SetCellStyle(sheet, "A1", lastCell, style); err != nil {
+		return nil, errs.ErrInternal
+	}
+	for r, item := range items {
+		for i, col := range cols {
+			cell, _ := excelize.CoordinatesToCellName(i+1, r+2)
+			if err := f.SetCellValue(sheet, cell, ResolveSchemaColumn(item, col)); err != nil {
+				return nil, errs.ErrInternal
+			}
+		}
+	}
+	for i, col := range cols {
+		width := float64(col.Width) / 8 // list 列宽按像素约定，导出换算为字符宽
+		if width < 12 {
+			width = 16
+		}
+		name, _ := excelize.ColumnNumberToName(i + 1)
+		f.SetColWidth(sheet, name, name, width)
+	}
+	return f, nil
 }
 
 // ExportByIds 勾选导出（上限 2000 台；逐小区数据权限校验，越权直接拒绝）。
@@ -462,7 +523,6 @@ func (s *EquipmentService) buildExcel(items []gin.H) (*excelize.File, *errs.Erro
 	if err := f.SetCellStyle(sheet, "A1", "AD1", style); err != nil {
 		return nil, errs.ErrInternal
 	}
-	dueLabels := map[string]string{DueNone: "无到期日", DueNormal: "正常", DueWarning: "临期", DueOverdue: "已逾期", DueScrap: "应报废", DueLabelMissing: "标签缺失"}
 	get := func(item gin.H, key string) string {
 		if v, ok := item[key].(string); ok {
 			return v
@@ -485,7 +545,7 @@ func (s *EquipmentService) buildExcel(items []gin.H) (*excelize.File, *errs.Erro
 			strconv.Itoa(r + 1), get(item, "code"), get(item, "name"), get(item, "type_label"),
 			get(item, "community_name"), get(item, "building_name"), get(item, "point_name"),
 			get(item, "manufacture_date"), get(item, "last_maintenance_date"), get(item, "next_due_date"),
-			get(item, "scrap_date"), dueLabels[get(item, "due_state")], get(item, "status_label"), get(item, "remark"),
+			get(item, "scrap_date"), dueStateLabels[get(item, "due_state")], get(item, "status_label"), get(item, "remark"),
 			getExtra(item, "room"), getExtra(item, "level"), getExtra(item, "dept"), getExtra(item, "system"),
 			getExtra(item, "brand"), getExtra(item, "spec"), getExtra(item, "original_value"), getExtra(item, "quantity"),
 			getExtra(item, "put_into_service"), getExtra(item, "maint_status"), getExtra(item, "run_status"),

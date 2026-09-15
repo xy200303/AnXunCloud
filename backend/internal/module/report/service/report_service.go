@@ -224,6 +224,15 @@ func scopeCheckinType(db *gorm.DB, patrolType string) *gorm.DB {
 	return db.Where("task_id IN (SELECT id FROM inspection_task WHERE patrol_type = ? AND deleted_at IS NULL)", patrolType)
 }
 
+// monthInspectorIDs 当月该小区有任务的巡检员去重（报告「巡检员确认」环节的默认候选人口径，生成与预览共用）。
+func (s *ReportService) monthInspectorIDs(communityID, startStr, endStr, patrolType string) types.IDArray {
+	var ids []string
+	scopeTaskType(s.db.Model(&insmodel.InspectionTask{}), patrolType).Distinct().
+		Where("community_id = ? AND task_date >= ? AND task_date < ?", communityID, startStr, endStr).
+		Pluck("inspector_id", &ids)
+	return types.IDArray(ids)
+}
+
 // buildStats 聚合指定小区指定月度的统计数据与应确认巡检员集合（buildStatsRange 的月度封装）。
 func (s *ReportService) buildStats(communityID, period, patrolType string) (types.JSONMap, types.IDArray, *errs.Error) {
 	start, end, be := periodRange(period)
@@ -255,10 +264,7 @@ func (s *ReportService) buildStatsRange(communityID string, start, end time.Time
 			COALESCE(SUM(done_points),0) AS done_pts`).Scan(&taskSum)
 
 	// 应确认巡检员：当月该小区有任务的巡检员去重
-	var inspectorIDs []string
-	scopeTaskType(s.db.Model(&insmodel.InspectionTask{}), patrolType).Distinct().
-		Where("community_id = ? AND task_date >= ? AND task_date < ?", communityID, startStr, endStr).
-		Pluck("inspector_id", &inspectorIDs)
+	inspectorIDs := s.monthInspectorIDs(communityID, startStr, endStr, patrolType)
 
 	// 打卡异常/疑似
 	var ckSum struct {
@@ -815,7 +821,7 @@ func parseDateRange(startStr, endStr string) (time.Time, time.Time, *errs.Error)
 }
 
 // SignCandidates 返回报告审核链及各步骤候选人。前端只展示后端解析结果，不自行推断岗位。
-func (s *ReportService) SignCandidates(c *gin.Context, communityID, patrolType string) (gin.H, *errs.Error) {
+func (s *ReportService) SignCandidates(c *gin.Context, communityID, patrolType, period string) (gin.H, *errs.Error) {
 	if be := middleware.CheckCommunity(s.db, c, communityID); be != nil {
 		return nil, be
 	}
@@ -839,11 +845,22 @@ func (s *ReportService) SignCandidates(c *gin.Context, communityID, patrolType s
 		return users, nil
 	}
 	flow := s.reportFlow(communityID)
+	// 巡检员确认环节：带 period 时按当月实际任务巡检员预览（与生成固化口径一致）；不带 period 给空（历史行为）
+	var inspIDs types.IDArray
+	if period != "" {
+		start, end, be := periodRange(period)
+		if be != nil {
+			return nil, be
+		}
+		inspIDs = s.monthInspectorIDs(communityID, start.Format("2006-01-02"), end.Format("2006-01-02"), patrolType)
+	}
 	steps := make([]gin.H, 0, len(flow))
 	for i, configured := range flow {
 		slot := communitysvc.FlowStepSlot(s.db, communityID, patrolType, configured.Slot)
 		ids := types.IDArray{}
-		if slot != sysmodel.SlotReportInspector {
+		if slot == sysmodel.SlotReportInspector {
+			ids = inspIDs
+		} else {
 			ids = communitysvc.SlotUserIDs(s.db, communityID, slot)
 		}
 		users, be := loadUsers(ids)

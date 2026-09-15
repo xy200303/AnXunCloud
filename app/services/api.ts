@@ -1905,13 +1905,13 @@ export type ReportSignCandidate = {
 }
 
 /** 生成报告时读取审核路径及按审核级别筛选的可选签字人。筛选由后端完成。 */
-export function apiReportSignCandidates(communityId: string, patrolType?: string): Promise<{
+export function apiReportSignCandidates(communityId: string, patrolType?: string, period?: string): Promise<{
   steps: { index: number; slot: string; name: string; mode: 'any' | 'all'; users: ReportSignCandidate[]; default_candidate_ids: string[] }[]
 }> {
   return new Promise((resolve, reject) => {
     httpGet<{
       steps: { index: number; slot: string; name: string; mode: 'any' | 'all'; users: ReportSignCandidate[]; default_candidate_ids: string[] }[]
-    }>('/reports/sign-candidates?community_id=' + encodeURIComponent(communityId) + (patrolType ? '&patrol_type=' + encodeURIComponent(patrolType) : ''))
+    }>('/reports/sign-candidates?community_id=' + encodeURIComponent(communityId) + (patrolType ? '&patrol_type=' + encodeURIComponent(patrolType) : '') + (period ? '&period=' + encodeURIComponent(period) : ''))
       .then((d) => resolve(d ?? { steps: [] }))
       .catch(reject)
   })

@@ -54,6 +54,15 @@
         <text class="signer-label" :style="{ color: colors.textRegular }">{{ step.name }}</text>
         <text class="signer-value" :style="{ color: selectedIds(step.slot).length ? colors.textPrimary : colors.textSecondary }">{{ signerDisplay(selectedIds(step.slot), step.slot) }} ›</text>
       </view>
+      <view v-if="candidateLoading && reviewSteps.length == 0" class="signer-row">
+        <text class="signer-label" :style="{ color: colors.textSecondary }">审核链加载中…</text>
+      </view>
+      <view v-else-if="candidateError != ''" class="signer-row" hover-class="hover-dim" @click="loadCandidates">
+        <text class="signer-label" :style="{ color: colors.danger }">{{ candidateError }}</text>
+      </view>
+      <view v-else-if="candidatesLoaded && reviewSteps.length == 0" class="signer-row">
+        <text class="signer-label" :style="{ color: colors.textSecondary }">该小区未配置审核链，生成后直接归档</text>
+      </view>
       <text class="tip" :style="{ color: colors.textSecondary }">空候选步骤会自动跳过；任一/全部签署规则由审核链配置决定。</text>
     </view>
 
@@ -197,6 +206,7 @@ export default {
     },
     onMonthPick(event: any) {
       this.period = String(event.detail.value)
+      this.loadCandidates() // 巡检员确认环节候选人按月份解析，换月份必须重载
     },
     onTypePick(event: any) {
       const index = Number(event.detail.value)
@@ -216,7 +226,7 @@ export default {
       if (!this.communityId) return
       this.candidateLoading = true
       try {
-        const d = await apiReportSignCandidates(this.communityId, this.patrolType || undefined)
+        const d = await apiReportSignCandidates(this.communityId, this.patrolType || undefined, this.period || undefined)
         if (requestId != this.candidateRequestId) return
         this.reviewSteps = d.steps
         this.selected = Object.fromEntries(d.steps.map((step) => [step.slot, [...step.default_candidate_ids]]))
@@ -225,7 +235,7 @@ export default {
         if (requestId != this.candidateRequestId) return
         this.reviewSteps = []
         this.selected = {}
-        this.candidateError = '加载失败，点击重试'
+        this.candidateError = '审核链加载失败，点我重试'
       } finally {
         if (requestId == this.candidateRequestId) this.candidateLoading = false
       }
@@ -234,6 +244,13 @@ export default {
       if (!this.communityId) {
         uni.showToast({ title: '请先选择小区', icon: 'none' })
         return
+      }
+      if (this.candidatesLoaded) {
+        const step = this.reviewSteps.find((s) => s.slot == role)
+        if (step != null && step.users.length == 0) {
+          uni.showToast({ title: role == 'report_inspector' ? '该月没有任务巡检员，生成时此环节自动跳过' : '该环节暂无候选人', icon: 'none' })
+          return
+        }
       }
       this.candidateRole = role
       this.candidateShow = true
@@ -258,7 +275,11 @@ export default {
     signerDisplay(ids: string[], role: string): string {
       if (!this.candidatesLoaded && this.candidateLoading) return '加载中…'
       if (!this.candidatesLoaded) return '暂未加载'
-      return this.signerNames(ids, role) || '该级跳过'
+      const names = this.signerNames(ids, role)
+      if (names != '') return names
+      // 巡检员确认环节：候选人 = 当月有任务的巡检员（后端按 period 解析）；当月无任务则生成时该级自动跳过
+      if (role == 'report_inspector') return '当月无任务巡检员，该级自动跳过'
+      return '该级跳过'
     },
     submit() {
       if (!this.canSubmit) return

@@ -387,6 +387,8 @@ export type ReportSigner = {
   user_id: string
   name: string
   signed: boolean
+  signed_at?: string
+  signature_url?: string | null
 }
 export type ReportReviewStep = { slot: string; name: string; mode: 'any' | 'all'; candidate_ids: string[]; signed: any[]; users?: ReportSigner[] }
 

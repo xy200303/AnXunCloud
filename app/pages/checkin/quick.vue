@@ -44,17 +44,6 @@
         </view>
       </view>
 
-      <!-- 点位设备提醒横幅（v1.7 展示增强，零新增动作）：逾期/报废红、临期黄；点击跳到设备项 -->
-      <view
-        v-if="equipBanner.show && phase != 'taskDone'"
-        class="equip-banner"
-        :style="{ backgroundColor: equipBanner.danger ? colors.danger : colors.warning }"
-        @click="jumpToEquip"
-      >
-        <text class="equip-banner-text" :style="{ color: colors.white }">{{ equipBanner.text }}</text>
-        <text class="equip-banner-arrow" :style="{ color: colors.white }">></text>
-      </view>
-
       <QuickCredentialCard
         v-if="phase == 'cred'"
         :point="curPoint"
@@ -102,7 +91,7 @@
         />
       </block>
 
-      <QuickGateCard v-if="phase == 'gate'" :item-count="curItemCount" :stats="gateStats" :colors="colors" :shadow="shadow" @submit="submitPoint" />
+      <QuickGateCard v-if="phase == 'gate'" :item-count="curItemCount" :stats="gateStats" :submit-error="gateSubmitError" :colors="colors" :shadow="shadow" @submit="submitPoint" />
 
       <!-- 补拍步（质量不合格 / 识别失败） -->
       <block v-if="phase == 'retake'">
@@ -275,6 +264,8 @@ type QuickData = {
   /** 遮盖层文案（空 = 不显示） */
   overlayMsg: string
   submitting: boolean
+  /** 收尾步上次提交失败原因（空 = 无；gate 卡红色状态条，重试成功后清除） */
+  gateSubmitError: string
   /** 轮询定时器 */
   pollTimer: any
   /** 页面已卸载（停止轮询回调写状态） */
@@ -413,6 +404,7 @@ export default {
       distance: -1,
       overlayMsg: '',
       submitting: false,
+      gateSubmitError: '',
       pollTimer: null,
       destroyed: false,
       /** 遮罩看门狗定时器 */
@@ -455,24 +447,6 @@ export default {
     /** 当前项是否拍照项（manual 感官项与 equipment_validity 台账有效期项之外的类型；缺省按拍照项） */
     curItemIsPhoto(): boolean {
       return this.curItem != null && this.curItem.judge_type != 'manual' && this.curItem.judge_type != 'equipment_validity' && this.curItem.judge_type != 'equipment_date_spot'
-    },
-    /** 点位设备横幅：统计当前点位台账合成项临期/逾期/报废台数 */
-    equipBanner(): { show: boolean; danger: boolean; text: string } {
-      const wp = this.curWizPoint
-      if (wp == null) return { show: false, danger: false, text: '' }
-      let warn = 0
-      let bad = 0
-      wp.items.forEach((it) => {
-        if (it.judge_type != 'equipment_validity' || it.auto_judge == null) return
-        if (it.auto_judge.scrap_due || it.auto_judge.status == 'overdue') {
-          bad++
-        } else if (it.auto_judge.status == 'warning') {
-          warn++
-        }
-      })
-      if (bad > 0) return { show: true, danger: true, text: '该点位 ' + bad + ' 台设备已逾期/应报废' + (warn > 0 ? '，' + warn + ' 台临期' : '') }
-      if (warn > 0) return { show: true, danger: false, text: '该点位 ' + warn + ' 台设备临期' }
-      return { show: false, danger: false, text: '' }
     },
     /** 当前项是否标签抽查合成项（v1.7；必拍+填日期，服务端四规则比对） */
     curItemIsSpot(): boolean {
@@ -884,7 +858,8 @@ export default {
       )
     },
     onLocTap() {
-      if (this.locFailed) this.locate()
+      // 非定位中即可点击重新定位（走近后主动刷新围栏距离，不必等失败）
+      if (!this.locating) this.locate()
     },
     /** 核验清单-扫码行：已通过再点不重复扫 */
     onScanRowTap() {
@@ -923,7 +898,13 @@ export default {
           if (this.curWizPoint != null) {
             this.curWizPoint.scannedNo = code
           }
-          uni.showToast({ title: '点位确认成功', icon: 'success' })
+          // 扫码成功且围栏已过 → 直达检查（与 NFC 贴卡同口径）；围栏不过则提示并留在凭证步
+          if (this.fenceOk) {
+            uni.showToast({ title: '点位确认成功', icon: 'success' })
+            this.startItems()
+          } else {
+            uni.showToast({ title: this.fenceTip(), icon: 'none' })
+          }
         },
         fail: (err) => {
           const msg = err && err.errMsg ? err.errMsg : ''
@@ -983,7 +964,8 @@ export default {
       }
       if (this.phase == 'cred' && this.curPoint != null && this.curPoint.point_id == pt.point_id) {
         if (this.curWizPoint != null) this.curWizPoint.nfcCardId = cardId
-        uni.showToast({ title: '点位确认成功', icon: 'success' })
+        // 贴卡即完成签到并直达检查（不再要求手点「开始检查」；围栏不通过时 startItems 会提示并留在凭证步）
+        this.startItems()
         return
       }
       uni.redirectTo({
@@ -992,6 +974,12 @@ export default {
           '&point_id=' + encodeURIComponent(pt.point_id) + '&no=' + encodeURIComponent(cardId)
       })
     },
+    /** 围栏提示（含阈值）：X=点位围栏半径，Y=当前距离 */
+    fenceTip(): string {
+      const pt = this.curPoint
+      if (pt == null) return '超出围栏范围，走近一点再试'
+      return '需在 ' + pt.fence_radius + ' 米内，当前 ' + (this.distance >= 0 ? this.distance + ' 米' : '距离未知')
+    },
     /** 凭证步「开始检查」：凭证不通过不让开始该点位 */
     startItems() {
       if (!this.credOk) {
@@ -999,7 +987,7 @@ export default {
         return
       }
       if (!this.fenceOk) {
-        uni.showToast({ title: '超出范围，走近一点再开始', icon: 'none' })
+        uni.showToast({ title: this.fenceTip(), icon: 'none' })
         return
       }
       const wp = this.curWizPoint
@@ -1146,15 +1134,6 @@ export default {
     },
     captureIsCurrent(token: number): boolean {
       return !this.destroyed && this.captureToken == token
-    },
-    /** 横幅点击：跳到当前点位第一个设备合成项（台账有效期/抽查） */
-    jumpToEquip() {
-      const wp = this.curWizPoint
-      if (wp == null) return
-      const idx = wp.items.findIndex((it) => it.judge_type == 'equipment_validity' || it.judge_type == 'equipment_date_spot')
-      if (idx < 0) return
-      this.itemIdx = idx
-      this.phase = 'items'
     },
     /** 抽查项字段更新（QuickItemCard picker/勾选透传；标签缺失勾选后清空日期） */
     onSpotField(payload: { field: string; value: any }) {
@@ -1443,10 +1422,11 @@ export default {
         return
       }
       if (this.curPoint != null && this.curPoint.require_fence && !this.fenceOk) {
-        uni.showToast({ title: '超出范围，走近一点再提交', icon: 'none' })
+        uni.showToast({ title: this.fenceTip(), icon: 'none' })
         return
       }
       this.submitting = true
+      this.gateSubmitError = ''
       this.overlayMsg = 'AI 检查中…'
       this.pollPointJobs()
         .then(() => {
@@ -1459,6 +1439,7 @@ export default {
           if (this.destroyed) return
           this.submitting = false
           this.overlayMsg = ''
+          this.gateSubmitError = '网络异常'
           uni.showToast({ title: '网络异常，请重试', icon: 'none' })
         })
     },
@@ -1660,6 +1641,7 @@ export default {
       const pt = this.curPoint
       if (wp == null || pt == null || this.submitting || this.captureBusy) return
       this.submitting = true
+      this.gateSubmitError = ''
       // 带新标签照片的提交后端会同步 AI 核对（最长约 15s）：遮罩文案说明在核对，避免误以为卡死
       const hasLabel = wp.items.some((it) => it.judge_type == 'equipment_validity' && it.file_ids.length > 0)
       this.overlayMsg = hasLabel ? 'AI 核对新标签中…' : '提交中…'
@@ -1724,6 +1706,7 @@ export default {
           if (this.destroyed) return
           this.submitting = false
           this.overlayMsg = ''
+          this.gateSubmitError = ''
           this.doneLocal += 1
           this.afterPointSubmitted()
         })
@@ -1733,14 +1716,21 @@ export default {
           this.overlayMsg = ''
           const code = e != null && typeof e.code == 'number' ? e.code : 0
           if (code == CODE_CHECKIN_LOCKED) {
-            uni.showToast({ title: '已归档，不可修改', icon: 'none' })
-            setTimeout(() => this.exitWizard(), 800)
+            uni.showModal({
+              title: '提示',
+              content: '该记录已归档，不可修改',
+              showCancel: false,
+              confirmText: '知道了',
+              success: () => this.exitWizard()
+            })
             return
           }
           if (code == CODE_AI_DISABLED) {
             uni.showToast({ title: 'AI 未启用，请改用手动模式', icon: 'none' })
             return
           }
+          // 收尾步持久红色状态条：自动提交失败后不止 toast，留在 gate 卡上直到重试成功
+          this.gateSubmitError = (e && e.message) || '提交失败'
           uni.showToast({ title: (e && e.message) || '提交失败，请重试', icon: 'none' })
           this.phase = 'gate'
         })
@@ -1837,26 +1827,6 @@ export default {
 .empty-retry {
   font-size: 30rpx;
   padding: 16rpx 32rpx;
-}
-
-/* 点位设备提醒横幅 */
-.equip-banner {
-  border-radius: 16rpx;
-  padding: 20rpx 24rpx;
-  margin-bottom: 24rpx;
-  flex-direction: row;
-  align-items: center;
-  justify-content: space-between;
-}
-
-.equip-banner-text {
-  font-size: 26rpx;
-  flex: 1;
-}
-
-.equip-banner-arrow {
-  font-size: 26rpx;
-  margin-left: 16rpx;
 }
 
 .wizard {

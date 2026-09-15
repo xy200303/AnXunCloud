@@ -1638,8 +1638,9 @@ export type PointItem = {
   type_label: string
   qrcode_no: string
   nfc_id: string
-  template_id: string | null
-  template_name: string
+  /** 多模板组合：点位检查项 = 全部模板并集 */
+  template_ids: string[]
+  template_names: string[]
   longitude: number
   latitude: number
   fence_radius: number
@@ -1670,7 +1671,7 @@ export type PointSavePayload = {
   fence_radius?: number
   credential?: string
   require_fence?: boolean
-  template_id?: string | null
+  template_ids?: string[]
   nfc_id?: string
   sort?: number
   status?: number

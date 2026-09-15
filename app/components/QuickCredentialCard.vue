@@ -18,7 +18,7 @@
         <text v-if="locating" class="cred-status" :style="{ color: colors.textSecondary }">定位中…</text>
         <text v-else-if="locFailed" class="cred-status" :style="{ color: colors.danger }">失败，点我重试</text>
         <text v-else-if="distance >= 0 && point != null && distance <= point.fence_radius" class="cred-status" :style="{ color: colors.success }">✓ 在范围内（{{ distance }}米）</text>
-        <text v-else-if="distance >= 0" class="cred-status" :style="{ color: colors.danger }">超出范围（{{ distance }}米）</text>
+        <text v-else-if="distance >= 0" class="cred-status" :style="{ color: colors.danger }">需在 {{ point.fence_radius }} 米内，当前 {{ distance }} 米</text>
         <text v-else class="cred-status" :style="{ color: colors.textSecondary }">去完成 ›</text>
       </view>
     </view>

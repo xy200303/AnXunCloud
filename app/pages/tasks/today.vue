@@ -10,17 +10,18 @@
       <text class="offline-bar-text" :style="{ color: colors.primary }">离线暂存 {{ offlineCount }} 条打卡，点击立即补传</text>
     </view>
 
-    <!-- 维保待办红色卡片：有临期/逾期设备才显示，点击跳维保待办页（免台账权限） -->
+    <!-- 维保待办红色卡片：有临期/逾期设备才显示，右侧「去维保」直达维保待办选设备（整卡不再承担跳转） -->
     <view
       v-if="dueCount > 0"
       class="due-bar"
       :style="{ backgroundColor: colors.danger }"
-      @click="goEquipmentDue"
     >
       <text class="due-bar-text" :style="{ color: colors.white }">
         维保待办 {{ dueCount }} 台{{ dueMaxOverdue > 0 ? '，最早已逾期 ' + dueMaxOverdue + ' 天' : '（临期），请及时处理' }}
       </text>
-      <text class="due-bar-arrow" :style="{ color: colors.white }">></text>
+      <view hover-class="hover-dim" class="due-bar-btn" :style="{ backgroundColor: colors.white }" @click="goEquipmentDue">
+        <text class="due-bar-btn-text" :style="{ color: colors.danger }">去维保</text>
+      </view>
     </view>
 
     <!-- 骨架屏 -->
@@ -485,9 +486,17 @@ export default {
   flex: 1;
 }
 
-.due-bar-arrow {
-  font-size: 26rpx;
+.due-bar-btn {
+  border-radius: 32rpx;
+  padding: 12rpx 32rpx;
   margin-left: 16rpx;
+  align-items: center;
+  justify-content: center;
+}
+
+.due-bar-btn-text {
+  font-size: 26rpx;
+  font-weight: 600;
 }
 
 /* 维保启动提醒弹窗 */

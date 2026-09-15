@@ -52,30 +52,26 @@
         </view>
       </view>
 
-      <!-- 点位设备提醒横幅（v1.7 展示增强，零新增动作）：逾期/报废红、临期黄；点击滚动到设备项 -->
-      <view
-        v-if="equipBanner.show"
-        class="equip-banner"
-        :style="{ backgroundColor: equipBanner.danger ? colors.danger : colors.warning }"
-        @click="scrollToEquip"
-      >
-        <text class="equip-banner-text" :style="{ color: colors.white }">{{ equipBanner.text }}</text>
-        <text class="equip-banner-arrow" :style="{ color: colors.white }">></text>
-      </view>
-
       <!-- 整组拍照（photo_mode=group）：1 张整体照，AI 一次识别全部检查项并回填 -->
       <view v-if="isGroupMode" class="card" :style="{ backgroundColor: colors.bgCard }">
         <text class="sec-title" :style="{ color: colors.textPrimary }">拍整体照</text>
         <view class="photos">
-          <image
+          <view
             v-for="(ph, pi) in groupPhotos"
             :key="pi"
-            class="photo"
-            :src="ph"
-            mode="aspectFill"
-            lazy-load
-            @longpress="removePhoto(groupPhotos, pi)"
-          />
+            class="photo-wrap"
+          >
+            <image
+              class="photo"
+              :src="ph"
+              mode="aspectFill"
+              lazy-load
+              @longpress="removePhoto(groupPhotos, pi)"
+            />
+            <view class="photo-del" :style="{ backgroundColor: colors.danger }" @click.stop="removePhoto(groupPhotos, pi)">
+              <text class="photo-del-text" :style="{ color: colors.white }">×</text>
+            </view>
+          </view>
           <view class="photo-add" :style="{ borderColor: colors.border }" @click="takeGroupPhoto">
             <text class="photo-add-text" :style="{ color: colors.textSecondary }">{{ groupPhotos.length < 1 ? '+拍整体照' : '重拍' }}</text>
           </view>
@@ -95,7 +91,7 @@
           <text class="sec-title" :style="{ color: colors.textPrimary }">检查项</text>
           <text class="sec-action" :style="{ color: colors.primary }" @click="allNormal">全部正常</text>
         </view>
-        <view v-for="(it, idx) in items" :key="idx" class="item" :class="{ 'equip-anchor-mark': isEquipAuto(it) }">
+        <view v-for="(it, idx) in items" :key="idx" class="item">
           <view class="item-head">
             <view class="item-texts">
               <text class="item-name" :style="{ color: colors.textPrimary }">{{ it.name }}</text>
@@ -163,15 +159,22 @@
           <!-- 台账有效期合成项：该设备临期/逾期/缺数据时的「拍新标签」入口（逐台独立；照片即登记凭证，提交时系统自动核对） -->
           <view v-if="isEquipAuto(it) && canLabelPhoto(it)" class="spot-block" :style="{ borderColor: colors.border }">
             <view class="photos">
-              <image
+              <view
                 v-for="(ph, pi) in it.photos"
                 :key="pi"
-                class="photo"
-                :src="ph"
-                mode="aspectFill"
-                lazy-load
-                @longpress="removePhoto(it.photos, pi)"
-              />
+                class="photo-wrap"
+              >
+                <image
+                  class="photo"
+                  :src="ph"
+                  mode="aspectFill"
+                  lazy-load
+                  @longpress="removePhoto(it.photos, pi)"
+                />
+                <view class="photo-del" :style="{ backgroundColor: colors.danger }" @click.stop="removePhoto(it.photos, pi)">
+                  <text class="photo-del-text" :style="{ color: colors.white }">×</text>
+                </view>
+              </view>
               <view
                 v-if="it.photos.length < 3"
                 class="photo-add"
@@ -208,15 +211,22 @@
             >现场已处理</text>
           </view>
           <view v-if="!it.pass && !isEquipAuto(it) && !isEquipSpot(it) && it.disposition == 'on_site_resolved'" class="photos">
-            <image
+            <view
               v-for="(ph, pi) in it.res_photos"
               :key="pi"
-              class="photo"
-              :src="ph"
-              mode="aspectFill"
-              lazy-load
-              @longpress="removePhoto(it.res_photos, pi)"
-            />
+              class="photo-wrap"
+            >
+              <image
+                class="photo"
+                :src="ph"
+                mode="aspectFill"
+                lazy-load
+                @longpress="removePhoto(it.res_photos, pi)"
+              />
+              <view class="photo-del" :style="{ backgroundColor: colors.danger }" @click.stop="removePhoto(it.res_photos, pi)">
+                <text class="photo-del-text" :style="{ color: colors.white }">×</text>
+              </view>
+            </view>
             <view
               v-if="it.res_photos.length < 3"
               class="photo-add"
@@ -227,17 +237,24 @@
             </view>
           </view>
           <text v-if="!it.pass && !isEquipAuto(it) && !isEquipSpot(it) && it.disposition == 'on_site_resolved'" class="spot-hint" :style="{ color: colors.textSecondary }">必拍至少 1 张处置后的照片，作为已处理凭证</text>
-          <!-- 该项照片（异常项与必拍项展示；一项一图硬约束，最多 1 张，重拍先长按删除） -->
+          <!-- 该项照片（异常项与必拍项展示；一项一图硬约束，最多 1 张，重拍先点 × 或长按删除） -->
           <view v-if="showItemPhotos(it)" class="photos">
-            <image
+            <view
               v-for="(ph, pi) in it.photos"
               :key="pi"
-              class="photo"
-              :src="ph"
-              mode="aspectFill"
-              lazy-load
-              @longpress="removePhoto(it.photos, pi)"
-            />
+              class="photo-wrap"
+            >
+              <image
+                class="photo"
+                :src="ph"
+                mode="aspectFill"
+                lazy-load
+                @longpress="removePhoto(it.photos, pi)"
+              />
+              <view class="photo-del" :style="{ backgroundColor: colors.danger }" @click.stop="removePhoto(it.photos, pi)">
+                <text class="photo-del-text" :style="{ color: colors.white }">×</text>
+              </view>
+            </view>
             <view
               v-if="it.photos.length < 1"
               class="photo-add"
@@ -500,22 +517,6 @@ export default {
     groupCountMismatch(): boolean {
       return this.isGroupMode && this.groupAi.status == 'done' && this.groupAi.count >= 0 && this.groupAi.count != this.deviceCount
     },
-    /** 点位设备横幅：统计台账合成项临期/逾期/报废台数 */
-    equipBanner(): { show: boolean; danger: boolean; text: string } {
-      let warn = 0
-      let bad = 0
-      this.items.forEach((it) => {
-        if (!isEquipAuto(it) || it.auto_judge == null) return
-        if (it.auto_judge.scrap_due || it.auto_judge.status == 'overdue') {
-          bad++
-        } else if (it.auto_judge.status == 'warning') {
-          warn++
-        }
-      })
-      if (bad > 0) return { show: true, danger: true, text: '该点位 ' + bad + ' 台设备已逾期/应报废' + (warn > 0 ? '，' + warn + ' 台临期' : '') }
-      if (warn > 0) return { show: true, danger: false, text: '该点位 ' + warn + ' 台设备临期' }
-      return { show: false, danger: false, text: '' }
-    },
     /** qrcode/any 凭证点位且未核验 → 显示凭证校验入口（any 并列扫码+NFC） */
     needScan(): boolean {
       if (this.point == null) return false
@@ -642,8 +643,8 @@ export default {
       )
     },
     onLocTap() {
-      // 定位失败时可点击重试
-      if (this.locFailed) this.locate()
+      // 非定位中即可点击重新定位（走近后主动刷新围栏距离，不必等失败）
+      if (!this.locating) this.locate()
     },
     scanCredential() {
       uni.scanCode({
@@ -723,8 +724,17 @@ export default {
         it.photos = []
       }
     },
-    /** 一键全部正常并清空逐项备注；不跳过必拍照片校验；台账有效期项（服务端判定）不动 */
+    /** 一键全部正常：存在已选异常/已填备注的项时先弹确认（清除含备注与处置照片），全正常时直接生效 */
     allNormal() {
+      const dirty = this.items.filter((it) => !isEquipAuto(it) && (!it.pass || it.note.trim() != ''))
+      if (dirty.length > 0) {
+        this.openDlg('warning', '全部正常', '将清除已填写的 ' + dirty.length + ' 项异常（含备注与处置照片），确定？', '确定', '取消', 'all-normal')
+        return
+      }
+      this.applyAllNormal()
+    },
+    /** 全部正常并清空逐项备注；不跳过必拍照片校验；台账有效期项（服务端判定）不动 */
+    applyAllNormal() {
       this.items.forEach((it) => {
         if (isEquipAuto(it)) return
         it.pass = true
@@ -808,10 +818,6 @@ export default {
             it.spot_ai_loading = false
           })
       }, 1500)
-    },
-    /** 横幅点击：滚动到第一个设备合成项 */
-    scrollToEquip() {
-      uni.pageScrollTo({ selector: '.equip-anchor-mark', duration: 200, fail: () => {} })
     },
     /** 拍照（仅相机防相册作弊）→ 定标压缩（1920px/q80）后入列表；一项一图硬约束（max=1）；水印由服务端在打卡后统一烧录 */
     takePhotos(list: string[], max: number) {
@@ -960,11 +966,13 @@ export default {
       } else if (a == 'force-submit') {
         this.forceSubmit = true
         this.submit()
+      } else if (a == 'all-normal') {
+        this.applyAllNormal()
       }
       // quality-retake：仅关闭，留在原地重拍
     },
     onDlgCancel() {
-      // 「AI 初判存疑」两个出口均返回任务页（记录已提交，重新打卡需管理端驳回/重开）
+      // 「AI 初判存疑」已改单按钮（仅 confirm 出口）；此处兜底：若仍有 cancel 触发同样返回任务页
       if (this.dlg.action == 'ai-dismiss') uni.navigateBack()
     },
     /** 提交前校验，返回错误文案（空串 = 通过） */
@@ -1102,7 +1110,7 @@ export default {
       const suspicious = (aiItems ?? []).filter((it) => it.ai_verdict == 'review' || it.ai_verdict == 'error')
       if (suspicious.length > 0) {
         const aiLines = suspicious.map((it) => it.name + (it.ai_reason != '' ? ' - ' + it.ai_reason : ''))
-        this.openDlg('warning', 'AI 初判存疑', aiLines.join('\n') + '\n请确认或重新拍摄', '仍要提交', '重新打卡', 'ai-dismiss')
+        this.openDlg('warning', 'AI 初判存疑', aiLines.join('\n') + '\n记录已提交。如需重新打卡，请联系主管在电脑端驳回后重拍', '知道了', '', 'ai-dismiss')
         return
       }
       const tp = res.task_progress
@@ -1407,26 +1415,6 @@ export default {
   font-size: 22rpx;
 }
 
-/* 点位设备提醒横幅 */
-.equip-banner {
-  border-radius: 16rpx;
-  padding: 20rpx 24rpx;
-  margin-bottom: 24rpx;
-  flex-direction: row;
-  align-items: center;
-  justify-content: space-between;
-}
-
-.equip-banner-text {
-  font-size: 26rpx;
-  flex: 1;
-}
-
-.equip-banner-arrow {
-  font-size: 26rpx;
-  margin-left: 16rpx;
-}
-
 /* 台账有效期项：服务端判定结果展示 + 「拍新标签」入口 */
 .equip-state-wrap {
   flex-direction: column;
@@ -1473,6 +1461,34 @@ export default {
   border-radius: 16rpx;
   margin-right: 16rpx;
   margin-bottom: 16rpx;
+}
+
+.photo-wrap {
+  position: relative;
+  margin-right: 16rpx;
+  margin-bottom: 16rpx;
+}
+
+.photo-wrap .photo {
+  margin-right: 0;
+  margin-bottom: 0;
+}
+
+.photo-del {
+  position: absolute;
+  top: -12rpx;
+  right: -12rpx;
+  width: 44rpx;
+  height: 44rpx;
+  border-radius: 22rpx;
+  align-items: center;
+  justify-content: center;
+}
+
+.photo-del-text {
+  font-size: 30rpx;
+  font-weight: 700;
+  line-height: 44rpx;
 }
 
 .photo-add {

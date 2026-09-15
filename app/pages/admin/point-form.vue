@@ -62,15 +62,14 @@
           </view>
         </picker>
 
-        <text class="label" :style="{ color: colors.textRegular }">检查项模板（选填）</text>
-        <picker :range="templateNames" :value="templateIndex" :disabled="readonly" @change="onTemplateChange">
-          <view class="field" :style="{ borderColor: colors.border }">
-            <text class="field-text" :style="{ color: templateId == '' ? colors.textSecondary : colors.textPrimary }">
-              {{ templateId == '' ? '不关联模板' : templateName }}
-            </text>
-            <text class="field-arrow" :style="{ color: colors.textSecondary }">▾</text>
-          </view>
-        </picker>
+        <text class="label" :style="{ color: colors.textRegular }">检查项模板（选填，可多选）</text>
+        <view class="field" :style="{ borderColor: colors.border }" @click="openTemplateSheet">
+          <text class="field-text" :style="{ color: templateIds.length == 0 ? colors.textSecondary : colors.textPrimary }">
+            {{ templateIds.length == 0 ? '不关联模板' : templateNamesText }}
+          </text>
+          <text class="field-arrow" :style="{ color: colors.textSecondary }">▾</text>
+        </view>
+        <text class="cred-tip" :style="{ color: colors.textSecondary }">检查项 = 所选模板的并集，可多选组合</text>
 
         <text class="label" :style="{ color: colors.textRegular }">备注（选填）</text>
         <textarea
@@ -117,12 +116,17 @@
         </view>
 
         <view class="fence-row">
+          <text class="label fence-label" :style="{ color: colors.textRegular }">电子围栏校验</text>
+          <switch :checked="fenceOn" :disabled="readonly" :color="colors.primary" @change="fenceOn = $event.detail.value" />
+        </view>
+        <text v-if="!fenceOn" class="cred-tip" :style="{ color: colors.textSecondary }">关闭后不校验到场位置（扫码/NFC 仍可凭证打卡）</text>
+        <view v-if="fenceOn" class="fence-row">
           <text class="label fence-label" :style="{ color: colors.textRegular }">围栏半径：{{ fenceRadius }} m</text>
           <view class="fence-slider-wrap">
             <slider
               :value="fenceRadius"
               :min="50"
-              :max="500"
+              :max="1000"
               :step="10"
               :disabled="readonly"
               class="fence-slider"
@@ -150,7 +154,7 @@
             <text class="cred-text" :style="{ color: credential == c.value ? colors.primary : colors.textRegular }">{{ c.label }}</text>
           </view>
         </view>
-        <text v-if="credential == 'none'" class="cred-tip" :style="{ color: colors.textSecondary }">免凭证时将启用电子围栏校验（未录坐标时暂不生效）</text>
+        <text v-if="credential == 'none'" class="cred-tip" :style="{ color: colors.textSecondary }">不需要凭证的点位建议开启电子围栏校验，否则不做任何到场核验</text>
 
         <!-- NFC 区（凭证含 NFC 时显示） -->
         <template v-if="credential == 'nfc' || credential == 'any'">
@@ -187,10 +191,15 @@
         </template>
       </view>
 
-      <!-- 编号展示（编辑模式） -->
+      <!-- 编号展示 + 启用状态（编辑模式） -->
       <view v-if="isEdit" class="card" :style="{ backgroundColor: colors.bgCard }">
         <text class="info-line" :style="{ color: colors.textRegular }">点位编号：{{ qrcodeNo }}</text>
         <text class="info-line" :style="{ color: colors.textSecondary }">编号由系统生成，不可修改</text>
+        <view class="fence-row status-row">
+          <text class="label fence-label" :style="{ color: colors.textRegular }">启用状态</text>
+          <switch :checked="status == 1" :disabled="readonly" :color="colors.primary" @change="onStatusChange" />
+        </view>
+        <text class="cred-tip" :style="{ color: colors.textSecondary }">停用后巡检员不可打卡该点位，已关联任务也不再下发</text>
       </view>
 
       <!-- 提交 -->
@@ -203,6 +212,45 @@
         <text class="btn-primary-text" :style="{ color: colors.white }">{{ submitting ? '提交中…' : (isEdit ? '保存' : '创建点位') }}</text>
       </view>
       <view class="bottom-space"></view>
+    </view>
+
+    <!-- 模板多选弹层（自绘底部面板 + 复选列表，替代单选 picker；勾选即生效，「完成」关闭） -->
+    <view v-if="tplSheetShow" class="tpl-mask" :style="{ backgroundColor: colors.mask }" @click="closeTemplateSheet">
+      <view class="tpl-panel" :style="{ backgroundColor: colors.bgCard }" @click.stop="noop">
+        <view class="tpl-head" :style="{ borderBottomColor: colors.border }">
+          <text class="tpl-head-text" :style="{ color: colors.textSecondary }">选择检查项模板（可多选）</text>
+        </view>
+        <scroll-view scroll-y class="tpl-list">
+          <view
+            v-for="t in templates"
+            :key="t.id"
+            class="tpl-item"
+            :style="{ borderBottomColor: colors.border }"
+            @click="toggleTemplate(t.id)"
+          >
+            <text class="tpl-item-name" :style="{ color: colors.textPrimary }">{{ t.name }}</text>
+            <view
+              class="tpl-check"
+              :style="templateIds.indexOf(t.id) >= 0
+                ? { backgroundColor: colors.primary, borderColor: colors.primary }
+                : { borderColor: colors.border }"
+            >
+              <text v-if="templateIds.indexOf(t.id) >= 0" class="tpl-check-mark" :style="{ color: colors.white }">✓</text>
+            </view>
+          </view>
+          <view v-if="templates.length == 0" class="tpl-empty">
+            <text class="tpl-empty-text" :style="{ color: colors.textSecondary }">暂无启用的模板</text>
+          </view>
+        </scroll-view>
+        <view class="tpl-actions" :style="{ borderTopColor: colors.border }">
+          <view class="tpl-clear" :style="{ borderColor: colors.border }" hover-class="hover-dim" @click="clearTemplates">
+            <text class="tpl-clear-text" :style="{ color: colors.textRegular }">清空</text>
+          </view>
+          <view class="tpl-done" :style="{ backgroundColor: colors.primary }" hover-class="hover-dim" @click="closeTemplateSheet">
+            <text class="tpl-done-text" :style="{ color: colors.white }">完成（已选 {{ templateIds.length }} 项）</text>
+          </view>
+        </view>
+      </view>
     </view>
 
     <!-- 创建成功弹窗（自绘，替代原生 showModal）：可直接进入写卡流程（本页转编辑模式） -->
@@ -228,24 +276,16 @@ import {
   apiPointDetail,
   apiPointCreate,
   apiPointUpdate,
+  apiDictOptions,
   CommunityTreeNode,
   TemplateListItem,
+  DictOption,
   PointSavePayload
 } from '@/services/api'
 import { useAuthStore } from '@/stores/auth'
 import { isNfcSupported, readCardInfoOnce, writePointCode, toastNfcUnavailable } from '@/utils/nfc'
 import { getLocationGcj02 } from '@/utils/geo'
 import AppDialog from '@/components/AppDialog.vue'
-
-/** 点位类型字典（对齐后端 seed：sys_dict point_type） */
-const POINT_TYPES = [
-  { value: 'common', label: '普通点位' },
-  { value: 'power_room', label: '配电房' },
-  { value: 'fire_control', label: '消防控制室' },
-  { value: 'pump_room', label: '水泵房' },
-  { value: 'elevator', label: '电梯机房' },
-  { value: 'garage', label: '地下车库' }
-]
 
 type FormData = {
   colors: ColorTokens
@@ -256,11 +296,14 @@ type FormData = {
   loadError: string
   communities: CommunityTreeNode[]
   templates: TemplateListItem[]
+  typeOptions: DictOption[]
   communityId: string
   buildingId: string
   name: string
   type: string
-  templateId: string
+  templateIds: string[]
+  tplSheetShow: boolean
+  status: number
   remark: string
   lngText: string
   latText: string
@@ -294,23 +337,27 @@ export default {
       loadError: '',
       communities: [] as CommunityTreeNode[],
       templates: [] as TemplateListItem[],
+      typeOptions: [] as DictOption[],
       communityId: '',
       buildingId: '',
       name: '',
       type: '',
-      templateId: '',
+      templateIds: [] as string[],
+      tplSheetShow: false,
+      status: 1,
       remark: '',
       lngText: '',
       latText: '',
       accuracy: 0,
       locating: false,
-      fenceRadius: 200,
+      fenceRadius: 100,
+      fenceOn: true,
       credential: 'qrcode',
       credentialOptions: [
         { label: '二维码', value: 'qrcode' },
         { label: 'NFC', value: 'nfc' },
         { label: '任一', value: 'any' },
-        { label: '免凭证', value: 'none' }
+        { label: '不需要', value: 'none' }
       ],
       nfcId: '',
       nfcSupported: false,
@@ -354,28 +401,32 @@ export default {
       const b = this.buildings.find((x) => x.id == this.buildingId)
       return b != null ? b.name : ''
     },
+    /** 类型选项（字典驱动）：详情回填的类型不在字典内时追加原值选项，避免 picker 静默改写 */
+    typeOptionsView(): DictOption[] {
+      if (this.type != '' && this.typeOptions.findIndex((o) => o.value == this.type) < 0) {
+        return this.typeOptions.concat([{ label: this.type, value: this.type, sort: 999 }])
+      }
+      return this.typeOptions
+    },
     typeNames(): string[] {
-      return POINT_TYPES.map((t) => t.label)
+      return this.typeOptionsView.map((t) => t.label)
     },
     typeIndex(): number {
-      const i = POINT_TYPES.findIndex((t) => t.value == this.type)
+      const i = this.typeOptionsView.findIndex((t) => t.value == this.type)
       return i < 0 ? 0 : i
     },
     typeName(): string {
-      const t = POINT_TYPES.find((x) => x.value == this.type)
+      const t = this.typeOptionsView.find((x) => x.value == this.type)
       return t != null ? t.label : ''
     },
-    templateNames(): string[] {
-      return ['不关联模板'].concat(this.templates.map((t) => t.name))
-    },
-    templateIndex(): number {
-      if (this.templateId == '') return 0
-      const i = this.templates.findIndex((t) => t.id == this.templateId)
-      return i < 0 ? 0 : i + 1
-    },
-    templateName(): string {
-      const t = this.templates.find((x) => x.id == this.templateId)
-      return t != null ? t.name : ''
+    /** 已选模板名拼接展示（未知 id 兜底显示原值） */
+    templateNamesText(): string {
+      const names: string[] = []
+      this.templateIds.forEach((id) => {
+        const t = this.templates.find((x) => x.id == id)
+        names.push(t != null ? t.name : id)
+      })
+      return names.join('、')
     },
     hasLocation(): boolean {
       return this.lngText != '' && this.latText != '' && parseFloat(this.lngText) != 0 && parseFloat(this.latText) != 0
@@ -407,6 +458,11 @@ export default {
           this.templates = list.filter((t) => t.status == 1)
         })
         .catch((_e: any) => {})
+      apiDictOptions('point_type')
+        .then((opts) => {
+          this.typeOptions = opts
+        })
+        .catch((_e: any) => {})
     },
     loadDetail() {
       if (this.pointId == '') return
@@ -420,11 +476,13 @@ export default {
           this.buildingId = p.building_id != null ? p.building_id : ''
           this.name = p.name
           this.type = p.type
-          this.templateId = p.template_id != null ? p.template_id : ''
+          this.templateIds = p.template_ids != null ? p.template_ids : []
+          this.status = p.status
           this.remark = p.remark != null ? p.remark : ''
           this.lngText = p.longitude != 0 ? p.longitude.toFixed(6) : ''
           this.latText = p.latitude != 0 ? p.latitude.toFixed(6) : ''
-          this.fenceRadius = p.fence_radius > 0 ? p.fence_radius : 200
+          this.fenceRadius = p.fence_radius > 0 ? p.fence_radius : 100
+          this.fenceOn = !!p.require_fence
           this.credential = p.credential != '' ? p.credential : 'qrcode'
           this.nfcId = p.nfc_id
         })
@@ -446,16 +504,37 @@ export default {
       this.buildingId = i == 0 ? '' : this.buildings[i - 1].id
     },
     onTypeChange(e: any) {
-      this.type = POINT_TYPES[Number(e.detail.value)].value
+      const opt = this.typeOptionsView[Number(e.detail.value)]
+      if (opt != null) this.type = opt.value
     },
-    onTemplateChange(e: any) {
-      const i = Number(e.detail.value)
-      this.templateId = i == 0 ? '' : this.templates[i - 1].id
+    openTemplateSheet() {
+      if (this.readonly) return
+      this.tplSheetShow = true
+    },
+    closeTemplateSheet() {
+      this.tplSheetShow = false
+    },
+    toggleTemplate(id: string) {
+      if (this.readonly) return
+      const i = this.templateIds.indexOf(id)
+      if (i >= 0) {
+        this.templateIds.splice(i, 1)
+      } else {
+        this.templateIds.push(id)
+      }
+    },
+    clearTemplates() {
+      if (this.readonly) return
+      this.templateIds = []
+    },
+    noop() {},
+    onStatusChange(e: any) {
+      this.status = e.detail.value ? 1 : 0
     },
     setFenceRadius(value: any) {
       const n = Number(value)
       if (Number.isNaN(n)) return
-      this.fenceRadius = Math.min(500, Math.max(50, Math.round(n / 10) * 10))
+      this.fenceRadius = Math.min(1000, Math.max(50, Math.round(n / 10) * 10))
     },
     onFenceChanging(e: any) {
       this.setFenceRadius(e.detail.value)
@@ -579,9 +658,9 @@ export default {
         latitude: lat,
         fence_radius: this.fenceRadius,
         credential: this.credential,
-        // 免凭证点位默认开围栏作为到场校验（未录坐标时围栏暂不生效，补录后自动生效）
-        require_fence: this.credential == 'none',
-        template_id: this.templateId == '' ? null : this.templateId,
+        require_fence: this.fenceOn,
+        template_ids: this.templateIds,
+        status: this.status,
         nfc_id: this.nfcId.trim(),
         remark: this.remark.trim()
       }
@@ -873,6 +952,124 @@ export default {
 .info-line {
   font-size: 28rpx;
   margin-top: 8rpx;
+}
+
+.status-row {
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 24rpx;
+}
+
+.tpl-mask {
+  position: fixed;
+  left: 0;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 1000;
+  justify-content: flex-end;
+}
+
+.tpl-panel {
+  width: 100%;
+  flex-shrink: 0;
+  flex-direction: column;
+  border-radius: 24rpx 24rpx 0 0;
+  overflow: hidden;
+}
+
+.tpl-head {
+  height: 96rpx;
+  align-items: center;
+  justify-content: center;
+  border-bottom-width: 1rpx;
+  border-bottom-style: solid;
+}
+
+.tpl-head-text {
+  font-size: 26rpx;
+}
+
+.tpl-list {
+  max-height: 720rpx;
+}
+
+.tpl-item {
+  height: 104rpx;
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 32rpx;
+  border-bottom-width: 1rpx;
+  border-bottom-style: solid;
+}
+
+.tpl-item-name {
+  font-size: 30rpx;
+  flex: 1;
+}
+
+.tpl-check {
+  width: 40rpx;
+  height: 40rpx;
+  border-width: 2rpx;
+  border-style: solid;
+  border-radius: 8rpx;
+  align-items: center;
+  justify-content: center;
+}
+
+.tpl-check-mark {
+  font-size: 26rpx;
+  line-height: 36rpx;
+}
+
+.tpl-empty {
+  height: 160rpx;
+  align-items: center;
+  justify-content: center;
+}
+
+.tpl-empty-text {
+  font-size: 26rpx;
+}
+
+.tpl-actions {
+  flex-direction: row;
+  align-items: center;
+  padding: 24rpx 32rpx;
+  padding-bottom: calc(24rpx + env(safe-area-inset-bottom));
+  border-top-width: 1rpx;
+  border-top-style: solid;
+}
+
+.tpl-clear {
+  height: 80rpx;
+  border-width: 2rpx;
+  border-style: solid;
+  border-radius: 20rpx; /* Radius.button */
+  align-items: center;
+  justify-content: center;
+  padding: 0 48rpx;
+  margin-right: 24rpx;
+}
+
+.tpl-clear-text {
+  font-size: 28rpx;
+}
+
+.tpl-done {
+  height: 80rpx;
+  flex: 1;
+  border-radius: 20rpx; /* Radius.button */
+  align-items: center;
+  justify-content: center;
+}
+
+.tpl-done-text {
+  font-size: 28rpx;
+  font-weight: 600;
 }
 
 .btn-primary {

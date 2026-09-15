@@ -38,19 +38,22 @@
               <text class="shot-img-fallback-text">照片加载失败，可重新拍</text>
             </view>
           </view>
-          <view v-if="photos.length > 1" class="equip-thumbs">
-            <image
-              v-for="(p, pi) in photos"
-              :key="pi"
-              :src="p"
-              class="equip-thumb"
-              mode="aspectFill"
-              @click="preview(pi)"
-              @longpress="removePhoto(pi)"
-            />
+          <view v-if="photos.length >= 1" class="equip-thumbs">
+            <view v-for="(p, pi) in photos" :key="pi" class="equip-thumb-wrap">
+              <image
+                :src="p"
+                class="equip-thumb"
+                mode="aspectFill"
+                @click="preview(pi)"
+                @longpress="removePhoto(pi)"
+              />
+              <view class="equip-thumb-del" :style="{ backgroundColor: colors.danger }" @click.stop="removePhoto(pi)">
+                <text class="equip-thumb-del-text" :style="{ color: colors.white }">×</text>
+              </view>
+            </view>
           </view>
           <text class="equip-photo-hint" :style="{ color: colors.textSecondary }">
-            已拍 {{ photos.length }} 张新标签（长按缩略图可删除），提交时系统自动核对，拿不准转经理确认
+            已拍 {{ photos.length }} 张新标签（点缩略图右上角 × 删除，长按也可），提交时系统自动核对，拿不准转经理确认
           </text>
           <view v-if="photos.length < 3" hover-class="hover-dim" class="btn-outline reshot" :style="{ borderColor: colors.primary }" @click="takePhoto">
             <text class="btn-outline-text" :style="{ color: colors.primary }">再拍一张</text>
@@ -465,6 +468,33 @@ export default {
   height: 120rpx;
   border-radius: 12rpx;
   margin-right: 16rpx;
+}
+
+.equip-thumb-wrap {
+  position: relative;
+  margin-right: 16rpx;
+  margin-bottom: 12rpx;
+}
+
+.equip-thumb-wrap .equip-thumb {
+  margin-right: 0;
+}
+
+.equip-thumb-del {
+  position: absolute;
+  top: -12rpx;
+  right: -12rpx;
+  width: 44rpx;
+  height: 44rpx;
+  border-radius: 22rpx;
+  align-items: center;
+  justify-content: center;
+}
+
+.equip-thumb-del-text {
+  font-size: 30rpx;
+  font-weight: 700;
+  line-height: 44rpx;
 }
 
 .equip-photo-hint {

@@ -56,10 +56,14 @@
         </text>
         <view class="card-foot">
           <view class="foot-tags">
+            <text v-if="p.status != 1" class="tag" :style="{ color: colors.info, borderColor: colors.info }">停用</text>
             <text class="tag" :style="{ color: colors.textSecondary, borderColor: colors.border }">{{ p.type_label != '' ? p.type_label : p.type }}</text>
             <text class="tag" :style="{ color: colors.primary, borderColor: colors.primary }">{{ p.credential_text }}</text>
+            <text v-if="p.template_text != ''" class="tag" :style="{ color: colors.textSecondary, borderColor: colors.border }">{{ p.template_text }}</text>
+            <text v-if="p.fence_text != ''" class="tag" :style="{ color: colors.textSecondary, borderColor: colors.border }">{{ p.fence_text }}</text>
           </view>
         </view>
+        <text v-if="p.coord_missing" class="card-hint" :style="{ color: colors.danger }">点进详情可现场定位补录</text>
       </view>
 
     </view>
@@ -96,6 +100,12 @@ type PointView = PointItem & {
   credential_text: string
   state_text: string
   state_color: string
+  /** 模板名（「、」拼接，空则不显示） */
+  template_text: string
+  /** 围栏标记（require_fence 开时「围栏 {radius}m」，空则不显示） */
+  fence_text: string
+  /** 未录坐标：卡片显示补录指引 */
+  coord_missing: boolean
 }
 
 type ListData = {
@@ -125,7 +135,7 @@ function credentialTextOf(c: string): string {
   if (c == 'qrcode') return '二维码'
   if (c == 'nfc') return 'NFC'
   if (c == 'any') return '任一'
-  return '免凭证'
+  return '不需要'
 }
 
 /**
@@ -146,7 +156,10 @@ function toPointView(p: PointItem): PointView {
   return Object.assign({}, p, {
     credential_text: credentialTextOf(p.credential),
     state_text: st.text,
-    state_color: st.color
+    state_color: st.color,
+    template_text: p.template_names != null && p.template_names.length > 0 ? p.template_names.join('、') : '',
+    fence_text: p.require_fence ? '围栏 ' + p.fence_radius + 'm' : '',
+    coord_missing: p.longitude == 0 || p.latitude == 0
   })
 }
 
@@ -227,7 +240,7 @@ export default {
         { value: 'qrcode', label: '二维码' },
         { value: 'nfc', label: 'NFC' },
         { value: 'any', label: '任一' },
-        { value: 'none', label: '免凭证' }
+        { value: 'none', label: '不需要' }
       ]
     },
     noMore(): boolean {
@@ -488,6 +501,7 @@ export default {
 
 .foot-tags {
   flex-direction: row;
+  flex-wrap: wrap;
 }
 
 .tag {
@@ -497,6 +511,12 @@ export default {
   border-radius: 12rpx; /* Radius.tag */
   padding: 4rpx 16rpx;
   margin-right: 16rpx;
+  margin-bottom: 8rpx;
+}
+
+.card-hint {
+  font-size: 24rpx;
+  margin-top: 16rpx;
 }
 
 </style>

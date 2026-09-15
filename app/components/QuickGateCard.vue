@@ -8,6 +8,9 @@
         <view class="gate-stat"><text class="gate-stat-num" :style="{ color: colors.danger }">{{ stats.abnormal }}</text><text class="gate-stat-label" :style="{ color: colors.textSecondary }">异常</text></view>
       </view>
       <text class="gate-sub" :style="{ color: colors.textSecondary }">{{ stats.recognizing > 0 ? '提交后将等待 AI 检查完成' : '提交后 AI 统一检查' }}</text>
+      <view v-if="submitError != ''" class="gate-error" :style="{ backgroundColor: colors.danger }">
+        <text class="gate-error-text" :style="{ color: colors.white }">上次提交失败（{{ submitError }}），请点下方按钮重试</text>
+      </view>
     </view>
     <view hover-class="hover-dim" class="btn-big" :style="{ backgroundColor: colors.success }" @click="$emit('submit')">
       <text class="btn-big-text" :style="{ color: colors.white }">提交本点位</text>
@@ -24,6 +27,8 @@ export default {
   props: {
     itemCount: { type: Number, default: 0 },
     stats: { type: Object as () => GateStats, required: true },
+    /** 上次提交失败原因（空 = 不显示红色状态条） */
+    submitError: { type: String, default: '' },
     colors: { type: Object as () => ColorTokens, required: true },
     shadow: { type: String, default: '' }
   },
@@ -41,6 +46,8 @@ export default {
 .gate-stat-num { font-size: 64rpx; font-weight: 700; }
 .gate-stat-label { font-size: 28rpx; margin-top: 8rpx; }
 .gate-sub { font-size: 30rpx; margin-top: 24rpx; }
+.gate-error { width: 100%; border-radius: 16rpx; padding: 20rpx 24rpx; margin-top: 24rpx; align-items: center; }
+.gate-error-text { font-size: 28rpx; font-weight: 600; text-align: center; }
 .btn-big { width: 100%; height: 140rpx; border-radius: 20rpx; align-items: center; justify-content: center; margin-bottom: 24rpx; }
 .btn-big-text { font-size: 44rpx; font-weight: 700; }
 </style>

@@ -48,8 +48,11 @@
             </el-tag>
           </template>
         </el-table-column>
-        <el-table-column label="检查项数" width="90" align="right">
-          <template #default="{ row }">{{ row.items?.length || 0 }}</template>
+        <el-table-column label="检查项数" width="110" align="right">
+          <template #default="{ row }">
+            <span :class="{ 'item-count-empty': !(row.items?.length) }">{{ row.items?.length || 0 }}</span>
+            <el-tag v-if="!(row.items?.length)" type="danger" size="small" style="margin-left: 6px">未配置</el-tag>
+          </template>
         </el-table-column>
         <el-table-column prop="sort" label="排序" width="70" align="center" />
         <el-table-column label="状态" width="80" align="center">
@@ -242,8 +245,12 @@ async function handleSubmit() {
       await updateTemplate(form.id, payload)
       ElMessage.success('模板已更新')
     } else {
-      await createTemplate(payload)
-      ElMessage.success('模板已创建，请在「检查项」中配置检查项')
+      const res = await createTemplate(payload)
+      formVisible.value = false
+      ElMessage.success('模板已创建，接下来请配置检查项')
+      fetchList()
+      router.push(`/inspection/templates/${res.id}/items`)
+      return
     }
     formVisible.value = false
     fetchList()
@@ -265,3 +272,10 @@ async function handleDelete(row: TemplateItem) {
   fetchList()
 }
 </script>
+
+<style scoped>
+.item-count-empty {
+  color: var(--el-color-danger);
+  font-weight: 600;
+}
+</style>

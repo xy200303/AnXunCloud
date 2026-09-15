@@ -256,7 +256,7 @@ function slotLabel(slot: string) {
 type BranchField = 'on_pass' | 'on_abnormal' | 'on_review'
 const BRANCHES: { field: BranchField; text: string; color: string; bg: string; fallback: string }[] = [
   { field: 'on_pass', text: '无异常', color: '#2ba471', bg: '#e7f6ef', fallback: 'finish' },
-  { field: 'on_abnormal', text: '有异常', color: '#d54941', bg: '#fdecec', fallback: 'finish' },
+  { field: 'on_abnormal', text: '有异常', color: '#d54941', bg: '#fdecec', fallback: 'next' },
   { field: 'on_review', text: '存疑失败', color: '#ed7b2f', bg: '#fdf3e7', fallback: 'next' }
 ]
 
@@ -280,7 +280,7 @@ function stepHasInvalidRoute(idx: number): boolean {
 
 function routeLabel(route: string | undefined, fallback: string): string {
   const v = route || fallback
-  if (v === 'finish') return '直接生效'
+  if (v === 'finish') return '通过并生效'
   if (v === 'next') return '进入下一环节'
   if (v === 'reject') return '直接打回'
   if (v.startsWith('goto:')) {
@@ -347,7 +347,7 @@ function insertStep(at: number, type: 'manual' | 'ai') {
   }
   const step: ReviewFlowStep =
     type === 'ai'
-      ? { slot: '', name: '', kind: 'ai', on_pass: 'finish', on_abnormal: 'finish', on_review: 'next' }
+      ? { slot: '', name: '', kind: 'ai', on_pass: 'finish', on_abnormal: 'next', on_review: 'next' }
       : { slot: '', name: '', ...(kind.value === 'report' ? { mode: 'any' as const } : {}) }
   steps.value.splice(at, 0, step)
   remapGoto((old) => (old < at ? old : old + 1))
@@ -392,9 +392,10 @@ const branchDefs = [
 // 分支去向选项：泳道 popover 与抽屉共用（校验规则：on_pass 不允许 reject；goto 只能向后跳到人工环节）
 function branchOptionsFor(idx: number, field: BranchField) {
   const opts: { value: string; label: string }[] = []
-  if (field === 'on_review') opts.push({ value: 'next', label: '进入下一环节（默认）' })
-  else opts.push({ value: 'finish', label: '直接生效（默认）' })
-  if (field !== 'on_review') opts.push({ value: 'next', label: '进入下一环节' })
+  if (field === 'on_pass') opts.push({ value: 'finish', label: '通过并生效（默认）' })
+  else opts.push({ value: 'next', label: '进入下一环节（默认）' })
+  if (field === 'on_pass') opts.push({ value: 'next', label: '进入下一环节' })
+  if (field === 'on_abnormal') opts.push({ value: 'finish', label: '通过并生效' })
   if (field !== 'on_pass') opts.push({ value: 'reject', label: '直接打回' })
   for (let j = idx + 1; j < steps.value.length; j++) {
     const t = steps.value[j]
@@ -442,6 +443,12 @@ async function handleSave() {
       if (!s.name.trim()) s.name = 'AI 审核'
       if (stepHasInvalidRoute(i)) {
         ElMessage.warning(`第 ${i + 1} 个环节「${s.name}」存在非法的跳转目标：只能跳到之后的人工环节`)
+        return
+      }
+      // 「有异常」去向为进入下一环节但后面没有任何人工环节时，异常记录会无人复核直接到底（默认通过），拦截
+      const abnRoute = s.on_abnormal || 'next'
+      if (abnRoute === 'next' && !steps.value.slice(i + 1).some((t) => t.kind !== 'ai')) {
+        ElMessage.warning(`第 ${i + 1} 个环节「${s.name}」：请为「有异常」分支配置后续人工环节，或将其去向改为通过并生效`)
         return
       }
     } else if (!s.name.trim() || !s.slot) {

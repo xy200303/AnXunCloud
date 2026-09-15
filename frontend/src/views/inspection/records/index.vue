@@ -264,7 +264,7 @@ const total = ref(0)
 const communities = ref<CommunityItem[]>([])
 const inspectors = ref<UserItem[]>([])
 const onlySuspect = ref(false)
-// 强制提交 / AI 存疑筛选：后端列表接口暂未支持对应过滤参数，参数透传备用 + 前端对当页结果兜底过滤
+// 强制提交 / AI 存疑筛选：后端列表接口已支持 force_submit/ai_verdict 过滤参数，直接透传
 const onlyForceSubmit = ref(false)
 const onlyAiSuspect = ref(false)
 const activeTab = ref<'all' | 'pending' | 'reviewed'>('all')
@@ -363,11 +363,8 @@ async function fetchList() {
       ...filterParams(),
       audit_status: currentAuditStatus()
     })
-    // 兜底前端过滤（后端支持 force_submit/ai_verdict 过滤后此处自然为无操作）；分页总数以后端为准
-    let rows = data.list
-    if (onlyForceSubmit.value) rows = rows.filter((r) => r.force_submit)
-    if (onlyAiSuspect.value) rows = rows.filter((r) => r.ai_verdict === 'review' || r.ai_verdict === 'error')
-    list.value = rows
+    // 过滤全部走后端（含 force_submit/ai_verdict），分页总数即过滤后总数
+    list.value = data.list
     total.value = data.total
   } finally {
     loading.value = false

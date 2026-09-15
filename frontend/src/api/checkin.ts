@@ -14,7 +14,7 @@ export interface CheckinQuery {
   checkin_type?: string
   audit_status?: string
   is_suspect?: boolean
-  // 后端列表接口暂未支持以下两个过滤参数：透传备用（后端支持后自动生效），当前由前端对当页结果兜底过滤
+  // 后端列表/计数/导出均已支持以下两个过滤参数
   force_submit?: boolean
   ai_verdict?: string
   start_time?: string

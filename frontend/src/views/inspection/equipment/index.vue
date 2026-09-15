@@ -249,6 +249,14 @@
             <el-input v-else v-model="form.extra[f.key]" placeholder="选填" maxlength="128" />
           </el-form-item>
         </template>
+        <!-- 其他档案字段：extra 中已有但不在当前类型方案 form_fields 里的历史键（如导入/换类型遗留），可编辑并随 extra 一起提交 -->
+        <el-collapse v-if="otherExtraFields.length">
+          <el-collapse-item :title="`其他档案字段（${otherExtraFields.length}）`" name="extra">
+            <el-form-item v-for="e in otherExtraFields" :key="e.key" :label="e.label">
+              <el-input v-model="form.extra[e.key]" placeholder="选填" maxlength="128" />
+            </el-form-item>
+          </el-collapse-item>
+        </el-collapse>
       </el-form>
       <template #footer>
         <el-button @click="formVisible = false">取消</el-button>
@@ -980,6 +988,15 @@ const extraLabels: [string, string][] = [
   ['origin', '产地'], ['manufacturer_contact', '厂家联系人'], ['installer_contact', '安装单位联系人电话'],
   ['vendor', '维保单位'], ['vendor_contact', '维保单位联系人电话'], ['other_info', '其他信息']
 ]
+
+// extra 中已有、但不在当前类型方案 form_fields 里的键（标签复用 extraLabels 映射，未收录的键回退原始键名）
+const otherExtraFields = computed(() => {
+  const schemaKeys = new Set(formFields.value.map((f) => f.key))
+  const labelMap = new Map(extraLabels)
+  return Object.keys(form.extra)
+    .filter((k) => !schemaKeys.has(k))
+    .map((k) => ({ key: k, label: labelMap.get(k) || k }))
+})
 
 const detailExtras = computed(() => {
   const extra = detailRow.value?.extra

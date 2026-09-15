@@ -245,6 +245,14 @@ async function handleRun(row: ReportPlan) {
 
 async function handleToggle(row: ReportPlan) {
   const next = row.status === 'enabled' ? 'disabled' : 'enabled'
+  if (next === 'disabled') {
+    const ok = await ElMessageBox.confirm(
+      `停用报告计划「${row.name}」后，下个周期不再自动生成报告；已生成的报告不受影响。确认停用？`,
+      '停用确认',
+      { confirmButtonText: '停用', cancelButtonText: '取消', type: 'warning' }
+    ).then(() => true).catch(() => false)
+    if (!ok) return
+  }
   await updateReportPlan(row.id, {
     community_id: row.community_id, name: row.name, patrol_type: row.patrol_type || undefined,
     cycle_type: row.cycle_type, cycle_config: row.cycle_config, gen_time: row.gen_time,

@@ -120,8 +120,8 @@
               <el-cascader
                 v-model="form.communityBuilding"
                 :options="cascaderOptions"
-                :props="{ value: 'id', label: 'label', children: 'children' }"
-                placeholder="选择小区 / 楼栋"
+                :props="{ value: 'id', label: 'label', children: 'children', checkStrictly: true }"
+                placeholder="选择小区 / 楼栋（只选小区即为小区级点位，如大门口岗亭）"
                 style="width: 100%"
               />
             </el-form-item>
@@ -597,7 +597,7 @@ const form = reactive({
 })
 
 const formRules: FormRules = {
-  communityBuilding: [{ required: true, type: 'array', min: 2, message: '请选择所属楼栋', trigger: 'change' }],
+  communityBuilding: [{ required: true, type: 'array', min: 1, message: '请选择所属小区/楼栋，只选小区即为小区级点位（如大门口岗亭）', trigger: 'change' }],
   name: [{ required: true, message: '请输入点位名称', trigger: 'blur' }],
   type: [{ required: true, message: '请选择点位类型', trigger: 'change' }],
   template_ids: [{ required: true, type: 'array', min: 1, message: '点位必须绑定至少一个检查项模板', trigger: 'change' }],
@@ -629,7 +629,7 @@ function openForm(row?: PointItem) {
     Object.assign(form, {
       id: row.id,
       qrcode_no: row.qrcode_no,
-      communityBuilding: [row.community_id, row.building_id],
+      communityBuilding: row.building_id ? [row.community_id, row.building_id] : [row.community_id],
       unit_no: row.unit_no ?? null,
       floor: row.floor ?? null,
       name: row.name,
@@ -669,7 +669,7 @@ async function handleSubmit() {
   }
   const payload = {
     community_id: form.communityBuilding[0],
-    building_id: form.communityBuilding[1],
+    building_id: form.communityBuilding.length === 1 ? null : form.communityBuilding[1],
     unit_no: form.communityBuilding[1] ? form.unit_no : null,
     floor: form.communityBuilding[1] ? form.floor : null,
     name: form.name,

@@ -63,6 +63,32 @@
         <text class="equip-banner-arrow" :style="{ color: colors.white }">></text>
       </view>
 
+      <!-- 整组拍照（photo_mode=group）：1 张整体照，AI 一次识别全部检查项并回填 -->
+      <view v-if="isGroupMode" class="card" :style="{ backgroundColor: colors.bgCard }">
+        <text class="sec-title" :style="{ color: colors.textPrimary }">拍整体照</text>
+        <view class="photos">
+          <image
+            v-for="(ph, pi) in groupPhotos"
+            :key="pi"
+            class="photo"
+            :src="ph"
+            mode="aspectFill"
+            lazy-load
+            @longpress="removePhoto(groupPhotos, pi)"
+          />
+          <view class="photo-add" :style="{ borderColor: colors.border }" @click="takeGroupPhoto">
+            <text class="photo-add-text" :style="{ color: colors.textSecondary }">{{ groupPhotos.length < 1 ? '+拍整体照' : '重拍' }}</text>
+          </view>
+        </view>
+        <text class="spot-hint" :style="{ color: colors.textSecondary }">打开箱门拍一张整体照，AI 自动识别全部检查项</text>
+        <text v-if="groupAi.status == 'running'" class="group-ai-status" :style="{ color: colors.primary }">AI 识别中…</text>
+        <text v-else-if="groupAi.status == 'failed'" class="group-ai-status" :style="{ color: colors.warning }">识别失败，请手动逐项判定</text>
+        <!-- 数量比对警示：识别设备数与点位登记设备数不一致（提示不拦截） -->
+        <view v-if="groupCountMismatch" class="group-warn" :style="{ backgroundColor: colors.warning }">
+          <text class="group-warn-text" :style="{ color: colors.white }">照片识别到 {{ groupAi.count }} 具设备，点位登记 {{ deviceCount }} 具，请确认是否缺失</text>
+        </view>
+      </view>
+
       <!-- 检查项列表 -->
       <view v-if="items.length > 0" class="card" :style="{ backgroundColor: colors.bgCard }">
         <view class="sec-head">
@@ -74,7 +100,8 @@
             <view class="item-texts">
               <text class="item-name" :style="{ color: colors.textPrimary }">{{ it.name }}</text>
               <text v-if="it.requirement != ''" class="item-req" :style="{ color: colors.textSecondary }">{{ it.requirement }}</text>
-              <text v-if="it.photo_required == 'required' && !isEquipAuto(it)" class="item-req" :style="{ color: colors.warning }">必拍照片</text>
+              <text v-if="it.photo_required == 'required' && !isEquipAuto(it) && !isGroupMode" class="item-req" :style="{ color: colors.warning }">必拍照片</text>
+              <text v-if="it.ai_unrecognized" class="item-req" :style="{ color: colors.info }">AI 未识别</text>
             </view>
             <!-- 台账有效期合成项：服务端逐台自动判定，只读展示（不可人工改判） -->
             <view v-if="isEquipAuto(it)" class="equip-state-wrap">
@@ -124,7 +151,7 @@
                 @click="toggleSpotMissing(it)"
               >{{ it.spot_label_missing ? '✓ 标签缺失/无法辨认' : '标签缺失/无法辨认' }}</text>
               <text
-                v-if="it.photos.length > 0 && !it.spot_label_missing"
+                v-if="it.photos.length > 0 && !it.spot_label_missing && !isGroupMode"
                 class="spot-ai"
                 :style="{ color: colors.primary }"
                 @click="aiReadLabel(it)"
@@ -259,7 +286,7 @@
 
 <script lang="ts">
 import { Colors, ColorTokens } from '@/utils/theme'
-import { apiTaskDetail, apiCheckin, apiCheckinItems, apiUploadLocal, apiAiItemJobCreate, apiAiItemJobs, TaskPoint, CheckinResult, CheckinItemAI, CheckinReqPayload, EquipmentAutoJudge } from '@/services/api'
+import { apiTaskDetail, apiCheckin, apiCheckinItems, apiUploadLocal, apiAiItemJobCreate, apiAiItemJobs, apiAiGroupJobCreate, apiAiGroupJob, TaskPoint, CheckinResult, CheckinItemAI, CheckinReqPayload, EquipmentAutoJudge, AiGroupJobItem } from '@/services/api'
 import { isNfcSupported, readCardOnce, toastNfcUnavailable } from '@/utils/nfc'
 import { extractPointCode } from '@/utils/scan'
 import { getLocationGcj02 } from '@/utils/geo'
@@ -290,6 +317,8 @@ type ItemView = {
   disposition: '' | 'on_site_resolved' | 'report_pending'
   /** 处置照片本地路径（disposition=on_site_resolved 时必传 ≥1 张，提交时上传换 file_id） */
   res_photos: string[]
+  /** AI 整组识别「未识别」标记（group 模式回填：unrecognized 置正常并展示；人工改判后清除） */
+  ai_unrecognized: boolean
 }
 
 /** 台账有效期合成项（v1.6：绑定即启用、逐台独立——点位每台在用设备一条合成项，只读展示） */
@@ -381,6 +410,10 @@ type FormData = {
   nfcCardId: string
   items: ItemView[]
   remark: string
+  /** 整组拍照（photo_mode=group）：整体照本地路径（至多 1 张，重拍替换，提交时上传换 file_id） */
+  groupPhotos: string[]
+  /** 整组 AI 识别状态：running 轮询中 / done 已回填 / failed 失败或超时（不阻塞手动判定）；count=-1 未返回 */
+  groupAi: { status: '' | 'running' | 'done' | 'failed'; jobId: string; count: number; startedAt: number }
   submitting: boolean
   photoBusy: boolean
   /** AI 照片质量拦截计数与放行上限（43107 分支用；达到上限允许强制提交转人工复核） */
@@ -442,6 +475,8 @@ export default {
       nfcCardId: '',
       items: [] as ItemView[],
       remark: '',
+      groupPhotos: [] as string[],
+      groupAi: { status: '', jobId: '', count: -1, startedAt: 0 },
       submitting: false,
       photoBusy: false,
       qualityAttempts: 0,
@@ -453,6 +488,18 @@ export default {
     }
   },
   computed: {
+    /** 整组拍照点位（photo_mode=group）：1 张整体照 AI 一次识别，逐项拍照位/必拍标记/逐项读标签隐藏 */
+    isGroupMode(): boolean {
+      return this.point != null && this.point.photo_mode == 'group'
+    },
+    /** 点位登记设备数（台账有效期合成项一台设备一条，现有字段派生；整组识别 count 比对用） */
+    deviceCount(): number {
+      return this.items.filter((it) => isEquipAuto(it)).length
+    },
+    /** 整组识别数量比对：识别设备数与登记数不一致时显示警示条（提示不拦截） */
+    groupCountMismatch(): boolean {
+      return this.isGroupMode && this.groupAi.status == 'done' && this.groupAi.count >= 0 && this.groupAi.count != this.deviceCount
+    },
     /** 点位设备横幅：统计台账合成项临期/逾期/报废台数 */
     equipBanner(): { show: boolean; danger: boolean; text: string } {
       let warn = 0
@@ -544,7 +591,7 @@ export default {
               judge_type: c.judge_type,
               auto_judge: c.auto_judge ?? null,
               spot_mfg: '', spot_maint: '', spot_no_sticker: false, spot_label_missing: false, spot_ai_loading: false,
-              disposition: '', res_photos: [] as string[]
+              disposition: '', res_photos: [] as string[], ai_unrecognized: false
             }
             // 台账有效期合成项：按服务端逐台判定预置结论（逾期判异常，客户端不可改，提交时不上送）
             if (isEquipAuto(it) && it.auto_judge != null) {
@@ -657,6 +704,8 @@ export default {
       if (isEquipAuto(this.items[idx])) return
       const it = this.items[idx]
       it.pass = pass
+      // 人工改判后「AI 未识别」标记失效
+      it.ai_unrecognized = false
       // 改回正常时清掉处置选择与处置照片，避免误带旧凭证
       if (pass) {
         it.disposition = ''
@@ -682,13 +731,16 @@ export default {
         it.note = ''
         it.disposition = ''
         it.res_photos = []
+        it.ai_unrecognized = false
       })
-      const needPhoto = this.items.some((it) => !isEquipAuto(it) && it.photo_required == 'required' && it.photos.length == 0)
+      const needPhoto = !this.isGroupMode && this.items.some((it) => !isEquipAuto(it) && it.photo_required == 'required' && it.photos.length == 0)
       if (needPhoto) {
         uni.showToast({ title: '仍有必拍照片项，请拍照', icon: 'none' })
       }
     },
     showItemPhotos(it: ItemView): boolean {
+      // 整组拍照点位：逐项拍照位不渲染（整体照统一覆盖，异常特写走处置照片）
+      if (this.isGroupMode) return false
       // 台账有效期项不要求照片；抽查项必拍；异常项与模板必拍项均展示照片区
       if (isEquipAuto(it)) return false
       if (isEquipSpot(it)) return true
@@ -788,6 +840,105 @@ export default {
       this.photoDelIdx = idx
       this.openDlg('danger', '删除照片', '确定删除这张照片吗？', '删除', '取消', 'photo-del')
     },
+    /** 整组拍照（仅相机 1 张，重拍替换旧照）：压缩入列后自动发起 AI 整组识别 */
+    takeGroupPhoto() {
+      if (this.photoBusy || this.submitting) return
+      this.photoBusy = true
+      uni.chooseImage({
+        count: 1,
+        sourceType: ['camera'],
+        success: (res) => {
+          const paths = (res.tempFilePaths || []) as string[]
+          if (paths.length == 0) {
+            this.photoBusy = false
+            return
+          }
+          compressForUpload(paths[0])
+            .then((p) => {
+              this.groupPhotos = [p]
+              this.startGroupJob(p)
+            })
+            .catch(() => uni.showToast({ title: '照片处理失败，请重试', icon: 'none' }))
+            .finally(() => { this.photoBusy = false })
+        },
+        fail: () => { this.photoBusy = false }
+      })
+    },
+    /** 整体照上传换 file_id → 创建整组识别 job → 轮询（建单/上传失败不阻塞手动判定） */
+    startGroupJob(localPath: string) {
+      this.resetGroupAi()
+      this.groupAi.status = 'running'
+      this.groupAi.startedAt = Date.now()
+      apiUploadLocal(localPath)
+        .then((up) => apiAiGroupJobCreate({ point_id: this.pointId, task_id: this.taskId, file_ids: [up.file_id] }))
+        .then((j) => {
+          this.groupAi.jobId = j.id
+          this.pollGroupJob(j.id)
+        })
+        .catch(() => {
+          this.groupAi.status = 'failed'
+          uni.showToast({ title: '识别失败，请手动逐项判定', icon: 'none' })
+        })
+    },
+    /** 轮询整组识别结果：2s 间隔、60s 超时；done 回填逐项判定，失败/超时提示手动判定（不阻塞） */
+    pollGroupJob(jobId: string) {
+      setTimeout(() => {
+        // 已重拍/删除整体照（job 被替换或状态被重置）则丢弃旧轮询
+        if (this.groupAi.jobId != jobId || this.groupAi.status != 'running') return
+        apiAiGroupJob(jobId)
+          .then((j) => {
+            if (j.status == 'done') {
+              this.groupAi.status = 'done'
+              this.groupAi.count = j.count
+              this.applyGroupResult(j.items)
+              uni.showToast({ title: 'AI 识别完成，请确认各项判定', icon: 'none' })
+              return
+            }
+            if (j.status == 'failed' || Date.now() - this.groupAi.startedAt >= 60000) {
+              this.groupAi.status = 'failed'
+              uni.showToast({ title: '识别失败，请手动逐项判定', icon: 'none' })
+              return
+            }
+            this.pollGroupJob(jobId)
+          })
+          .catch(() => {
+            if (Date.now() - this.groupAi.startedAt >= 60000) {
+              this.groupAi.status = 'failed'
+              uni.showToast({ title: '识别失败，请手动逐项判定', icon: 'none' })
+            } else {
+              this.pollGroupJob(jobId)
+            }
+          })
+      }, 2000)
+    },
+    /**
+     * 整组识别回填（按 items[].name 匹配检查项）：normal→正常；abnormal→异常并把 reason 写入异常说明（可编辑）；
+     * unrecognized→正常 + 「AI 未识别」标记。台账有效期项由服务端判定，不回填。
+     */
+    applyGroupResult(list: AiGroupJobItem[]) {
+      list.forEach((r) => {
+        const idx = this.items.findIndex((it) => it.name == r.name)
+        if (idx < 0) return
+        const it = this.items[idx]
+        if (isEquipAuto(it)) return
+        if (r.result == 'abnormal') {
+          this.setPass(idx, false)
+          if ((r.reason || '') != '') it.note = r.reason || ''
+        } else if (r.result == 'unrecognized') {
+          this.setPass(idx, true)
+          it.ai_unrecognized = true
+        } else if (r.result == 'normal') {
+          this.setPass(idx, true)
+        }
+      })
+    },
+    /** 重拍/删除整体照时重置整组 AI 状态与逐项「AI 未识别」标记 */
+    resetGroupAi() {
+      this.groupAi = { status: '', jobId: '', count: -1, startedAt: 0 }
+      this.items.forEach((it) => {
+        it.ai_unrecognized = false
+      })
+    },
     /** 打开通用弹窗（自绘，替代 uni.showModal） */
     openDlg(kind: string, title: string, content: string, confirmText: string, cancelText: string, action: string) {
       this.dlg = { show: true, kind: kind, title: title, content: content, confirmText: confirmText, cancelText: cancelText, action: action }
@@ -795,7 +946,12 @@ export default {
     onDlgConfirm() {
       const a = this.dlg.action
       if (a == 'photo-del') {
-        if (this.photoDelList != null && this.photoDelIdx >= 0) this.photoDelList.splice(this.photoDelIdx, 1)
+        if (this.photoDelList != null && this.photoDelIdx >= 0) {
+          const list = this.photoDelList
+          list.splice(this.photoDelIdx, 1)
+          // 删除整体照：整组识别结果随之作废
+          if (list === this.groupPhotos) this.resetGroupAi()
+        }
         this.photoDelList = null
         this.photoDelIdx = -1
       } else if (a == 'offline-exit' || a == 'ok-exit' || a == 'ai-dismiss') {
@@ -821,13 +977,15 @@ export default {
       if (this.point.require_fence && this.distance > this.point.fence_radius) {
         return '距点位 ' + this.distance + ' m，超出围栏半径 ' + this.point.fence_radius + ' m'
       }
+      // 整组拍照点位：整体照必传（有无异常项均须先拍）
+      if (this.isGroupMode && this.groupPhotos.length == 0) return '请先拍整体照'
       for (let i = 0; i < this.items.length; i++) {
         const it = this.items[i]
         // 台账有效期项：服务端判定，无照片/备注约束（备注已按状态预置）
         if (isEquipAuto(it)) continue
-        // 标签抽查项：必拍 1 张；日期必填（无贴纸免维修日期；标签缺失全免）
+        // 标签抽查项：必拍 1 张（整组模式免逐项照片）；日期必填（无贴纸免维修日期；标签缺失全免）
         if (isEquipSpot(it)) {
-          if (it.photos.length == 0) return '「' + it.name + '」须拍 1 张标签/设备照片'
+          if (!this.isGroupMode && it.photos.length == 0) return '「' + it.name + '」须拍 1 张标签/设备照片'
           if (it.spot_label_missing) continue
           if (it.spot_mfg == '') return '「' + it.name + '」请填写生产日期（读不到则勾选标签缺失）'
           if (!it.spot_no_sticker && it.spot_maint == '') return '「' + it.name + '」请填写维修日期或选「无贴纸」'
@@ -838,7 +996,7 @@ export default {
         }
         // 「现场已处理」异常项：处置照片即凭证，该项照片由处置照片兜底（下方校验必拍处置照片）
         const resolvedOnSite = !it.pass && it.disposition == 'on_site_resolved'
-        if (!resolvedOnSite && (!it.pass || it.photo_required == 'required') && it.photos.length == 0) {
+        if (!this.isGroupMode && !resolvedOnSite && (!it.pass || it.photo_required == 'required') && it.photos.length == 0) {
           return '「' + it.name + '」须至少拍 1 张照片'
         }
         // 「现场已处理」须拍处置照片留痕
@@ -906,6 +1064,12 @@ export default {
           photosLocal.push({ item: it.name, local_path: p, kind: 'resolution' })
         })
       })
+      // 整组拍照：整体照挂到每个上送检查项（补传时逐项换 file_id）
+      if (this.isGroupMode && this.groupPhotos.length > 0) {
+        subs.forEach((it) => {
+          if (!isEquipAuto(it)) photosLocal.push({ item: it.name, local_path: this.groupPhotos[0] })
+        })
+      }
       enqueueOfflineCheckin(req, photosLocal)
       uni.hideLoading()
       this.submitting = false
@@ -962,6 +1126,16 @@ export default {
       const itemKeys: string[][] = subs.map(() => [])
       const resKeys: string[][] = subs.map(() => [])
       let chain: Promise<void> = Promise.resolve()
+      // 整组拍照：整体照上传后同一 file_id 挂到每个上送检查项（一份存储、多处引用，服务端按点位归档取图）
+      if (this.isGroupMode && this.groupPhotos.length > 0) {
+        chain = chain
+          .then(() => apiUploadLocal(this.groupPhotos[0]))
+          .then((r) => {
+            subs.forEach((it, idx) => {
+              if (!isEquipAuto(it)) itemKeys[idx].push(r.file_id)
+            })
+          })
+      }
       subs.forEach((it, idx) => {
         it.photos.forEach((p) => {
           chain = chain
@@ -1318,6 +1492,22 @@ export default {
 
 .photo-tip {
   font-size: 24rpx;
+}
+
+/* 整组拍照：AI 识别状态与数量比对警示条 */
+.group-ai-status {
+  font-size: 24rpx;
+  margin-top: 12rpx;
+}
+
+.group-warn {
+  border-radius: 16rpx;
+  padding: 20rpx 24rpx;
+  margin-top: 16rpx;
+}
+
+.group-warn-text {
+  font-size: 26rpx;
 }
 
 .remark {

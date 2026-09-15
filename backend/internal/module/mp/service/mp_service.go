@@ -601,7 +601,6 @@ func (s *MPService) TaskDetail(inspectorID, taskID string) (gin.H, *errs.Error) 
 		}
 	}
 	points := make([]gin.H, 0, len(pointIDs))
-	ptTpl := map[int]string{} // points 下标 → 点位绑定的检查项模板 ID（仅非空）
 	for i, pid := range pointIDs {
 		pt, ok := ptByID[pid]
 		if !ok {
@@ -642,36 +641,30 @@ func (s *MPService) TaskDetail(inspectorID, taskID string) (gin.H, *errs.Error) 
 			"longitude": pt.Longitude, "latitude": pt.Latitude, "fence_radius": pt.FenceRadius,
 			"my_checkin": myCheckin,
 		})
-		if pt.TemplateID != nil && *pt.TemplateID != "" {
-			ptTpl[len(points)-1] = *pt.TemplateID
-		}
 	}
-	// 批量查检查项模板项：收集全部非空 TemplateID 一次 IN 查询（禁止循环单查），按 template_id 分组
-	tplItems := map[string][]gin.H{}
-	if len(ptTpl) > 0 {
-		tplIDs := make([]string, 0, len(ptTpl))
-		for _, tid := range ptTpl {
-			tplIDs = append(tplIDs, tid)
-		}
-		var items []insmodel.CheckTemplateItem
-		s.db.Where("template_id IN ?", tplIDs).Order("sort ASC").Find(&items)
-		for i := range items {
-			it := &items[i]
-			requirement := ""
-			if it.Requirement != nil {
-				requirement = *it.Requirement
-			}
-			tplItems[it.TemplateID] = append(tplItems[it.TemplateID], gin.H{
-				"name": it.Name, "requirement": requirement, "photo_required": it.PhotoRequired,
-				"judge_type": it.JudgeType, // 判定类型透出（向导区分拍照项/感官项 manual）
-			})
-		}
-	}
+	// 点位检查项 = 该点位全部模板（point_template）检查项并集：一次批量加载（禁循环单查），
+	// 按模板组合顺序 + 项 sort 展开；每项携 template_id/template_name 供前端分组显示。
+	tplSets := insmodel.LoadPointTemplateSets(s.db, []string(pointIDs))
 	for idx := range points {
-		ci := tplItems[ptTpl[idx]]
-		if ci == nil {
-			ci = []gin.H{} // 无模板（或模板无项）输出空数组而非 null
+		pid, _ := points[idx]["point_id"].(string)
+		set := tplSets[pid]
+		photoMode := insmodel.PhotoModePerItem // 无模板点位为 per_item
+		ci := []gin.H{}                        // 无模板（或模板无项）输出空数组而非 null
+		if set != nil {
+			photoMode = set.PhotoMode
+			for _, it := range set.Items {
+				requirement := ""
+				if it.Requirement != nil {
+					requirement = *it.Requirement
+				}
+				ci = append(ci, gin.H{
+					"name": it.Name, "requirement": requirement, "photo_required": it.PhotoRequired,
+					"judge_type": it.JudgeType, // 判定类型透出（向导区分拍照项/感官项 manual）
+					"template_id": it.TemplateID, "template_name": it.TemplateName,
+				})
+			}
 		}
+		points[idx]["photo_mode"] = photoMode
 		points[idx]["check_items"] = ci
 	}
 	// 台账有效期（equipment_validity）合成检查项：绑定即启用——按点位查在用设备，

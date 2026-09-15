@@ -25,6 +25,7 @@ import (
 	"anxuncloud/internal/pkg/uploadfile"
 
 	"go.uber.org/zap"
+	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 )
 
@@ -80,11 +81,12 @@ func (s *CheckinService) SubmitAIItemJob(ctx context.Context, inspectorID string
 	if err := s.db.First(&point, "id = ?", req.PointID).Error; err != nil {
 		return nil, errs.ErrNotFound.WithMsg("点位不存在")
 	}
-	if point.TemplateID == nil || *point.TemplateID == "" {
+	tplIDs := pointTemplateIDs(s.db, point.ID)
+	if len(tplIDs) == 0 {
 		return nil, errs.ErrParam.WithMsg("该点位未绑定检查项模板")
 	}
 	var tplItem insmodel.CheckTemplateItem
-	tplErr := s.db.Where("template_id = ? AND name = ?", *point.TemplateID, req.Name).First(&tplItem).Error
+	tplErr := s.db.Where("template_id IN ? AND name = ?", tplIDs, req.Name).First(&tplItem).Error
 	if tplErr != nil {
 		// 标签抽查合成项（equipment_date_spot，绑定即启用不在模板内）：按任务上下文重算触发，命中才放行
 		if !strings.HasPrefix(req.Name, eqsvc.SpotItemPrefix) {
@@ -373,11 +375,12 @@ func (s *CheckinService) SaveManualDraft(ctx context.Context, inspectorID string
 	if err := s.db.First(&point, "id = ?", req.PointID).Error; err != nil {
 		return nil, errs.ErrNotFound.WithMsg("点位不存在")
 	}
-	if point.TemplateID == nil || *point.TemplateID == "" {
+	tplIDs := pointTemplateIDs(s.db, point.ID)
+	if len(tplIDs) == 0 {
 		return nil, errs.ErrParam.WithMsg("该点位未绑定检查项模板")
 	}
 	var tplItem insmodel.CheckTemplateItem
-	if err := s.db.Where("template_id = ? AND name = ?", *point.TemplateID, req.Name).First(&tplItem).Error; err != nil {
+	if err := s.db.Where("template_id IN ? AND name = ?", tplIDs, req.Name).First(&tplItem).Error; err != nil {
 		return nil, errs.ErrParam.WithMsg("检查项「" + req.Name + "」不属于该点位模板")
 	}
 	if ai.NormalizeJudgeType(tplItem.JudgeType) != ai.JudgeManual {
@@ -423,11 +426,12 @@ func (s *CheckinService) SavePhotoItemAbnormalDraft(ctx context.Context, inspect
 	if err := s.db.First(&point, "id = ?", req.PointID).Error; err != nil {
 		return nil, errs.ErrNotFound.WithMsg("点位不存在")
 	}
-	if point.TemplateID == nil || *point.TemplateID == "" {
+	tplIDs := pointTemplateIDs(s.db, point.ID)
+	if len(tplIDs) == 0 {
 		return nil, errs.ErrParam.WithMsg("该点位未绑定检查项模板")
 	}
 	var tplItem insmodel.CheckTemplateItem
-	if err := s.db.Where("template_id = ? AND name = ?", *point.TemplateID, req.Name).First(&tplItem).Error; err != nil {
+	if err := s.db.Where("template_id IN ? AND name = ?", tplIDs, req.Name).First(&tplItem).Error; err != nil {
 		return nil, errs.ErrParam.WithMsg("检查项「" + req.Name + "」不属于该点位模板")
 	}
 	if ai.NormalizeJudgeType(tplItem.JudgeType) == ai.JudgeManual {
@@ -473,6 +477,13 @@ func (s *CheckinService) SavePhotoItemAbnormalDraft(ctx context.Context, inspect
 func strPtr(s string) *string { return &s }
 
 func boolPtr(v bool) *bool { return &v }
+
+// pointTemplateIDs 点位关联模板 ID 列表（point_template，sort 升序；无关联返回空）。
+func pointTemplateIDs(db *gorm.DB, pointID string) []string {
+	var ids []string
+	db.Model(&insmodel.PointTemplate{}).Where("point_id = ?", pointID).Order("sort ASC").Pluck("template_id", &ids)
+	return ids
+}
 
 func validItemExceptionType(exceptionType string) bool {
 	return exceptionType == "device_missing" || exceptionType == "unable_to_capture"

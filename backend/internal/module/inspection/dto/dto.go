@@ -15,6 +15,7 @@ type TemplateListQuery struct {
 type TemplateSaveReq struct {
 	Name      string `json:"name" binding:"required"`
 	PointType string `json:"point_type"` // 空为通用模板
+	PhotoMode string `json:"photo_mode"` // group=整组 1 张拍照一次 AI 识别多项（缺省）/per_item=逐项拍照；非法值归一 group
 	Sort      int    `json:"sort"`
 	Status    *int   `json:"status"`
 	Remark    string `json:"remark"`
@@ -59,7 +60,7 @@ type PointSaveReq struct {
 	FenceRadius        int      `json:"fence_radius"`
 	Credential         string   `json:"credential"`
 	RequireFence       bool     `json:"require_fence"`
-	TemplateID         *string  `json:"template_id"`
+	TemplateIDs        []string `json:"template_ids"` // 检查项模板组合（≥1 个，顺序即展示/展开顺序）
 	NfcID              string   `json:"nfc_id"`
 	Sort               int      `json:"sort"`
 	Status             *int     `json:"status"`
@@ -83,7 +84,7 @@ type PointBatchReq struct {
 	NamePattern string   `json:"name_pattern" binding:"required"` // 占位符：{building} {unit} {floor} {seq}
 	Type        string   `json:"type" binding:"required"`         // 字典 point_type 启用项
 	Credential  string   `json:"credential"`
-	TemplateID  *string  `json:"template_id"`
+	TemplateIDs []string `json:"template_ids"` // 检查项模板组合（≥1 个，应用到全部新点位）
 	Longitude   float64  `json:"longitude"` // 小区无坐标字段，缺省 0（扫码凭证不依赖围栏）
 	Latitude    float64  `json:"latitude"`
 }

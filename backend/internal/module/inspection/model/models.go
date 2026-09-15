@@ -68,12 +68,28 @@ const (
 	AIVerdictError    = "error"
 )
 
+// 模板拍照模式（check_template.photo_mode）
+const (
+	PhotoModeGroup   = "group"    // 整组 1 张拍照一次 AI 识别多项（默认）
+	PhotoModePerItem = "per_item" // 逐项拍照
+)
+
+// NormalizePhotoMode 拍照模式归一化：非法/空值回 group（兜底，不报错）。
+func NormalizePhotoMode(v string) string {
+	if v == PhotoModePerItem {
+		return v
+	}
+	return PhotoModeGroup
+}
+
 // CheckTemplate 检查项模板（point_type 空为通用；检查项见 check_template_item 独立表）。
 type CheckTemplate struct {
 	types.UUIDModel
-	TenantID  *string        `gorm:"type:uuid" json:"tenant_id"` // 冗余列（查询按点位/项目链路隔离）
-	Name      string         `gorm:"size:128" json:"name"`
-	PointType string         `gorm:"size:32" json:"point_type"`
+	TenantID  *string `gorm:"type:uuid" json:"tenant_id"` // 冗余列（查询按点位/项目链路隔离）
+	Name      string  `gorm:"size:128" json:"name"`
+	PointType string  `gorm:"size:32" json:"point_type"`
+	// PhotoMode 拍照模式：group=整组 1 张拍照一次 AI 识别多项（默认）/per_item=逐项拍照
+	PhotoMode string         `gorm:"size:16;default:group" json:"photo_mode"`
 	Sort      int            `json:"sort"`
 	Status    string         `gorm:"size:16" json:"status"`
 	Remark    string         `gorm:"size:255" json:"remark"`
@@ -83,6 +99,96 @@ type CheckTemplate struct {
 }
 
 func (CheckTemplate) TableName() string { return "check_template" }
+
+// PointTemplate 点位-检查项模板关联（多对多；点位检查项 = 其全部模板检查项的并集，sort 升序为组合顺序）。
+type PointTemplate struct {
+	types.UUIDModel
+	PointID    string    `gorm:"type:uuid" json:"point_id"`
+	TemplateID string    `gorm:"type:uuid" json:"template_id"`
+	Sort       int       `json:"sort"`
+	CreatedAt  time.Time `json:"created_at"`
+}
+
+func (PointTemplate) TableName() string { return "point_template" }
+
+// UnionItem 点位检查项并集条目：模板项 + 所属模板快照（名称/拍照模式）。
+type UnionItem struct {
+	CheckTemplateItem
+	TemplateName string
+	PhotoMode    string
+}
+
+// PointTemplateSet 点位模板组合视图：有序模板 ID、检查项并集（按模板组合顺序 + 项 sort 展开）、聚合拍照模式。
+type PointTemplateSet struct {
+	TemplateIDs []string
+	Items       []UnionItem
+	// PhotoMode 聚合拍照模式：全部关联模板均 group 才为 group，否则 per_item
+	PhotoMode string
+}
+
+// LoadPointTemplateRefs 批量加载点位模板关联（point_id → 按 sort 升序的关联行；无关联的点位不出现）。
+func LoadPointTemplateRefs(db *gorm.DB, pointIDs []string) map[string][]PointTemplate {
+	out := map[string][]PointTemplate{}
+	if len(pointIDs) == 0 {
+		return out
+	}
+	var rows []PointTemplate
+	db.Where("point_id IN ?", pointIDs).Order("point_id ASC, sort ASC").Find(&rows)
+	for _, r := range rows {
+		out[r.PointID] = append(out[r.PointID], r)
+	}
+	return out
+}
+
+// LoadPointTemplateSets 批量加载点位模板组合视图（关联/模板/项各一次 IN 查询；无关联模板的点位不出现）。
+func LoadPointTemplateSets(db *gorm.DB, pointIDs []string) map[string]*PointTemplateSet {
+	out := map[string]*PointTemplateSet{}
+	refs := LoadPointTemplateRefs(db, pointIDs)
+	if len(refs) == 0 {
+		return out
+	}
+	tplIDSet := map[string]bool{}
+	for _, links := range refs {
+		for _, l := range links {
+			tplIDSet[l.TemplateID] = true
+		}
+	}
+	tplIDs := make([]string, 0, len(tplIDSet))
+	for id := range tplIDSet {
+		tplIDs = append(tplIDs, id)
+	}
+	tplByID := map[string]CheckTemplate{}
+	var tpls []CheckTemplate
+	db.Select("id", "name", "photo_mode").Where("id IN ?", tplIDs).Find(&tpls)
+	for _, t := range tpls {
+		tplByID[t.ID] = t
+	}
+	itemsByTpl := map[string][]CheckTemplateItem{}
+	var items []CheckTemplateItem
+	db.Where("template_id IN ?", tplIDs).Order("template_id ASC, sort ASC").Find(&items)
+	for _, it := range items {
+		itemsByTpl[it.TemplateID] = append(itemsByTpl[it.TemplateID], it)
+	}
+	for pid, links := range refs {
+		set := &PointTemplateSet{PhotoMode: PhotoModeGroup}
+		for _, l := range links {
+			t, ok := tplByID[l.TemplateID]
+			if !ok {
+				continue // 模板已删除：关联行视为失效，跳过
+			}
+			mode := NormalizePhotoMode(t.PhotoMode)
+			set.TemplateIDs = append(set.TemplateIDs, l.TemplateID)
+			if mode != PhotoModeGroup {
+				set.PhotoMode = PhotoModePerItem
+			}
+			for _, it := range itemsByTpl[l.TemplateID] {
+				set.Items = append(set.Items, UnionItem{CheckTemplateItem: it, TemplateName: t.Name, PhotoMode: mode})
+			}
+		}
+		out[pid] = set
+	}
+	return out
+}
 
 // CheckTemplateItem 模板检查项（v18 起独立表；更新模板=事务内整表替换项行）。
 type CheckTemplateItem struct {
@@ -121,7 +227,7 @@ type Building struct {
 
 func (Building) TableName() string { return "building" }
 
-// InspectionPoint 巡检点位
+// InspectionPoint 巡检点位（检查项模板为多对多关联，见 point_template / LoadPointTemplateSets）
 type InspectionPoint struct {
 	types.UUIDModel
 	TenantID     *string        `gorm:"type:uuid" json:"tenant_id"` // 冗余列（=所属小区租户）
@@ -133,7 +239,6 @@ type InspectionPoint struct {
 	Type         string         `gorm:"size:32" json:"type"`
 	QRCodeNo     string         `gorm:"column:qrcode_no;size:64" json:"qrcode_no"`
 	NfcID        string         `gorm:"size:64" json:"nfc_id"`
-	TemplateID   *string        `gorm:"type:uuid" json:"template_id"`
 	Longitude    float64        `gorm:"type:numeric(10,7)" json:"longitude"`
 	Latitude     float64        `gorm:"type:numeric(10,7)" json:"latitude"`
 	FenceRadius  int            `json:"fence_radius"`

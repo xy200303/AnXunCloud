@@ -206,6 +206,28 @@ func (ctl *MPController) AIItemJobs(c *gin.Context) {
 	write(c, data, be)
 }
 
+// SubmitAIGroupJob POST /checkin/ai-group-jobs（整组 AI 识别：photo_mode=group 点位 1 张整组照片，异步识别全部检查项）
+func (ctl *MPController) SubmitAIGroupJob(c *gin.Context) {
+	var req dto.AIGroupJobReq
+	if be := bind.JSON(c, &req); be != nil {
+		response.Fail(c, be)
+		return
+	}
+	data, be := ctl.checkin.SubmitAIGroupJob(c.Request.Context(), uid(c), &req)
+	write(c, data, be)
+}
+
+// AIGroupJob GET /checkin/ai-group-jobs/:id（轮询整组识别状态与逐项结果）
+func (ctl *MPController) AIGroupJob(c *gin.Context) {
+	id, be := pathID(c)
+	if be != nil {
+		response.Fail(c, be)
+		return
+	}
+	data, be := ctl.checkin.AIGroupJob(c.Request.Context(), uid(c), id)
+	write(c, data, be)
+}
+
 // ItemDrafts GET /checkin/item-drafts?task_id[&point_id]（逐项识别/手动项过程草稿，断点恢复用）
 func (ctl *MPController) ItemDrafts(c *gin.Context) {
 	data, be := ctl.checkin.ItemDrafts(c.Request.Context(), uid(c), c.Query("task_id"), c.Query("point_id"))

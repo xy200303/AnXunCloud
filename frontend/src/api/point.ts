@@ -72,7 +72,7 @@ export interface PointBatchForm {
   name_pattern: string // 占位符 {building}/{unit}/{floor}/{seq}
   type: string
   credential?: string
-  template_id?: string | null
+  template_ids?: string[]
   longitude?: number | null
   latitude?: number | null
 }

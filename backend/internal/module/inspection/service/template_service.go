@@ -91,6 +91,7 @@ func (s *TemplateService) loadItems(tplIDs []string) map[string][]model.CheckTem
 func templateItem(t *model.CheckTemplate, items []model.CheckTemplateItem) gin.H {
 	return gin.H{
 		"id": t.ID, "name": t.Name, "point_type": t.PointType, "items": templateItemViews(items),
+		"photo_mode": model.NormalizePhotoMode(t.PhotoMode),
 		"sort": t.Sort, "status": sysmodel.StatusInt(t.Status), "remark": t.Remark,
 		"created_at": timefmt.T(t.CreatedAt), "updated_at": timefmt.T(t.UpdatedAt),
 	}
@@ -118,6 +119,7 @@ func (s *TemplateService) Create(c *gin.Context, req *dto.TemplateSaveReq) (stri
 	t := model.CheckTemplate{
 		Name:      strings.TrimSpace(req.Name),
 		PointType: req.PointType,
+		PhotoMode: model.NormalizePhotoMode(req.PhotoMode),
 		Sort:      req.Sort,
 		Status:    sysmodel.StatusEnabled,
 		Remark:    req.Remark,
@@ -163,6 +165,7 @@ func (s *TemplateService) Update(c *gin.Context, id string, req *dto.TemplateSav
 	}
 	updates := map[string]any{
 		"name": strings.TrimSpace(req.Name), "point_type": req.PointType,
+		"photo_mode": model.NormalizePhotoMode(req.PhotoMode),
 		"sort": req.Sort, "remark": req.Remark,
 	}
 	if req.Status != nil {
@@ -174,14 +177,16 @@ func (s *TemplateService) Update(c *gin.Context, id string, req *dto.TemplateSav
 	return nil
 }
 
-// Delete 删除模板；被点位引用时拒绝并提示引用数量。
+// Delete 删除模板；被点位引用时拒绝并提示引用数量（引用口径 = point_template 关联行，软删点位不计）。
 func (s *TemplateService) Delete(c *gin.Context, id string) *errs.Error {
 	t, be := s.loadOwned(c, id)
 	if be != nil {
 		return be
 	}
 	var count int64
-	s.db.Model(&model.InspectionPoint{}).Where("template_id = ?", id).Count(&count)
+	s.db.Model(&model.PointTemplate{}).
+		Joins("JOIN inspection_point ON inspection_point.id = point_template.point_id AND inspection_point.deleted_at IS NULL").
+		Where("point_template.template_id = ?", id).Count(&count)
 	if count > 0 {
 		return errs.ErrParam.WithMsg(fmt.Sprintf("模板已被 %d 个点位引用，不可删除", count))
 	}
@@ -189,8 +194,11 @@ func (s *TemplateService) Delete(c *gin.Context, id string) *errs.Error {
 		if err := tx.Delete(t).Error; err != nil {
 			return err
 		}
-		// 模板软删，级联删除不触发，项行显式清除
-		return tx.Where("template_id = ?", id).Delete(&model.CheckTemplateItem{}).Error
+		// 模板软删，级联删除不触发，项行与点位关联行显式清除
+		if err := tx.Where("template_id = ?", id).Delete(&model.CheckTemplateItem{}).Error; err != nil {
+			return err
+		}
+		return tx.Where("template_id = ?", id).Delete(&model.PointTemplate{}).Error
 	})
 	if err != nil {
 		return errs.ErrInternal

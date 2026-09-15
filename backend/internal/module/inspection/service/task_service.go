@@ -276,14 +276,11 @@ func (s *TaskService) Detail(c *gin.Context, id string) (gin.H, *errs.Error) {
 		return nil, errs.ErrInternal
 	}
 	ptByID := make(map[string]*model.InspectionPoint, len(pagePoints))
-	buildingIDSet, tplIDSet := map[string]bool{}, map[string]bool{}
+	buildingIDSet := map[string]bool{}
 	for i := range pagePoints {
 		ptByID[pagePoints[i].ID] = &pagePoints[i]
 		if pagePoints[i].BuildingID != nil {
 			buildingIDSet[*pagePoints[i].BuildingID] = true
-		}
-		if pagePoints[i].TemplateID != nil && *pagePoints[i].TemplateID != "" {
-			tplIDSet[*pagePoints[i].TemplateID] = true
 		}
 	}
 	buildingNames := map[string]string{}
@@ -298,21 +295,25 @@ func (s *TaskService) Detail(c *gin.Context, id string) (gin.H, *errs.Error) {
 			buildingNames[b.ID] = b.Name
 		}
 	}
+	// 点位检查项总数 = 其全部模板（point_template）检查项数之和（JOIN 聚合，禁循环单查）
 	itemTotals := map[string]int{}
-	if len(tplIDSet) > 0 {
-		tIDs := make([]string, 0, len(tplIDSet))
-		for id := range tplIDSet {
-			tIDs = append(tIDs, id)
+	if len(pagePoints) > 0 {
+		pIDs := make([]string, 0, len(pagePoints))
+		for i := range pagePoints {
+			pIDs = append(pIDs, pagePoints[i].ID)
 		}
-		type tplCnt struct {
-			TemplateID string
-			Cnt        int
+		type ptCnt struct {
+			PointID string
+			Cnt     int
 		}
-		var cnts []tplCnt
-		s.db.Model(&model.CheckTemplateItem{}).Select("template_id, COUNT(*) AS cnt").
-			Where("template_id IN ?", tIDs).Group("template_id").Scan(&cnts)
+		var cnts []ptCnt
+		s.db.Model(&model.PointTemplate{}).
+			Select("point_template.point_id, COUNT(*) AS cnt").
+			Joins("JOIN check_template_item ON check_template_item.template_id = point_template.template_id").
+			Where("point_template.point_id IN ?", pIDs).
+			Group("point_template.point_id").Scan(&cnts)
 		for _, r := range cnts {
-			itemTotals[r.TemplateID] = r.Cnt
+			itemTotals[r.PointID] = r.Cnt
 		}
 	}
 	points := make([]gin.H, 0, len(pageIDs))
@@ -325,10 +326,7 @@ func (s *TaskService) Detail(c *gin.Context, id string) (gin.H, *errs.Error) {
 		if pt.BuildingID != nil {
 			buildingName = buildingNames[*pt.BuildingID]
 		}
-		itemTotal := 0
-		if pt.TemplateID != nil {
-			itemTotal = itemTotals[*pt.TemplateID]
-		}
+		itemTotal := itemTotals[pid]
 		entry := gin.H{
 			"point_id": pt.ID, "point_name": pt.Name, "building_name": buildingName,
 			"sort": start + i + 1, "credential": pt.Credential, "require_fence": pt.RequireFence,

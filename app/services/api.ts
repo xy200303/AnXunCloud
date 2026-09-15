@@ -142,6 +142,10 @@ export type CheckItemTpl = {
   judge_config?: Record<string, any> | null
   /** 台账有效期单台设备自动判定（judge_type=equipment_validity 时后端透出；其余项为空） */
   auto_judge?: EquipmentAutoJudge | null
+  /** 多模板并集来源模板 ID（整组拍照点位：检查项由点位组合的多模板并集而来） */
+  template_id?: string
+  /** 来源模板名（与 template_id 对应，展示/排查用） */
+  template_name?: string
 }
 
 /** 任务明细点位（含我的打卡状态） */
@@ -159,6 +163,8 @@ export type TaskPoint = {
   longitude: number
   latitude: number
   fence_radius: number
+  /** 拍照模式：group=整组 1 张整体照 AI 一次识别（点位所有模板均为整组模式）；per_item=逐项拍照（缺省） */
+  photo_mode: 'group' | 'per_item'
   check_items: CheckItemTpl[]
   my_checkin: {
     id: string
@@ -542,7 +548,8 @@ type RawTaskDetail = {
     longitude?: number
     latitude?: number
     fence_radius?: number
-    check_items?: Array<{ name?: string; requirement?: string; photo_required?: string; judge_type?: string; judge_config?: Record<string, any> | null; auto_judge?: EquipmentAutoJudge | null }>
+    photo_mode?: string
+    check_items?: Array<{ name?: string; requirement?: string; photo_required?: string; judge_type?: string; judge_config?: Record<string, any> | null; auto_judge?: EquipmentAutoJudge | null; template_id?: string | number; template_name?: string }>
     my_checkin?: {
       id?: string | number
       checkin_time?: string
@@ -878,13 +885,16 @@ export function apiTaskDetail(id: string): Promise<TaskDetail> {
             longitude: p.longitude ?? 0,
             latitude: p.latitude ?? 0,
             fence_radius: p.fence_radius ?? 0,
+            photo_mode: p.photo_mode == 'group' ? 'group' : 'per_item',
             check_items: (p.check_items ?? []).map((c) => ({
               name: c.name ?? '',
               requirement: c.requirement ?? '',
               photo_required: c.photo_required ?? '',
               judge_type: c.judge_type ?? '',
               judge_config: c.judge_config ?? null,
-              auto_judge: c.auto_judge ?? null
+              auto_judge: c.auto_judge ?? null,
+              template_id: toId(c.template_id),
+              template_name: c.template_name ?? ''
             })),
             my_checkin: p.my_checkin == null
               ? null
@@ -981,6 +991,75 @@ export function apiAiItemJobs(ids: string[]): Promise<AiItemJob[]> {
             quality_issue: j.quality_issue ?? ''
           }))
         )
+      })
+      .catch(reject)
+  })
+}
+
+/** AI 整组识别 job 创建请求（POST /mp/checkin/ai-group-jobs；整组拍照点位：1 张整体照一次识别全部检查项） */
+export type AiGroupJobCreateReq = {
+  task_id: string
+  point_id: string
+  /** 整体照 file_id（apiUploadLocal 上传后透出），恰好 1 张 */
+  file_ids: string[]
+}
+
+/** AI 整组识别逐项结论（GET /mp/checkin/ai-group-jobs/:id 响应 result.items 元素；name 与点位检查项名对齐） */
+export type AiGroupJobItem = {
+  name: string
+  /** normal / abnormal / unrecognized（unrecognized=读不出，默认正常不计异常） */
+  result: 'normal' | 'abnormal' | 'unrecognized' | string
+  /** abnormal 时的判定原因（回填该项异常说明） */
+  reason?: string
+  /** 识别值（如有效期读数），无则空串 */
+  value?: string
+}
+
+/** AI 整组识别 job 状态（GET /mp/checkin/ai-group-jobs/:id） */
+export type AiGroupJob = {
+  id: string
+  /** pending / running / done / failed */
+  status: 'pending' | 'running' | 'done' | 'failed' | string
+  /** 照片中识别到的设备数量（done 时有效；与点位登记设备数比对用，-1 = 未返回） */
+  count: number
+  items: AiGroupJobItem[]
+}
+
+/** 创建 AI 整组识别 job POST /mp/checkin/ai-group-jobs（整体照上传成功即调用，异步轮询结果） */
+export function apiAiGroupJobCreate(req: AiGroupJobCreateReq): Promise<{ id: string }> {
+  return new Promise<{ id: string }>((resolve, reject) => {
+    httpPost<{ job_id?: string | number }>('/mp/checkin/ai-group-jobs', req as unknown as Record<string, any>)
+      .then((d) => {
+        if (d == null || d.job_id == null) {
+          reject(new Error('识别任务响应异常'))
+          return
+        }
+        resolve({ id: toId(d.job_id) })
+      })
+      .catch(reject)
+  })
+}
+
+/** 查询 AI 整组识别 job GET /mp/checkin/ai-group-jobs/:id（2s 间隔轮询，done 后按 items 回填检查项） */
+export function apiAiGroupJob(id: string): Promise<AiGroupJob> {
+  return new Promise<AiGroupJob>((resolve, reject) => {
+    httpGet<{ job_id?: string | number; status?: string; result?: { count?: number; items?: Array<{ name?: string; result?: string; reason?: string; value?: string }> } }>('/mp/checkin/ai-group-jobs/' + encodeURIComponent(id))
+      .then((d) => {
+        if (d == null) {
+          reject(new Error('识别结果响应异常'))
+          return
+        }
+        resolve({
+          id: toId(d.job_id),
+          status: d.status ?? '',
+          count: typeof d.result?.count == 'number' ? d.result.count : -1,
+          items: (d.result?.items ?? []).map((it) => ({
+            name: it.name ?? '',
+            result: it.result ?? '',
+            reason: it.reason ?? '',
+            value: it.value ?? ''
+          }))
+        })
       })
       .catch(reject)
   })

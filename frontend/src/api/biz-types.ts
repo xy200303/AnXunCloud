@@ -85,6 +85,7 @@ export interface TemplateItem {
   id: string
   name: string
   point_type: string // 空表示通用（所有类型）
+  photo_mode?: 'group' | 'per_item' // group=整组1张拍照一次AI识别多项；per_item=逐项拍照
   items: TemplateCheckItem[]
   sort: number
   status: number
@@ -95,6 +96,7 @@ export interface TemplateItem {
 export interface TemplateForm {
   name: string
   point_type: string
+  photo_mode?: 'group' | 'per_item'
   sort: number
   status: number
   remark: string
@@ -118,8 +120,8 @@ export interface PointItem {
   fence_radius: number
   credential: 'qrcode' | 'nfc' | 'none'
   require_fence: boolean
-  template_id: string | null
-  template_name?: string
+  template_ids: string[]
+  template_names?: string[]
   nfc_id?: string
   sort: number
   status: number
@@ -138,7 +140,7 @@ export interface PointForm {
   fence_radius: number
   credential: string
   require_fence: boolean
-  template_id: string | null
+  template_ids: string[]
   nfc_id: string
   sort: number
   status: number

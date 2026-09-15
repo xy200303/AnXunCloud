@@ -75,14 +75,57 @@ func (s *PointService) List(c *gin.Context, q *dto.PointListQuery) (*response.Pa
 	if err := db.Order("sort ASC, id ASC").Offset(offset).Limit(limit).Find(&rows).Error; err != nil {
 		return nil, errs.ErrInternal
 	}
+	tplIDsByPoint, tplNamesByPoint := pointTemplateViews(s.db, rows)
 	list := make([]gin.H, 0, len(rows))
 	for i := range rows {
-		list = append(list, s.toItem(&rows[i]))
+		list = append(list, s.toItem(&rows[i], tplIDsByPoint[rows[i].ID], tplNamesByPoint[rows[i].ID]))
 	}
 	return &response.Page{List: list, Total: total, Page: q.Page, PageSize: q.PageSize}, nil
 }
 
-func (s *PointService) toItem(p *model.InspectionPoint) gin.H {
+// pointTemplateViews 批量解析点位模板组合视图（point_id → 有序 template_ids / template_names；禁循环单查）。
+func pointTemplateViews(db *gorm.DB, pts []model.InspectionPoint) (map[string][]string, map[string][]string) {
+	idsOut, namesOut := map[string][]string{}, map[string][]string{}
+	if len(pts) == 0 {
+		return idsOut, namesOut
+	}
+	pids := make([]string, 0, len(pts))
+	for i := range pts {
+		pids = append(pids, pts[i].ID)
+	}
+	refs := model.LoadPointTemplateRefs(db, pids)
+	tplIDSet := map[string]bool{}
+	for _, links := range refs {
+		for _, l := range links {
+			tplIDSet[l.TemplateID] = true
+		}
+	}
+	names := map[string]string{}
+	if len(tplIDSet) > 0 {
+		tids := make([]string, 0, len(tplIDSet))
+		for id := range tplIDSet {
+			tids = append(tids, id)
+		}
+		var tpls []model.CheckTemplate
+		db.Select("id", "name").Where("id IN ?", tids).Find(&tpls)
+		for _, t := range tpls {
+			names[t.ID] = t.Name
+		}
+	}
+	for pid, links := range refs {
+		for _, l := range links {
+			name, ok := names[l.TemplateID]
+			if !ok {
+				continue // 模板已删除：关联行视为失效
+			}
+			idsOut[pid] = append(idsOut[pid], l.TemplateID)
+			namesOut[pid] = append(namesOut[pid], name)
+		}
+	}
+	return idsOut, namesOut
+}
+
+func (s *PointService) toItem(p *model.InspectionPoint, templateIDs, templateNames []string) gin.H {
 	commName, buildingName, typeLabel := "", "", ""
 	var comm sysmodel.Community
 	if s.db.Select("name").First(&comm, "id = ?", p.CommunityID).Error == nil {
@@ -98,12 +141,11 @@ func (s *PointService) toItem(p *model.InspectionPoint) gin.H {
 	if s.db.Select("label").Where("type_code = 'point_type' AND value = ?", p.Type).First(&dd).Error == nil {
 		typeLabel = dd.Label
 	}
-	templateName := ""
-	if p.TemplateID != nil {
-		var t model.CheckTemplate
-		if s.db.Select("name").First(&t, "id = ?", *p.TemplateID).Error == nil {
-			templateName = t.Name
-		}
+	if templateIDs == nil {
+		templateIDs = []string{}
+	}
+	if templateNames == nil {
+		templateNames = []string{}
 	}
 	return gin.H{
 		"id": p.ID, "community_id": p.CommunityID, "community_name": commName,
@@ -111,7 +153,7 @@ func (s *PointService) toItem(p *model.InspectionPoint) gin.H {
 		"unit_no": p.UnitNo, "floor": p.Floor,
 		"name": p.Name, "type": p.Type, "type_label": typeLabel,
 		"qrcode_no": p.QRCodeNo, "nfc_id": p.NfcID,
-		"template_id": p.TemplateID, "template_name": templateName,
+		"template_ids": templateIDs, "template_names": templateNames,
 		"longitude": p.Longitude, "latitude": p.Latitude,
 		"fence_radius": p.FenceRadius, "credential": p.Credential, "require_fence": p.RequireFence,
 		"sort": p.Sort, "status": sysmodel.StatusInt(p.Status), "created_at": timefmt.T(p.CreatedAt),
@@ -132,7 +174,6 @@ func (s *PointService) Create(c *gin.Context, req *dto.PointSaveReq) (string, st
 		BuildingID:   req.BuildingID,
 		Name:         req.Name,
 		Type:         req.Type,
-		TemplateID:   templatePtr(req.TemplateID),
 		NfcID:        normalizeNfcID(req.NfcID),
 		Longitude:    req.Longitude,
 		Latitude:     req.Latitude,
@@ -157,7 +198,14 @@ func (s *PointService) Create(c *gin.Context, req *dto.PointSaveReq) (string, st
 		return "", "", be
 	}
 	p.QRCodeNo = no
-	if err := s.db.Create(&p).Error; err != nil {
+	// 点位 + 模板关联同事务写入（sort 按入参顺序）
+	err := s.db.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Create(&p).Error; err != nil {
+			return err
+		}
+		return replacePointTemplates(tx, p.ID, req.TemplateIDs)
+	})
+	if err != nil {
 		return "", "", errs.ErrInternal
 	}
 	return p.ID, p.QRCodeNo, nil
@@ -186,7 +234,9 @@ func (s *PointService) Detail(c *gin.Context, id string) (gin.H, *errs.Error) {
 	if be := middleware.CheckCommunity(s.db, c, p.CommunityID); be != nil {
 		return nil, be
 	}
-	item := s.toItem(&p)
+	tplIDsByPoint, tplNamesByPoint := pointTemplateViews(s.db, []model.InspectionPoint{p})
+	tplIDs, tplNames := tplIDsByPoint[p.ID], tplNamesByPoint[p.ID]
+	item := s.toItem(&p, tplIDs, tplNames)
 	item["updated_at"] = timefmt.T(p.UpdatedAt)
 	var plans []model.InspectionPlan
 	s.db.Select("id", "name").Where("point_ids @> ?::jsonb AND status = ?", fmt.Sprintf(`["%s"]`, id), sysmodel.StatusEnabled).Find(&plans)
@@ -219,7 +269,7 @@ func (s *PointService) Update(c *gin.Context, id string, req *dto.PointSaveReq) 
 	}
 	updates := map[string]any{
 		"tenant_id": tenantID, "community_id": req.CommunityID, "building_id": req.BuildingID, "name": req.Name,
-		"type": req.Type, "template_id": templatePtr(req.TemplateID), "nfc_id": normalizeNfcID(req.NfcID),
+		"type": req.Type, "nfc_id": normalizeNfcID(req.NfcID),
 		"longitude": req.Longitude, "latitude": req.Latitude,
 		"fence_radius": s.fenceRadius(req.FenceRadius), "credential": credentialOrDefault(req.Credential), "require_fence": req.RequireFence,
 		"sort": req.Sort, "remark": req.Remark,
@@ -235,7 +285,14 @@ func (s *PointService) Update(c *gin.Context, id string, req *dto.PointSaveReq) 
 	if req.Status != nil {
 		updates["status"] = sysmodel.StatusStr(*req.Status)
 	}
-	if err := s.db.Model(&p).Updates(updates).Error; err != nil {
+	// 点位字段 + 模板关联（事务内整表替换）同事务提交
+	err := s.db.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Model(&p).Updates(updates).Error; err != nil {
+			return err
+		}
+		return replacePointTemplates(tx, p.ID, req.TemplateIDs)
+	})
+	if err != nil {
 		return errs.ErrInternal
 	}
 	return nil
@@ -256,7 +313,14 @@ func (s *PointService) Delete(c *gin.Context, id string) *errs.Error {
 	if count > 0 {
 		return errs.ErrPointReferenced
 	}
-	if err := s.db.Delete(&p).Error; err != nil {
+	// 点位软删不触发 FK 级联，模板关联行同事务显式清除
+	err := s.db.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Delete(&p).Error; err != nil {
+			return err
+		}
+		return tx.Where("point_id = ?", id).Delete(&model.PointTemplate{}).Error
+	})
+	if err != nil {
 		return errs.ErrInternal
 	}
 	return nil
@@ -440,13 +504,8 @@ func (s *PointService) validate(req *dto.PointSaveReq) *errs.Error {
 		return errs.ErrParam.WithMsg("经纬度取值非法")
 	}
 	// 点位强制绑定检查项模板（v21 起）：必拍项/逐项判定均由模板驱动，无模板点位不可打卡
-	tid := templatePtr(req.TemplateID)
-	if tid == nil {
-		return errs.ErrParam.WithMsg("点位必须绑定检查项模板")
-	}
-	s.db.Model(&model.CheckTemplate{}).Where("id = ? AND (tenant_id IS NULL OR tenant_id = ?)", *tid, *tenantID).Count(&count)
-	if count == 0 {
-		return errs.ErrParam.WithMsg("template_id 对应的检查项模板不存在")
+	if be := s.validateTemplateIDs(tenantID, req.TemplateIDs); be != nil {
+		return be
 	}
 	switch credentialOrDefault(req.Credential) {
 	case model.CredentialQRCode, model.CredentialNFC, model.CredentialNone, model.CredentialAny:
@@ -460,12 +519,44 @@ func (s *PointService) validate(req *dto.PointSaveReq) *errs.Error {
 	return nil
 }
 
-// templatePtr 空字符串模板 ID 转 NULL。
-func templatePtr(id *string) *string {
-	if id == nil || *id == "" {
+// validateTemplateIDs 校验点位模板组合：至少 1 个且全部存在（租户可用口径，一次 IN 查询；空串剔除、重复 id 去重后比对）。
+func (s *PointService) validateTemplateIDs(tenantID *string, ids []string) *errs.Error {
+	cleaned := make([]string, 0, len(ids))
+	for _, id := range ids {
+		if id != "" {
+			cleaned = append(cleaned, id)
+		}
+	}
+	uniq := uniqueIDs(cleaned)
+	if len(uniq) == 0 {
+		return errs.ErrParam.WithMsg("点位必须绑定检查项模板")
+	}
+	var count int64
+	s.db.Model(&model.CheckTemplate{}).Where("id IN ? AND (tenant_id IS NULL OR tenant_id = ?)", uniq, *tenantID).Count(&count)
+	if int(count) != len(uniq) {
+		return errs.ErrParam.WithMsg("template_ids 中存在不存在或无权使用的检查项模板")
+	}
+	return nil
+}
+
+// replacePointTemplates 事务内整表替换点位模板关联（先删后插，sort 按入参顺序；空串/重复 id 去重）。
+func replacePointTemplates(tx *gorm.DB, pointID string, templateIDs []string) error {
+	if err := tx.Where("point_id = ?", pointID).Delete(&model.PointTemplate{}).Error; err != nil {
+		return err
+	}
+	seen := map[string]bool{}
+	rows := make([]model.PointTemplate, 0, len(templateIDs))
+	for i, tid := range templateIDs {
+		if tid == "" || seen[tid] {
+			continue
+		}
+		seen[tid] = true
+		rows = append(rows, model.PointTemplate{PointID: pointID, TemplateID: tid, Sort: i})
+	}
+	if len(rows) == 0 {
 		return nil
 	}
-	return id
+	return tx.Create(&rows).Error
 }
 
 // fenceRadius 围栏半径：缺省取系统参数 inspection.fence_default_radius。
@@ -557,14 +648,9 @@ func (s *PointService) BatchCreate(c *gin.Context, req *dto.PointBatchReq) (*dto
 	default:
 		return nil, errs.ErrParam.WithMsg("credential 取值非法（qrcode/nfc/none/any）")
 	}
-	// 点位强制绑定检查项模板（v21 起）
-	tid := templatePtr(req.TemplateID)
-	if tid == nil {
-		return nil, errs.ErrParam.WithMsg("点位必须绑定检查项模板")
-	}
-	s.db.Model(&model.CheckTemplate{}).Where("id = ? AND (tenant_id IS NULL OR tenant_id = ?)", *tid, *tenantID).Count(&count)
-	if count == 0 {
-		return nil, errs.ErrParam.WithMsg("template_id 对应的检查项模板不存在")
+	// 点位强制绑定检查项模板（v21 起；组合应用到全部新点位）
+	if be := s.validateTemplateIDs(tenantID, req.TemplateIDs); be != nil {
+		return nil, be
 	}
 	if req.FloorTo < req.FloorFrom {
 		return nil, errs.ErrParam.WithMsg("floor_to 不能小于 floor_from")
@@ -634,7 +720,6 @@ func (s *PointService) BatchCreate(c *gin.Context, req *dto.PointBatchReq) (*dto
 					p := model.InspectionPoint{
 						TenantID: tenantID, CommunityID: req.CommunityID, BuildingID: b.id,
 						Name: name, Type: req.Type, QRCodeNo: no,
-						TemplateID: templatePtr(req.TemplateID),
 						Longitude:  req.Longitude, Latitude: req.Latitude,
 						FenceRadius: s.fenceRadius(0),
 						Credential:  credentialOrDefault(req.Credential),
@@ -645,7 +730,14 @@ func (s *PointService) BatchCreate(c *gin.Context, req *dto.PointBatchReq) (*dto
 						p.UnitNo = &u
 						p.Floor = &f
 					}
-					if err := s.db.Create(&p).Error; err != nil {
+					// 点位 + 模板关联同事务写入
+					err := s.db.Transaction(func(tx *gorm.DB) error {
+						if err := tx.Create(&p).Error; err != nil {
+							return err
+						}
+						return replacePointTemplates(tx, p.ID, req.TemplateIDs)
+					})
+					if err != nil {
 						result.Skipped = append(result.Skipped, dto.PointBatchSkip{Building: b.name, Name: name, Reason: "写入失败"})
 						continue
 					}
@@ -945,12 +1037,19 @@ func (s *PointService) Import(c *gin.Context, r io.Reader) (*dto.PointImportResu
 		p := model.InspectionPoint{
 			TenantID:    middleware.CommunityTenantID(s.db, commID), // 冗余列（=所属小区租户）
 			CommunityID: commID, BuildingID: buildingID, Name: name, Type: pointType,
-			TemplateID: templateID, NfcID: normalizeNfcID(nfcID), QRCodeNo: no,
+			NfcID: normalizeNfcID(nfcID), QRCodeNo: no,
 			Longitude: lon, Latitude: lat, FenceRadius: s.fenceRadius(radius),
 			Credential: credential, RequireFence: requireFence,
 			Status: status, Remark: remark,
 		}
-		if err := s.db.Create(&p).Error; err != nil {
+		// 点位 + 模板关联同事务写入（导入模板单列单模板，关联行 sort=0）
+		err := s.db.Transaction(func(tx *gorm.DB) error {
+			if err := tx.Create(&p).Error; err != nil {
+				return err
+			}
+			return replacePointTemplates(tx, p.ID, []string{*templateID})
+		})
+		if err != nil {
 			fail("写入失败：" + err.Error())
 			continue
 		}

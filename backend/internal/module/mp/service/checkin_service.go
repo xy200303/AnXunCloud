@@ -680,8 +680,9 @@ func nfcMatch(reqID, pointID string) bool {
 }
 
 // resolveCheckItems 检查项模板校验并生成逐项快照行（v18 起写 checkin_record_item）：
-// 点位必须已绑定模板（v21 起强制，无模板概念已消除）；模板每项都必须有提交结果（按 name 匹配）；
-// 逐项照片硬约束（一项一图）：每项最多 1 张；不合格项（pass=false）与模板 photo_required=required 的项须恰好 1 张，
+// 点位检查项 = 其全部模板（point_template）检查项并集；点位必须已绑定模板（v21 起强制）；每项都必须有提交结果（按 name 匹配）；
+// 逐项照片硬约束（一项一图）：每项最多 1 张；photo_mode=per_item 模板的不合格项（pass=false）与 photo_required=required 的项须恰好 1 张，
+// photo_mode=group（整组模式）模板项不强制逐项照片（整组照在点位级，一次 AI 识别多项）；
 // file_id 逐一上传确认（43104/43106）；照片唯一归属逐项，无记录级照片。
 // 例外：disposition=on_site_resolved（现场已处理）的不合格项免该项照片——处置照片即凭证，避免重复拍照/存储。
 // 台账有效期合成项客户端可仅上送 name+photos（≤3 张新标签照片，归属校验；pass 忽略仍以服务端判定为准，
@@ -691,17 +692,13 @@ func nfcMatch(reqID, pointID string) bool {
 // 返回逐项快照行 + upload_file 索引（EXIF 判定/AI 输入/水印共用）；
 // name/requirement/ai_hint/photo_required 打卡当时从模板项复制。
 func (s *CheckinService) resolveCheckItems(req *dto.CheckinReq, task *insmodel.InspectionTask, point *insmodel.InspectionPoint, ownerID string) ([]insmodel.CheckinRecordItem, map[string]sysmodel.UploadFile, *errs.Error) {
-	if point.TemplateID == nil || *point.TemplateID == "" {
+	// 点位检查项 = 其全部模板（point_template）检查项并集；无关联模板点位不可打卡（v21 起强制）
+	tplSet := insmodel.LoadPointTemplateSets(s.db, []string{point.ID})[point.ID]
+	if tplSet == nil || len(tplSet.TemplateIDs) == 0 {
 		return nil, nil, errs.ErrParam.WithMsg("该点位未绑定检查项模板，无法打卡")
 	}
-	var tplCount int64
-	s.db.Model(&insmodel.CheckTemplate{}).Where("id = ?", *point.TemplateID).Count(&tplCount)
-	if tplCount == 0 {
-		return nil, nil, errs.ErrParam.WithMsg("点位绑定的检查项模板不存在")
-	}
-	var tplItems []insmodel.CheckTemplateItem
-	s.db.Where("template_id = ?", *point.TemplateID).Order("sort ASC").Find(&tplItems)
-	tplByName := map[string]*insmodel.CheckTemplateItem{}
+	tplItems := tplSet.Items
+	tplByName := map[string]*insmodel.UnionItem{}
 	got := map[string]bool{}
 	for _, it := range req.CheckItems {
 		got[it.Name] = true
@@ -774,6 +771,8 @@ func (s *CheckinService) resolveCheckItems(req *dto.CheckinReq, task *insmodel.I
 		}
 		// 台账有效期项：判定由服务端实时给出（不调 AI 不要求照片，模板 photo_required 配置忽略）
 		isEqValidity := ti.JudgeType == ai.JudgeEquipmentValidity
+		// 整组模式（photo_mode=group）模板项不强制逐项照片：整组照在点位级，一次 AI 识别多项
+		groupItem := ti.PhotoMode == insmodel.PhotoModeGroup
 		if len(it.Photos) > 1 {
 			return nil, nil, errs.ErrParam.WithMsg("检查项「" + it.Name + "」照片超出上限：一项一图，最多 1 张")
 		}
@@ -784,7 +783,7 @@ func (s *CheckinService) resolveCheckItems(req *dto.CheckinReq, task *insmodel.I
 		}
 		// 「现场已处理」异常项：处置照片即凭证（避免重复拍照/存储），该项照片与必拍约束免除
 		onSiteResolved := disposition == insmodel.DispositionOnSiteResolved
-		if !isEqValidity && !onSiteResolved && !it.Pass && len(it.Photos) == 0 {
+		if !isEqValidity && !onSiteResolved && !groupItem && !it.Pass && len(it.Photos) == 0 {
 			return nil, nil, errs.ErrPhotoMissing.WithMsg("检查项「" + it.Name + "」不合格，须至少上传 1 张该项照片")
 		}
 		exceptionType := strings.TrimSpace(it.ExceptionType)
@@ -794,7 +793,7 @@ func (s *CheckinService) resolveCheckItems(req *dto.CheckinReq, task *insmodel.I
 		if exceptionType != "" && it.Pass {
 			return nil, nil, errs.ErrParam.WithMsg("检查项「" + it.Name + "」已上报项目异常，结果必须为异常")
 		}
-		if !isEqValidity && !onSiteResolved && ti.PhotoRequired == types.PhotoReqRequired && len(it.Photos) == 0 {
+		if !isEqValidity && !onSiteResolved && !groupItem && ti.PhotoRequired == types.PhotoReqRequired && len(it.Photos) == 0 {
 			return nil, nil, errs.ErrPhotoMissing.WithMsg("检查项「" + it.Name + "」要求必拍，须至少上传 1 张该项照片")
 		}
 		photoIDs := make([]string, 0, len(it.Photos))

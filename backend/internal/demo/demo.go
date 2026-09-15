@@ -215,14 +215,16 @@ func (d *demoSeeder) createPoint(tenantID, communityID string, buildingIDs []str
 		Credential: p.credential, RequireFence: false, // 演示数据不强制围栏，方便测试
 		Sort: sort, Status: sysmodel.StatusEnabled, Remark: "演示点位（seed-demo 生成）",
 	}
-	if templateID != "" {
-		pt.TemplateID = &templateID
-	}
 	if p.buildingIdx >= 0 && p.buildingIdx < len(buildingIDs) {
 		pt.BuildingID = &buildingIDs[p.buildingIdx]
 	}
 	if err := d.db.Create(&pt).Error; err != nil {
 		return "", err
+	}
+	if templateID != "" {
+		if err := d.db.Create(&insmodel.PointTemplate{PointID: pt.ID, TemplateID: templateID}).Error; err != nil {
+			return "", err
+		}
 	}
 	return pt.ID, nil
 }
@@ -416,7 +418,7 @@ func (d *demoSeeder) seedFireMonthly(tid, cid, tplID string, bldIDs, areaIDs map
 			Longitude: lng, Latitude: lat, FenceRadius: fence,
 			// 演示数据不强制 GPS 围栏（方便甲方远程测试打卡）；凭证默认二维码，每块前 demoFreeCheckCount 个免凭证
 			Credential: insmodel.CredentialQRCode, RequireFence: false,
-			TemplateID: &tplID, Sort: len(points) + 1,
+			Sort: len(points) + 1,
 			Status: sysmodel.StatusEnabled, Remark: "演示点位（seed-demo 生成）",
 		}
 		if bldID != "" {
@@ -574,6 +576,14 @@ func (d *demoSeeder) seedFireMonthly(tid, cid, tplID string, bldIDs, areaIDs map
 	}
 
 	if err := d.createPoints(points); err != nil {
+		return err
+	}
+	// 点位-模板关联行（point_template；全部点位绑同一模板，批量插入）
+	links := make([]insmodel.PointTemplate, 0, len(points))
+	for i := range points {
+		links = append(links, insmodel.PointTemplate{PointID: points[i].ID, TemplateID: tplID})
+	}
+	if err := d.db.CreateInBatches(&links, 500).Error; err != nil {
 		return err
 	}
 

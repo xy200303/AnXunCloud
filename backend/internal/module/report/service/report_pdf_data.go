@@ -57,7 +57,7 @@ func (s *ReportService) pdfData(r *model.InspectionReport) pdf.MonthlyReportData
 
 	// ===== 点位与类型 =====
 	var points []insmodel.InspectionPoint
-	s.db.Select("id", "name", "type", "qrcode_no", "template_id").
+	s.db.Select("id", "name", "type", "qrcode_no").
 		Where("community_id = ?", r.CommunityID).Order("sort ASC, id ASC").Find(&points)
 	// 专项报告：点位口径收拢到该类型期间任务实际覆盖的点位（应检/实检/漏检清单只列该专项的点位）
 	if r.PatrolType != "" {
@@ -163,7 +163,6 @@ func (s *ReportService) pdfData(r *model.InspectionReport) pdf.MonthlyReportData
 	}
 
 	// ===== 4.分项巡检明细（每个有点位的类型一张表） =====
-	tplCache := map[string][]string{} // template_id → 检查项名
 	for _, t := range typeNames.ordered {
 		var pts []*insmodel.InspectionPoint
 		for i := range points {
@@ -174,7 +173,7 @@ func (s *ReportService) pdfData(r *model.InspectionReport) pdf.MonthlyReportData
 		if len(pts) == 0 {
 			continue
 		}
-		items := s.templateItems(pts, tplCache)
+		items := s.templateItems(pts)
 		dt := pdf.DetailTable{TypeName: typeNames.label(t), TypeCode: t, Items: items}
 		if len(items) > 0 {
 			dt.Note = "注：检查标准：" + strings.Join(items, "；") + "。"
@@ -379,25 +378,22 @@ func (s *ReportService) pointTypeNames(present map[string]bool) pointTypeNames {
 	return out
 }
 
-// templateItems 取该类型点位的检查项模板项名（首个配置了模板的点位；v18 起读 check_template_item）。
-func (s *ReportService) templateItems(pts []*insmodel.InspectionPoint, cache map[string][]string) []string {
+// templateItems 取该类型点位的检查项名（首个配置了模板的点位的全部模板检查项并集；v18 起读 check_template_item）。
+func (s *ReportService) templateItems(pts []*insmodel.InspectionPoint) []string {
+	ids := make([]string, 0, len(pts))
 	for _, pt := range pts {
-		if pt.TemplateID == nil {
+		ids = append(ids, pt.ID)
+	}
+	sets := insmodel.LoadPointTemplateSets(s.db, ids)
+	for _, pt := range pts {
+		set := sets[pt.ID]
+		if set == nil || len(set.Items) == 0 {
 			continue
 		}
-		if items, ok := cache[*pt.TemplateID]; ok {
-			return items
-		}
-		var rows []insmodel.CheckTemplateItem
-		s.db.Select("name").Where("template_id = ?", *pt.TemplateID).Order("sort ASC").Find(&rows)
-		if len(rows) == 0 {
-			continue
-		}
-		items := make([]string, 0, len(rows))
-		for _, it := range rows {
+		items := make([]string, 0, len(set.Items))
+		for _, it := range set.Items {
 			items = append(items, it.Name)
 		}
-		cache[*pt.TemplateID] = items
 		return items
 	}
 	return nil

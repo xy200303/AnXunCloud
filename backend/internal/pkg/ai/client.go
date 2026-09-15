@@ -118,11 +118,13 @@ type QualityResult struct {
 }
 
 // ReviewResult 大模型审核结果：照片质量 + 整体结论 + 逐项结论（Items 可空，模型未返回时为空）。
+// Count 整组识别模式下的设备/设施数量（模型未返回时为 nil）。
 type ReviewResult struct {
 	Verdict string
 	Reason  string
 	Quality QualityResult
 	Items   []ItemVerdict
+	Count   *int
 }
 
 // ReviewInput 打卡审核上下文。
@@ -132,6 +134,9 @@ type ReviewInput struct {
 	CheckItems []string    // 检查项名称列表
 	Remark     string      // 异常描述（可空）
 	ItemPhotos []ItemPhoto // 逐项照片（一项一图；无记录级照片）
+	// GroupPhotos 整组识别照片（非空=整组模式：1 张整组照片供全部检查项共同核对，
+	// 此时 ItemPhotos 仅取各项的判定参数元数据，其 Photos 忽略）
+	GroupPhotos []PhotoRef
 }
 
 // Client 多协议视觉审核客户端。
@@ -231,9 +236,36 @@ type promptPart struct {
 
 // buildParts 组装审核内容段：上下文文本 → 逐项标注+该项照片 → 全景/记录级照片。
 // 各协议适配器共用；maxPhotos 为图片总预算。
+// 整组模式（GroupPhotos 非空）：逐项判定要求合并进上下文文本，整组照片只挂一次，全部检查项共同核对。
 func (c *Client) buildParts(input ReviewInput) []promptPart {
 	parts := []promptPart{{text: contextText(input)}}
 	budget := maxPhotos
+	if len(input.GroupPhotos) > 0 {
+		var sb strings.Builder
+		sb.WriteString("整组识别：以下检查项共用下面这张（组）现场照片，请逐项核对并给出 items 逐项结论：")
+		for _, ip := range input.ItemPhotos {
+			sb.WriteString("\n- 检查项「" + ip.Name + "」")
+			if strings.TrimSpace(ip.Requirement) != "" {
+				sb.WriteString("（标准要求：" + strings.TrimSpace(ip.Requirement) + "）")
+			}
+			if strings.TrimSpace(ip.AIHint) != "" {
+				sb.WriteString("（AI 识别要点：" + strings.TrimSpace(ip.AIHint) + "）")
+			}
+			if inst := judgeInstruction(ip.JudgeType, ip.JudgeConfig); inst != "" {
+				sb.WriteString("（判定要求：" + inst + "）")
+			}
+		}
+		sb.WriteString("\n另请统计照片中识别到的目标设备/设施数量，以整数填入 count 字段（无法统计填 0）；无法逐项判断时该项 verdict 输出 review。")
+		parts = append(parts, promptPart{text: sb.String()})
+		for _, img := range c.resolveImages(input.GroupPhotos) {
+			if budget <= 0 {
+				break
+			}
+			parts = append(parts, promptPart{img: &img})
+			budget--
+		}
+		return parts
+	}
 	if len(input.ItemPhotos) > 0 {
 		// 逐项照片：每项一段文字标注后跟该项照片，让模型逐项核对
 		for _, ip := range input.ItemPhotos {
@@ -354,6 +386,7 @@ func parseReview(content string) (*ReviewResult, error) {
 		} `json:"quality"`
 		Verdict string `json:"verdict"`
 		Reason  string `json:"reason"`
+		Count   *int   `json:"count"` // 整组识别模式：识别到的设备/设施数量（可空）
 		Items   []struct {
 			Name    string `json:"name"`
 			Verdict string `json:"verdict"`
@@ -373,7 +406,7 @@ func parseReview(content string) (*ReviewResult, error) {
 	if len(v.Items) == 0 {
 		return nil, fmt.Errorf("缺少 items 逐项结论")
 	}
-	res := &ReviewResult{Verdict: v.Verdict, Reason: v.Reason, Quality: QualityResult{Pass: *v.Quality.Pass, Issue: v.Quality.Issue}}
+	res := &ReviewResult{Verdict: v.Verdict, Reason: v.Reason, Quality: QualityResult{Pass: *v.Quality.Pass, Issue: v.Quality.Issue}, Count: v.Count}
 	for _, it := range v.Items {
 		name := strings.TrimSpace(it.Name)
 		if name == "" || (it.Verdict != VerdictPass && it.Verdict != VerdictReview && it.Verdict != VerdictAbnormal) {

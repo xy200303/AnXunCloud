@@ -363,14 +363,18 @@ func (d *demoSeeder) seedTenantA() error {
 		}
 	}
 
-	// 检查项模板：全部点位统一绑「消火栓及灭火器检查」（必拍项带 AI 识别要点）
-	tplFireID, _, err := d.createTemplate(tid, "消火栓及灭火器检查", fireCheckItems)
+	// 检查项模板：原子模板（消火栓箱+灭火器，整组拍照模式），消防点位统一绑这两个
+	tplHydrantID, _, err := d.createTemplate(tid, "消火栓箱", hydrantBoxItems)
+	if err != nil {
+		return err
+	}
+	tplExtinguisherID, _, err := d.createTemplate(tid, "灭火器", extinguisherItems)
 	if err != nil {
 		return err
 	}
 
 	// 点位 + 月度计划 + 本月历史任务/打卡（黄辉 B 区、杨诗 A 区+B区16/17栋）
-	if err := d.seedFireMonthly(tid, cid, tplFireID, bldIDs, areaIDs, huangID, yangID); err != nil {
+	if err := d.seedFireMonthly(tid, cid, []string{tplHydrantID, tplExtinguisherID}, bldIDs, areaIDs, huangID, yangID); err != nil {
 		return err
 	}
 
@@ -383,13 +387,27 @@ func (d *demoSeeder) seedTenantA() error {
 	return d.db.Create(&notice).Error
 }
 
-// fireCheckItems 「消火栓及灭火器检查」模板项（参考真实消防检查；必拍项带 ai_hint，judge_type 走默认 general）。
-var fireCheckItems = []demoTemplateItem{
-	{"灭火器在位且在有效期内", "灭火器在位、压力表指针在绿区、铅封完好、在有效期内", types.PhotoReqRequired, "灭火器在位、压力表指针在绿区、铅封完好、在有效期内"},
-	{"消火栓箱完好无损坏", "箱门完好、水带水枪齐全、无锈蚀破损", types.PhotoReqRequired, "箱门完好、水带水枪齐全、无锈蚀破损"},
-	{"消防通道畅通无阻", "通道无杂物堆放、安全出口标识清晰", types.PhotoReqRequired, "通道无杂物堆放、安全出口标识清晰"},
-	{"手动报警按钮外观完好", "按钮外观完好、标识清晰", types.PhotoReqOptional, "按钮外观完好、标识清晰"},
+// hydrantBoxItems 「消火栓箱」原子模板项（对齐官方月报 4.2 明细列；整组拍照，逐项 photo_required=none）。
+var hydrantBoxItems = []demoTemplateItem{
+	{"箱门完好无损", "箱门无破损、无变形、开闭正常，箱面无锈蚀", types.PhotoReqNone, "箱门无破损、无变形、开闭正常，箱面无锈蚀"},
+	{"水带齐全无破损", "消防水带在位、数量齐全，无破损、无霉变", types.PhotoReqNone, "消防水带在位、数量齐全，无破损、无霉变"},
+	{"枪头齐全在位", "水枪枪头在位、无缺失", types.PhotoReqNone, "水枪枪头在位、无缺失"},
+	{"接口完好", "水带接口与栓口接口无锈蚀、卡扣完好、无渗漏", types.PhotoReqNone, "水带接口与栓口接口无锈蚀、卡扣完好、无渗漏"},
+	{"水压正常", "栓口水压正常，无异常泄压", types.PhotoReqNone, "栓口水压正常，无异常泄压"},
+	{"周围无遮挡", "消火栓箱前无杂物堆放、无遮挡，取用通道畅通", types.PhotoReqNone, "消火栓箱前无杂物堆放、无遮挡，取用通道畅通"},
 }
+
+// extinguisherItems 「灭火器」原子模板项（对齐官方月报 4.1 明细列；整组拍照）。
+var extinguisherItems = []demoTemplateItem{
+	{"压力正常", "压力表指针在绿色区域", types.PhotoReqNone, "压力表指针在绿色区域"},
+	{"瓶体完好", "瓶体无破损、无明显锈蚀、无变形", types.PhotoReqNone, "瓶体无破损、无明显锈蚀、无变形"},
+	{"喷管完好", "喷管无龟裂、无老化、无堵塞，喷嘴完好", types.PhotoReqNone, "喷管无龟裂、无老化、无堵塞，喷嘴完好"},
+	{"铅封完好", "铅封/保险销在位完好、未被拆除", types.PhotoReqNone, "铅封/保险销在位完好、未被拆除"},
+	{"在有效期内", "生产日期/维修（换粉）日期标签清晰，未超出有效期", types.PhotoReqNone, "生产日期/维修（换粉）日期标签清晰，未超出有效期"},
+}
+
+// fireAllItems 消防点位检查项并集（消火栓箱+灭火器；demo 打卡快照用）。
+var fireAllItems = append(append([]demoTemplateItem{}, hydrantBoxItems...), extinguisherItems...)
 
 // fireUnit 楼栋单元定位（区域 + 楼栋号 + 单元号）。
 type fireUnit struct {
@@ -406,9 +424,9 @@ type firePlanChunk struct {
 
 func (c firePlanChunk) size() int { return c.end - c.start }
 
-// seedFireMonthly 租户 A 巡检数据：A/B 区消防点位（约 3500 个，全部绑「消火栓及灭火器检查」模板）、
+// seedFireMonthly 租户 A 巡检数据：A/B 区消防点位（约 3500 个，统一绑「消火栓箱+灭火器」原子模板）、
 // 按类别分块的月度计划（LPT 分摊到 1~28 日）、本月已过期日的已完成任务与全量打卡。
-func (d *demoSeeder) seedFireMonthly(tid, cid, tplID string, bldIDs, areaIDs map[string]string, huangID, yangID string) error {
+func (d *demoSeeder) seedFireMonthly(tid, cid string, tplIDs []string, bldIDs, areaIDs map[string]string, huangID, yangID string) error {
 	var points []insmodel.InspectionPoint
 	var chunksHuang, chunksYang []firePlanChunk
 
@@ -578,10 +596,12 @@ func (d *demoSeeder) seedFireMonthly(tid, cid, tplID string, bldIDs, areaIDs map
 	if err := d.createPoints(points); err != nil {
 		return err
 	}
-	// 点位-模板关联行（point_template；全部点位绑同一模板，批量插入）
-	links := make([]insmodel.PointTemplate, 0, len(points))
+	// 点位-模板关联行（point_template；全部点位绑全部原子模板，批量插入）
+	links := make([]insmodel.PointTemplate, 0, len(points)*len(tplIDs))
 	for i := range points {
-		links = append(links, insmodel.PointTemplate{PointID: points[i].ID, TemplateID: tplID})
+		for sort, tplID := range tplIDs {
+			links = append(links, insmodel.PointTemplate{PointID: points[i].ID, TemplateID: tplID, Sort: sort})
+		}
 	}
 	if err := d.db.CreateInBatches(&links, 500).Error; err != nil {
 		return err
@@ -686,10 +706,10 @@ func (d *demoSeeder) seedFireMonthly(tid, cid, tplID string, bldIDs, areaIDs map
 	// 打卡记录（约 2% 异常；created_at 与 checkin_time 同月，满足按月分区）
 	type abSpec struct{ remark, item, note string }
 	abSpecs := []abSpec{
-		{"灭火器压力不足，已登记更换", "灭火器在位且在有效期内", "压力表指针在红区"},
-		{"消火栓箱门损坏，已拍照报修", "消火栓箱完好无损坏", "箱门变形无法正常关闭"},
-		{"消防通道堆放杂物，已现场清理并告知责任人", "消防通道畅通无阻", "通道有杂物堆放"},
-		{"灭火器已过有效期，已登记更换", "灭火器在位且在有效期内", "铭牌显示已过有效期"},
+		{"灭火器压力不足，已登记更换", "压力正常", "压力表指针在红区"},
+		{"消火栓箱门损坏，已拍照报修", "箱门完好无损", "箱门变形无法正常关闭"},
+		{"消火栓枪头缺失，已拍照上报", "枪头齐全在位", "箱内未见水枪枪头"},
+		{"灭火器已过有效期，已登记更换", "在有效期内", "铭牌显示已过有效期"},
 	}
 	var recs []insmodel.CheckinRecord
 	cnt, abCnt := 0, 0
@@ -725,7 +745,7 @@ func (d *demoSeeder) seedFireMonthly(tid, cid, tplID string, bldIDs, areaIDs map
 		return err
 	}
 
-	// 逐项结果快照（4 项；必拍项带共享照片 key；异常记录的对应必拍项 pass=false + note）
+	// 逐项结果快照（消火栓箱 6 项+灭火器 5 项；有素材的项挂共享照片 key；异常记录的对应项 pass=false + note）
 	var items []insmodel.CheckinRecordItem
 	abCnt = 0
 	for i := range recs {
@@ -735,7 +755,7 @@ func (d *demoSeeder) seedFireMonthly(tid, cid, tplID string, bldIDs, areaIDs map
 			ab = &abSpecs[abCnt%len(abSpecs)]
 			abCnt++
 		}
-		for j, it := range fireCheckItems {
+		for j, it := range fireAllItems {
 			row := insmodel.CheckinRecordItem{
 				RecordID: rec.ID, Name: it.name, Requirement: strptr(it.requirement),
 				JudgeType: "general", PhotoRequired: it.photoReq,
@@ -744,10 +764,8 @@ func (d *demoSeeder) seedFireMonthly(tid, cid, tplID string, bldIDs, areaIDs map
 			if it.aiHint != "" {
 				row.AIHint = strptr(it.aiHint)
 			}
-			if it.photoReq == types.PhotoReqRequired {
-				if key := d.photo(tid, rec.InspectorID, it.name); key != "" {
-					row.Photos = types.StringArray{key}
-				}
+			if key := d.photo(tid, rec.InspectorID, it.name); key != "" {
+				row.Photos = types.StringArray{key}
 			}
 			if ab != nil && it.name == ab.item {
 				row.Pass = false

@@ -364,14 +364,14 @@ import {
   type ReportStatus,
   type SignCandidate
 } from '@/api/report'
-import { listCommunities } from '@/api/community'
+import { useCommunities } from '@/composables/useCommunities'
 import { uploadImage, withFileToken } from '@/api/upload'
 import { updateProfile } from '@/api/user'
 import SignaturePad from '@/components/SignaturePad.vue'
 import { downloadFile } from '@/utils/download'
+import { checkinTypeLabel, auditStatusTag } from '@/utils/labels'
 import { useUserStore } from '@/store/user'
 import { usePatrolTypes } from '@/composables/usePatrolTypes'
-import type { CommunityItem } from '@/api/biz-types'
 
 const userStore = useUserStore()
 // 巡查类型字典（报告类型筛选/生成下拉，按大类分组）
@@ -379,8 +379,7 @@ const { patrolTypeGroups } = usePatrolTypes()
 const loading = ref(false)
 const list = ref<ReportItem[]>([])
 const total = ref(0)
-const communities = ref<CommunityItem[]>([])
-const communitiesLoading = ref(false)
+const { communities, loading: communitiesLoading } = useCommunities()
 
 const statusOptions: { label: string; value: ReportStatus }[] = [
   { label: '待审核', value: 'pending_review' }, { label: '已通过', value: 'approved' }
@@ -431,19 +430,8 @@ function handleReset() {
   handleSearch()
 }
 
-async function loadCommunities() {
-  communitiesLoading.value = true
-  try {
-    const data = await listCommunities({ page: 1, page_size: 100, status: 1 })
-    communities.value = data.list
-  } finally {
-    communitiesLoading.value = false
-  }
-}
-
-onMounted(async () => {
+onMounted(() => {
   fetchList()
-  await loadCommunities()
 })
 
 // ===== 详情抽屉 =====
@@ -451,26 +439,11 @@ const detailVisible = ref(false)
 const detailLoading = ref(false)
 const detail = ref<ReportDetail | null>(null)
 
-// 打卡方式 / 结果 / 审核状态中文映射（与打卡记录页一致）
-function checkinTypeLabel(t: string) {
-  return { qrcode: '扫码', fence: '围栏', offline: '离线补传', nfc: 'NFC' }[t] || t
-}
-
+// 打卡结果 tag（「疑似」为报告页短文案；打卡方式/审核状态映射见 utils/labels.ts）
 function resultTag(row: { result: string; is_suspect: boolean }): { label: string; type: 'success' | 'warning' | 'danger' } {
   if (row.is_suspect) return { label: '疑似', type: 'warning' }
   if (row.result === 'abnormal') return { label: '异常', type: 'danger' }
   return { label: '正常', type: 'success' }
-}
-
-function auditStatusTag(s: string): { label: string; type: 'info' | 'warning' | 'success' | 'danger' } {
-  return (
-    {
-      auto_pass: { label: '默认通过', type: 'info' },
-      pending: { label: '待审核', type: 'warning' },
-      pass: { label: '人工通过', type: 'success' },
-      rejected: { label: '已驳回', type: 'danger' }
-    }[s] || { label: s || '--', type: 'info' }
-  ) as { label: string; type: 'info' | 'warning' | 'success' | 'danger' }
 }
 
 // stats 兜底，避免历史数据缺字段

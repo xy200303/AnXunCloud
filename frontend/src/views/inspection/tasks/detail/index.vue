@@ -109,6 +109,7 @@ import { getTaskDetail } from '@/api/task'
 import PhotoViewer from '@/components/PhotoViewer.vue'
 import type { TaskDetail, TaskPointDetail, CheckinPhoto } from '@/api/biz-types'
 import { usePatrolTypes } from '@/composables/usePatrolTypes'
+import { checkinTypeLabel } from '@/utils/labels'
 
 const route = useRoute()
 const loading = ref(false)
@@ -164,10 +165,6 @@ function pointVisual(p: TaskPointDetail): { type: string; icon: any } {
   if (p.checkin.is_suspect) return { type: 'warning', icon: Warning }
   if (p.checkin.checkin_type === 'offline') return { type: 'info', icon: Upload }
   return { type: 'success', icon: CircleCheck }
-}
-
-function checkinTypeLabel(t: string) {
-  return { qrcode: '扫码', fence: '围栏', offline: '离线补传' }[t] || t
 }
 
 // ===== 照片查看 =====

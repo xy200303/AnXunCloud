@@ -108,18 +108,17 @@ import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { Search, Refresh, RefreshRight, Warning, CircleClose, Flag, Loading, CircleCheck, Clock } from '@element-plus/icons-vue'
 import { listTasks, generateTasks, type TaskQuery } from '@/api/task'
-import { listCommunities } from '@/api/community'
-import { listUsers } from '@/api/user'
-import type { TaskItem, CommunityItem } from '@/api/biz-types'
+import type { TaskItem } from '@/api/biz-types'
 import { usePatrolTypes } from '@/composables/usePatrolTypes'
-import type { UserItem } from '@/api/types'
+import { useCommunities } from '@/composables/useCommunities'
+import { useInspectors } from '@/composables/useInspectors'
 
 const router = useRouter()
 const loading = ref(false)
 const list = ref<TaskItem[]>([])
 const total = ref(0)
-const communities = ref<CommunityItem[]>([])
-const inspectors = ref<UserItem[]>([])
+const { communities } = useCommunities()
+const { inspectors } = useInspectors()
 const activeTab = ref('all')
 const { patrolTypes, patrolTypeLabel } = usePatrolTypes()
 
@@ -151,14 +150,8 @@ function handleReset() {
   fetchList()
 }
 
-onMounted(async () => {
+onMounted(() => {
   fetchList()
-  const [cData, uData] = await Promise.all([
-    listCommunities({ page: 1, page_size: 100, status: 1 }),
-    listUsers({ page: 1, page_size: 100, status: 1 })
-  ])
-  communities.value = cData.list
-  inspectors.value = uData.list
 })
 
 // 状态色 + 图标双编码

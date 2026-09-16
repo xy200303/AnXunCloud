@@ -11,9 +11,7 @@
           </div>
           <div class="detail-header-tags">
             <el-tag v-if="detail.force_submit || row.force_submit" type="warning" effect="dark">强制提交</el-tag>
-            <el-tag v-if="row.is_suspect" type="warning">疑似作弊</el-tag>
-            <el-tag v-else-if="row.result === 'abnormal'" type="danger">异常</el-tag>
-            <el-tag v-else type="success">正常</el-tag>
+            <el-tag :type="checkinResultTag(row).type">{{ checkinResultTag(row).label }}</el-tag>
           </div>
         </div>
 
@@ -174,6 +172,7 @@
 
 <script setup lang="ts">
 import PhotoViewer from '@/components/PhotoViewer.vue'
+import { checkinTypeLabel, checkinResultTag, auditStatusTag } from '@/utils/labels'
 import type { CheckinItem, CheckinDetail } from '@/api/biz-types'
 
 defineProps<{
@@ -187,10 +186,6 @@ const emit = defineEmits<{
   'update:modelValue': [value: boolean]
 }>()
 
-function checkinTypeLabel(t: string) {
-  return { qrcode: '扫码', fence: '围栏', offline: '离线补传', nfc: 'NFC' }[t] || t
-}
-
 // 处置方式：on_site_resolved 现场已处理-绿 / maintenance_registered 已登记维保-蓝 / report_pending 上报待处理-橙
 function dispositionTag(d: string): { label: string; type: 'info' | 'warning' | 'success' | 'danger' | 'primary' } {
   return (
@@ -200,18 +195,6 @@ function dispositionTag(d: string): { label: string; type: 'info' | 'warning' | 
       report_pending: { label: '上报待处理', type: 'warning' }
     }[d] || { label: d, type: 'info' }
   ) as { label: string; type: 'info' | 'warning' | 'success' | 'danger' | 'primary' }
-}
-
-// 审核状态：auto_pass 默认通过-灰 / pending 待审核-橙 / pass 人工通过-绿 / rejected 已打回-红
-function auditStatusTag(s: string): { label: string; type: 'info' | 'warning' | 'success' | 'danger' } {
-  return (
-    {
-      auto_pass: { label: '默认通过', type: 'info' },
-      pending: { label: '待审核', type: 'warning' },
-      pass: { label: '人工通过', type: 'success' },
-      rejected: { label: '已驳回', type: 'danger' }
-    }[s] || { label: s, type: 'info' }
-  ) as { label: string; type: 'info' | 'warning' | 'success' | 'danger' }
 }
 
 // AI 结论：pass 大模型通过 / review 转人工 / error 审核失败

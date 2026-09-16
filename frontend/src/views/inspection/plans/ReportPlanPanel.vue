@@ -129,12 +129,11 @@ import {
   listReportPlans, createReportPlan, updateReportPlan, deleteReportPlan, runReportPlan,
   type ReportPlan
 } from '@/api/reportPlan'
-import { listCommunities } from '@/api/community'
 import { usePatrolTypes } from '@/composables/usePatrolTypes'
-import type { CommunityItem } from '@/api/biz-types'
+import { useCommunities } from '@/composables/useCommunities'
 
-const communities = ref<CommunityItem[]>([])
-const communitiesLoading = ref(false)
+// 小区下拉（共享缓存 composable，setup 即开始加载，与 fetchList 并行）
+const { communities, loading: communitiesLoading } = useCommunities()
 const { patrolTypeGroups } = usePatrolTypes()
 
 const loading = ref(false)
@@ -272,18 +271,7 @@ async function handleDelete(row: ReportPlan) {
   fetchList()
 }
 
-async function loadCommunities() {
-  communitiesLoading.value = true
-  try {
-    const data = await listCommunities({ page: 1, page_size: 100, status: 1 })
-    communities.value = data.list
-  } finally {
-    communitiesLoading.value = false
-  }
-}
-
-onMounted(async () => {
-  await loadCommunities()
+onMounted(() => {
   fetchList()
 })
 </script>

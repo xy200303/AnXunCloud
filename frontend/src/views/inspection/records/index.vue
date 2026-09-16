@@ -126,9 +126,7 @@
         <el-table-column label="结果" width="110" align="center">
           <template #default="{ row }">
             <div class="result-tags">
-              <el-tag v-if="row.is_suspect" type="warning" size="small">疑似作弊</el-tag>
-              <el-tag v-else-if="row.result === 'abnormal'" type="danger" size="small">异常</el-tag>
-              <el-tag v-else type="success" size="small">正常</el-tag>
+              <el-tag :type="checkinResultTag(row).type" size="small">{{ checkinResultTag(row).label }}</el-tag>
               <el-tag v-if="row.force_submit" type="warning" size="small" effect="dark">强制提交</el-tag>
               <el-tag v-for="et in exceptionTypeTags(row.exception_types)" :key="et.value" type="danger" size="small" effect="plain">{{ et.label }}</el-tag>
               <el-tag v-if="row.ai_verdict === 'review' || row.ai_verdict === 'error'" type="warning" size="small" effect="plain">AI 存疑</el-tag>
@@ -251,18 +249,19 @@ import { ElMessage, ElMessageBox, type FormInstance, type FormRules, type TableI
 import { listCheckins, getCheckin, getCheckinAuditCounts, type CheckinQuery, type AuditCounts } from '@/api/checkin'
 import { downloadFile } from '@/utils/download'
 import { passReview, rejectReview, reopenReview, batchPassReview, spotcheck, type SpotcheckBody } from '@/api/review'
-import { listCommunities } from '@/api/community'
-import { listUsers } from '@/api/user'
 import CheckinDetailDrawer from '@/components/CheckinDetailDrawer.vue'
-import type { CheckinItem, CheckinDetail, CommunityItem } from '@/api/biz-types'
-import type { UserItem } from '@/api/types'
+import { checkinTypeLabel, checkinResultTag, auditStatusTag } from '@/utils/labels'
+import { fmtDate } from '@/utils/date'
+import { useCommunities } from '@/composables/useCommunities'
+import { useInspectors } from '@/composables/useInspectors'
+import type { CheckinItem, CheckinDetail } from '@/api/biz-types'
 
 const route = useRoute()
 const loading = ref(false)
 const list = ref<CheckinItem[]>([])
 const total = ref(0)
-const communities = ref<CommunityItem[]>([])
-const inspectors = ref<UserItem[]>([])
+const { communities } = useCommunities()
+const { inspectors } = useInspectors()
 const onlySuspect = ref(false)
 // 强制提交 / AI 存疑筛选：后端列表接口已支持 force_submit/ai_verdict 过滤参数，直接透传
 const onlyForceSubmit = ref(false)
@@ -271,22 +270,6 @@ const activeTab = ref<'all' | 'pending' | 'reviewed'>('all')
 const reviewedStatus = ref<'all' | 'pass' | 'rejected'>('all')
 const tableRef = ref<TableInstance>()
 const selectedRows = ref<CheckinItem[]>([])
-
-function checkinTypeLabel(t: string) {
-  return { qrcode: '扫码', fence: '围栏', offline: '离线补传', nfc: 'NFC' }[t] || t
-}
-
-// 审核状态标签（与详情抽屉同一映射）
-function auditStatusTag(s: string): { label: string; type: 'info' | 'warning' | 'success' | 'danger' } {
-  return (
-    {
-      auto_pass: { label: '默认通过', type: 'info' },
-      pending: { label: '待审核', type: 'warning' },
-      pass: { label: '人工通过', type: 'success' },
-      rejected: { label: '已驳回', type: 'danger' }
-    }[s] || { label: s || '--', type: 'info' }
-  ) as { label: string; type: 'info' | 'warning' | 'success' | 'danger' }
-}
 
 // 异常类型标签（exception_types 逗号分隔 → 标签数组）
 function exceptionTypeTags(v?: string): Array<{ value: string; label: string }> {
@@ -317,8 +300,7 @@ const emptyText = computed(() => {
 function defaultRange(): [string, string] {
   const end = new Date()
   const start = new Date(Date.now() - 6 * 86400000)
-  const fmt = (d: Date, endOfDay: boolean) =>
-    `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')} ${endOfDay ? '23:59:59' : '00:00:00'}`
+  const fmt = (d: Date, endOfDay: boolean) => `${fmtDate(d)} ${endOfDay ? '23:59:59' : '00:00:00'}`
   return [fmt(start, false), fmt(end, true)]
 }
 
@@ -429,18 +411,12 @@ function handleRowClick(row: CheckinItem) {
   openDetail(row)
 }
 
-onMounted(async () => {
+onMounted(() => {
   // 支持从绩效报表带筛选进入（疑似作弊下钻）；reviewed=true 用于抽查后跳转等待审核
   if (route.query.inspector_id) query.inspector_id = String(route.query.inspector_id)
   if (route.query.is_suspect) onlySuspect.value = true
   if (route.query.tab === 'pending') activeTab.value = 'pending'
   fetchList()
-  const [cData, uData] = await Promise.all([
-    listCommunities({ page: 1, page_size: 100, status: 1 }),
-    listUsers({ page: 1, page_size: 100, status: 1 })
-  ])
-  communities.value = cData.list
-  inspectors.value = uData.list
 })
 
 // ===== 审核操作 =====

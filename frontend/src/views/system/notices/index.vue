@@ -141,39 +141,18 @@ import { Search, Refresh, Plus, RefreshRight, ArrowDown, Paperclip, Close, Uploa
 import { listNotices, createNotice, updateNotice, deleteNotice } from '@/api/notice'
 import { uploadImage } from '@/api/upload'
 import { useUserStore } from '@/store/user'
+import { usePagedList } from '@/composables/usePagedList'
 import type { NoticeAttachment, NoticeItem } from '@/api/biz-types'
 
 const userStore = useUserStore()
-const loading = ref(false)
-const list = ref<NoticeItem[]>([])
-const total = ref(0)
-const query = reactive({ page: 1, page_size: 20, title: '', status: '' as number | '' })
-
-async function fetchList() {
-  loading.value = true
-  try {
-    const data = await listNotices({
-      ...query,
-      title: query.title || undefined,
-      status: query.status === '' ? undefined : query.status
-    })
-    list.value = data.list
-    total.value = data.total
-  } finally {
-    loading.value = false
-  }
-}
-
-function handleSearch() {
-  query.page = 1
-  fetchList()
-}
-
-function handleReset() {
-  query.title = ''
-  query.status = ''
-  handleSearch()
-}
+const { loading, list, total, query, fetchList, handleSearch, handleReset } = usePagedList(
+  (q) => listNotices({
+    ...q,
+    title: q.title || undefined,
+    status: q.status === '' ? undefined : q.status
+  }),
+  () => ({ page: 1, page_size: 20, title: '', status: '' as number | '' })
+)
 
 onMounted(fetchList)
 

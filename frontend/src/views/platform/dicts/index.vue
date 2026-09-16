@@ -89,36 +89,15 @@ import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox, type FormInstance, type FormRules } from 'element-plus'
 import { Search, Refresh, Plus, RefreshRight } from '@element-plus/icons-vue'
 import { listDictTypes, createDictType, updateDictType, deleteDictType } from '@/api/dict'
+import { usePagedList } from '@/composables/usePagedList'
 import type { DictType } from '@/api/types'
 
 const router = useRouter()
 
-const loading = ref(false)
-const typeList = ref<DictType[]>([])
-const total = ref(0)
-const query = reactive({ page: 1, page_size: 20, name: '', code: '' })
-
-async function fetchTypes() {
-  loading.value = true
-  try {
-    const data = await listDictTypes({ ...query, name: query.name || undefined, code: query.code || undefined })
-    typeList.value = data.list
-    total.value = data.total
-  } finally {
-    loading.value = false
-  }
-}
-
-function handleSearch() {
-  query.page = 1
-  fetchTypes()
-}
-
-function handleReset() {
-  query.name = ''
-  query.code = ''
-  handleSearch()
-}
+const { loading, list: typeList, total, query, fetchList: fetchTypes, handleSearch, handleReset } = usePagedList(
+  (q) => listDictTypes({ ...q, name: q.name || undefined, code: q.code || undefined }),
+  () => ({ page: 1, page_size: 20, name: '', code: '' })
+)
 
 onMounted(fetchTypes)
 

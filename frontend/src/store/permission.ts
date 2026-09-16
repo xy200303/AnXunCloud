@@ -6,6 +6,16 @@ import type { RouteMenu } from '@/api/types'
 
 const Layout = () => import('@/layout/index.vue')
 
+// 不进入 keep-alive 缓存的页面（详情/图表大页）：避免多参数实例与大图表常驻内存
+const NO_CACHE_PATHS = new Set([
+  '/inspection/tasks/detail',
+  '/inspection/templates/items',
+  '/platform/dicts/data',
+  '/stats/inspection',
+  '/stats/performance',
+  '/stats/reports'
+])
+
 // views 下全部页面组件，按后端 path 约定解析：
 // 例 /system/user -> views/system/user/index.vue
 const viewModules = import.meta.glob('../views/**/*.vue')
@@ -33,7 +43,7 @@ function buildRoutes(menus: RouteMenu[], parentPath = ''): RouteRecordRaw[] {
         path: fullPath,
         component: resolveComponent(fullPath),
         name: fullPath,
-        meta: { title: m.title, icon: m.icon }
+        meta: { title: m.title, icon: m.icon, noCache: NO_CACHE_PATHS.has(fullPath) || undefined }
       } as RouteRecordRaw
     })
     .flat()
@@ -58,19 +68,19 @@ export const usePermissionStore = defineStore('permission', {
           path: '/inspection/tasks/detail/:id',
           component: viewModules['../views/inspection/tasks/detail/index.vue'],
           name: '/inspection/tasks/detail',
-          meta: { title: '任务明细' }
+          meta: { title: '任务明细', noCache: true }
         },
         {
           path: '/inspection/templates/:id/items',
           component: viewModules['../views/inspection/templates/items/index.vue'],
           name: '/inspection/templates/items',
-          meta: { title: '检查项配置' }
+          meta: { title: '检查项配置', noCache: true }
         },
         {
           path: '/platform/dicts/data/:typeCode',
           component: viewModules['../views/platform/dicts/data/index.vue'],
           name: '/platform/dicts/data',
-          meta: { title: '字典数据' }
+          meta: { title: '字典数据', noCache: true }
         }
       ]
       children.push(...hiddenRoutes)

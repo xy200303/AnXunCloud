@@ -123,7 +123,7 @@ import {
   type MaintenanceItem, type MaintenanceType, type MaintenancePhoto
 } from '@/api/equipment'
 import { withFileToken } from '@/api/upload'
-import { listDictOptions, type DictOption } from '@/api/dict'
+import { useDictOptions } from '@/composables/useDictOptions'
 
 const emit = defineEmits<{ changed: [] }>()
 
@@ -134,7 +134,7 @@ const total = ref(0)
 const selected = ref<MaintenanceItem[]>([])
 const query = reactive({ page: 1, page_size: 20 })
 
-const maintTypeOptions = ref<DictOption[]>([])
+const { options: maintTypeOptions } = useDictOptions('equipment_maint_type')
 
 function maintTypeLabel(t: MaintenanceType) {
   return maintTypeOptions.value.find((d) => d.value === t)?.label || t
@@ -198,9 +198,6 @@ async function handleReject(row: MaintenanceItem) {
 
 onMounted(() => {
   fetchList()
-  listDictOptions('equipment_maint_type').then((d) => {
-    maintTypeOptions.value = d || []
-  })
 })
 
 defineExpose({ fetchList })

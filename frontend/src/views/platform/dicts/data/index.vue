@@ -124,6 +124,7 @@ import { ElMessage, ElMessageBox, type FormInstance, type FormRules } from 'elem
 import { Search, Refresh, Plus, RefreshRight } from '@element-plus/icons-vue'
 import { listDictTypes, listDictData, createDictData, updateDictData, deleteDictData } from '@/api/dict'
 import { useTagsViewStore } from '@/store/tagsView'
+import { usePagedList } from '@/composables/usePagedList'
 import type { DictType, DictData } from '@/api/types'
 
 const route = useRoute()
@@ -153,38 +154,16 @@ function goBack() {
 }
 
 // ===== 字典数据列表 =====
-const loading = ref(false)
-const dataList = ref<DictData[]>([])
-const total = ref(0)
-const query = reactive({ page: 1, page_size: 20, label: '', status: '' as number | '' })
-
-async function fetchData() {
-  loading.value = true
-  try {
-    const data = await listDictData({
-      type_code: typeCode,
-      page: query.page,
-      page_size: query.page_size,
-      label: query.label || undefined,
-      status: query.status === '' ? undefined : query.status
-    })
-    dataList.value = data.list
-    total.value = data.total
-  } finally {
-    loading.value = false
-  }
-}
-
-function handleSearch() {
-  query.page = 1
-  fetchData()
-}
-
-function handleReset() {
-  query.label = ''
-  query.status = ''
-  handleSearch()
-}
+const { loading, list: dataList, total, query, fetchList: fetchData, handleSearch, handleReset } = usePagedList(
+  (q) => listDictData({
+    type_code: typeCode,
+    page: q.page,
+    page_size: q.page_size,
+    label: q.label || undefined,
+    status: q.status === '' ? undefined : q.status
+  }),
+  () => ({ page: 1, page_size: 20, label: '', status: '' as number | '' })
+)
 
 onMounted(() => {
   fetchTypeInfo()

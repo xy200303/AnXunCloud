@@ -218,8 +218,8 @@
           </div>
         </el-form-item>
 
-        <!-- 巡检路线：可选点位 + 已选点位（有序，可上下移动） -->
-        <el-form-item v-else label="巡检路线" prop="point_ids">
+        <!-- 巡检路线(抽查计划=点位范围)：可选点位 + 已选点位（有序，可上下移动） -->
+        <el-form-item v-else :label="isSpotcheck ? '点位范围' : '巡检路线'" prop="point_ids">
           <div class="route-picker">
             <div class="route-col">
               <div class="route-col-title">已选点位（按顺序）</div>
@@ -362,8 +362,14 @@
             <span class="text-secondary" style="margin-left: 8px">同一点位相邻两月不重复抽中</span>
           </el-form-item>
           <el-form-item label="完成期限">
-            <el-input-number v-model="form.spot.due_day" :min="-1" :max="31" controls-position="right" style="width: 130px" />
-            <span class="text-secondary" style="margin-left: 8px">当月几日前完成；-1 或超出当月天数 = 月末（默认）</span>
+            <el-radio-group :model-value="form.spot.due_day === -1 ? 'monthEnd' : 'day'" @change="(v: string | number | boolean) => { form.spot.due_day = v === 'monthEnd' ? -1 : 25 }">
+              <el-radio value="monthEnd">月末（默认）</el-radio>
+              <el-radio value="day">指定日</el-radio>
+            </el-radio-group>
+            <template v-if="form.spot.due_day !== -1">
+              <el-input-number v-model="form.spot.due_day" :min="1" :max="31" controls-position="right" style="width: 130px; margin-left: 12px" />
+              <span class="text-secondary" style="margin-left: 8px">日前完成；超出当月天数按月末算</span>
+            </template>
           </el-form-item>
         </template>
 
@@ -520,26 +526,26 @@ import {
 } from '@element-plus/icons-vue'
 import { listPlans, getPlan, createPlan, updatePlan, deletePlan, updatePlanStatus, previewPlanPoints } from '@/api/plan'
 import { generateTasks } from '@/api/task'
-import { listCommunities } from '@/api/community'
 import { listPoints } from '@/api/point'
-import { listUsers } from '@/api/user'
-import { listDictOptions, type DictOption } from '@/api/dict'
 import { useUserStore } from '@/store/user'
 import { usePatrolTypes } from '@/composables/usePatrolTypes'
-import type { PlanItem, PlanCycleConfig, PlanSelectionMode, PlanAssignMode, PlanKind, SpotcheckConfig, CommunityItem, PointItem, PatrolType } from '@/api/biz-types'
-import type { UserItem } from '@/api/types'
+import { useCommunities } from '@/composables/useCommunities'
+import { useInspectors } from '@/composables/useInspectors'
+import { useDictOptions } from '@/composables/useDictOptions'
+import type { PlanItem, PlanCycleConfig, PlanSelectionMode, PlanAssignMode, PlanKind, SpotcheckConfig, PointItem, PatrolType } from '@/api/biz-types'
 
 const userStore = useUserStore()
 // 巡查类型字典（按大类分组：日常巡逻/专项检查）
 const { patrolTypeGroups, patrolTypeLabel } = usePatrolTypes()
+// 小区 / 巡检员 / 点位类型（共享缓存 composable）
+const { communities } = useCommunities()
+const { inspectors: inspectorOptions } = useInspectors()
+const { options: pointTypeOptions } = useDictOptions('point_type')
 
 // ===== 列表 =====
 const loading = ref(false)
 const list = ref<PlanItem[]>([])
 const total = ref(0)
-const communities = ref<CommunityItem[]>([])
-const inspectorOptions = ref<UserItem[]>([])
-const pointTypeOptions = ref<DictOption[]>([])
 const query = reactive({ page: 1, page_size: 20, community_id: undefined as string | undefined, name: '', cycle_type: '', patrol_type: '', plan_kind: '', status: '' as number | '' })
 
 async function fetchList() {
@@ -575,16 +581,8 @@ function handleReset() {
   handleSearch()
 }
 
-onMounted(async () => {
+onMounted(() => {
   fetchList()
-  const [cData, uData, ptData] = await Promise.all([
-    listCommunities({ page: 1, page_size: 100, status: 1 }),
-    listUsers({ page: 1, page_size: 100, status: 1 }),
-    listDictOptions('point_type')
-  ])
-  communities.value = cData.list
-  inspectorOptions.value = uData.list
-  pointTypeOptions.value = ptData || []
 })
 
 function cycleLabel(row: PlanItem) {
@@ -1079,7 +1077,7 @@ async function handleSubmit() {
   await formRef.value?.validate()
   // 选点校验：手动名单 / 类型圈选二选一
   if (form.selection_mode === 'explicit' && !form.point_ids.length) {
-    routeError.value = '巡检路线为空，请从可选点位中加入至少 1 个点位'
+    routeError.value = isSpotcheck.value ? '点位范围为空，请从可选点位中加入至少 1 个点位' : '巡检路线为空，请从可选点位中加入至少 1 个点位'
     return
   }
   if (form.selection_mode === 'by_point_types' && !form.point_types.length) {

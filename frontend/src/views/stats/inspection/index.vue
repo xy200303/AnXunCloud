@@ -273,23 +273,23 @@ import { ElMessage } from 'element-plus'
 import { Search, Refresh } from '@element-plus/icons-vue'
 import { getCoverage, getTimeliness, exportReport, getPatrolRounds } from '@/api/stats'
 import { withFileToken } from '@/api/upload'
-import { listCommunities } from '@/api/community'
 import { listPlans } from '@/api/plan'
 import Echart from '@/components/Echart.vue'
 import { CHART_COLORS } from '@/utils/echarts'
-import type { CoverageData, TimelinessData, CommunityItem, PlanItem, PatrolRoundsData, PatrolRoundsDaily } from '@/api/biz-types'
+import { fmtDate } from '@/utils/date'
+import { useCommunities } from '@/composables/useCommunities'
+import type { CoverageData, TimelinessData, PlanItem, PatrolRoundsData, PatrolRoundsDaily } from '@/api/biz-types'
 
 const loading = ref(false)
 const exporting = ref(false)
 const activeTab = ref('coverage')
-const communities = ref<CommunityItem[]>([])
+const { communities } = useCommunities()
 const communityId = ref<string | undefined>()
 
 function defaultRange(): [string, string] {
   const end = new Date()
   const start = new Date(Date.now() - 6 * 86400000)
-  const fmt = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
-  return [fmt(start), fmt(end)]
+  return [fmtDate(start), fmtDate(end)]
 }
 
 const dateRange = ref<[string, string]>(defaultRange())
@@ -314,10 +314,8 @@ function handleReset() {
   fetchAll()
 }
 
-onMounted(async () => {
+onMounted(() => {
   fetchAll()
-  const cData = await listCommunities({ page: 1, page_size: 100, status: 1 })
-  communities.value = cData.list
 })
 
 // ===== 巡更达成率（轮次口径，小区必选；计划下拉跟随小区） =====
@@ -330,8 +328,7 @@ const roundsPlans = ref<PlanItem[]>([])
 // 默认本月
 function monthRange(): [string, string] {
   const now = new Date()
-  const fmt = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
-  return [fmt(new Date(now.getFullYear(), now.getMonth(), 1)), fmt(now)]
+  return [fmtDate(new Date(now.getFullYear(), now.getMonth(), 1)), fmtDate(now)]
 }
 
 const roundsRange = ref<[string, string]>(monthRange())

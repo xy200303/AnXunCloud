@@ -512,11 +512,11 @@ import {
   type EquipmentTypeSchema
 } from '@/api/equipment'
 import { uploadImage, withFileToken } from '@/api/upload'
-import { listCommunities, listCommunityTree } from '@/api/community'
+import { listCommunityTree } from '@/api/community'
 import { listPoints } from '@/api/point'
-import { listDictOptions, type DictOption } from '@/api/dict'
 import { downloadFile, downloadFilePost } from '@/utils/download'
-import type { CommunityItem } from '@/api/biz-types'
+import { useDictOptions } from '@/composables/useDictOptions'
+import { useCommunities } from '@/composables/useCommunities'
 import ConfirmList from './ConfirmList.vue'
 
 // ===== 主 tab =====
@@ -524,10 +524,10 @@ const route = useRoute()
 const mainTab = ref<'list' | 'confirm'>('list')
 const confirmRef = ref<InstanceType<typeof ConfirmList>>()
 
-// ===== 字典与小区 =====
-const typeOptions = ref<DictOption[]>([])
-const maintTypeOptions = ref<DictOption[]>([])
-const communities = ref<CommunityItem[]>([])
+// ===== 字典与小区（共享缓存 composable） =====
+const { options: typeOptions } = useDictOptions('equipment_type')
+const { options: maintTypeOptions } = useDictOptions('equipment_maint_type')
+const { communities } = useCommunities()
 
 const statusOptions: { label: string; value: EquipmentStatus }[] = [
   { label: '在用', value: 'in_service' },
@@ -1152,15 +1152,6 @@ onMounted(() => {
   }
   fetchList()
   fetchPendingTotal()
-  listDictOptions('equipment_type').then((d) => {
-    typeOptions.value = d || []
-  })
-  listDictOptions('equipment_maint_type').then((d) => {
-    maintTypeOptions.value = d || []
-  })
-  listCommunities({ page: 1, page_size: 100, status: 1 }).then((d) => {
-    communities.value = d.list
-  })
 })
 </script>
 

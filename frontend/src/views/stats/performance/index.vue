@@ -108,15 +108,16 @@ import { Search, Refresh } from '@element-plus/icons-vue'
 import { useRouter } from 'vue-router'
 import { getPerformance, exportReport } from '@/api/stats'
 import { withFileToken } from '@/api/upload'
-import { listCommunities } from '@/api/community'
 import Echart from '@/components/Echart.vue'
 import { CHART_COLORS } from '@/utils/echarts'
-import type { PerformanceItem, CommunityItem } from '@/api/biz-types'
+import { fmtDate } from '@/utils/date'
+import { useCommunities } from '@/composables/useCommunities'
+import type { PerformanceItem } from '@/api/biz-types'
 
 const router = useRouter()
 const loading = ref(false)
 const exporting = ref(false)
-const communities = ref<CommunityItem[]>([])
+const { communities } = useCommunities()
 const communityId = ref<string | undefined>()
 const list = ref<PerformanceItem[]>([])
 const total = ref(0)
@@ -128,8 +129,7 @@ const sortOrder = ref('desc')
 function defaultRange(): [string, string] {
   const end = new Date()
   const start = new Date(Date.now() - 29 * 86400000)
-  const fmt = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
-  return [fmt(start), fmt(end)]
+  return [fmtDate(start), fmtDate(end)]
 }
 
 const dateRange = ref<[string, string]>(defaultRange())
@@ -167,10 +167,8 @@ function handleSortChange({ prop, order }: { prop: string; order: string | null 
   fetchList()
 }
 
-onMounted(async () => {
+onMounted(() => {
   fetchList()
-  const cData = await listCommunities({ page: 1, page_size: 100, status: 1 })
-  communities.value = cData.list
 })
 
 // ===== 指标卡 =====

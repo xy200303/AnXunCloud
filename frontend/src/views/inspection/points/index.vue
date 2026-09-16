@@ -450,10 +450,10 @@ import { listEquipment, type EquipmentItem, type DueState } from '@/api/equipmen
 import { withFileToken } from '@/api/upload'
 import { listTemplates } from '@/api/template'
 import { listCommunityTree } from '@/api/community'
-import { listDictOptions, type DictOption } from '@/api/dict'
 import { getMapConfig } from '@/api/map'
 import MapPickerDialog from '@/components/MapPickerDialog.vue'
 import { downloadFile } from '@/utils/download'
+import { useDictOptions } from '@/composables/useDictOptions'
 import type { PointItem, TemplateItem } from '@/api/biz-types'
 
 // ===== 左树 =====
@@ -497,7 +497,7 @@ const total = ref(0)
 const selected = ref<PointItem[]>([])
 const query = reactive<PointQuery>({ page: 1, page_size: 20, name: '', type: '', status: '' })
 
-const pointTypeOptions = ref<DictOption[]>([])
+const { options: pointTypeOptions } = useDictOptions('point_type')
 
 // 启用中的检查项模板（表单下拉用，按点位类型过滤）
 const templates = ref<TemplateItem[]>([])
@@ -555,10 +555,6 @@ onMounted(() => {
   fetchTree()
   fetchList()
   refreshMapKey()
-  // 点位类型字典
-  listDictOptions('point_type').then((d) => {
-    pointTypeOptions.value = d || []
-  })
   // 启用中的检查项模板
   listTemplates({ page: 1, page_size: 100, status: 1 }).then((d) => {
     templates.value = d.list

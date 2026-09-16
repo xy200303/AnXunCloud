@@ -275,7 +275,7 @@ import { getCoverage, getTimeliness, exportReport, getPatrolRounds } from '@/api
 import { withFileToken } from '@/api/upload'
 import { listPlans } from '@/api/plan'
 import Echart from '@/components/Echart.vue'
-import { CHART_COLORS } from '@/utils/echarts'
+import { CHART_COLORS } from '@/utils/chart-colors'
 import { fmtDate } from '@/utils/date'
 import { useCommunities } from '@/composables/useCommunities'
 import type { CoverageData, TimelinessData, PlanItem, PatrolRoundsData, PatrolRoundsDaily } from '@/api/biz-types'

@@ -146,7 +146,8 @@
               v-model:current-page="buildingQuery.page"
               v-model:page-size="buildingQuery.page_size"
               :total="buildingTotal"
-              layout="total, prev, pager, next"
+              :page-sizes="[10, 20, 50]"
+              layout="total, sizes, prev, pager, next"
               @change="fetchBuildings"
             />
           </div>
@@ -191,7 +192,8 @@
               v-model:current-page="pointQuery.page"
               v-model:page-size="pointQuery.page_size"
               :total="pointTotal"
-              layout="total, prev, pager, next"
+              :page-sizes="[10, 20, 50]"
+              layout="total, sizes, prev, pager, next"
               @change="fetchPoints"
             />
           </div>

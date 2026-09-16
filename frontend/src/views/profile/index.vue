@@ -128,7 +128,7 @@
                     <el-tooltip :content="log.ua" placement="top" :disabled="!log.ua">
                       <span class="log-ua">{{ log.ua || '--' }}</span>
                     </el-tooltip>
-                    <el-tag :type="log.status === 1 ? 'success' : 'warning'" size="small">
+                    <el-tag :type="log.status === 1 ? 'success' : 'danger'" size="small">
                       {{ log.status === 1 ? '成功' : '失败' }}
                     </el-tag>
                   </div>

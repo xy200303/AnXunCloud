@@ -1,13 +1,13 @@
 <template>
   <div class="app-container">
-    <el-tabs v-model="activeTab" class="plan-tabs">
-      <el-tab-pane label="巡检计划" name="inspection">
-        <inspection-plan-panel v-if="activeTab === 'inspection'" />
-      </el-tab-pane>
-      <el-tab-pane label="报告计划" name="report">
-        <report-plan-panel v-if="activeTab === 'report'" />
-      </el-tab-pane>
-    </el-tabs>
+    <div class="table-card plan-tabs-card">
+      <el-tabs v-model="activeTab">
+        <el-tab-pane label="巡检计划" name="inspection" />
+        <el-tab-pane label="报告计划" name="report" />
+      </el-tabs>
+    </div>
+    <inspection-plan-panel v-if="activeTab === 'inspection'" />
+    <report-plan-panel v-else />
   </div>
 </template>
 
@@ -20,8 +20,13 @@ import ReportPlanPanel from './ReportPlanPanel.vue'
 const activeTab = ref('inspection')
 </script>
 
-<style scoped>
-.plan-tabs :deep(.el-tabs__item) {
-  font-size: 15px;
+<style scoped lang="scss">
+.plan-tabs-card {
+  padding-bottom: 0;
+  margin-bottom: $spacing-lg;
+
+  :deep(.el-tabs__header) {
+    margin-bottom: 0;
+  }
 }
 </style>

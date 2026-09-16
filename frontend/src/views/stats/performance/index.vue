@@ -85,7 +85,8 @@
             v-model:current-page="page"
             v-model:page-size="pageSize"
             :total="total"
-            layout="total, prev, pager, next"
+            :page-sizes="[10, 20, 50]"
+            layout="total, sizes, prev, pager, next"
             @change="fetchList"
           />
         </div>
@@ -109,7 +110,7 @@ import { useRouter } from 'vue-router'
 import { getPerformance, exportReport } from '@/api/stats'
 import { withFileToken } from '@/api/upload'
 import Echart from '@/components/Echart.vue'
-import { CHART_COLORS } from '@/utils/echarts'
+import { CHART_COLORS } from '@/utils/chart-colors'
 import { fmtDate } from '@/utils/date'
 import { useCommunities } from '@/composables/useCommunities'
 import type { PerformanceItem } from '@/api/biz-types'

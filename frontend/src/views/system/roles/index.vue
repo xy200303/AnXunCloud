@@ -89,7 +89,7 @@
     <el-drawer
       v-model="permVisible"
       :title="`配置权限 · ${currentRole?.name ?? ''}`"
-      size="520px"
+      size="620px"
       :before-close="handleDrawerClose"
     >
       <div v-loading="detailLoading" class="perm-drawer-body">

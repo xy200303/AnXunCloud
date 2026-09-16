@@ -6,7 +6,46 @@
     <title>安巡云 · 管理后台</title>
   </head>
   <body>
-    <div id="app"></div>
+    <div id="app">
+      <!-- 白屏期占位：JS bundle 加载完成前的轻量品牌画面，Vue 挂载后自动替换 -->
+      <div
+        style="
+          position: fixed;
+          inset: 0;
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          justify-content: center;
+          gap: 16px;
+          background: #f5f7fa;
+          color: #2b5aed;
+          font-family:
+            -apple-system, 'PingFang SC', 'Microsoft YaHei', sans-serif;
+        "
+      >
+        <div style="font-size: 22px; font-weight: 600; letter-spacing: 2px">安巡云</div>
+        <div
+          style="
+            width: 120px;
+            height: 3px;
+            border-radius: 2px;
+            background: linear-gradient(90deg, transparent, #2b5aed, transparent);
+            animation: app-loading 1.2s ease-in-out infinite;
+          "
+        ></div>
+      </div>
+      <style>
+        @keyframes app-loading {
+          0%,
+          100% {
+            opacity: 0.4;
+          }
+          50% {
+            opacity: 1;
+          }
+        }
+      </style>
+    </div>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>

@@ -88,7 +88,7 @@
     </div>
 
     <!-- 发布/编辑对话框 -->
-    <el-dialog v-model="formVisible" :title="form.id ? '编辑公告' : '发布公告'" width="600px" :close-on-click-modal="false">
+    <el-dialog v-model="formVisible" :title="form.id ? '编辑公告' : '发布公告'" width="560px" :close-on-click-modal="false">
       <el-form ref="formRef" :model="form" :rules="formRules" label-width="88px">
         <el-form-item label="标题" prop="title">
           <el-input v-model="form.title" maxlength="64" show-word-limit placeholder="公告标题" />

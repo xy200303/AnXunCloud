@@ -44,8 +44,9 @@
     <!-- 表格 -->
     <div class="table-card">
       <div class="table-toolbar">
-        <div class="table-toolbar-left" />
-        <el-button v-perms="'report:generate'" type="primary" :icon="Plus" @click="openGenerate">生成报告</el-button>
+        <div class="table-toolbar-left">
+          <el-button v-perms="'report:generate'" type="primary" :icon="Plus" @click="openGenerate">生成报告</el-button>
+        </div>
       </div>
 
       <el-table v-loading="loading" :data="list" stripe style="width: 100%">
@@ -75,7 +76,7 @@
           </template>
         </el-table-column>
         <template #empty>
-          <el-empty description="该条件下暂无报告，可点击右上角「生成报告」" />
+          <el-empty description="该条件下暂无报告，可点击上方「生成报告」" />
         </template>
       </el-table>
 
@@ -92,7 +93,7 @@
     </div>
 
     <!-- 报告详情抽屉 -->
-    <el-drawer v-model="detailVisible" title="报告详情" size="680px">
+    <el-drawer v-model="detailVisible" title="报告详情" size="620px">
       <div v-loading="detailLoading" class="detail-body">
         <template v-if="detail">
           <!-- 概要 -->

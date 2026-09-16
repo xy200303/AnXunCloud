@@ -31,14 +31,14 @@
     <div class="table-card">
       <!-- 状态筛选 Tab -->
       <div class="monitor-toolbar">
-        <el-radio-group v-model="activeTab" @change="fetchList">
-          <el-radio-button value="all">全部</el-radio-button>
-          <el-radio-button value="doing">进行中</el-radio-button>
-          <el-radio-button value="done">已完成</el-radio-button>
-          <el-radio-button value="missing">有缺卡</el-radio-button>
-          <el-radio-button value="abnormal">有异常</el-radio-button>
-          <el-radio-button value="suspect">疑似作弊</el-radio-button>
-        </el-radio-group>
+        <el-tabs v-model="activeTab" @tab-change="fetchList">
+          <el-tab-pane label="全部" name="all" />
+          <el-tab-pane label="进行中" name="doing" />
+          <el-tab-pane label="已完成" name="done" />
+          <el-tab-pane label="有缺卡" name="missing" />
+          <el-tab-pane label="有异常" name="abnormal" />
+          <el-tab-pane label="疑似作弊" name="suspect" />
+        </el-tabs>
         <el-tooltip content="刷新" placement="top">
           <el-button :icon="RefreshRight" circle @click="fetchList" />
         </el-tooltip>
@@ -183,6 +183,14 @@ async function handleGenerate() {
   justify-content: space-between;
   align-items: center;
   margin-bottom: $spacing-lg;
+
+  :deep(.el-tabs) {
+    flex: 1;
+  }
+
+  :deep(.el-tabs__header) {
+    margin-bottom: 0;
+  }
 }
 
 .task-cards {

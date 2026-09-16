@@ -59,8 +59,8 @@
         <el-table-column prop="ua" label="UA" min-width="240" show-overflow-tooltip />
         <el-table-column label="状态" width="80" align="center">
           <template #default="{ row }">
-            <!-- 失败记录橙色警示，提示关注 -->
-            <el-tag :type="row.status === 1 ? 'success' : 'warning'" size="small">
+            <!-- 成功/失败语义色：绿/红 -->
+            <el-tag :type="row.status === 1 ? 'success' : 'danger'" size="small">
               {{ row.status === 1 ? '成功' : '失败' }}
             </el-tag>
           </template>

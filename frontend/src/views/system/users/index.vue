@@ -34,7 +34,7 @@
           <el-button v-perms="'system:user:create'" type="primary" :icon="Plus" @click="openForm()">新增用户</el-button>
           <el-button v-perms="'system:user:import'" :icon="Download" @click="handleDownloadTemplate">下载模板</el-button>
           <el-button v-perms="'system:user:import'" :icon="Upload" @click="openImport">导入</el-button>
-          <el-button v-perms="'system:user:export'" :icon="Document" :loading="exporting" @click="handleExport">导出</el-button>
+          <el-button v-perms="'system:user:export'" :icon="Download" :loading="exporting" @click="handleExport">导出</el-button>
         </div>
         <el-tooltip content="刷新" placement="top">
           <el-button :icon="RefreshRight" circle @click="fetchList" />
@@ -279,7 +279,7 @@ import {
   type FormInstance, type FormRules, type UploadFile, type UploadInstance, type UploadRawFile
 } from 'element-plus'
 import {
-  Search, Refresh, Plus, Download, Upload, Document, RefreshRight, ArrowDown, CopyDocument, UploadFilled
+  Search, Refresh, Plus, Download, Upload, RefreshRight, ArrowDown, CopyDocument, UploadFilled
 } from '@element-plus/icons-vue'
 import {
   listUsers, createUser, updateUser, deleteUser, resetUserPassword, updateUserStatus,

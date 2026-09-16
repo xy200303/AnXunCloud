@@ -404,12 +404,12 @@
   />
 
   <!-- 关联设备：台账按 point_id 反查（一点多具），点击编号跳设备台账页 -->
-  <el-dialog v-model="eqVisible" :title="`关联设备${eqPoint ? `：${eqPoint.name}` : ''}`" width="640px">
+  <el-dialog v-model="eqVisible" :title="`关联设备${eqPoint ? `：${eqPoint.name}` : ''}`" width="640px" :close-on-click-modal="false">
     <el-table v-loading="eqLoading" :data="eqList" stripe size="small">
       <el-table-column label="状态灯" width="60" align="center">
         <template #default="{ row }">
           <el-tooltip :content="dueStateLabel(row.due_state)" placement="top">
-            <span class="due-dot" :class="`due-${row.due_state}`" />
+            <StatusDot :state="row.due_state" />
           </el-tooltip>
         </template>
       </el-table-column>
@@ -452,6 +452,7 @@ import { listTemplates } from '@/api/template'
 import { listCommunityTree } from '@/api/community'
 import { getMapConfig } from '@/api/map'
 import MapPickerDialog from '@/components/MapPickerDialog.vue'
+import StatusDot from '@/components/StatusDot.vue'
 import { downloadFile } from '@/utils/download'
 import { useDictOptions } from '@/composables/useDictOptions'
 import { usePagedList } from '@/composables/usePagedList'
@@ -1019,39 +1020,5 @@ function goEquipment(row: EquipmentItem) {
 
 .fail-tip {
   margin-top: $spacing-sm;
-}
-
-// 关联设备状态灯：normal 绿 / warning 黄 / overdue 红 / none 灰
-.due-dot {
-  display: inline-block;
-  width: 10px;
-  height: 10px;
-  border-radius: 50%;
-
-  &.due-normal {
-    background: $color-success;
-  }
-
-  &.due-warning {
-    background: $color-warning;
-  }
-
-  &.due-overdue {
-    background: $color-danger;
-  }
-
-  &.due-none {
-    background: $color-text-placeholder;
-  }
-
-  &.due-scrap {
-    background: $color-danger;
-  }
-
-  &.due-label_missing {
-    background: $color-text-placeholder;
-    border: 2px dashed $color-text-secondary;
-    box-sizing: border-box;
-  }
 }
 </style>

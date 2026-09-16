@@ -1,13 +1,15 @@
 <template>
   <div class="app-container">
-    <el-tabs v-model="mainTab" class="main-tabs">
-      <el-tab-pane label="设备列表" name="list" />
-      <el-tab-pane name="confirm">
-        <template #label>
-          <el-badge :value="pendingTotal" :hidden="pendingTotal === 0" :max="99">维保确认</el-badge>
-        </template>
-      </el-tab-pane>
-    </el-tabs>
+    <div class="table-card main-tabs-card">
+      <el-tabs v-model="mainTab">
+        <el-tab-pane label="设备列表" name="list" />
+        <el-tab-pane name="confirm">
+          <template #label>
+            <el-badge :value="pendingTotal" :hidden="pendingTotal === 0" :max="99">维保确认</el-badge>
+          </template>
+        </el-tab-pane>
+      </el-tabs>
+    </div>
 
     <!-- ========== 设备列表 ========== -->
     <template v-if="mainTab === 'list'">
@@ -101,7 +103,7 @@
           <el-table-column label="状态灯" width="70" align="center">
             <template #default="{ row }">
               <el-tooltip :content="dueStateLabel(row.due_state)" placement="top">
-                <span class="due-dot" :class="`due-${row.due_state}`" />
+                <StatusDot :state="row.due_state" />
               </el-tooltip>
             </template>
           </el-table-column>
@@ -375,6 +377,7 @@ import { useDictOptions } from '@/composables/useDictOptions'
 import { useCommunities } from '@/composables/useCommunities'
 import { usePagedList } from '@/composables/usePagedList'
 import ConfirmList from './ConfirmList.vue'
+import StatusDot from '@/components/StatusDot.vue'
 import MaintenanceFormDialog from './MaintenanceFormDialog.vue'
 import EquipmentImportDialog from './EquipmentImportDialog.vue'
 
@@ -847,47 +850,17 @@ onMounted(() => {
 </script>
 
 <style scoped lang="scss">
-.main-tabs {
-  margin-bottom: $spacing-md;
+.main-tabs-card {
+  padding-bottom: 0;
+  margin-bottom: $spacing-lg;
+
+  :deep(.el-tabs__header) {
+    margin-bottom: 0;
+  }
 }
 
 .type-tabs {
   margin-bottom: $spacing-md;
-}
-
-// 红黄绿状态灯：normal 绿 / warning 黄 / overdue 红 / none 灰
-.due-dot {
-  display: inline-block;
-  width: 10px;
-  height: 10px;
-  border-radius: 50%;
-
-  &.due-normal {
-    background: $color-success;
-  }
-
-  &.due-warning {
-    background: $color-warning;
-  }
-
-  &.due-overdue {
-    background: $color-danger;
-  }
-
-  &.due-none {
-    background: $color-text-placeholder;
-  }
-
-  &.due-scrap {
-    background: $color-danger;
-    box-shadow: 0 0 0 4rpx rgba(213, 73, 65, 0.25);
-  }
-
-  &.due-label_missing {
-    background: $color-text-placeholder;
-    border: 2px dashed $color-text-secondary;
-    box-sizing: border-box;
-  }
 }
 
 .eq-flag {

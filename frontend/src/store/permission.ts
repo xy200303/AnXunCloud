@@ -29,7 +29,24 @@ function resolveComponent(path: string) {
   return comp
 }
 
+// 闲时预热菜单页 chunk：登录注入路由后浏览器空闲时拉取各页面分包，
+// 首次点击菜单直接命中 HTTP/模块缓存，不再等一次网络往返。失败静默忽略。
+function preloadViewChunks(routes: RouteRecordRaw[]) {
+  const idle =
+    window.requestIdleCallback?.bind(window) ??
+    ((cb: () => void) => window.setTimeout(cb, 300))
+  idle(() => {
+    for (const r of routes) {
+      const loader = viewModules[`../views${r.path}/index.vue`]
+      if (typeof loader === 'function') {
+        Promise.resolve(loader() as Promise<unknown>).catch(() => {})
+      }
+    }
+  })
+}
+
 function buildRoutes(menus: RouteMenu[], parentPath = ''): RouteRecordRaw[] {
+
   return menus
     .filter((m) => m.type === 'dir' || m.type === 'menu')
     .sort((a, b) => a.sort - b.sort)
@@ -100,6 +117,8 @@ export const usePermissionStore = defineStore('permission', {
         children
       }
       this.loaded = true
+      // 仅预热菜单页（children 的前段）；隐藏详情页带参数且体积大，不预拉
+      preloadViewChunks(children.filter((r) => r.meta?.noCache !== true))
       return [layoutRoute]
     },
     reset() {

@@ -147,7 +147,7 @@
     </div>
 
     <!-- 新增/编辑对话框（字段多，用对话框） -->
-    <el-dialog v-model="formVisible" :title="`${form.id ? '编辑' : '新增'}${isSpotcheck ? '抽查计划' : '巡检计划'}`" width="760px" :close-on-click-modal="false">
+    <el-dialog v-model="formVisible" :title="`${form.id ? '编辑' : '新增'}${isSpotcheck ? '抽查计划' : '巡检计划'}`" width="640px" :close-on-click-modal="false">
       <el-form ref="formRef" :model="form" :rules="formRules" label-width="96px">
         <el-form-item label="计划类型">
           <el-radio-group v-model="form.plan_kind">

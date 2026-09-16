@@ -74,7 +74,6 @@
         <el-form-item>
           <el-button type="primary" :icon="Search" @click="handleSearch">查询</el-button>
           <el-button :icon="Refresh" @click="handleReset">重置</el-button>
-          <el-button type="success" plain :icon="Document" :loading="exporting" @click="handleExport">导出</el-button>
         </el-form-item>
       </el-form>
     </div>
@@ -95,10 +94,11 @@
             </el-button>
             <span v-if="selectedRows.length" class="toolbar-tip">已选 {{ selectedRows.length }} 条</span>
           </template>
+          <el-button v-perms="'inspection:checkin:spotcheck'" type="primary" :icon="Aim" @click="openSpotcheck">
+            发起抽查
+          </el-button>
+          <el-button :icon="Download" :loading="exporting" @click="handleExport">导出</el-button>
         </div>
-        <el-button v-perms="'inspection:checkin:spotcheck'" type="primary" :icon="Aim" @click="openSpotcheck">
-          发起抽查
-        </el-button>
       </div>
 
       <el-table
@@ -244,7 +244,7 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue'
 import { useRoute } from 'vue-router'
-import { Search, Refresh, Aim, Document } from '@element-plus/icons-vue'
+import { Search, Refresh, Aim, Download } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox, type FormInstance, type FormRules, type TableInstance } from 'element-plus'
 import { listCheckins, getCheckin, getCheckinAuditCounts, type CheckinQuery, type AuditCounts } from '@/api/checkin'
 import { downloadFile } from '@/utils/download'

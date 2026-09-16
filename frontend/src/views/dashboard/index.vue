@@ -106,13 +106,14 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, defineAsyncComponent, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { CircleCheck, Timer, AlarmClock } from '@element-plus/icons-vue'
 import { getDashboard } from '@/api/dashboard'
 import type { DashboardData } from '@/api/types'
-import Echart from '@/components/Echart.vue'
-import { CHART_COLORS } from '@/utils/echarts'
+// 图表组件异步加载：统计卡片先渲染，echarts chunk（~568KB）在首屏绘制后到
+const Echart = defineAsyncComponent(() => import('@/components/Echart.vue'))
+import { CHART_COLORS } from '@/utils/chart-colors'
 import { useUserStore } from '@/store/user'
 
 const router = useRouter()

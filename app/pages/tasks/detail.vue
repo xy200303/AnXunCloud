@@ -25,7 +25,7 @@
           <text v-if="patrolText != ''" class="type-tag" :style="{ color: colors.primary, borderColor: colors.primary }">{{ patrolText }}</text>
           <text class="card-sub" :style="{ color: colors.textSecondary }">{{ communityName }}</text>
         </view>
-        <text class="card-sub" :style="{ color: colors.textSecondary }">{{ taskDate }} · {{ roundName != '' ? roundName + ' ' : '' }}{{ timeWindow }}</text>
+        <text class="card-sub" :style="{ color: colors.textSecondary }">{{ taskDate }} · {{ roundName != '' ? roundName + ' ' : '' }}{{ timeWindow }}{{ dueText != '' ? ' · ' + dueText : '' }}</text>
         <view class="progress" :style="{ backgroundColor: colors.border }">
           <view class="progress-inner" :style="{ width: progressWidth, backgroundColor: colors.primary }"></view>
         </view>
@@ -110,6 +110,8 @@ type DetailData = {
   roundName: string
   taskDate: string
   timeWindow: string
+  /** 完成期限标签（抽查任务，如「期限 09-30」；日常任务为空串） */
+  dueText: string
   statusText: string
   statusColor: string
   progressWidth: string
@@ -216,6 +218,7 @@ export default {
       roundName: '',
       taskDate: '',
       timeWindow: '',
+      dueText: '',
       statusText: '',
       statusColor: '',
       progressWidth: '0%',
@@ -314,6 +317,7 @@ export default {
           this.roundName = res.round_name
           this.taskDate = res.task_date
           this.timeWindow = res.time_window
+          this.dueText = res.due_date != '' ? '期限 ' + res.due_date.slice(5) : ''
           this.statusText = statusTextOf(res.status)
           this.statusColor = statusColorOf(res.status)
           this.progressWidth = res.progress + '%'

@@ -1066,6 +1066,7 @@ export default {
         if (idx < 0) return
         const it = this.items[idx]
         if (isEquipAuto(it)) return
+        if (isEquipSpot(it)) return // 抽检项结论由标签比对得出，整组识别不回填
         if (r.result == 'abnormal') {
           this.setPass(idx, false)
           if ((r.reason || '') != '') it.note = r.reason || ''

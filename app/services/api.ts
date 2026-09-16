@@ -200,6 +200,8 @@ export type TaskDetail = {
   time_window: string
   /** 巡更轮次名（任务快照；非轮次任务为空串） */
   round_name: string
+  /** 完成期限（抽查任务快照，如 2026-09-30；日常任务为空串） */
+  due_date: string
   status: string
   total_points: number
   done_points: number
@@ -534,6 +536,7 @@ type RawTaskDetail = {
   task_date?: string
   time_window?: string
   round_name?: string
+  due_date?: string
   status?: string
   total_points?: number
   done_points?: number
@@ -871,6 +874,7 @@ export function apiTaskDetail(id: string): Promise<TaskDetail> {
           task_date: d.task_date ?? '',
           time_window: d.time_window ?? '',
           round_name: d.round_name ?? '',
+          due_date: d.due_date ?? '',
           status: d.status ?? '',
           total_points: d.total_points ?? 0,
           done_points: d.done_points ?? 0,

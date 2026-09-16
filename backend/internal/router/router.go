@@ -162,7 +162,9 @@ func New(cfg *config.Config, db *gorm.DB, rdb *redis.Client) (*gin.Engine, *insp
 	if err != nil {
 		panic(err)
 	}
-	r.StaticFS("/pdfjs", http.FS(pdfjsSub))
+	pdfjsGzip := gzipStaticFS(pdfjsSub)
+	r.GET("/pdfjs/*filepath", pdfjsGzip)
+	r.HEAD("/pdfjs/*filepath", pdfjsGzip)
 	// 报告 PDF 公开下载（仅凭一次性 ticket；ticket 由登录接口签发，见 /api/app/reports/:id/pdf-ticket）
 	r.GET("/api/public/report-pdf/:id", reportCtl.PDFByTicket)
 
@@ -556,12 +558,16 @@ func registerSPA(r *gin.Engine, distPath string) {
 				if strings.HasPrefix(clean, "assets"+string(os.PathSeparator)) || strings.HasPrefix(clean, "assets/") {
 					c.Header("Cache-Control", "public, max-age=31536000, immutable")
 				}
-				c.File(fp)
+				serveFileSmart(c, fp, st)
 				return
 			}
 		}
 		// index.html 不长缓存：重新部署后浏览器总能拿到最新的 chunk 引用（防白屏）
 		c.Header("Cache-Control", "no-cache")
+		if st, err := os.Stat(index); err == nil {
+			serveFileSmart(c, index, st)
+			return
+		}
 		c.File(index)
 	})
 }

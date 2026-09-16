@@ -73,6 +73,10 @@
 
     <!-- 标签抽查（equipment_date_spot）合成项：必拍 1 张 + 生产日期/维修日期（服务端四规则比对） -->
     <template v-else-if="isSpot">
+      <!-- 命中抽检明示条：主题色浅底，提示补拍压力表/日期标签近照 -->
+      <view class="spot-banner" :style="{ backgroundColor: colors.primaryLight }">
+        <text class="spot-banner-text" :style="{ color: colors.primary }">本次命中抽检，请对压力表和日期标签补拍 1 张近照</text>
+      </view>
       <view class="spot-photo" :style="{ borderColor: item.file_ids.length > 0 ? colors.success : colors.primary }" @click="$emit('spot-photo')">
         <image
           v-if="item.photos.length > 0 && !item.img_error"
@@ -419,6 +423,21 @@ export default {
 }
 
 /* 标签抽查项 */
+.spot-banner {
+  width: 100%;
+  border-radius: 16rpx;
+  padding: 24rpx 28rpx;
+  margin-top: 32rpx;
+  align-items: center;
+}
+
+.spot-banner-text {
+  font-size: 34rpx;
+  font-weight: 700;
+  line-height: 48rpx;
+  text-align: center;
+}
+
 .spot-photo {
   width: 100%;
   height: 360rpx;

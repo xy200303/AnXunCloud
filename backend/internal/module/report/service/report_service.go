@@ -1257,6 +1257,27 @@ func (s *ReportService) commName(id string) string {
 	return ""
 }
 
+// commAddress 小区地址（月报封面「项目地址」，空则封面留白线）。
+func (s *ReportService) commAddress(id string) string {
+	var c sysmodel.Community
+	if s.db.Select("address").First(&c, "id = ?", id).Error == nil {
+		return c.Address
+	}
+	return ""
+}
+
+// tenantName 租户名（月报落款单位 report.company_name 缺省时的回落）。
+func (s *ReportService) tenantName(id *string) string {
+	if id == nil {
+		return ""
+	}
+	var t sysmodel.Tenant
+	if s.db.Select("name").First(&t, "id = ?", *id).Error == nil {
+		return t.Name
+	}
+	return ""
+}
+
 // validPatrolType 巡查类型字典驱动校验（同 plan_service 写法）：
 // 字典 patrol_type 存在该值时以启用状态为准；字典无此值（seed 未跑/新库初始化顺序）回落内置常量校验。
 func (s *ReportService) validPatrolType(t string) bool {

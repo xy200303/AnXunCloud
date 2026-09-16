@@ -929,7 +929,7 @@ func (s *CheckinService) equipmentSynthetics(task *insmodel.InspectionTask, poin
 	for i := range eqs {
 		ids = append(ids, eqs[i].ID)
 	}
-	globalRatio := eqsvc.CfgInt(s.db, "equipment.spotcheck_ratio", 10)
+	globalRatio := eqsvc.CfgInt(s.db, "equipment.spotcheck_ratio", 2)
 	salt := eqsvc.CfgString(s.db, "equipment.spotcheck_salt", "")
 	rules := eqsvc.NewEquipmentService(s.db).TypeRules()
 	verified := eqsvc.LastVerifiedMap(s.db, ids)

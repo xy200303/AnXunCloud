@@ -51,6 +51,7 @@
             <div class="task-card-head">
               <span class="task-name">{{ task.community_name }} · {{ task.plan_name }}</span>
               <el-tag size="small" effect="plain">{{ patrolTypeLabel(task.patrol_type) }}</el-tag>
+              <el-tag v-if="task.round_name === '抽查'" size="small" type="warning">抽查</el-tag>
               <span class="task-inspector">{{ task.inspector_name }}</span>
               <el-tag :type="statusType(task)" size="small">
                 <el-icon class="status-icon"><component :is="statusIcon(task)" /></el-icon>
@@ -67,7 +68,8 @@
               <span class="task-fraction">{{ task.done_points }}/{{ task.total_points }}</span>
             </div>
             <div class="task-card-foot">
-              <span class="text-secondary">时段 {{ task.time_window }}</span>
+              <span class="text-secondary">时段 {{ task.time_window || '--' }}</span>
+              <span v-if="task.due_date" class="text-secondary">期限 {{ task.due_date.slice(5) }}</span>
               <span v-if="task.missing_count > 0" class="warn-flag">
                 <el-icon><Warning /></el-icon>缺卡 {{ task.missing_count }}
               </span>

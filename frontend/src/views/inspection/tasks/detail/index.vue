@@ -9,6 +9,7 @@
           </h2>
           <el-tag :type="headStatusType" size="small">{{ headStatusLabel }}</el-tag>
           <el-tag size="small" effect="plain">{{ patrolTypeLabel(detail.task.patrol_type) }}</el-tag>
+          <el-tag v-if="detail.task.round_name === '抽查'" size="small" type="warning">抽查</el-tag>
         </div>
         <div class="task-head-progress">
           <el-progress :percentage="detail.task.progress" :stroke-width="12" />
@@ -16,6 +17,7 @@
         </div>
         <div class="text-secondary">
           执行时段 {{ detail.task.time_window }}
+          <template v-if="detail.task.due_date"> · 期限 {{ detail.task.due_date.slice(5) }}</template>
           <template v-if="detail.task.started_at"> · 开始 {{ detail.task.started_at.slice(11, 16) }}</template>
           <template v-if="detail.task.finished_at"> · 完成 {{ detail.task.finished_at.slice(11, 16) }}</template>
         </div>

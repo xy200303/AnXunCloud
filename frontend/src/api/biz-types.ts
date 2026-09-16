@@ -164,6 +164,18 @@ export interface PlanCycleConfig {
   daily_min_rounds?: number | null
 }
 
+// 计划种类：patrol 巡检计划（默认）/ spotcheck 每月抽查计划（仅 monthly 周期合法）
+export type PlanKind = 'patrol' | 'spotcheck'
+
+// 抽查配置（spotcheck_config；fixed_count>0 优先于 ratio_percent；due_day -1/0/超月=月末）
+export interface SpotcheckConfig {
+  ratio_percent: number
+  fixed_count: number
+  strategy: 'random' | 'longest_unseen'
+  no_repeat: boolean
+  due_day: number
+}
+
 // 选点方式：explicit 手动名单 / by_point_types 按点位类型圈选（任务生成时实时展开）
 export type PlanSelectionMode = 'explicit' | 'by_point_types'
 
@@ -175,6 +187,8 @@ export interface PlanItem {
   community_id: string
   community_name: string
   name: string
+  plan_kind?: PlanKind
+  spotcheck_config?: SpotcheckConfig | null
   patrol_type: PatrolType
   point_count: number
   selection_mode?: PlanSelectionMode
@@ -198,6 +212,8 @@ export interface PlanDetail extends Omit<PlanItem, 'point_count'> {
 export interface PlanForm {
   community_id: string | null
   name: string
+  plan_kind?: PlanKind
+  spotcheck_config?: SpotcheckConfig | null
   patrol_type: PatrolType
   selection_mode?: PlanSelectionMode
   point_ids?: string[]
@@ -224,6 +240,10 @@ export interface TaskItem {
   patrol_type: PatrolType
   task_date: string
   time_window: string
+  // 抽查任务轮次名快照固定「抽查」，日常轮次任务为轮次名，单轮计划为空串
+  round_name?: string
+  // 抽查任务完成期限 YYYY-MM-DD（日常任务为空串）
+  due_date?: string
   status: 'pending' | 'doing' | 'done' | 'overdue'
   total_points: number
   done_points: number

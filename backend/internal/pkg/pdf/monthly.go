@@ -71,13 +71,15 @@ type DetailTable struct {
 	Rows     []DetailRow
 }
 
-// LedgerRow 问题清单及整改台账行（v2 模板：一条异常打卡记录一行）。
+// LedgerRow 问题清单及整改台账行（新版模板：一条异常打卡记录一行）。
 type LedgerRow struct {
 	Date            string   // 日期（异常打卡日）
-	Problem         string   // 故障/问题描述（异常备注）
-	ProblemPhotoIDs []string // 问题照片 file_id（渲染取首张）
-	FixText         string   // 处理情况（异常打卡的复核结论）
-	FixPhotoIDs     []string // 整改后照片 file_id（渲染取首张）
+	Category        string   // 类别（点位类型中文名）
+	Location        string   // 区域位置（点位名/楼栋位置）
+	Problem         string   // 问题说明（异常备注）
+	ProblemPhotoIDs []string // 故障问题照片 file_id（渲染取首张）
+	FixText         string   // 整改情况（处置方式/复核结论）
+	FixPhotoIDs     []string // 处理完结照片 file_id（渲染取首张）
 	Inspector       string   // 检查人（打卡巡检员）
 }
 
@@ -93,21 +95,33 @@ type PhotoGroup struct {
 	Cells []PhotoCell
 }
 
+// ContactInfo 封面页脚联系方式（全部为空则不画页脚）。
+type ContactInfo struct {
+	Tel     string // 电话
+	Email   string // 邮箱
+	Website string // 网址
+	Address string // 地址
+}
+
 // MonthlyReportData 月度巡检报告 PDF 数据。
 type MonthlyReportData struct {
-	CommunityName string   // 项目名称（小区名）
-	Period        string   // YYYY-MM
-	TitleLine     string   // 封面大标题首行（空回落「物业设施月度」；由巡查类型推导）
-	CompanyName   string   // 管理单位落款（空则封面留白 / 页尾 XX物业服务中心）
-	Approved      bool     // 已终审（公章与报告日期仅终审后展示）
-	ApproveDate   string   // 终审日期 YYYY-MM-DD
-	SealFileID    string   // 公章图 file_id（仅 Approved 时嵌入）
-	TypeNames     []string // 设施类别（该小区有点位的类型中文名）
-	Summary       []SummaryRow
-	Details       []DetailTable
-	PhotoGroups   []PhotoGroup // 附件：分项检查照片（按设施类别分组）
-	Ledger        []LedgerRow
-	ReviewSigns []ReviewSignGroup
+	ReportNo         string   // 封面报告编号（空则留白线）
+	CommunityName    string   // 项目名称（小区名）
+	CommunityAddress string   // 项目地址（小区地址，空则留白线）
+	Period           string   // YYYY-MM
+	TitleLine        string   // 封面大标题首行（空回落「物业设施月度」；由巡查类型推导）
+	CompanyName      string   // 落款单位（空则封面留白 / 台账页尾「物业服务中心」）
+	CompanyNameEn    string   // 落款单位英文名（空则封面不显示该行）
+	Contact          ContactInfo // 封面页脚联系方式
+	Approved         bool     // 已终审（公章仅终审后加盖）
+	ApproveDate      string   // 终审日期 YYYY-MM-DD
+	SealFileID       string   // 公章图 file_id（仅 Approved 时嵌入）
+	TypeNames        []string // 设施类别（该小区有点位的类型中文名）
+	Summary          []SummaryRow
+	Details          []DetailTable
+	PhotoGroups      []PhotoGroup // 附件：分项检查照片（按设施类别分组）
+	Ledger           []LedgerRow
+	ReviewSigns      []ReviewSignGroup
 	// ImageLoader 按 file_id 加载图片字节与类型（JPG/PNG）；nil 则跳过签名图/公章。
 	// 单张加载失败返回 error，PDF 侧跳过该张，不影响整体生成。
 	ImageLoader func(fileID string) (data []byte, imgType string, err error)
@@ -338,57 +352,74 @@ func registerImage(p *gofpdf.Fpdf, loader func(string) ([]byte, string, error), 
 func renderCover(p *gofpdf.Fpdf, d MonthlyReportData) {
 	p.AddPage()
 
-	// 左上：项目名称 / 检查月份 两行表格
-	p.SetFont("noto", "B", 12)
-	x0, y0 := 25.0, 28.0
-	labelW, valueW, rowH := 26.0, 62.0, 12.0
-	rows := [][2]string{{"项目名称", d.CommunityName}, {"检查月份", periodCN(d.Period)}}
-	for i, r := range rows {
-		y := y0 + float64(i)*rowH
-		p.SetXY(x0, y)
-		p.SetFont("noto", "B", 12)
-		p.CellFormat(labelW, rowH, r[0], "1", 0, "L", false, 0, "")
-		p.SetFont("noto", "", 12)
-		p.CellFormat(valueW, rowH, r[1], "1", 1, "L", false, 0, "")
-	}
-
 	// 居中大标题（首行可配，次行固定）
 	titleLine := d.TitleLine
 	if titleLine == "" {
 		titleLine = "物业设施月度"
 	}
-	p.SetY(112)
+	p.SetY(66)
 	p.SetFont("noto", "B", 25)
 	p.CellFormat(contentW, 15, titleLine, "", 1, "C", false, 0, "")
 	p.CellFormat(contentW, 15, "巡 检 报 告", "", 1, "C", false, 0, "")
 
-	// 设施类别 / 管理单位 / 报告日期（下划线填空式）
-	infoY := 178.0
+	// 报告编号 / 项目名称 / 项目地址 / 器材类别 / 报告日期（下划线填空式）
+	infoY := 118.0
 	lineH := 13.0
-	labelW2, valueW2 := 30.0, 78.0
-	blockX := (pageW - labelW2 - valueW2) / 2
+	labelW, valueW := 30.0, 96.0
+	blockX := (pageW - labelW - valueW) / 2
 	typeLine := strings.Join(d.TypeNames, "/")
-	dateLine := ""
-	if d.Approved {
-		dateLine = dateCN(d.ApproveDate)
-	}
-	infos := []string{typeLine, d.CompanyName, dateLine}
-	labels := []string{"设施类别：", "管理单位：", "报告日期："}
+	// 报告日期按报告月份展示（YYYY-MM → 2026 年 8 月）
+	dateLine := periodCN(d.Period)
+	labels := []string{"报告编号：", "项目名称：", "项目地址：", "器材类别：", "报告日期："}
+	infos := []string{d.ReportNo, d.CommunityName, d.CommunityAddress, typeLine, dateLine}
 	for i := range labels {
 		y := infoY + float64(i)*lineH
 		p.SetXY(blockX, y)
 		p.SetFont("noto", "", 13)
-		p.CellFormat(labelW2, lineH-4, labels[i], "", 0, "L", false, 0, "")
-		p.CellFormat(valueW2, lineH-4, infos[i], "B", 1, "C", false, 0, "")
+		p.CellFormat(labelW, lineH-4, labels[i], "", 0, "L", false, 0, "")
+		p.CellFormat(valueW, lineH-4, infos[i], "B", 1, "C", false, 0, "")
 	}
-	p.SetFont("noto", "", 10)
-	p.SetXY(blockX, infoY+3*lineH+2)
-	p.CellFormat(labelW2+valueW2, 6, "（加盖公章）", "", 1, "C", false, 0, "")
 
-	// 公章：仅终审通过且配置了公章图时嵌入（约 35mm 宽，覆盖在日期区域上方）
+	// 落款公司块：公司名 + 英文名（可配）+（加盖公章）；仅终审通过后加盖公章
+	companyY := infoY + float64(len(labels))*lineH + 10
+	// 公章先绘于文字下层：PNG 压平白底后不透明，后置会遮挡落款文字
 	if d.Approved && d.SealFileID != "" {
 		if name, w, h, ok := registerImage(p, d.ImageLoader, d.SealFileID, "seal", 35, 35); ok {
-			p.ImageOptions(name, blockX+labelW2+valueW2-w+6, infoY+2*lineH-h/2+1, w, h, false, gofpdf.ImageOptions{ReadDpi: true}, 0, "")
+			p.ImageOptions(name, blockX+(labelW+valueW)/2+8, companyY-h/2, w, h, false, gofpdf.ImageOptions{ReadDpi: true}, 0, "")
+		}
+	}
+	p.SetFont("noto", "B", 14)
+	p.SetXY(blockX, companyY)
+	p.CellFormat(labelW+valueW, 9, d.CompanyName, "", 1, "C", false, 0, "")
+	if d.CompanyNameEn != "" {
+		p.SetFont("noto", "", 9)
+		p.CellFormat(labelW+valueW, 5.5, d.CompanyNameEn, "", 1, "C", false, 0, "")
+	}
+	p.SetFont("noto", "", 10)
+	p.CellFormat(labelW+valueW, 6, "（加盖公章）", "", 1, "C", false, 0, "")
+
+	// 页脚：联系方式（任一配置非空才画；逐项拼接，缺项不显示）
+	var contactParts []string
+	if d.Contact.Tel != "" {
+		contactParts = append(contactParts, "电话："+d.Contact.Tel)
+	}
+	if d.Contact.Email != "" {
+		contactParts = append(contactParts, "邮箱："+d.Contact.Email)
+	}
+	if d.Contact.Website != "" {
+		contactParts = append(contactParts, "网址："+d.Contact.Website)
+	}
+	if len(contactParts) > 0 || d.Contact.Address != "" {
+		p.SetFont("noto", "", 9)
+		y := 273.0
+		if d.Contact.Address != "" {
+			p.SetXY(margin, y)
+			p.CellFormat(contentW, 5, "地址："+d.Contact.Address, "", 0, "C", false, 0, "")
+			y -= 6
+		}
+		if len(contactParts) > 0 {
+			p.SetXY(margin, y)
+			p.CellFormat(contentW, 5, strings.Join(contactParts, "     "), "", 0, "C", false, 0, "")
 		}
 	}
 }
@@ -471,37 +502,6 @@ func renderPhotoAppendix(p *gofpdf.Fpdf, d MonthlyReportData) {
 		}
 		p.Ln(2)
 	}
-}
-
-// ========== 5.问题清单及整改台账 ==========
-
-// v2 模板列：序号 / 日期 / 故障·问题（文字+照片）/ 处理情况（文字+照片）/ 检查人。
-const (
-	ledgerColIdx  = 10.0
-	ledgerColDate = 20.0
-	ledgerColProb = 66.0
-	ledgerColFix  = 64.0
-	ledgerColUser = 20.0
-	ledgerImgMaxH = 20.0 // 单元格照片最大高度
-	ledgerLineH   = 4.6  // 单元格文字行高
-)
-
-var ledgerWidths = []float64{ledgerColIdx, ledgerColDate, ledgerColProb, ledgerColFix, ledgerColUser}
-var ledgerHeader = []string{"序号", "日期", "故障/问题", "处理情况", "检查人"}
-
-// ledgerPhotoCell 台账文字+照片单元格内容高度测算与绘制。
-// 返回内容高度（文字行 + 照片），照片取首张。
-func ledgerCellContent(p *gofpdf.Fpdf, d MonthlyReportData, text string, photos []string, w float64, uniq string) (lines []string, imgName string, imgW, imgH float64) {
-	lines = wrapText(p, trunc(p, text, w*3), w-4)
-	if len(lines) > 3 {
-		lines = lines[:3]
-	}
-	if len(photos) > 0 {
-		if name, iw, ih, ok := registerImage(p, d.ImageLoader, photos[0], uniq, w-10, ledgerImgMaxH); ok {
-			imgName, imgW, imgH = name, iw, ih
-		}
-	}
-	return lines, imgName, imgW, imgH
 }
 
 // signBarDate 签字栏日期：取首个已签时间的日期部分。
@@ -593,32 +593,44 @@ func renderLedgerTOC(p *gofpdf.Fpdf, d MonthlyReportData) {
 	}
 }
 
+// renderLedgerIntroAndSign 报告编制说明（新版模板 5 节原文，项目名/覆盖范围动态代入）+ 签字审批栏。
 func renderLedgerIntroAndSign(p *gofpdf.Fpdf, d MonthlyReportData) {
 	p.AddPage()
 	p.SetY(18)
 	p.SetFont("noto", "B", 15)
 	p.CellFormat(contentW, 8, "1.报告编制说明", "", 1, "L", false, 0, "")
 	p.Ln(2)
+	project := d.CommunityName
+	if project == "" {
+		project = "园区"
+	}
 	coverage := strings.Join(d.TypeNames, "、")
-	if coverage == "" {
-		coverage = "各巡检点位"
+	coverageText := "园区室内外消火栓、公共区域灭火器、楼道应急照明灯、疏散指示标志、防火门、防火卷帘、消防疏散通道，实现园区全域、无死角覆盖。"
+	if coverage != "" {
+		coverageText = "园区" + coverage + "、消防疏散通道等，实现园区全域、无死角覆盖。"
 	}
-	intro := []string{
-		"本报告依据相关规定与物业服务合同编制，记录物业服务人对园区设施开展月度巡检、隐患登记和整改跟踪的情况。",
-		"巡检人员使用系统完成点位打卡和现场拍照；审核人员按配置的审核链核对巡检数据、影像资料和整改进度。所有资料留痕归档，可追溯核查。",
-		"检查覆盖" + coverage + "等设施与区域。",
+	sections := []struct {
+		title string
+		body  string
+	}{
+		{"1.编制依据", "本报告依据《消防安全管理规定》《物业服务合同》编制，是物业服务人员每月对" + project + "消防器材巡检（维护）形成的正式归档资料，完整记录器材状况、安全隐患及整改闭环全过程，可用于消防、住建、街道社区各级主管部门核查。"},
+		{"2.执行主体与职责", "（1）巡检执行人：现场实地逐项检查，使用NFC标签点位打卡，现场拍摄设备照片，同步上传系统，如实记录设备状态、现场隐患；对轻微隐患当场处置，无法现场整改的拍照登记上报。\n（2）安全负责人：统筹月度巡检计划，核对全部巡检数据、影像资料，跟踪隐患整改进度，复查整改完成点位，审核巡检台账真实性。\n（3）项目负责人：最终审批月度巡检报告，统筹整改资源，对园区消防安全管理负总责，定期抽查巡检完成质量。"},
+		{"3.巡检方式与核验标准", "采用NFC点位打卡+人工现场核查+AI图像识别三重核验；巡检人员现场实拍设备，系统自动留存影像、设备编号、压力、有效期等数据，资料加密留痕、不可篡改，全程可追溯。"},
+		{"4.巡检覆盖范围", coverageText},
+		{"5.归档与附件管理", "所有巡检实拍图、AI核验截图、隐患整改前后对比照片，按器材唯一编号分类存入电子档案；纸质报告签字盖章后与电子资料同步留存，长期保管备查。"},
 	}
-	boxY := p.GetY()
-	for _, text := range intro {
+	for _, sec := range sections {
+		p.SetFont("noto", "B", 11)
+		p.CellFormat(contentW, 6.5, sec.title, "", 1, "L", false, 0, "")
 		p.SetFont("noto", "", 9.5)
-		for _, line := range wrapText(p, text, contentW-12) {
-			p.SetX(margin + 6)
-			p.CellFormat(contentW-12, 5.6, line, "", 1, "L", false, 0, "")
+		for _, line := range wrapText(p, sec.body, contentW-6) {
+			p.SetX(margin + 3)
+			p.CellFormat(contentW-6, 5.4, line, "", 1, "L", false, 0, "")
 		}
 		p.Ln(1)
 	}
-	p.Rect(margin, boxY-2, contentW, p.GetY()-boxY+3, "D")
-	p.SetY(113)
+	// 签字审批栏整体约 92mm，放不下则整栏移到下页
+	ensureSpace(p, 92)
 	renderLedgerSignTable(p, d)
 }
 
@@ -633,14 +645,15 @@ func renderLedgerSignTable(p *gofpdf.Fpdf, d MonthlyReportData) {
 	x0, y0 := margin, p.GetY()
 	p.SetFillColor(oliveHeader[0], oliveHeader[1], oliveHeader[2])
 	for idx, group := range d.ReviewSigns {
+		role, stage := signRole(idx, group.Name)
 		x := x0 + float64(idx)*cellW
 		p.Rect(x, y0, cellW, headerH, "DF")
 		p.SetFont("noto", "B", 10)
 		p.SetXY(x, y0+1.5)
-		p.CellFormat(cellW, 4.5, group.Name, "", 0, "C", false, 0, "")
+		p.CellFormat(cellW, 4.5, role+"签字", "", 0, "C", false, 0, "")
 		p.SetFont("noto", "", 8)
 		p.SetXY(x, y0+6.5)
-		p.CellFormat(cellW, 4, "审核签字", "", 0, "C", false, 0, "")
+		p.CellFormat(cellW, 4, stage, "", 0, "C", false, 0, "")
 		p.Rect(x, y0+headerH, cellW, bodyH, "D")
 		renderSignCell(p, d, idx, x, y0+headerH, cellW, bodyH-11, group.Signs)
 		date := signBarDate(group.Signs)
@@ -652,7 +665,24 @@ func renderLedgerSignTable(p *gofpdf.Fpdf, d MonthlyReportData) {
 	p.SetY(y0 + headerH + bodyH)
 }
 
-// renderLedgerSummary 本月检查汇总表（行=点位类型分项；整改两列按甲方口径留空——系统暂无整改闭环数据）。
+// signRole 签字审批栏角色文案：第 1 环=巡检执行人（检查）、第 2 环=安全负责人（审核）、
+// 第 3 环=项目负责人（签批）；多于 3 环顺延按审核环节处理（角色名取环节名）。
+func signRole(idx int, stepName string) (role, stage string) {
+	switch idx {
+	case 0:
+		return "巡检执行人", "（检查）"
+	case 1:
+		return "安全负责人", "（审核）"
+	case 2:
+		return "项目负责人", "（签批）"
+	}
+	if stepName == "" {
+		stepName = "审核人"
+	}
+	return stepName, "（审核）"
+}
+
+// renderLedgerSummary 本月检查汇总表（行=点位类型分项，按模板顺序排序；表下附模板备注两条）。
 func renderLedgerSummary(p *gofpdf.Fpdf, d MonthlyReportData) {
 	p.AddPage()
 	p.SetY(22)
@@ -662,7 +692,19 @@ func renderLedgerSummary(p *gofpdf.Fpdf, d MonthlyReportData) {
 	widths := []float64{29, 14, 18, 20, 17, 17, 20, 45}
 	headerRow(p, widths, []string{"设施类别", "总数", "正常完好", "巡检完成率", "存在问题", "整改完毕", "整改完成率", "备注"}, 12)
 	for _, row := range d.Summary {
-		dataRow(p, widths, []string{row.TypeName, itoa(row.Total), itoa(row.Normal), pctText(row.InspectRate), itoa(row.Problems), "", "", row.Remark}, 12, 9)
+		rectifyRate := pctText(row.RectifyRate)
+		if row.Problems == 0 {
+			rectifyRate = "—" // 无问题点位时整改完成率无意义
+		}
+		dataRow(p, widths, []string{row.TypeName, itoa(row.Total), itoa(row.Normal), pctText(row.InspectRate), itoa(row.Problems), itoa(row.Rectified), rectifyRate, row.Remark}, 12, 9)
+	}
+	p.Ln(2)
+	p.SetFont("noto", "", 8.5)
+	for _, line := range []string{
+		"备注：1.公区硬件点位，仅查实物完好、在位、无遮挡等，不测试系统联动。",
+		"2.消火栓、灭火器每月实行集中全履盖检查1次，应急灯、指示牌等按要求抽查。",
+	} {
+		p.CellFormat(contentW, 5, line, "", 1, "L", false, 0, "")
 	}
 }
 
@@ -671,19 +713,23 @@ func ledgerDetailTitle(idx int, typeName string) string {
 	return fmt.Sprintf("4.%d %s巡检明细表", idx+1, typeName)
 }
 
-// drawLedgerDetailHeader 明细表头：序号/位置编号 + 检查项竖排窄列 + 问题说明/巡检人/巡检时间。
+// drawLedgerDetailHeader 明细表头：序号/位置编号 + 检查项竖排窄列 + 巡检人/巡检时间。
+// 新版模板明细表无「问题说明」列（问题统一进第 5 节台账），让渡宽度给检查项列与巡检时间。
 // 检查项列宽随项数均分，表头文字逐字竖排（对齐甲方样稿）。
 // 行高按最长检查项动态撑开（竖排总高+留白）；超长兜底压缩字高，封顶 42mm 防溢出。
 func drawLedgerDetailHeader(p *gofpdf.Fpdf, items []string) []float64 {
-	itemW := (contentW - 9 - 32 - 37 - 20 - 17) / float64(len(items))
+	itemW := 0.0
+	if len(items) > 0 {
+		itemW = (contentW - 9 - 32 - 20 - 24) / float64(len(items))
+	}
 	widths := []float64{9, 32}
 	for range items {
 		widths = append(widths, itemW)
 	}
-	widths = append(widths, 37, 20, 17)
+	widths = append(widths, 20, 24)
 	labels := []string{"序号", "位置/编号"}
 	labels = append(labels, items...)
-	labels = append(labels, "问题说明", "巡检人", "巡检时间")
+	labels = append(labels, "巡检人", "巡检时间")
 	maxChars := 0
 	for _, it := range items {
 		if n := len([]rune(it)); n > maxChars {
@@ -753,7 +799,7 @@ func renderLedgerDetail(p *gofpdf.Fpdf, d MonthlyReportData, idx int, table Deta
 			row := rows[r]
 			cells := []string{itoa(r + 1), row.Location}
 			cells = append(cells, row.Marks...)
-			cells = append(cells, row.Problem, row.Inspector, row.Time)
+			cells = append(cells, row.Inspector, row.Time)
 			dataRow(p, widths, cells, 14.0, 8.5)
 		}
 		for empty := end - start; empty < 9; empty++ {
@@ -761,25 +807,63 @@ func renderLedgerDetail(p *gofpdf.Fpdf, d MonthlyReportData, idx int, table Deta
 		}
 		p.Ln(2)
 		p.SetFont("noto", "", 8.5)
-		for _, line := range wrapText(p, table.Note, contentW) {
+		for _, line := range wrapText(p, detailNote(table), contentW) {
 			p.CellFormat(contentW, 5, line, "", 1, "L", false, 0, "")
 		}
 	}
 }
 
-var issueLedgerWidths = []float64{9, 17, 41, 35, 41, 20, 17}
-
-func drawIssueLedgerHeader(p *gofpdf.Fpdf) {
-	headerRow(p, issueLedgerWidths, []string{"序号", "日期", "故障/问题", "照片", "处理情况", "照片", "检查人"}, 11)
+// detailNote 明细表下「注：检查标准……」：灭火器/消火栓照新版模板原文，
+// 其余点位类型用数据组装的标准注，兜底通用句。
+func detailNote(table DetailTable) string {
+	name := table.TypeName
+	if strings.Contains(name, "灭火器") {
+		return "注：检查标准，压力指针在绿色区域为正常；瓶体无破损、喷管完好、摆放便于取用、无遮挡。"
+	}
+	if strings.Contains(name, "消火栓") || strings.Contains(name, "消防栓") {
+		return "注：检查标准：箱门完好、水带水枪齐全无破损、接口完好、水压正常、周围无遮挡。"
+	}
+	if table.Note != "" {
+		return table.Note
+	}
+	return "注：检查标准：设施完好、在位、无遮挡。"
 }
 
-func drawIssueLedgerPhoto(p *gofpdf.Fpdf, d MonthlyReportData, key, uniq string, x, y, w, h float64) {
-	if name, iw, ih, ok := registerImage(p, d.ImageLoader, key, uniq, w-3, h-3); ok {
-		p.ImageOptions(name, x+(w-iw)/2, y+(h-ih)/2, iw, ih, false, gofpdf.ImageOptions{ReadDpi: true}, 0, "")
+// ========== 5.问题清单及整改台账 ==========
+
+// 新版模板列：序号/类别/区域位置/问题说明（附故障问题照片）/整改情况（附处理完结照片）。
+var issueLedgerWidths = []float64{9, 22, 32, 56, 61}
+
+// issueLedgerRowH 台账行高：文字至多两行 + 照片 + 照片标注。
+const issueLedgerRowH = 30.0
+
+func drawIssueLedgerHeader(p *gofpdf.Fpdf) {
+	headerRow(p, issueLedgerWidths, []string{"序号", "类别", "区域位置", "问题说明", "整改情况"}, 11)
+}
+
+// drawIssueLedgerCell 问题/整改单元格：上文字（至多两行），下照片（取首张，带小标注）。
+func drawIssueLedgerCell(p *gofpdf.Fpdf, d MonthlyReportData, text string, photos []string, uniq, caption string, x, y, w float64) {
+	p.SetFont("noto", "", 8)
+	lines := wrapText(p, text, w-3)
+	if len(lines) > 2 {
+		lines = lines[:2]
+	}
+	for i, line := range lines {
+		p.SetXY(x+1.5, y+1.5+float64(i)*4.5)
+		p.CellFormat(w-3, 4.5, line, "", 0, "L", false, 0, "")
+	}
+	if len(photos) == 0 {
+		return
+	}
+	if name, iw, ih, ok := registerImage(p, d.ImageLoader, photos[0], uniq, w-8, 13); ok {
+		p.ImageOptions(name, x+(w-iw)/2, y+11.5+(13-ih)/2, iw, ih, false, gofpdf.ImageOptions{ReadDpi: true}, 0, "")
+		p.SetXY(x, y+issueLedgerRowH-5)
+		p.SetFont("noto", "", 6.5)
+		p.CellFormat(w, 4, caption, "", 0, "C", false, 0, "")
 	}
 }
 
-// renderIssueLedger 问题清单及整改台账（一条异常打卡记录一行；处理情况=复核结论）。
+// renderIssueLedger 问题清单及整改台账（一条异常打卡记录一行；末尾落款=落款单位+报告期次年月，日留白手填）。
 func renderIssueLedger(p *gofpdf.Fpdf, d MonthlyReportData) {
 	pageCount := (len(d.Ledger) + 5) / 6
 	if pageCount == 0 {
@@ -798,70 +882,50 @@ func renderIssueLedger(p *gofpdf.Fpdf, d MonthlyReportData) {
 		drawIssueLedgerHeader(p)
 		start, end := page*6, min((page+1)*6, len(d.Ledger))
 		for idx := start; idx < end; idx++ {
-			row, y0, h := d.Ledger[idx], p.GetY(), 25.0
+			row, y0 := d.Ledger[idx], p.GetY()
 			x := margin
 			for _, w := range issueLedgerWidths {
-				p.Rect(x, y0, w, h, "D")
+				p.Rect(x, y0, w, issueLedgerRowH, "D")
 				x += w
 			}
 			center := []struct {
 				index int
 				text  string
-			}{{0, itoa(idx + 1)}, {1, row.Date}, {6, row.Inspector}}
+			}{{0, itoa(idx + 1)}, {1, row.Category}, {2, row.Location}}
 			for _, cell := range center {
 				x := margin
 				for before := 0; before < cell.index; before++ {
 					x += issueLedgerWidths[before]
 				}
-				p.SetXY(x, y0+(h-5)/2)
+				p.SetXY(x, y0+(issueLedgerRowH-5)/2)
 				p.SetFont("noto", "", 8)
 				p.CellFormat(issueLedgerWidths[cell.index], 5, trunc(p, cell.text, issueLedgerWidths[cell.index]-1), "", 0, "C", false, 0, "")
 			}
-			drawText := func(index int, text string) {
-				x := margin
-				for before := 0; before < index; before++ {
-					x += issueLedgerWidths[before]
-				}
-				p.SetFont("noto", "", 8)
-				lines := wrapText(p, text, issueLedgerWidths[index]-3)
-				if len(lines) > 4 {
-					lines = lines[:4]
-				}
-				for lineIndex, line := range lines {
-					p.SetXY(x+1.5, y0+1.5+float64(lineIndex)*4.5)
-					p.CellFormat(issueLedgerWidths[index]-3, 4.5, line, "", 0, "L", false, 0, "")
-				}
-			}
-			drawText(2, row.Problem)
-			drawText(4, row.FixText)
-			xProblemPhoto := margin + issueLedgerWidths[0] + issueLedgerWidths[1] + issueLedgerWidths[2]
-			xFixPhoto := xProblemPhoto + issueLedgerWidths[3] + issueLedgerWidths[4]
-			if len(row.ProblemPhotoIDs) > 0 {
-				drawIssueLedgerPhoto(p, d, row.ProblemPhotoIDs[0], fmt.Sprintf("issue-ledger-p-%d", idx), xProblemPhoto, y0, issueLedgerWidths[3], h)
-			}
-			if len(row.FixPhotoIDs) > 0 {
-				drawIssueLedgerPhoto(p, d, row.FixPhotoIDs[0], fmt.Sprintf("issue-ledger-f-%d", idx), xFixPhoto, y0, issueLedgerWidths[5], h)
-			}
-			p.SetY(y0 + h)
+			xProb := margin + issueLedgerWidths[0] + issueLedgerWidths[1] + issueLedgerWidths[2]
+			drawIssueLedgerCell(p, d, row.Problem, row.ProblemPhotoIDs, fmt.Sprintf("issue-ledger-p-%d", idx), "故障问题照片", xProb, y0, issueLedgerWidths[3])
+			drawIssueLedgerCell(p, d, row.FixText, row.FixPhotoIDs, fmt.Sprintf("issue-ledger-f-%d", idx), "处理完结照片", xProb+issueLedgerWidths[3], y0, issueLedgerWidths[4])
+			p.SetY(y0 + issueLedgerRowH)
 		}
 		for empty := end - start; empty < 6; empty++ {
-			y0, h, x := p.GetY(), 25.0, margin
+			y0, x := p.GetY(), margin
 			for _, w := range issueLedgerWidths {
-				p.Rect(x, y0, w, h, "D")
+				p.Rect(x, y0, w, issueLedgerRowH, "D")
 				x += w
 			}
-			p.SetY(y0 + h)
+			p.SetY(y0 + issueLedgerRowH)
 		}
-		p.Ln(3)
-		company, date := d.CompanyName, dateCN(d.ApproveDate)
-		if company == "" {
-			company = "物业服务中心"
-		}
-		if date == "" {
-			date = "        年    月    日"
-		}
-		p.SetFont("noto", "", 10)
-		p.CellFormat(contentW, 6, company, "", 1, "R", false, 0, "")
-		p.CellFormat(contentW, 6, date, "", 1, "R", false, 0, "")
 	}
+	// 末尾落款（仅最后一页）：落款单位 + 报告期次年月（日留白手填，对齐模板「2026年 月 日」）
+	ensureSpace(p, 18)
+	company, date := d.CompanyName, periodCN(d.Period)
+	if company == "" {
+		company = "物业服务中心"
+	}
+	if date == "" {
+		date = "        年    月"
+	}
+	p.Ln(3)
+	p.SetFont("noto", "", 10)
+	p.CellFormat(contentW, 6, company, "", 1, "R", false, 0, "")
+	p.CellFormat(contentW, 6, date+"    日", "", 1, "R", false, 0, "")
 }

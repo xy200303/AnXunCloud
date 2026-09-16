@@ -119,6 +119,10 @@
           </view>
           <!-- 标签抽查合成项（v1.7）：必拍 1 张 + 生产日期/维修日期（服务端四规则比对，结论由服务端给出） -->
           <view v-if="isEquipSpot(it)" class="spot-block" :style="{ borderColor: colors.border }">
+            <!-- 命中抽检明示条：主题色浅底，提示补拍压力表/日期标签近照 -->
+            <view class="spot-banner" :style="{ backgroundColor: colors.primaryLight }">
+              <text class="spot-banner-text" :style="{ color: colors.primary }">本次命中抽检，请对压力表和日期标签补拍 1 张近照</text>
+            </view>
             <view class="spot-row">
               <text class="spot-label" :style="{ color: colors.textRegular }">生产日期</text>
               <picker mode="date" :value="it.spot_mfg" :disabled="it.spot_label_missing" @change="it.spot_mfg = $event.detail.value">
@@ -147,7 +151,7 @@
                 @click="toggleSpotMissing(it)"
               >{{ it.spot_label_missing ? '✓ 标签缺失/无法辨认' : '标签缺失/无法辨认' }}</text>
               <text
-                v-if="it.photos.length > 0 && !it.spot_label_missing && !isGroupMode"
+                v-if="it.photos.length > 0 && !it.spot_label_missing"
                 class="spot-ai"
                 :style="{ color: colors.primary }"
                 @click="aiReadLabel(it)"
@@ -237,7 +241,7 @@
             </view>
           </view>
           <text v-if="!it.pass && !isEquipAuto(it) && !isEquipSpot(it) && it.disposition == 'on_site_resolved'" class="spot-hint" :style="{ color: colors.textSecondary }">必拍至少 1 张处置后的照片，作为已处理凭证</text>
-          <!-- 该项照片（异常项与必拍项展示；一项一图硬约束，最多 1 张，重拍先点 × 或长按删除） -->
+          <!-- 该项照片（异常项与必拍项展示；一项一图硬约束，最多 1 张，重拍先点 × 或长按删除；抽查项=标签近照，整组模式不豁免） -->
           <view v-if="showItemPhotos(it)" class="photos">
             <view
               v-for="(ph, pi) in it.photos"
@@ -261,7 +265,7 @@
               :style="{ borderColor: colors.border }"
               @click="takePhotos(it.photos, 1)"
             >
-              <text class="photo-add-text" :style="{ color: colors.textSecondary }">+拍照</text>
+              <text class="photo-add-text" :style="{ color: colors.textSecondary }">{{ isEquipSpot(it) ? '+拍标签近照' : '+拍照' }}</text>
             </view>
           </view>
         </view>
@@ -884,11 +888,11 @@ export default {
       }
     },
     showItemPhotos(it: ItemView): boolean {
-      // 整组拍照点位：逐项拍照位不渲染（整体照统一覆盖，异常特写走处置照片）
-      if (this.isGroupMode) return false
-      // 台账有效期项不要求照片；抽查项必拍；异常项与模板必拍项均展示照片区
+      // 台账有效期项不要求照片；抽查项必拍（整组模式下也不豁免：整体照拍不清标签特写，须补拍 1 张近照）
       if (isEquipAuto(it)) return false
       if (isEquipSpot(it)) return true
+      // 整组拍照点位：逐项拍照位不渲染（整体照统一覆盖，异常特写走处置照片）
+      if (this.isGroupMode) return false
       // 「现场已处理」异常项：处置照片即该项凭证照片，不再重复展示该项拍照区
       if (!it.pass && it.disposition == 'on_site_resolved') return false
       return !it.pass || it.photo_required == 'required'
@@ -1126,9 +1130,9 @@ export default {
         const it = this.items[i]
         // 台账有效期项：服务端判定，无照片/备注约束（备注已按状态预置）
         if (isEquipAuto(it)) continue
-        // 标签抽查项：必拍 1 张（整组模式免逐项照片）；日期必填（无贴纸免维修日期；标签缺失全免）
+        // 标签抽查项：必拍 1 张标签近照（整组模式不豁免，整体照拍不清标签特写）；日期必填（无贴纸免维修日期；标签缺失全免）
         if (isEquipSpot(it)) {
-          if (!this.isGroupMode && it.photos.length == 0) return '「' + it.name + '」须拍 1 张标签/设备照片'
+          if (it.photos.length == 0) return '「' + it.name + '」须拍 1 张标签/设备照片'
           if (it.spot_label_missing) continue
           if (it.spot_mfg == '') return '「' + it.name + '」请填写生产日期（读不到则勾选标签缺失）'
           if (!it.spot_no_sticker && it.spot_maint == '') return '「' + it.name + '」请填写维修日期或选「无贴纸」'
@@ -1207,10 +1211,10 @@ export default {
           photosLocal.push({ item: it.name, local_path: p, kind: 'resolution' })
         })
       })
-      // 整组拍照：整体照挂到每个上送检查项（补传时逐项换 file_id）
+      // 整组拍照：整体照挂到每个上送检查项（补传时逐项换 file_id）；抽查项除外（只带标签近照特写）
       if (this.isGroupMode && this.groupPhotos.length > 0) {
         subs.forEach((it) => {
-          if (!isEquipAuto(it)) photosLocal.push({ item: it.name, local_path: this.groupPhotos[0] })
+          if (!isEquipAuto(it) && !isEquipSpot(it)) photosLocal.push({ item: it.name, local_path: this.groupPhotos[0] })
         })
       }
       enqueueOfflineCheckin(req, photosLocal)
@@ -1270,13 +1274,14 @@ export default {
       const itemKeys: string[][] = subs.map(() => [])
       const resKeys: string[][] = subs.map(() => [])
       let chain: Promise<void> = Promise.resolve()
-      // 整组拍照：整体照上传后同一 file_id 挂到每个上送检查项（一份存储、多处引用，服务端按点位归档取图）
+      // 整组拍照：整体照上传后同一 file_id 挂到每个上送检查项（一份存储、多处引用，服务端按点位归档取图）；
+      // 抽查项除外：其照片只带标签近照特写（服务端按该项照片读标签比对，不混整体照）
       if (this.isGroupMode && this.groupPhotos.length > 0) {
         chain = chain
           .then(() => apiUploadLocal(this.groupPhotos[0]))
           .then((r) => {
             subs.forEach((it, idx) => {
-              if (!isEquipAuto(it)) itemKeys[idx].push(r.file_id)
+              if (!isEquipAuto(it) && !isEquipSpot(it)) itemKeys[idx].push(r.file_id)
             })
           })
       }
@@ -1508,6 +1513,19 @@ export default {
 }
 
 /* 标签抽查项 */
+.spot-banner {
+  border-radius: 12rpx;
+  padding: 16rpx 20rpx;
+  margin-bottom: 20rpx;
+  align-items: center;
+}
+
+.spot-banner-text {
+  font-size: 26rpx;
+  font-weight: 600;
+  line-height: 38rpx;
+}
+
 .spot-block {
   margin-top: 16rpx;
   border-width: 2rpx;

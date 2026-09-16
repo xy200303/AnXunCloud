@@ -266,6 +266,60 @@ const (
 	AssignSplit = "split" // 点位按周期内执行日数连续均分（仅 weekly/monthly；大点位月检按日摊派）
 )
 
+// 计划种类（plan_kind）
+const (
+	PlanKindPatrol    = "patrol"    // 巡检计划（默认，存量数据归此）
+	PlanKindSpotcheck = "spotcheck" // 每月抽查计划（低频粗放点位按比例/数量抽样）
+)
+
+// 抽查抽取策略（spotcheck_config.strategy）
+const (
+	SpotStrategyRandom        = "random"         // 随机抽取
+	SpotStrategyLongestUnseen = "longest_unseen" // 最久未查优先（默认）
+)
+
+// SpotRoundName 抽查任务轮次名快照（轮次概念不适用于抽查，固定此名区分日常任务并参与生成查重）。
+const SpotRoundName = "抽查"
+
+// SpotDefaultRatio 抽查比例缺省值（%）。
+const SpotDefaultRatio = 20
+
+// SpotConfig 抽查计划配置（spotcheck_config JSONB 的解析视图，全字段带默认值）。
+type SpotConfig struct {
+	RatioPercent int    `json:"ratio_percent"` // 抽查比例 %（fixed_count>0 时忽略；0=关闭）
+	FixedCount   int    `json:"fixed_count"`   // 固定数量（>0 优先于比例）
+	Strategy     string `json:"strategy"`      // random / longest_unseen（默认）
+	NoRepeat     bool   `json:"no_repeat"`     // 连中保护：同一点位相邻两月不重复抽中（默认开）
+	DueDay       int    `json:"due_day"`       // 完成期限日（-1/0/超月=月末）
+}
+
+// SpotConfigOf 解析 spotcheck_config（缺省：比例 20%、最久未查优先、连中保护开、期限月末）。
+func SpotConfigOf(cfg types.JSONMap) SpotConfig {
+	out := SpotConfig{RatioPercent: SpotDefaultRatio, Strategy: SpotStrategyLongestUnseen, NoRepeat: true, DueDay: -1}
+	if cfg == nil {
+		return out
+	}
+	out.RatioPercent = cfg.Int("ratio_percent")
+	out.FixedCount = cfg.Int("fixed_count")
+	if s, ok := cfg["strategy"].(string); ok && (s == SpotStrategyRandom || s == SpotStrategyLongestUnseen) {
+		out.Strategy = s
+	}
+	if v, ok := cfg["no_repeat"].(bool); ok {
+		out.NoRepeat = v
+	}
+	out.DueDay = cfg.Int("due_day")
+	return out
+}
+
+// DueDate 抽查任务完成期限（date 所在月）：due_day 落在 1..当月天数 取该日，否则月末。
+func (c SpotConfig) DueDate(date time.Time) time.Time {
+	last := time.Date(date.Year(), date.Month()+1, 0, 0, 0, 0, 0, time.Local)
+	if c.DueDay >= 1 && c.DueDay <= last.Day() {
+		return time.Date(date.Year(), date.Month(), c.DueDay, 0, 0, 0, 0, time.Local)
+	}
+	return last
+}
+
 // InspectionPlan 巡检计划
 type InspectionPlan struct {
 	types.UUIDModel
@@ -284,8 +338,12 @@ type InspectionPlan struct {
 	SelectionMode string            `gorm:"size:16;default:explicit" json:"selection_mode"`
 	PointTypes    types.StringArray `gorm:"type:jsonb" json:"point_types"` // 圈选点位类型（by_point_types 时必填）
 	// AssignMode 点位分配方式（all 默认 / split 按执行日均分）；default 标签让零值走 DB 默认值
-	AssignMode string         `gorm:"size:16;default:all" json:"assign_mode"`
-	Status     string         `gorm:"size:16" json:"status"`
+	AssignMode string `gorm:"size:16;default:all" json:"assign_mode"`
+	// PlanKind 计划种类（patrol 巡检默认 / spotcheck 抽查）；default 标签让零值走 DB 默认值
+	PlanKind string `gorm:"size:16;default:patrol" json:"plan_kind"`
+	// SpotcheckConfig 抽查配置（仅 plan_kind=spotcheck 有意义），解析走 SpotConfigOf（全字段带默认值）
+	SpotcheckConfig types.JSONMap  `gorm:"type:jsonb" json:"spotcheck_config"`
+	Status          string        `gorm:"size:16" json:"status"`
 	Remark     string         `gorm:"size:255" json:"remark"`
 	CreatedAt  time.Time      `json:"created_at"`
 	UpdatedAt  time.Time      `json:"updated_at"`
@@ -425,6 +483,7 @@ type InspectionTask struct {
 	TimeWindow string `gorm:"size:32" json:"time_window"`
 	// PointIDs 任务点位名单快照（生成时展开；计划更新会同步未完成任务）。
 	PointIDs    types.IDArray  `gorm:"type:jsonb" json:"point_ids"`
+	DueDate     *time.Time     `gorm:"type:date" json:"due_date"` // 完成期限（仅抽查任务；为空按 task_date/时段判逾期）
 	Status      string         `gorm:"size:16" json:"status"`
 	TotalPoints int            `json:"total_points"`
 	DonePoints  int            `json:"done_points"`

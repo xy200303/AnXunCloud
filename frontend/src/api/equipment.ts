@@ -7,8 +7,8 @@ export type DueState = 'normal' | 'warning' | 'overdue' | 'none' | 'scrap' | 'la
 // 设备状态：in_service 在用 / maintaining 维保中 / stopped 停用 / scrapped 报废
 export type EquipmentStatus = 'in_service' | 'maintaining' | 'stopped' | 'scrapped'
 
-// 维保类型（字典 equipment_maint_type）：repair 维修充粉 / maintain 保养 / inspect 检测 / replace 更换 / ledger_fix 台账补录
-export type MaintenanceType = 'repair' | 'maintain' | 'inspect' | 'replace' | 'ledger_fix'
+// 维保类型（字典 equipment_maint_type）：repair 维修充粉 / maintain 保养 / inspect 检测 / replace 更换 / ledger_fix 台账补录 / refill 换粉 / hydro_test 水压试验
+export type MaintenanceType = 'repair' | 'maintain' | 'inspect' | 'replace' | 'ledger_fix' | 'refill' | 'hydro_test'
 
 // 确认状态：pending 待确认 / confirmed 已确认 / rejected 已驳回
 export type ConfirmStatus = 'pending' | 'confirmed' | 'rejected'

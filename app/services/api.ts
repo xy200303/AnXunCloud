@@ -58,8 +58,10 @@ export type TodayTask = {
   patrol_type_label: string
   task_date: string
   time_window: string
-  /** 巡更轮次名（任务快照；非轮次任务为空串） */
+  /** 巡更轮次名（任务快照；非轮次任务为空串；抽查计划任务固定「抽查」） */
   round_name: string
+  /** 完成期限（YYYY-MM-DD；抽查计划任务下发，日常任务为空串） */
+  due_date: string
   /** pending 待开始 / doing 进行中 / done 已完成 / overdue 已逾期 */
   status: string
   total_points: number

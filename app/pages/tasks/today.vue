@@ -68,6 +68,7 @@
           <view  hover-class="hover-dim" class="card-sub-row">
             <text v-if="row.task.round_name != ''" class="type-tag" :style="{ color: colors.warning, borderColor: colors.warning }">{{ row.task.round_name }}</text>
             <text v-if="row.task.patrol_text != ''" class="type-tag" :style="{ color: colors.primary, borderColor: colors.primary }">{{ row.task.patrol_text }}</text>
+            <text v-if="row.task.due_text != ''" class="type-tag" :style="row.task.due_urgent ? { color: colors.warning, borderColor: colors.warning } : { color: colors.info, borderColor: colors.info }">{{ row.task.due_text }}</text>
             <text  hover-class="hover-dim" class="card-sub" :style="{ color: colors.textSecondary }">{{ row.task.time_window != '' ? row.task.time_window : (row.task.round_name != '' ? '不限时段' : '') }}</text>
           </view>
           <view class="progress" :style="{ backgroundColor: colors.border }">
@@ -179,6 +180,10 @@ type TaskView = {
   patrol_text: string
   /** 巡更轮次名（非轮次任务为空串） */
   round_name: string
+  /** 期限标签（如「期限 09-30」；无 due_date 为空串不展示） */
+  due_text: string
+  /** 临期（距期限 ≤3 天，含已过期限）：标签橙色 */
+  due_urgent: boolean
   time_window: string
   status_text: string
   status_color: string
@@ -229,7 +234,20 @@ function statusColorOf(s: string): string {
   return Colors.warning
 }
 
+/** 期限标签：due_date（YYYY-MM-DD，空串=无期限）→ 「期限 MM-DD」；距期限 ≤3 天（含已过）为临期 */
+function dueViewOf(dueDate: string): { text: string; urgent: boolean } {
+  if (dueDate == '') return { text: '', urgent: false }
+  const d = new Date(dueDate.replace(/-/g, '/'))
+  if (isNaN(d.getTime())) return { text: '', urgent: false }
+  const now = new Date()
+  now.setHours(0, 0, 0, 0)
+  d.setHours(0, 0, 0, 0)
+  const days = Math.round((d.getTime() - now.getTime()) / 86400000)
+  return { text: '期限 ' + dueDate.slice(5), urgent: days <= 3 }
+}
+
 function toTaskView(t: TodayTask): TaskView {
+  const due = dueViewOf(t.due_date ?? '')
   return {
     id: t.id,
     plan_name: t.plan_name,
@@ -237,6 +255,8 @@ function toTaskView(t: TodayTask): TaskView {
     patrol_type: t.patrol_type,
     patrol_text: patrolLabelOf(t),
     round_name: t.round_name,
+    due_text: due.text,
+    due_urgent: due.urgent,
     time_window: t.time_window,
     status_text: statusTextOf(t.status),
     status_color: statusColorOf(t.status),

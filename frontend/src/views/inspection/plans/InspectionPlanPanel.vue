@@ -18,6 +18,12 @@
             <el-option label="每月" value="monthly" />
           </el-select>
         </el-form-item>
+        <el-form-item label="计划类型">
+          <el-select v-model="query.plan_kind" placeholder="全部" clearable style="width: 110px">
+            <el-option label="巡检" value="patrol" />
+            <el-option label="抽查" value="spotcheck" />
+          </el-select>
+        </el-form-item>
         <el-form-item label="巡查类型">
           <el-select v-model="query.patrol_type" placeholder="全部" clearable style="width: 160px">
             <el-option-group v-for="g in patrolTypeGroups" :key="g.label" :label="g.label">
@@ -54,6 +60,12 @@
 
       <el-table v-loading="loading" :data="list" stripe style="width: 100%">
         <el-table-column prop="name" label="计划名称" min-width="140" show-overflow-tooltip />
+        <el-table-column label="类型" width="80" align="center">
+          <template #default="{ row }">
+            <el-tag v-if="row.plan_kind === 'spotcheck'" size="small" type="warning">抽查</el-tag>
+            <el-tag v-else size="small" type="primary" effect="plain">巡检</el-tag>
+          </template>
+        </el-table-column>
         <el-table-column prop="community_name" label="小区" min-width="120" />
         <el-table-column label="巡查类型" width="120" align="center">
           <template #default="{ row }">
@@ -135,8 +147,15 @@
     </div>
 
     <!-- 新增/编辑对话框（字段多，用对话框） -->
-    <el-dialog v-model="formVisible" :title="form.id ? '编辑巡检计划' : '新增巡检计划'" width="760px" :close-on-click-modal="false">
+    <el-dialog v-model="formVisible" :title="`${form.id ? '编辑' : '新增'}${isSpotcheck ? '抽查计划' : '巡检计划'}`" width="760px" :close-on-click-modal="false">
       <el-form ref="formRef" :model="form" :rules="formRules" label-width="96px">
+        <el-form-item label="计划类型">
+          <el-radio-group v-model="form.plan_kind">
+            <el-radio value="patrol">巡检计划</el-radio>
+            <el-radio value="spotcheck">抽查计划</el-radio>
+          </el-radio-group>
+          <span v-if="isSpotcheck" class="text-secondary" style="margin-left: 12px">每月生成日按配置从点位范围抽样生成抽查任务</span>
+        </el-form-item>
         <el-row :gutter="16">
           <el-col :span="12">
             <el-form-item label="计划名称" prop="name">
@@ -254,8 +273,22 @@
           </div>
         </el-form-item>
 
+        <!-- 抽查计划：周期锁定每月，只需配置生成日（复用每月 days 选择器） -->
+        <el-form-item v-if="isSpotcheck" label="生成日期" prop="cycle_type">
+          <el-select
+            v-model="form.cycle_config.days"
+            multiple
+            placeholder="每月几号生成抽查任务"
+            style="width: 320px"
+          >
+            <el-option label="月末" :value="-1" />
+            <el-option v-for="d in 31" :key="d" :label="`${d} 日`" :value="d" />
+          </el-select>
+          <span class="text-secondary" style="margin-left: 12px">每个生成日各生成一轮抽查任务</span>
+        </el-form-item>
+
         <!-- 周期联动 -->
-        <el-form-item label="周期" prop="cycle_type">
+        <el-form-item v-else label="周期" prop="cycle_type">
           <el-radio-group v-model="form.cycle_type">
             <el-radio value="daily">每天</el-radio>
             <el-radio value="weekly">每周</el-radio>
@@ -301,8 +334,41 @@
           </div>
         </el-form-item>
 
+        <!-- 抽查配置（仅抽查计划） -->
+        <template v-if="isSpotcheck">
+          <el-form-item label="抽取方式" prop="spotRatio">
+            <el-radio-group v-model="form.spot_mode">
+              <el-radio value="ratio">按比例</el-radio>
+              <el-radio value="fixed">固定数量</el-radio>
+            </el-radio-group>
+            <template v-if="form.spot_mode === 'ratio'">
+              <el-input-number v-model="form.spot.ratio_percent" :min="1" :max="100" controls-position="right" style="width: 130px; margin-left: 12px" />
+              <span class="text-secondary" style="margin-left: 8px">% 点位</span>
+            </template>
+            <template v-else>
+              <el-input-number v-model="form.spot.fixed_count" :min="1" :max="9999" controls-position="right" style="width: 130px; margin-left: 12px" />
+              <span class="text-secondary" style="margin-left: 8px">个点位</span>
+            </template>
+            <div class="text-secondary cycle-hint">每期从点位范围中抽取；固定数量优先于比例</div>
+          </el-form-item>
+          <el-form-item label="抽取策略">
+            <el-radio-group v-model="form.spot.strategy">
+              <el-radio value="longest_unseen">优先最久未查（推荐）</el-radio>
+              <el-radio value="random">纯随机</el-radio>
+            </el-radio-group>
+          </el-form-item>
+          <el-form-item label="连中保护">
+            <el-switch v-model="form.spot.no_repeat" />
+            <span class="text-secondary" style="margin-left: 8px">同一点位相邻两月不重复抽中</span>
+          </el-form-item>
+          <el-form-item label="完成期限">
+            <el-input-number v-model="form.spot.due_day" :min="-1" :max="31" controls-position="right" style="width: 130px" />
+            <span class="text-secondary" style="margin-left: 8px">当月几日前完成；-1 或超出当月天数 = 月末（默认）</span>
+          </el-form-item>
+        </template>
+
         <!-- 分配方式（每周/每月）：总量按 执行日数×巡检员数 连续均分 -->
-        <el-form-item v-if="form.cycle_type !== 'daily'" label="分配方式">
+        <el-form-item v-if="!isSpotcheck && form.cycle_type !== 'daily'" label="分配方式">
           <el-radio-group v-model="form.assign_mode">
             <el-radio value="split">按执行日均分（推荐）</el-radio>
             <el-radio value="all">每个执行日巡全部点位</el-radio>
@@ -447,7 +513,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox, type FormInstance, type FormRules } from 'element-plus'
 import {
   Search, Refresh, Plus, RefreshRight, ArrowDown, Top, Bottom, Close, VideoPlay
@@ -460,7 +526,7 @@ import { listUsers } from '@/api/user'
 import { listDictOptions, type DictOption } from '@/api/dict'
 import { useUserStore } from '@/store/user'
 import { usePatrolTypes } from '@/composables/usePatrolTypes'
-import type { PlanItem, PlanCycleConfig, PlanSelectionMode, PlanAssignMode, CommunityItem, PointItem, PatrolType } from '@/api/biz-types'
+import type { PlanItem, PlanCycleConfig, PlanSelectionMode, PlanAssignMode, PlanKind, SpotcheckConfig, CommunityItem, PointItem, PatrolType } from '@/api/biz-types'
 import type { UserItem } from '@/api/types'
 
 const userStore = useUserStore()
@@ -474,7 +540,7 @@ const total = ref(0)
 const communities = ref<CommunityItem[]>([])
 const inspectorOptions = ref<UserItem[]>([])
 const pointTypeOptions = ref<DictOption[]>([])
-const query = reactive({ page: 1, page_size: 20, community_id: undefined as string | undefined, name: '', cycle_type: '', patrol_type: '', status: '' as number | '' })
+const query = reactive({ page: 1, page_size: 20, community_id: undefined as string | undefined, name: '', cycle_type: '', patrol_type: '', plan_kind: '', status: '' as number | '' })
 
 async function fetchList() {
   loading.value = true
@@ -484,6 +550,7 @@ async function fetchList() {
       name: query.name || undefined,
       cycle_type: query.cycle_type || undefined,
       patrol_type: query.patrol_type || undefined,
+      plan_kind: query.plan_kind || undefined,
       status: query.status === '' ? undefined : query.status
     })
     list.value = data.list
@@ -503,6 +570,7 @@ function handleReset() {
   query.name = ''
   query.cycle_type = ''
   query.patrol_type = ''
+  query.plan_kind = ''
   query.status = ''
   handleSearch()
 }
@@ -520,6 +588,18 @@ onMounted(async () => {
 })
 
 function cycleLabel(row: PlanItem) {
+  if (row.plan_kind === 'spotcheck') {
+    const days = (row.cycle_config?.days || []).map((d) => (d === -1 ? '月末' : `${d}日`)).join('、')
+    const cfg = row.spotcheck_config
+    const draw = cfg
+      ? cfg.fixed_count > 0
+        ? `抽取 ${cfg.fixed_count} 个`
+        : cfg.ratio_percent > 0
+          ? `抽取 ${cfg.ratio_percent}%`
+          : '未配置抽取'
+      : ''
+    return `每月${days || '?'}生成${draw ? ` · ${draw}` : ''}`
+  }
   if (row.cycle_type === 'daily') return '每天'
   if (row.cycle_type === 'weekly') {
     const names = ['', '一', '二', '三', '四', '五', '六', '日']
@@ -608,6 +688,7 @@ const form = reactive({
   id: '',
   name: '',
   community_id: null as string | null,
+  plan_kind: 'patrol' as PlanKind,
   patrol_type: 'safety' as PatrolType,
   selection_mode: 'explicit' as PlanSelectionMode,
   point_ids: [] as string[],
@@ -620,7 +701,28 @@ const form = reactive({
   timeRange: null as [string, string] | null,
   inspector_ids: [] as string[],
   dateRange: null as [string, string] | null,
-  status: 1
+  status: 1,
+  // 抽查配置编辑态：spot_mode 二选一互斥（ratio 按比例 / fixed 固定数量，提交时另一项置 0）
+  spot_mode: 'ratio' as 'ratio' | 'fixed',
+  spot: {
+    ratio_percent: 20,
+    fixed_count: 1,
+    strategy: 'longest_unseen' as SpotcheckConfig['strategy'],
+    no_repeat: true,
+    due_day: -1
+  }
+})
+
+const isSpotcheck = computed(() => form.plan_kind === 'spotcheck')
+
+// 切到抽查计划：周期锁每月（生成日配置），轮次/达标线/均分等巡检语义字段清空隐藏
+watch(isSpotcheck, (on) => {
+  if (on) {
+    form.cycle_type = 'monthly'
+    form.rounds = []
+    form.daily_min_rounds = null
+    form.assign_mode = 'all'
+  }
 })
 
 // 配了轮次（每天/每周）时忽略计划级执行时段
@@ -695,6 +797,19 @@ const formRules: FormRules = {
     }
   ],
   cycle_type: [{ required: true, message: '请选择周期', trigger: 'change' }],
+  // 抽取方式（仅抽查计划校验）：比例 1-100 / 固定数量 ≥1
+  spotRatio: [
+    {
+      validator: (_r, _v, cb) => {
+        if (!isSpotcheck.value) return cb()
+        if (form.spot_mode === 'ratio') {
+          return form.spot.ratio_percent >= 1 && form.spot.ratio_percent <= 100 ? cb() : cb(new Error('抽取比例须为 1-100'))
+        }
+        return form.spot.fixed_count >= 1 ? cb() : cb(new Error('固定数量须 ≥ 1'))
+      },
+      trigger: 'change'
+    }
+  ],
   timeRange: [
     {
       validator: (_r, v, cb) => (roundsEnabled.value || v ? cb() : cb(new Error('请选择执行时段'))),
@@ -906,6 +1021,7 @@ async function openForm(row?: PlanItem) {
       id: detail.id,
       name: detail.name,
       community_id: detail.community_id,
+      plan_kind: detail.plan_kind === 'spotcheck' ? 'spotcheck' : 'patrol',
       patrol_type: detail.patrol_type || 'safety',
       selection_mode: detail.selection_mode || 'explicit',
       point_ids: (detail.points || []).sort((a, b) => a.sort - b.sort).map((p) => p.id),
@@ -924,6 +1040,14 @@ async function openForm(row?: PlanItem) {
       dateRange: [detail.start_date, detail.end_date],
       status: detail.status
     })
+    // 抽查配置回填（fixed_count>0 表示固定数量模式，其余按后端缺省：比例20/最久未查/连中保护开/期限月末）
+    const sc = detail.spotcheck_config
+    form.spot_mode = sc && sc.fixed_count > 0 ? 'fixed' : 'ratio'
+    form.spot.ratio_percent = sc?.ratio_percent || 20
+    form.spot.fixed_count = sc?.fixed_count || 1
+    form.spot.strategy = sc?.strategy === 'random' ? 'random' : 'longest_unseen'
+    form.spot.no_repeat = sc?.no_repeat ?? true
+    form.spot.due_day = sc?.due_day ?? -1
     // 已选点位摘要直接取详情返回的 points（含名称/楼栋），不依赖候选列表页是否覆盖
     const map: Record<string, RoutePoint> = {}
     for (const p of detail.points || []) {
@@ -935,9 +1059,10 @@ async function openForm(row?: PlanItem) {
     refreshPreview()
   } else {
     Object.assign(form, {
-      id: '', name: '', community_id: null, patrol_type: 'safety', selection_mode: 'explicit' as PlanSelectionMode,
+      id: '', name: '', community_id: null, plan_kind: 'patrol' as PlanKind, patrol_type: 'safety', selection_mode: 'explicit' as PlanSelectionMode,
       point_ids: [], point_types: [], cycle_type: 'daily', cycle_config: {}, assign_mode: 'split' as PlanAssignMode, rounds: [], daily_min_rounds: null,
-      timeRange: null, inspector_ids: [], dateRange: null, status: 1
+      timeRange: null, inspector_ids: [], dateRange: null, status: 1,
+      spot_mode: 'ratio' as const, spot: { ratio_percent: 20, fixed_count: 1, strategy: 'longest_unseen' as SpotcheckConfig['strategy'], no_repeat: true, due_day: -1 }
     })
     candidatePoints.value = []
     candidateTotal.value = 0
@@ -967,7 +1092,7 @@ async function handleSubmit() {
     return
   }
   if (form.cycle_type === 'monthly' && !form.cycle_config.days?.length) {
-    ElMessage.warning('请选择每月的执行日')
+    ElMessage.warning(isSpotcheck.value ? '请选择每月的生成日' : '请选择每月的执行日')
     return
   }
   // 轮次校验（仅每天/每周）
@@ -986,9 +1111,21 @@ async function handleSubmit() {
   if (form.cycle_type === 'daily' && form.daily_min_rounds != null) {
     cycle_config.daily_min_rounds = form.daily_min_rounds
   }
+  // 抽查配置组装：二选一互斥（fixed_count>0 优先于比例，未选的一项置 0）；巡检计划传 null 让后端清旧值
+  const spotcheck_config: SpotcheckConfig | null = isSpotcheck.value
+    ? {
+        ratio_percent: form.spot_mode === 'ratio' ? form.spot.ratio_percent : 0,
+        fixed_count: form.spot_mode === 'fixed' ? form.spot.fixed_count : 0,
+        strategy: form.spot.strategy,
+        no_repeat: form.spot.no_repeat,
+        due_day: form.spot.due_day
+      }
+    : null
   const payload = {
     community_id: form.community_id!,
     name: form.name,
+    plan_kind: form.plan_kind,
+    spotcheck_config,
     patrol_type: form.patrol_type,
     selection_mode: form.selection_mode,
     point_ids: form.selection_mode === 'explicit' ? form.point_ids : [],

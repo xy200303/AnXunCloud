@@ -380,10 +380,11 @@ func (s *MPService) PointByCode(inspectorID, code string) (gin.H, *errs.Error) {
 			return nil, errs.ErrDataScope
 		}
 	}
-	// 今日任务上下文：我今日包含该点位的任务及打卡状态（多个任务取列表，客户端选最近未完成）
+	// 今日任务上下文：我今日包含该点位的任务及打卡状态（多个任务取列表，客户端选最近未完成）；
+	// 抽查任务（due_date 机制）在期限内持续命中——扫码打卡不受生成日限制
 	today := time.Now().Format("2006-01-02")
 	var tasks []insmodel.InspectionTask
-	s.db.Where("inspector_id = ? AND task_date = ?", inspectorID, today).Find(&tasks)
+	s.db.Where("inspector_id = ? AND (task_date = ? OR (task_date < ? AND due_date >= ?))", inspectorID, today, today, today).Find(&tasks)
 	matched := make([]gin.H, 0, 1)
 	for i := range tasks {
 		t := &tasks[i]
@@ -477,6 +478,14 @@ func maskName(name string) string {
 	return string(r[0]) + "*"
 }
 
+// dateOrEmpty 可空日期转 YYYY-MM-DD（nil 返回空串，任务列表 due_date 透出用）。
+func dateOrEmpty(t *time.Time) string {
+	if t == nil {
+		return ""
+	}
+	return t.Format("2006-01-02")
+}
+
 // patrolTypeLabels 巡查类型 value→字典 label（sys_dict_data type_code=patrol_type）；
 // 新类型（如 fire 消防设施专项）字典化后自动生效，字典缺值回落空串由前端兜底。
 func (s *MPService) patrolTypeLabels(values ...string) map[string]string {
@@ -506,11 +515,22 @@ func (s *MPService) HistoryTasks(inspectorID, date string) (gin.H, *errs.Error) 
 }
 
 // tasksByDate 指定日期任务列表 + 总进度（进行中排最前；今日/历史共用）。
+// 今日列表额外带上「生成日已过、完成期限未到、未完成」的抽查任务（due_date 机制）：
+// 抽查任务 task_date=每月生成日，期限内对员工持续可见可打卡；历史回看仍按 task_date 精确匹配，日常任务口径不变。
 func (s *MPService) tasksByDate(inspectorID, date string) (gin.H, *errs.Error) {
 	var tasks []insmodel.InspectionTask
 	if err := s.db.Where("inspector_id = ? AND task_date = ?", inspectorID, date).
 		Order("CASE WHEN status = 'doing' THEN 0 ELSE 1 END, id ASC").Find(&tasks).Error; err != nil {
 		return nil, errs.ErrInternal
+	}
+	if date == time.Now().Format("2006-01-02") {
+		var carry []insmodel.InspectionTask
+		if err := s.db.Where("inspector_id = ? AND task_date < ? AND due_date >= ? AND status IN ?",
+			inspectorID, date, date, []string{insmodel.TaskPending, insmodel.TaskDoing}).
+			Order("id ASC").Find(&carry).Error; err != nil {
+			return nil, errs.ErrInternal
+		}
+		tasks = append(tasks, carry...)
 	}
 	// 收集本批任务的巡查类型，一次 IN 查询取字典 label（避免循环单查）
 	typeSet := map[string]bool{}
@@ -540,7 +560,8 @@ func (s *MPService) tasksByDate(inspectorID, date string) (gin.H, *errs.Error) {
 			"id": t.ID, "plan_name": planName, "community_name": s.commName(t.CommunityID),
 			"patrol_type":       t.PatrolType,             // 巡查类型透出，app 端按类型分组展示
 			"patrol_type_label": typeLabels[t.PatrolType], // 字典 label（App 直接展示，不再硬编码映射）
-			"task_date":         date, "time_window": t.TimeWindow, "round_name": t.RoundName, "status": t.Status,
+			"task_date":         t.TaskDate.Format("2006-01-02"), "time_window": t.TimeWindow, "round_name": t.RoundName, "status": t.Status,
+			"due_date":     dateOrEmpty(t.DueDate), // 抽查任务完成期限（日常任务为空串）
 			"total_points": t.TotalPoints, "done_points": t.DonePoints,
 			"progress":   progressOf(t.DonePoints, t.TotalPoints),
 			"started_at": timefmt.TP(t.StartedAt),
@@ -675,6 +696,7 @@ func (s *MPService) TaskDetail(inspectorID, taskID string) (gin.H, *errs.Error) 
 		"patrol_type":       task.PatrolType,                                      // 巡查类型透出，app 端按类型分组展示
 		"patrol_type_label": s.patrolTypeLabels(task.PatrolType)[task.PatrolType], // 字典 label（同 TodayTasks 口径）
 		"task_date":         task.TaskDate.Format("2006-01-02"), "time_window": insmodel.TaskTimeWindow(&task),
+		"due_date":   dateOrEmpty(task.DueDate), // 抽查任务完成期限（日常任务为空串）
 		"round_name": task.RoundName,
 		"status":     task.Status, "total_points": task.TotalPoints, "done_points": task.DonePoints,
 		"progress": progressOf(task.DonePoints, task.TotalPoints), "points": points,
@@ -715,7 +737,7 @@ func (s *MPService) injectEquipmentItems(taskID, taskDate string, points []gin.H
 	now := time.Now()
 	// 抽查触发准备（v1.7 二期）：总开关 + 全局比例 + 盐值 + 长期未验证翻倍
 	spotEnabled := eqsvc.CfgBool(s.db, "equipment.spotcheck_enabled", true)
-	globalRatio := eqsvc.CfgInt(s.db, "equipment.spotcheck_ratio", 10)
+	globalRatio := eqsvc.CfgInt(s.db, "equipment.spotcheck_ratio", 2)
 	spotSalt := eqsvc.CfgString(s.db, "equipment.spotcheck_salt", "")
 	var rules map[string]eqsvc.TypeRule
 	var verified map[string]time.Time
@@ -919,8 +941,9 @@ func (s *MPService) NearbyPoints(inspectorID string, lng, lat float64) (gin.H, *
 	}
 	today := time.Now().Format("2006-01-02")
 	var tasks []insmodel.InspectionTask
-	if err := s.db.Where("inspector_id = ? AND task_date = ? AND status IN ?", inspectorID, today,
-		[]string{insmodel.TaskPending, insmodel.TaskDoing, insmodel.TaskOverdue}).Find(&tasks).Error; err != nil {
+	// 抽查任务（due_date 机制）在期限内视同「今日未完成」参与附近点位推荐；日常任务（due_date 空）口径不变
+	if err := s.db.Where("inspector_id = ? AND status IN ? AND (task_date = ? OR (task_date < ? AND due_date >= ?))",
+		inspectorID, []string{insmodel.TaskPending, insmodel.TaskDoing, insmodel.TaskOverdue}, today, today, today).Find(&tasks).Error; err != nil {
 		return nil, errs.ErrInternal
 	}
 	if len(tasks) == 0 {

@@ -9,11 +9,11 @@ import (
 func TestLedgerMonthlyRendersDynamicTablesAndContinuationPages(t *testing.T) {
 	rows := make([]DetailRow, 10)
 	for index := range rows {
-		rows[index] = DetailRow{Location: fmt.Sprintf("%d栋%d层灭火器", index/2+1, index+1), Marks: []string{"√", "√", "√", "√", "√"}, Inspector: "巡检员", Time: "2026-09-01 10:00"}
+		rows[index] = DetailRow{Location: fmt.Sprintf("%d栋%d层灭火器", index/2+1, index+1), Marks: []string{"√", "√", "√", "√", "√"}, Inspector: "巡检员", Time: "09-01 10:00"}
 	}
 	ledger := make([]LedgerRow, 7)
 	for index := range ledger {
-		ledger[index] = LedgerRow{Date: "2026-09-01", Problem: "压力表指针不在绿区", FixText: "待复核", Inspector: "巡检员"}
+		ledger[index] = LedgerRow{Category: "灭火器", Location: fmt.Sprintf("%d栋大厅", index+1), Problem: "压力表指针不在绿区", FixText: "现场已处理"}
 	}
 	data := MonthlyReportData{
 		CommunityName: "测试小区",

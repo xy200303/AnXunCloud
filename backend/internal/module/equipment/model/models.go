@@ -19,11 +19,13 @@ const (
 
 // 维保类型
 const (
-	MaintenanceRepair  = "repair"     // 维修充粉
-	MaintenanceKeep    = "maintain"   // 保养
-	MaintenanceInspect = "inspect"    // 检测
-	MaintenanceReplace = "replace"    // 更换
-	MaintenanceLedger  = "ledger_fix" // 台账补录（首轮巡检补齐缺失日期，走同一确认链）
+	MaintenanceRepair    = "repair"     // 维修充粉
+	MaintenanceKeep      = "maintain"   // 保养
+	MaintenanceInspect   = "inspect"    // 检测
+	MaintenanceReplace   = "replace"    // 更换
+	MaintenanceLedger    = "ledger_fix" // 台账补录（首轮巡检补齐缺失日期，走同一确认链）
+	MaintenanceRefill    = "refill"     // 换粉（与 repair 同规则回写重算到期）
+	MaintenanceHydroTest = "hydro_test" // 水压试验（只留记录，不改到期）
 )
 
 // 确认状态
@@ -85,7 +87,7 @@ type EquipmentMaintenance struct {
 	types.UUIDModel
 	TenantID        *string       `gorm:"type:uuid" json:"tenant_id"`
 	EquipmentID     string        `gorm:"type:uuid" json:"equipment_id"`
-	MaintenanceType string        `gorm:"size:16;default:repair" json:"maintenance_type"` // repair/maintain/inspect/replace/ledger_fix
+	MaintenanceType string        `gorm:"size:16;default:repair" json:"maintenance_type"` // repair/maintain/inspect/replace/ledger_fix/refill/hydro_test
 	MaintenanceDate time.Time     `gorm:"type:date" json:"maintenance_date"`
 	Vendor          *string       `gorm:"size:128" json:"vendor"`
 	OperatorName    string        `gorm:"size:64" json:"operator_name"` // 经办人（默认登记人）

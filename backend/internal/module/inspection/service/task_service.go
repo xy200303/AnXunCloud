@@ -175,6 +175,7 @@ func (s *TaskService) toItem(t *model.InspectionTask, cnt taskCounters) gin.H {
 		"inspector_id": t.InspectorID, "inspector_name": inspectorName,
 		"patrol_type": t.PatrolType,
 		"task_date":   t.TaskDate.Format("2006-01-02"), "time_window": timeWindow,
+		"due_date":   taskDueDate(t.DueDate), // 抽查任务完成期限（日常任务为空串）
 		"round_name": t.RoundName,
 		"status":     t.Status, "total_points": t.TotalPoints, "done_points": t.DonePoints,
 		"progress": progress, "abnormal_count": cnt.abnormal, "suspect_count": cnt.suspect,
@@ -363,6 +364,7 @@ func (s *TaskService) Detail(c *gin.Context, id string) (gin.H, *errs.Error) {
 			"inspector_id": t.InspectorID, "inspector_name": inspectorName,
 			"patrol_type": t.PatrolType,
 			"task_date":   t.TaskDate.Format("2006-01-02"), "time_window": model.TaskTimeWindow(&t),
+			"due_date":   taskDueDate(t.DueDate),
 			"round_name": t.RoundName,
 			"status":     t.Status, "total_points": t.TotalPoints, "done_points": t.DonePoints,
 			"progress": progress, "started_at": timefmt.TP(t.StartedAt), "finished_at": timefmt.TP(t.FinishedAt),
@@ -638,6 +640,14 @@ func (s *TaskService) cfgInt(key string, def int) int {
 		}
 	}
 	return def
+}
+
+// taskDueDate 可空完成期限转 YYYY-MM-DD（nil 返回空串，抽查任务透出用）。
+func taskDueDate(t *time.Time) string {
+	if t == nil {
+		return ""
+	}
+	return t.Format("2006-01-02")
 }
 
 func pointName(db *gorm.DB, id string) string {

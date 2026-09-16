@@ -414,7 +414,7 @@ func seedDicts(tx *gorm.DB) error {
 		{"checkin_result", "打卡结果", [][2]string{{"正常", "normal"}, {"异常", "abnormal"}}},
 		{"patrol_type", "巡查类型", [][2]string{{"安全巡查", "safety"}, {"设备设施专项巡查", "equipment"}, {"环境巡查", "environment"}, {"楼栋巡查", "building"}, {"消防设施专项", "fire"}}},
 		{"equipment_type", "设备类型", [][2]string{{"干粉灭火器", "extinguisher"}, {"消火栓", "hydrant"}, {"水泵", "pump"}, {"电梯", "elevator"}, {"配电柜", "distribution"}, {"烟感", "smoke_detector"}}},
-		{"equipment_maint_type", "维保类型", [][2]string{{"维修充粉", "repair"}, {"保养", "maintain"}, {"检测", "inspect"}, {"更换", "replace"}, {"台账补录", "ledger_fix"}}},
+		{"equipment_maint_type", "维保类型", [][2]string{{"维修充粉", "repair"}, {"保养", "maintain"}, {"检测", "inspect"}, {"更换", "replace"}, {"台账补录", "ledger_fix"}, {"换粉", "refill"}, {"水压试验", "hydro_test"}}},
 	}
 	for _, d := range dicts {
 		t := model.SysDictType{Code: d.code, Name: d.name, Remark: "系统预置"}
@@ -495,7 +495,7 @@ func seedConfigs(tx *gorm.DB) error {
 		{Key: "equipment.overdue_remind_interval_days", Name: "设备逾期重复提醒间隔(天)", Value: "7", ConfigGroup: "equipment", Remark: "逾期后每隔 N 天重复提醒直至登记维保"},
 		{Key: "equipment.escalate_days", Name: "设备逾期升级经理天数", Value: "7", ConfigGroup: "equipment", Remark: "逾期超过 N 天未登记时升级通知物业经理/安全主管"},
 		{Key: "equipment.spotcheck_enabled", Name: "设备日期抽查开关", Value: "true", ConfigGroup: "equipment", Remark: "二期：灭火器日期标签抽查总开关"},
-		{Key: "equipment.spotcheck_ratio", Name: "设备日期抽查比例(%)", Value: "10", ConfigGroup: "equipment", Remark: "二期：默认抽查比例，可被检查项 judge_config.ratio 覆盖"},
+		{Key: "equipment.spotcheck_ratio", Name: "设备日期抽查比例(%)", Value: "2", ConfigGroup: "equipment", Remark: "二期：默认抽查比例（甲方口径 2%），可被检查项 judge_config.ratio 覆盖"},
 		{Key: "msg.subscribe_enabled", Name: "微信订阅消息开关", Value: "true", ConfigGroup: "msg", Remark: "任务提醒/审核通知"},
 		{Key: "msg.wecom_webhook_enabled", Name: "企业微信消息推送开关", Value: "false", ConfigGroup: "msg", Remark: "开启需配置 webhook 地址（应用配置，不入库）"},
 		{Key: "security.login_fail_limit", Name: "登录失败锁定次数", Value: "5", ConfigGroup: "security", Remark: "连续失败锁定 10 分钟（配合 Redis 计数）"},
@@ -515,6 +515,7 @@ func seedConfigs(tx *gorm.DB) error {
 		{Key: "ai.result_editable", Name: "打卡结果允许覆盖修改", Value: "true", ConfigGroup: "ai", Remark: "关闭后已提交点位不可重拍覆盖（App 端读取）"},
 		{Key: "ai.worker_concurrency", Name: "逐项识别并发数", Value: "4", ConfigGroup: "ai", Remark: "逐项 AI 识别队列的消费 worker 数（服务启动时读取）"},
 		{Key: "report.company_name", Name: "管理单位落款", Value: "", ConfigGroup: "report", Remark: "月报封面\"管理单位\"与页尾落款单位名称；空则留白"},
+		{Key: "report.company_name_en", Name: "落款单位英文名", Value: "", ConfigGroup: "report", Remark: "月报封面落款公司块英文名（公司名下一行）；空则不显示"},
 		{Key: "site.slogan", Name: "官网标语", Value: "二维码 / NFC / GPS 围栏三重到点校验，拍照留证、异常复核、月度报告电子签，巡检情况后台一目了然。", ConfigGroup: "site", Remark: "官网首页主标题下的一句话介绍"},
 		{Key: "site.contact_phone", Name: "联系电话", Value: "", ConfigGroup: "site", Remark: "官网页脚展示，留空不显示"},
 		{Key: "site.contact_email", Name: "联系邮箱", Value: "", ConfigGroup: "site", Remark: "官网页脚展示，留空不显示"},

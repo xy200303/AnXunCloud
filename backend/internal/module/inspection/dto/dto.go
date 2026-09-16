@@ -125,6 +125,7 @@ type PlanListQuery struct {
 	Name        string `form:"name"`
 	CycleType   string `form:"cycle_type"`
 	PatrolType  string `form:"patrol_type"`
+	PlanKind    string `form:"plan_kind"` // patrol 巡检 / spotcheck 抽查
 	Status      string `form:"status"`
 }
 
@@ -144,8 +145,13 @@ type PlanSaveReq struct {
 	PointTypes    []string `json:"point_types"`
 	// AssignMode 点位分配方式（缺省 all；split=按执行日均分，仅 weekly/monthly 合法）
 	AssignMode string `json:"assign_mode" binding:"omitempty,oneof=all split"`
-	Status     *int   `json:"status"`
-	Remark     string `json:"remark"`
+	// PlanKind 计划种类（缺省 patrol；spotcheck=每月抽查计划，仅 monthly 周期合法）；
+	// SpotcheckConfig 抽查配置：ratio_percent/fixed_count（二选一，fixed_count>0 优先）/
+	// strategy(random|longest_unseen)/no_repeat/due_day（-1 或缺省=月末）
+	PlanKind        string         `json:"plan_kind" binding:"omitempty,oneof=patrol spotcheck"`
+	SpotcheckConfig map[string]any `json:"spotcheck_config"`
+	Status          *int           `json:"status"`
+	Remark          string         `json:"remark"`
 }
 
 // ========== 任务 ==========

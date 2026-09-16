@@ -2,6 +2,7 @@ package service
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -25,11 +26,18 @@ func (s *ReportService) pdfData(r *model.InspectionReport) pdf.MonthlyReportData
 		start, end = time.Now(), time.Now()
 	}
 	d := pdf.MonthlyReportData{
-		CommunityName: s.commName(r.CommunityID),
-		Period:        r.Period,
-		TitleLine:     s.reportTitleLine(r),
-		CompanyName:   s.cfgString("report.company_name"),
-		Approved:      r.Status == model.StatusApproved,
+		CommunityName:    s.commName(r.CommunityID),
+		CommunityAddress: s.commAddress(r.CommunityID),
+		Period:           r.Period,
+		TitleLine:        s.reportTitleLine(r),
+		CompanyName:      s.cfgString("report.company_name"),
+		CompanyNameEn:    s.cfgString("report.company_name_en"),
+		Contact: pdf.ContactInfo{
+			Tel:     s.cfgString("site.contact_phone"),
+			Email:   s.cfgString("site.contact_email"),
+			Address: s.cfgString("site.address"),
+		},
+		Approved: r.Status == model.StatusApproved,
 		ImageLoader: func(fileID string) ([]byte, string, error) {
 			data, tp, err := s.loadPhoto(fileID)
 			if err != nil {
@@ -38,20 +46,17 @@ func (s *ReportService) pdfData(r *model.InspectionReport) pdf.MonthlyReportData
 			return data, tp, err
 		},
 	}
+	if d.CompanyName == "" {
+		// 落款单位缺省时回落租户名
+		d.CompanyName = s.tenantName(r.TenantID)
+	}
+	// 报告编号：暂无独立编号体系，用「小区名-YYYY-MM」
+	d.ReportNo = d.CommunityName + "-" + r.Period
 	if d.Approved {
 		// 公章：优先用终审时固化的快照；存量报告无快照回退报告所属租户当前 active 公章资产
 		d.SealFileID = r.SealFileID
 		if d.SealFileID == "" {
 			d.SealFileID = s.activeSealID(r.CommunityID)
-		}
-		for i := len(r.ReviewSteps) - 1; i >= 0; i-- {
-			if len(r.ReviewSteps[i].Signed) > 0 {
-				d.ApproveDate = r.ReviewSteps[i].Signed[len(r.ReviewSteps[i].Signed)-1].SignedAt
-				if parsed, err := time.Parse("2006-01-02 15:04:05", d.ApproveDate); err == nil {
-					d.ApproveDate = parsed.Format("2006-01-02")
-				}
-				break
-			}
 		}
 	}
 
@@ -161,6 +166,10 @@ func (s *ReportService) pdfData(r *model.InspectionReport) pdf.MonthlyReportData
 		row.RectifyRate = pct(int64(row.Rectified), int64(created))
 		d.Summary = append(d.Summary, row)
 	}
+	// 行排序尽量贴合模板顺序：消火栓→灭火器→应急照明→指示牌→手报→烟感→其他
+	sort.SliceStable(d.Summary, func(i, j int) bool {
+		return summaryOrderKey(d.Summary[i].TypeName) < summaryOrderKey(d.Summary[j].TypeName)
+	})
 
 	// ===== 4.分项巡检明细（每个有点位的类型一张表） =====
 	for _, t := range typeNames.ordered {
@@ -199,7 +208,6 @@ func (s *ReportService) pdfData(r *model.InspectionReport) pdf.MonthlyReportData
 			row.Inspector = userNames[rec.InspectorID]
 			row.Time = rec.CheckinTime.Format("01-02 15:04")
 			marks := make([]string, len(items))
-			var failed []string
 			for _, ci := range itemsByRec[rec.ID] {
 				for j, name := range items {
 					if ci.Name == name {
@@ -210,24 +218,8 @@ func (s *ReportService) pdfData(r *model.InspectionReport) pdf.MonthlyReportData
 						}
 					}
 				}
-				if !ci.Pass {
-					note := ci.Name
-					if ci.Note != "" {
-						note += "（" + ci.Note + "）"
-					}
-					failed = append(failed, note)
-				}
 			}
 			row.Marks = marks
-			if rec.Result == insmodel.ResultAbnormal {
-				row.Problem = strings.Join(failed, "、")
-				if rec.Remark != "" {
-					if row.Problem != "" {
-						row.Problem += "；"
-					}
-					row.Problem += rec.Remark
-				}
-			}
 			dt.Rows = append(dt.Rows, row)
 		}
 		if r.DetailMode == "abnormal" && len(dt.Rows) == 0 {
@@ -263,17 +255,13 @@ func (s *ReportService) pdfData(r *model.InspectionReport) pdf.MonthlyReportData
 		}
 	}
 
-	// ===== 5.问题清单及整改台账（v2 列：日期/故障问题+照片/处理情况+照片/检查人） =====
+	// ===== 5.问题清单及整改台账（新版模板列：类别/区域位置/问题说明+故障照片/整改情况+完结照片） =====
 	for i := range abnormalRecs {
 		rec := &abnormalRecs[i]
-		row := pdf.LedgerRow{
-			Date:      rec.CheckinTime.Format("2006-01-02"),
-			Problem:   checkinProblem(*rec),
-			Inspector: userNames[rec.InspectorID],
-		}
-		// 问题描述带上点位位置（v2 表无位置列，位置信息并入问题描述）
+		row := pdf.LedgerRow{Problem: checkinProblem(*rec)}
 		if pt, ok := pointByID[rec.PointID]; ok {
-			row.Problem = pointLocation(pt) + "：" + row.Problem
+			row.Category = typeNames.label(pt.Type)
+			row.Location = pointLocation(pt)
 		}
 		// 问题照片：逐项照片（v21 起照片唯一归属逐项）
 		for _, ci := range itemsByRec[rec.ID] {
@@ -420,6 +408,18 @@ func checkinProblem(rec insmodel.CheckinRecord) string {
 		return rec.Remark
 	}
 	return "打卡异常"
+}
+
+// summaryOrderKeywords 汇总表行排序关键词（甲方模板顺序），命中首个关键词的下标，未命中置后。
+var summaryOrderKeywords = []string{"消火栓", "灭火器", "应急照明", "指示", "手动报警", "烟感", "温感"}
+
+func summaryOrderKey(typeName string) int {
+	for i, kw := range summaryOrderKeywords {
+		if strings.Contains(typeName, kw) {
+			return i
+		}
+	}
+	return len(summaryOrderKeywords)
 }
 
 // auditStatusCN 打卡复核状态中文（台账「处理情况」列回落口径）。

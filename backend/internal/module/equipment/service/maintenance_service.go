@@ -45,11 +45,13 @@ const (
 
 // 合法维保类型
 var maintenanceTypes = map[string]bool{
-	model.MaintenanceRepair:  true,
-	model.MaintenanceKeep:    true,
-	model.MaintenanceInspect: true,
-	model.MaintenanceReplace: true,
-	model.MaintenanceLedger:  true,
+	model.MaintenanceRepair:    true,
+	model.MaintenanceKeep:      true,
+	model.MaintenanceInspect:   true,
+	model.MaintenanceReplace:   true,
+	model.MaintenanceLedger:    true,
+	model.MaintenanceRefill:    true,
+	model.MaintenanceHydroTest: true,
 }
 
 // MaintenanceService 维保登记与确认链服务（台账唯一写入口：confirmed 才回写）。
@@ -562,6 +564,11 @@ func (s *MaintenanceService) runMaintGate(m *model.EquipmentMaintenance, flow ty
 // 流水保留，返回 skipped=true；ledger_fix 是纠错单（可能回拨日期），不参与跳过。
 // 调用方须已对 equipment 行加锁（FOR UPDATE）。
 func ApplyLedgerWriteback(tx *gorm.DB, m *model.EquipmentMaintenance, e *model.Equipment, rule TypeRule) (skipped bool, err error) {
+	// 水压试验只留记录不改到期（甲方口径：消火栓水压试验不影响维保周期）：
+	// 不回写维保日期、不重算 next_due_date/scrap_date，流水确认即终态。
+	if m.MaintenanceType == model.MaintenanceHydroTest {
+		return false, nil
+	}
 	lastMaint := &m.MaintenanceDate
 	updates := map[string]any{}
 	if m.MaintenanceType == model.MaintenanceLedger {

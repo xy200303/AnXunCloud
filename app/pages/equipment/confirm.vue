@@ -62,14 +62,17 @@
               />
               <text v-if="m.photos.length == 0" class="info-line" :style="{ color: colors.textSecondary }">无照片</text>
             </view>
-            <!-- 单条操作 -->
-            <view class="row-actions">
+            <!-- 单条操作：不在当前环节授权名单内的只给说明，不让点了再报错 -->
+            <view v-if="m.can_confirm !== false" class="row-actions">
               <view class="btn-half" :style="{ borderColor: colors.danger }" @click="onRejectTap(m)">
                 <text class="btn-half-text" :style="{ color: colors.danger }">驳回</text>
               </view>
               <view class="btn-half btn-half-solid" :style="{ backgroundColor: colors.success }" @click="onPass(m)">
                 <text class="btn-half-text" :style="{ color: colors.white }">通过</text>
               </view>
+            </view>
+            <view v-else class="row-actions">
+              <text class="info-line" :style="{ color: colors.textSecondary }">当前环节「{{ m.current_step_name || '确认' }}」· 你不在授权名单内，待授权人处理</text>
             </view>
           </view>
         </view>
@@ -212,6 +215,11 @@ export default {
       return o != null ? o.label : t
     },
     toggleSelect(id: string) {
+      const m = this.list.find((x) => x.id == id)
+      if (m != null && m.can_confirm === false) {
+        uni.showToast({ title: '该记录你不在授权名单内', icon: 'none' })
+        return
+      }
       this.selected[id] = !this.selected[id]
     },
     toggleExpand(id: string) {
@@ -266,7 +274,11 @@ export default {
       this.acting = true
       apiMaintenanceConfirm(ids)
         .then((r) => {
-          uni.showToast({ title: '已确认 ' + r.confirmed + ' 条', icon: 'none' })
+          const parts: string[] = []
+          if (r.confirmed > 0) parts.push('已确认 ' + r.confirmed + ' 条')
+          if (r.advanced > 0) parts.push('推进 ' + r.advanced + ' 条待下一环节')
+          if (r.forbidden && r.forbidden.length > 0) parts.push(r.forbidden.length + ' 条不在你的授权名单')
+          uni.showToast({ title: parts.length > 0 ? parts.join('，') : '无可确认记录', icon: 'none' })
           this.reload()
         })
         .catch((e: Error) => {

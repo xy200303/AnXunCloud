@@ -666,7 +666,60 @@ func (s *MaintenanceService) ConfirmList(c *gin.Context, q *dto.ConfirmListQuery
 		Offset(offset).Limit(limit).Find(&rows).Error; err != nil {
 		return nil, errs.ErrInternal
 	}
-	return &response.Page{List: s.toMaintenanceItems(rows), Total: total, Page: q.Page, PageSize: q.PageSize}, nil
+	items := s.toMaintenanceItems(rows)
+	s.markConfirmAuth(c, rows, items)
+	return &response.Page{List: items, Total: total, Page: q.Page, PageSize: q.PageSize}, nil
+}
+
+// markConfirmAuth 待确认列表逐条标注当前用户可否确认（名单制授权，与 Confirm 同口径）：
+// 列表按租户过滤不过滤名单，前端据 can_confirm 展示「待授权人处理」而非点了才报错。
+func (s *MaintenanceService) markConfirmAuth(c *gin.Context, rows []model.EquipmentMaintenance, items []gin.H) {
+	if len(rows) == 0 {
+		return
+	}
+	identity := middleware.CurrentIdentity(c)
+	// 设备 → 小区（批量）
+	eqComm := map[string]string{}
+	{
+		ids := make([]string, 0, len(rows))
+		for i := range rows {
+			ids = append(ids, rows[i].EquipmentID)
+		}
+		var es []model.Equipment
+		s.db.Select("id", "community_id").Where("id IN ?", ids).Find(&es)
+		for _, e := range es {
+			eqComm[e.ID] = e.CommunityID
+		}
+	}
+	flowCache := map[string]types.FlowStepArray{}
+	authCache := map[string]bool{}
+	for i := range rows {
+		m := &rows[i]
+		commID := eqComm[m.EquipmentID]
+		flow := m.FlowSnapshot
+		if len(flow) == 0 {
+			cached, ok := flowCache[commID]
+			if !ok {
+				cached = communitysvc.ResolveFlow(s.db, commID, sysmodel.FlowMaintReview)
+				flowCache[commID] = cached
+			}
+			flow = cached
+		}
+		can := true
+		stepName := ""
+		if idx := int(m.ConfirmStep); idx < len(flow) && flow[idx].Kind != sysmodel.FlowStepKindAI {
+			stepName = flow[idx].Name
+			key := commID + "|" + flow[idx].Slot
+			v, ok := authCache[key]
+			if !ok {
+				v = communitysvc.SlotAuthorized(s.db, commID, flow[idx].Slot, identity)
+				authCache[key] = v
+			}
+			can = v
+		}
+		items[i]["can_confirm"] = can
+		items[i]["current_step_name"] = stepName
+	}
 }
 
 // History 某设备维保历史（含确认状态与照片凭证）。

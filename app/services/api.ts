@@ -2109,6 +2109,10 @@ export type MaintenanceItem = {
   /** AI 预检：pass/review/ null（未预检） */
   ai_verdict: string | null
   ai_reason: string | null
+  /** 待确认列表透出：当前环节名（如 经理确认） */
+  current_step_name?: string
+  /** 待确认列表透出：当前用户是否在当前环节授权名单内（false=只能查看） */
+  can_confirm?: boolean
   created_by_name: string
   created_at: string
   confirmed_by_name?: string
@@ -2156,11 +2160,12 @@ export function apiMaintenancePending(page: number, pageSize: number): Promise<M
   })
 }
 
-/** 批量确认 POST /equipment/maintenance/confirm（幂等：已处理跳过） */
-export function apiMaintenanceConfirm(ids: string[]): Promise<{ confirmed: number; skipped: number; not_found: string[] }> {
+/** 批量确认 POST /equipment/maintenance/confirm（幂等：已处理跳过；advanced=多环节链推进中；forbidden=不在当前环节名单） */
+export type MaintenanceConfirmResult = { confirmed: number; advanced: number; skipped: number; not_found: string[]; forbidden: string[] }
+export function apiMaintenanceConfirm(ids: string[]): Promise<MaintenanceConfirmResult> {
   return new Promise((resolve, reject) => {
-    httpPost<{ confirmed: number; skipped: number; not_found: string[] }>('/equipment/maintenance/confirm', { ids })
-      .then((d) => resolve(d ?? { confirmed: 0, skipped: 0, not_found: [] }))
+    httpPost<MaintenanceConfirmResult>('/equipment/maintenance/confirm', { ids })
+      .then((d) => resolve(d ?? { confirmed: 0, advanced: 0, skipped: 0, not_found: [], forbidden: [] }))
       .catch(reject)
   })
 }

@@ -63,11 +63,20 @@
             </template>
           </div>
 
-          <!-- 人工环节：岗位名（报告链带签字方式 tag） -->
+          <!-- 人工环节：岗位名（报告链带签字方式 tag）+ 生效名单预览 -->
           <div v-if="step.kind !== 'ai'" class="card-body">
             <div class="human-line">
               <span>{{ slotLabel(step.slot) }}</span>
               <el-tag v-if="kind === 'report'" size="small" effect="plain">{{ step.mode === 'all' ? '全部人' : '任一人' }}</el-tag>
+            </div>
+            <div v-if="previewApi" class="voter-line">
+              <template v-if="previewSteps[idx]">
+                <span v-if="previewSteps[idx].voters?.length" class="voter-names">
+                  实际审核人：{{ previewSteps[idx].voters!.map((v) => v.name).join('、') }}
+                </span>
+                <span v-else class="voter-empty">当前无人能审（{{ emptyReasonLabel(previewSteps[idx].empty_reason) }}），该环节将自动跳过</span>
+                <div v-if="previewSteps[idx].voter_note" class="voter-note">{{ previewSteps[idx].voter_note }}</div>
+              </template>
             </div>
           </div>
 
@@ -179,6 +188,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { Top, Bottom, Delete, Plus, User, Cpu, EditPen } from '@element-plus/icons-vue'
 import { useUserStore } from '@/store/user'
 import type { ReviewFlowStep, ReviewFlowView } from '@/api/post'
+import type { FlowPreviewView } from '@/api/community'
 
 const props = defineProps<{
   api: {
@@ -190,6 +200,8 @@ const props = defineProps<{
   kind?: 'checkin' | 'report' | 'maint'
   /** 选项卡内使用时隐藏标题（标签页已承担命名），仅保留来源徽标 */
   hideTitle?: boolean
+  /** 项目级生效名单预览（小区编制弹窗传入）：每环节显示实际审核人/空名单警示 */
+  previewApi?: () => Promise<FlowPreviewView>
 }>()
 
 const userStore = useUserStore()
@@ -250,6 +262,28 @@ async function fetchFlow() {
 
 function slotLabel(slot: string) {
   return props.slotOptions.find((s) => s.slot === slot)?.name || (slot ? `未知槽位（${slot}）` : '未选择审核人')
+}
+
+// ===== 生效名单预览（项目级；每环节实际审核人 + 空名单警示） =====
+const previewSteps = ref<Record<number, { voters?: { id: string; name: string }[]; empty_reason?: string; voter_note?: string }>>({})
+
+async function fetchPreview() {
+  if (!props.previewApi) return
+  try {
+    const data = await props.previewApi()
+    const map: Record<number, (typeof previewSteps.value)[number]> = {}
+    for (const s of data.steps) map[s.index] = s
+    previewSteps.value = map
+  } catch {
+    previewSteps.value = {}
+  }
+}
+
+function emptyReasonLabel(reason?: string) {
+  if (reason === 'unconfigured') return '未配置岗位绑定'
+  if (reason === 'no_member') return '绑定岗位在项目内无在职成员'
+  if (reason === 'skipped') return '岗位留空'
+  return '名单为空'
 }
 
 // ===== 分支定义与 goto 路由合法性（N 为 1 起序号，只能指向后面的人工环节） =====
@@ -461,15 +495,37 @@ async function handleSave() {
     await props.api.saveFlow(steps.value.map(serializeStep))
     ElMessage.success('审批流程已保存')
     fetchFlow()
+    fetchPreview()
   } finally {
     saving.value = false
   }
 }
 
-onMounted(fetchFlow)
+onMounted(() => {
+  fetchFlow()
+  fetchPreview()
+})
 </script>
 
 <style scoped lang="scss">
+.voter-line {
+  margin-top: 6px;
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.voter-names {
+  color: $color-success;
+}
+
+.voter-empty {
+  color: $color-danger;
+}
+
+.voter-note {
+  color: $color-text-secondary;
+}
+
 .flow-editor {
   margin-top: $spacing-lg;
   border-top: 1px dashed $color-border;

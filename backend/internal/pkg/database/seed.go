@@ -552,15 +552,8 @@ func seedPosts(tx *gorm.DB, roleIDs map[string]string) error {
 	}
 	posts := []postSeed{
 		{"project_manager", "项目经理", "general", false, "project_admin", 1, model.StatusEnabled, "项目第一负责人，月报终审，全员管理"},
-		{"safety_supervisor", "安全主管", "safety", true, "project_admin", 2, model.StatusEnabled, "管理巡检员，安全/秩序巡查，月报主管审批"},
+		{"safety_supervisor", "安全主管", "safety", true, "project_admin", 2, model.StatusEnabled, "管理巡检员，巡查打卡审核，月报主管审批"},
 		{"inspector", "巡检员", "safety", false, "field_staff", 3, model.StatusEnabled, "按计划执行巡查打卡"},
-		{"engineering_supervisor", "工程主管", "engineering", true, "project_admin", 4, model.StatusEnabled, "管理维修工，设备设施专项巡查"},
-		{"repairman", "维修工", "engineering", false, "field_staff", 5, model.StatusEnabled, "设备设施专项巡查与维修"},
-		{"environment_supervisor", "环境主管", "environment", true, "project_admin", 6, model.StatusEnabled, "环境卫生/绿化巡查管理"},
-		{"cleaner", "保洁员", "environment", false, "field_staff", 7, model.StatusDisabled, "预留岗位，本期不进系统"},
-		{"service_supervisor", "客服主管", "service", true, "project_admin", 8, model.StatusEnabled, "管理前台接待和楼管员，报单受理"},
-		{"building_manager", "楼管员", "service", false, "field_staff", 9, model.StatusEnabled, "负责若干楼栋，日常巡查、主动报单"},
-		{"receptionist", "前台接待", "service", false, "field_staff", 10, model.StatusEnabled, "前台接报、录入报单"},
 	}
 	for _, p := range posts {
 		// 幂等：平台模板行（tenant_id 为空）按 code 判重，缺失才补
@@ -616,6 +609,7 @@ func ensurePlatformRows(db *gorm.DB) error {
 
 // seedDutyBindings 预置平台默认职责槽位绑定（duty_binding：project_id/tenant_id 均空 = 平台默认）。
 // 三级回落的最末一级；租户级/项目级绑定开通或配置时复制/覆盖。
+// 甲方口径三岗位极简模型：汇报线只有通用槽位，不设业务线维度绑定。
 func seedDutyBindings(tx *gorm.DB) error {
 	bindings := []struct {
 		slot  string
@@ -623,14 +617,6 @@ func seedDutyBindings(tx *gorm.DB) error {
 	}{
 		{model.SlotPatrolExecute, types.StringArray{"inspector"}},
 		{model.SlotPatrolReportLine, types.StringArray{"safety_supervisor"}},
-		// 汇报线业务线维度槽位（扩展方案 §2.4）：安全线不设默认（回落通用槽位），
-		// 设备/环境/楼栋线分别归工程/环境/客服主管；
-		// fire（消防设施专项，专项巡检方案 §3.1）维度槽位按约定 patrol_report_line.<type> 衍生，默认归工程主管
-		{model.SlotPatrolReportLineEquipment, types.StringArray{"engineering_supervisor"}},
-		{model.SlotPatrolReportLineEnvironment, types.StringArray{"environment_supervisor"}},
-		{model.SlotPatrolReportLineBuilding, types.StringArray{"service_supervisor"}},
-		{model.SlotPatrolReportLine + ".fire", types.StringArray{"engineering_supervisor"}},
-		// 项目经理复核槽位（审批链第二环节引用，扩展方案 §3.2）
 		{model.SlotProjectReview, types.StringArray{"project_manager"}},
 	}
 	for _, b := range bindings {

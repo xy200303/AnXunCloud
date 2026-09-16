@@ -3,6 +3,7 @@ package service
 import (
 	"github.com/gin-gonic/gin"
 
+	"anxuncloud/internal/middleware"
 	communitysvc "anxuncloud/internal/module/community/service"
 	"anxuncloud/internal/module/inspection/model"
 	sysmodel "anxuncloud/internal/module/system/model"
@@ -20,6 +21,10 @@ type reviewBatchCtx struct {
 	itemsByRec map[string][]model.CheckinRecordItem
 	filesByID  map[string]sysmodel.UploadFile
 	flows      map[string]types.FlowStepArray
+	// 槽位名单缓存（project|slot → 用户名单），避免逐记录重复查询
+	slotUsers map[string]types.IDArray
+	// 当前请求身份（can_audit 判定用）
+	identity *middleware.Identity
 }
 
 // loadReviewBatch 按本页记录集合批量预载。
@@ -30,7 +35,8 @@ func (s *ReviewService) loadReviewBatch(rows []model.CheckinRecord) *reviewBatch
 		userNames:  map[string]string{},
 		itemsByRec: map[string][]model.CheckinRecordItem{},
 		filesByID:  map[string]sysmodel.UploadFile{},
-		flows:      map[string]types.FlowStepArray{},
+		flows:     map[string]types.FlowStepArray{},
+		slotUsers: map[string]types.IDArray{},
 	}
 	pointIDs, commIDs, userIDs, recIDs := []string{}, []string{}, []string{}, []string{}
 	seenP, seenC, seenU := map[string]bool{}, map[string]bool{}, map[string]bool{}
@@ -147,6 +153,13 @@ func (s *ReviewService) reviewItemBatch(r *model.CheckinRecord, ctx *reviewBatch
 			"done": i < int(r.AuditStep), "current": i == int(r.AuditStep) && r.AuditStatus == model.AuditPending,
 		})
 	}
+	// 待审核记录透出当前环节名与「当前用户可否审核」（与 Pass 同口径的名单制授权判定）：
+	// 列表按小区+状态过滤，不过滤授权，前端据 can_audit 展示「待授权人处理」而非让用户点了再报错
+	canAudit := false
+	stepName := ""
+	if r.AuditStatus == model.AuditPending {
+		stepName, canAudit = s.auditActionable(r, ctx)
+	}
 	return gin.H{
 		"id": r.ID, "task_id": r.TaskID, "point_id": r.PointID,
 		"point_name":     ctx.pointNames[r.PointID],
@@ -163,5 +176,54 @@ func (s *ReviewService) reviewItemBatch(r *model.CheckinRecord, ctx *reviewBatch
 		"ai_verdict": r.AIVerdict, "ai_reason": r.AIReason,
 		"ai_quality_pass": r.AIQualityPass, "ai_quality_issue": r.AIQualityIssue,
 		"force_submit":    r.ForceSubmit,
+		"current_step_name": stepName, "can_audit": canAudit,
 	}
+}
+
+// auditActionable 待审核记录的当前环节名 + 当前用户是否可审核（与 Pass 同口径：环节槽位名单制授权；
+// 快照优先于现行流程，环节越界走汇报线兜底）。
+func (s *ReviewService) auditActionable(r *model.CheckinRecord, ctx *reviewBatchCtx) (string, bool) {
+	flow := ctx.flows[r.CommunityID]
+	if len(r.FlowSnapshot) > 0 {
+		flow = communitysvc.FlowOrResolve(s.db, r.FlowSnapshot, r.CommunityID, sysmodel.FlowCheckinReview)
+	}
+	stepIdx := int(r.AuditStep)
+	stepName := "主管审核"
+	slot := sysmodel.SlotPatrolReportLine
+	if stepIdx < len(flow) {
+		step := flow[stepIdx]
+		stepName = step.Name
+		if step.Kind != sysmodel.FlowStepKindAI {
+			slot = step.Slot
+		}
+	}
+	return stepName, s.slotAuthorizedCached(ctx, r.CommunityID, slot)
+}
+
+// slotAuthorizedCached 名单制授权判定（同 communitysvc.SlotAuthorized，名单按 project|slot 走批次缓存）。
+func (s *ReviewService) slotAuthorizedCached(ctx *reviewBatchCtx, projectID, slot string) bool {
+	idt := ctx.identity
+	if idt == nil {
+		return false
+	}
+	if idt.SuperAdmin {
+		return true
+	}
+	for _, code := range idt.RoleCodes {
+		if code == sysmodel.TenantAdminCode {
+			return true
+		}
+	}
+	key := projectID + "|" + slot
+	users, ok := ctx.slotUsers[key]
+	if !ok {
+		users = communitysvc.SlotUserIDs(s.db, projectID, slot)
+		ctx.slotUsers[key] = users
+	}
+	for _, uid := range users {
+		if uid == idt.UserID {
+			return true
+		}
+	}
+	return false
 }

@@ -590,7 +590,7 @@ COMMENT ON TABLE public.duty_binding IS '职责槽位绑定：project_id 空=租
 -- Name: COLUMN duty_binding.slot; Type: COMMENT; Schema: public; Owner: -
 --
 
-COMMENT ON COLUMN public.duty_binding.slot IS '槽位代码（系统固定枚举：report_sign_supervisor/report_sign_manager/order_triage/order_dispatch/order_accept/patrol_execute/patrol_report_line）';
+COMMENT ON COLUMN public.duty_binding.slot IS '槽位代码（系统固定枚举：report_inspector/patrol_execute/patrol_report_line/project_review；三岗位极简模型，不设业务线维度槽位）';
 
 
 --

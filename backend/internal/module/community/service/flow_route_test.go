@@ -144,3 +144,67 @@ func TestValidateAIRoute(t *testing.T) {
 		t.Fatal("非法路由值应拒绝")
 	}
 }
+
+// WalkFlowSkipEmpty：空名单人工环节自动跳过，非空名单环节正常落定。
+func TestWalkFlowSkipEmpty(t *testing.T) {
+	voters := func(nonEmpty ...string) func(string) []string {
+		set := map[string]bool{}
+		for _, s := range nonEmpty {
+			set[s] = true
+		}
+		return func(slot string) []string {
+			if set[slot] {
+				return []string{"u1"}
+			}
+			return nil
+		}
+	}
+	flow := types.FlowStepArray{humanStep("a"), humanStep("b"), humanStep("c")}
+
+	// 首环节名单非空：直接落定，无跳过
+	w := WalkFlowSkipEmpty(flow, 0, "", false, voters("a"))
+	if w.Finish || w.Step != 0 || len(w.Skipped) != 0 {
+		t.Fatalf("名单非空应落定环节 a，got %+v", w)
+	}
+	// 首环节空名单：跳过 a 落定 b
+	w = WalkFlowSkipEmpty(flow, 0, "", false, voters("b"))
+	if w.Finish || w.Step != 1 || len(w.Skipped) != 1 || w.Skipped[0] != "a" {
+		t.Fatalf("应跳过 a 落定 b，got %+v", w)
+	}
+	// 连续空名单：跳过 a、b 落定 c
+	w = WalkFlowSkipEmpty(flow, 0, "", false, voters("c"))
+	if w.Finish || w.Step != 2 || len(w.Skipped) != 2 {
+		t.Fatalf("应跳过 a、b 落定 c，got %+v", w)
+	}
+	// 全部空名单：跳过所有人工环节，整单 Finish
+	w = WalkFlowSkipEmpty(flow, 0, "", false, voters())
+	if !w.Finish || len(w.Skipped) != 3 {
+		t.Fatalf("全空应 Finish 且跳过 3 个环节，got %+v", w)
+	}
+	// 推进场景：从环节 b 之后开始走
+	w = WalkFlowSkipEmpty(flow, 1, "", false, voters("c"))
+	if w.Finish || w.Step != 2 || len(w.Skipped) != 1 || w.Skipped[0] != "b" {
+		t.Fatalf("从 b 推进应跳过 b 落定 c，got %+v", w)
+	}
+	// AI 环节语义不变：AI 环节无结论时停 NeedGate，不检查名单
+	flowAI := types.FlowStepArray{aiStep("", "", "next"), humanStep("a")}
+	w = WalkFlowSkipEmpty(flowAI, 0, "", false, voters("a"))
+	if !w.NeedGate {
+		t.Fatalf("AI 环节无结论应 NeedGate，got %+v", w)
+	}
+	// AI 环节 review → next 到空名单人工环节 → 跳过并 Finish
+	w = WalkFlowSkipEmpty(flowAI, 0, sysmodel.AIGateReview, false, voters())
+	if !w.Finish || len(w.Skipped) != 1 {
+		t.Fatalf("AI review 后空名单应跳过并 Finish，got %+v", w)
+	}
+	// forcedHuman 空流程兜底（Fallback 人工）不跳过
+	w = WalkFlowSkipEmpty(types.FlowStepArray{}, 0, "", true, voters())
+	if !w.Fallback || w.Finish {
+		t.Fatalf("空流程强制人工应 Fallback，got %+v", w)
+	}
+	// 空流程非强制：Finish
+	w = WalkFlowSkipEmpty(types.FlowStepArray{}, 0, "", false, voters())
+	if !w.Finish {
+		t.Fatalf("空流程应 Finish，got %+v", w)
+	}
+}

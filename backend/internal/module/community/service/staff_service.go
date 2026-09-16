@@ -31,28 +31,6 @@ func ResolveSlotPosts(db *gorm.DB, projectID, slot string) types.StringArray {
 	return codes
 }
 
-// reportLineSlotFor 巡查类型 → 汇报线维度槽位 code（《专项巡检与专项检查报告设计方案》§3.1：
-// 约定 patrol_report_line.<patrol_type>，字典新增类型零代码生效；空类型返回空，直接用通用槽位）。
-func reportLineSlotFor(patrolType string) string {
-	if patrolType == "" {
-		return ""
-	}
-	return sysmodel.SlotPatrolReportLine + "." + patrolType
-}
-
-// ResolveReportLineSlot 巡查汇报线槽位解析（《汇报线与审批链扩展设计方案》§2.2）：
-// 维度槽位（patrol_report_line.<line>，任一级存在绑定即命中）→ 通用槽位（patrol_report_line 兜底）。
-// 维度槽位绑定存在但岗位留空 = 该线该环节显式跳过（不再回落通用）。
-// 返回的槽位 code 供 SlotUserIDs / SlotAuthorized 使用。
-func ResolveReportLineSlot(db *gorm.DB, projectID, patrolType string) string {
-	if dim := reportLineSlotFor(patrolType); dim != "" {
-		if _, source := resolveSlotPosts(db, projectID, dim); source != "" {
-			return dim
-		}
-	}
-	return sysmodel.SlotPatrolReportLine
-}
-
 // resolveSlotPosts 三级回落解析，返回岗位 code 与来源（project/tenant/platform；空串=未配置）。
 func resolveSlotPosts(db *gorm.DB, projectID, slot string) (types.StringArray, string) {
 	var b sysmodel.DutyBinding
@@ -419,7 +397,7 @@ func (s *StaffService) ListDutyBindings(c *gin.Context, communityID string) ([]g
 		overrides[b.Slot] = b.PostCodes
 	}
 	items := make([]gin.H, 0, len(sysmodel.DutySlots))
-	for _, ds := range AllDutySlots(s.db) {
+	for _, ds := range sysmodel.DutySlots {
 		var codes types.StringArray
 		var source string
 		if oc, ok := overrides[ds.Slot]; ok {
@@ -457,7 +435,7 @@ func (s *StaffService) SaveDutyBindings(c *gin.Context, communityID string, req 
 		return be
 	}
 	known := make(map[string]bool, len(sysmodel.DutySlots))
-	for _, ds := range AllDutySlots(s.db) {
+	for _, ds := range sysmodel.DutySlots {
 		known[ds.Slot] = true
 	}
 	seen := map[string]bool{}

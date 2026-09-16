@@ -346,6 +346,7 @@
             :api="flowApi"
             :slot-options="dutySlotOptions"
             save-perm="community:duty:edit"
+            :preview-api="previewApis.checkin"
             hide-title
           />
         </el-tab-pane>
@@ -358,6 +359,7 @@
             :slot-options="dutySlotOptions"
             save-perm="community:duty:edit"
             kind="maint"
+            :preview-api="previewApis.maint"
 
             hide-title          />
         </el-tab-pane>
@@ -370,6 +372,7 @@
             :slot-options="dutySlotOptions"
             save-perm="community:duty:edit"
             kind="report"
+            :preview-api="previewApis.report"
 
             hide-title          />
         </el-tab-pane>
@@ -429,7 +432,8 @@ import {
   listCommunities, createCommunity, updateCommunity, deleteCommunity,
   listCommunityTree, listBuildings, createBuilding, updateBuilding, deleteBuilding,
   listPostDict, listStaff, createStaff, updateStaff, deleteStaff, listDutyBindings, saveDutyBindings,
-  getReviewFlow, saveReviewFlow, getReportReviewFlow, saveReportReviewFlow, getMaintReviewFlow, saveMaintReviewFlow
+  getReviewFlow, saveReviewFlow, getReportReviewFlow, saveReportReviewFlow, getMaintReviewFlow, saveMaintReviewFlow,
+  getFlowPreview
 } from '@/api/community'
 import { listPoints } from '@/api/point'
 import { POST_LINES, type ReviewFlowStep } from '@/api/post'
@@ -717,6 +721,12 @@ const reportFlowApi = computed(() => ({
   listFlow: () => getReportReviewFlow(staffCommunityId.value),
   saveFlow: (s: ReviewFlowStep[]) => saveReportReviewFlow(staffCommunityId.value, s) as Promise<unknown>
 }))
+// 审批链生效名单预览（每环节实际审核人/空名单警示，配置现场显性化）
+const previewApis = {
+  checkin: () => getFlowPreview(staffCommunityId.value, 'checkin_review'),
+  maint: () => getFlowPreview(staffCommunityId.value, 'maint_review'),
+  report: () => getFlowPreview(staffCommunityId.value, 'report_review')
+}
 const dutySlotOptions = computed(() => dutyList.value.map((d) => ({ slot: d.slot, name: d.name })))
 // 逐槽位编辑值（slot → post_codes）；dutyOriginal 记录加载时快照，仅提交有变更的槽位（upsert 语义，避免把平台默认固化成项目覆盖）
 const dutyEdits = reactive<Record<string, string[]>>({})

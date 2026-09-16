@@ -700,7 +700,7 @@ func (s *TaskService) Remind(c *gin.Context, id string) *errs.Error {
 		return be
 	}
 	// 催办归口该任务巡查业务线的汇报线主管（维度槽位 → 通用槽位回落；超管/租户管理员默认放行）
-	slot := communitysvc.ResolveReportLineSlot(s.db, t.CommunityID, t.PatrolType)
+	slot := sysmodel.SlotPatrolReportLine
 	if !communitysvc.SlotAuthorized(s.db, t.CommunityID, slot, middleware.CurrentIdentity(c)) {
 		return errs.ErrNotInSlot.WithMsg("当前用户不在本项目该巡查业务线的审核名单内")
 	}

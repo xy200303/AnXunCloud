@@ -252,6 +252,7 @@ func New(cfg *config.Config, db *gorm.DB, rdb *redis.Client) (*gin.Engine, *insp
 		secured.PUT("/communities/:id/report-review-flow", middleware.RequirePerm("community:duty:edit"), middleware.OperLog(db, "community", "report_review_flow_save"), staffCtl.SaveReportReviewFlow)
 		secured.GET("/communities/:id/maint-review-flow", middleware.RequirePerm("community:staff:list"), staffCtl.GetMaintReviewFlow)
 		secured.PUT("/communities/:id/maint-review-flow", middleware.RequirePerm("community:duty:edit"), middleware.OperLog(db, "community", "maint_review_flow_save"), staffCtl.SaveMaintReviewFlow)
+		secured.GET("/communities/:id/flow-preview", middleware.RequirePerm("community:staff:list"), staffCtl.FlowPreview)
 
 		// 巡检管理：点位
 		points := secured.Group("/inspection/points")

@@ -4,6 +4,7 @@
 package service
 
 import (
+	"fmt"
 	"strconv"
 	"strings"
 
@@ -12,6 +13,7 @@ import (
 	"anxuncloud/internal/middleware"
 	sysmodel "anxuncloud/internal/module/system/model"
 	"anxuncloud/internal/pkg/errs"
+	"anxuncloud/internal/pkg/notify"
 	"anxuncloud/internal/pkg/types"
 )
 
@@ -101,6 +103,7 @@ type WalkResult struct {
 	NeedGate  bool // 停在 AI 环节且尚无结论（调用方异步接力）
 	NotifyIdx int  // 需通知的人工环节下标（-1 = 不通知）
 	Fallback  bool // 通知走兜底（AI 环节越末位/空流程强制人工）
+	Skipped   []string // 因名单为空被自动跳过的人工环节名（WalkFlowSkipEmpty 填充）
 }
 
 // WalkFlow 通用走链：人工环节 → 待审；AI 环节 → 按 outcome 三分支路由（'' = 无结论原地等闸门）；
@@ -136,6 +139,75 @@ func WalkFlow(flow types.FlowStepArray, startIdx int, outcome string, forcedHuma
 	}
 	return WalkResult{Finish: true, Step: len(flow), NotifyIdx: -1}
 }
+
+// WalkFlowSkipEmpty 空名单自动跳过版走链（三链统一口径，替代裸 WalkFlow）：
+// 落定的人工环节名单为空（voters 返回空）时自动跳过该环节继续走，跳过记录进 WalkResult.Skipped，
+// 由调用方通知管理员检查配置；AI 环节路由语义与 WalkFlow 完全一致。
+// voters 闭包注入名单解析（生产=SlotUserIDs，测试=桩），保持本函数纯净可测。
+// 注意：forcedHuman 触发的空流程兜底人工（Fallback）是最后一道，不跳过。
+func WalkFlowSkipEmpty(flow types.FlowStepArray, startIdx int, outcome string, forcedHuman bool, voters func(slot string) []string) WalkResult {
+	w := WalkFlow(flow, startIdx, outcome, forcedHuman)
+	for !w.Finish && !w.Reject && !w.NeedGate && !w.Fallback && w.Step < len(flow) {
+		st := flow[w.Step]
+		if st.Kind == sysmodel.FlowStepKindAI {
+			return w // 停在有结论待定的 AI 环节（兜底人工语义由 Fallback 表达）
+		}
+		if len(voters(st.Slot)) > 0 {
+			return w // 名单非空，落定
+		}
+		w.Skipped = append(w.Skipped, st.Name)
+		// 从下一环节继续走；跳过 AI 环节时其路由仍按 outcome 计算
+		next := WalkFlow(flow, w.Step+1, outcome, false)
+		next.Skipped = append(w.Skipped, next.Skipped...)
+		w = next
+	}
+	return w
+}
+
+// WalkFlowWithVoters 生产口径包装：名单解析绑定 db+projectID 的空名单自动跳过走链。
+func WalkFlowWithVoters(db *gorm.DB, projectID string, flow types.FlowStepArray, startIdx int, outcome string, forcedHuman bool) WalkResult {
+	return WalkFlowSkipEmpty(flow, startIdx, outcome, forcedHuman, func(slot string) []string {
+		return SlotUserIDs(db, projectID, slot)
+	})
+}
+
+// NotifySkippedFlowSteps 空名单环节被自动跳过的管理面通知（项目管理员/租户管理员）；skipped 为空直接返回。
+func NotifySkippedFlowSteps(db *gorm.DB, n *notify.Notifier, tenantID *string, flowLabel string, skipped []string, bizID *string) {
+	if len(skipped) == 0 || n == nil || tenantID == nil || *tenantID == "" {
+		return
+	}
+	ids := adminUserIDs(db, *tenantID)
+	if len(ids) == 0 {
+		return
+	}
+	_ = n.SendBatch(ids, tenantID, "flow_step_skipped", "审批环节已自动跳过",
+		fmt.Sprintf("「%s」审批链中环节【%s】的审核名单为空，记录已自动跳过该环节。请到 小区管理 → 岗位编制 检查环节分工与编制名单。",
+			flowLabel, strings.Join(skipped, "、")), bizID)
+}
+
+// adminUserIDs 租户内项目管理员/租户管理员（空名单跳过等管理面通知接收人）。
+func adminUserIDs(db *gorm.DB, tenantID string) []string {
+	var roleIDs []string
+	db.Model(&sysmodel.SysRole{}).
+		Where("code IN ? AND status = ?", []string{sysmodel.ProjectAdminCode, sysmodel.TenantAdminCode}, sysmodel.StatusEnabled).
+		Pluck("id", &roleIDs)
+	if len(roleIDs) == 0 {
+		return nil
+	}
+	// role_ids 为 jsonb 数组：任一角色命中即可
+	conds := make([]string, 0, len(roleIDs))
+	args := make([]any, 0, len(roleIDs))
+	for _, rid := range roleIDs {
+		conds = append(conds, "role_ids @> ?::jsonb")
+		args = append(args, fmt.Sprintf(`["%s"]`, rid))
+	}
+	var ids []string
+	db.Model(&sysmodel.SysUser{}).
+		Where("tenant_id = ? AND status = ?", tenantID, sysmodel.StatusEnabled).
+		Where(strings.Join(conds, " OR "), args...).
+		Pluck("id", &ids)
+	return ids
+}
 // FlowOrResolve 记录审核时取链：快照优先（在途记录按提交时的规则审完，改流程只影响新单）。
 // 快照为空（存量 NULL/空流程——FlowStepArray.Scan 把 NULL 读成空数组）才回落现配：
 // 只有带环节的链才有"停在第 N 环节"的冻结语义，空流程（默认通过+兜底）跟随最新配置即可。
@@ -160,14 +232,6 @@ func ValidateReportFlowSteps(db *gorm.DB, steps types.FlowStepArray) *errs.Error
 		}
 	}
 	return validateHumanSteps(db, steps)
-}
-
-// FlowStepSlot 环节槽位解析：汇报线通用槽位按巡查类型路由到维度槽位（扩展方案 §2），其余槽位原样使用。
-func FlowStepSlot(db *gorm.DB, projectID, patrolType, stepSlot string) string {
-	if stepSlot == sysmodel.SlotPatrolReportLine {
-		return ResolveReportLineSlot(db, projectID, patrolType)
-	}
-	return stepSlot
 }
 
 // ValidateFlowSteps 打卡/维保审核链环节入参校验（0-5 环节，空 = 默认通过；
@@ -286,7 +350,7 @@ func RouteAIStep(flow types.FlowStepArray, idx int, outcome string) RouteDecisio
 // validateHumanSteps 人工环节校验（槽位须在槽位目录内（含字典衍生维度槽位）且不重复；名称 1-32 字）。
 func validateHumanSteps(db *gorm.DB, steps types.FlowStepArray) *errs.Error {
 	known := make(map[string]bool, len(sysmodel.DutySlots))
-	for _, ds := range AllDutySlots(db) {
+	for _, ds := range sysmodel.DutySlots {
 		known[ds.Slot] = true
 	}
 	seen := map[string]bool{}

@@ -125,6 +125,17 @@ func (ctl *StaffController) SaveDutyBindings(c *gin.Context) {
 	write(c, nil, ctl.svc.SaveDutyBindings(c, id, &req))
 }
 
+// FlowPreview 审批链名单预览（GET /communities/:id/flow-preview?flow_code=）。
+func (ctl *StaffController) FlowPreview(c *gin.Context) {
+	id, be := pathID(c)
+	if be != nil {
+		response.Fail(c, be)
+		return
+	}
+	data, be := ctl.svc.FlowPreview(c, id, c.Query("flow_code"))
+	write(c, data, be)
+}
+
 // GetReviewFlow 项目打卡审核链视图（GET /communities/:id/review-flow）。
 func (ctl *StaffController) GetReviewFlow(c *gin.Context) {
 	id, be := pathID(c)

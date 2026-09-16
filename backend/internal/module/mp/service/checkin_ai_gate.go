@@ -73,7 +73,8 @@ func (s *CheckinService) runAIGate(recID string) {
 		// 无结论：AI 可用则现判（异步上下文，不阻塞打卡请求），不可用按存疑转人工
 		verdict, outcome = s.gateJudge(&rec, &point)
 	}
-	walk := communitysvc.WalkFlow(flow, idx, outcome, forced)
+	walk := communitysvc.WalkFlowWithVoters(s.db, rec.CommunityID, flow, idx, outcome, forced)
+	communitysvc.NotifySkippedFlowSteps(s.db, s.notifier, rec.TenantID, "打卡审核", walk.Skipped, &rec.ID)
 	s.settleGate(&rec, &point, idx, walk, rec.AIReason)
 }
 
@@ -179,10 +180,10 @@ func (s *CheckinService) notifyStepReviewers(recID, pointName string, stepIdx in
 	flow := communitysvc.FlowOrResolve(s.db, rec.FlowSnapshot, rec.CommunityID, sysmodel.FlowCheckinReview)
 	slot := ""
 	if !forceFallback && stepIdx < len(flow) && flow[stepIdx].Kind != sysmodel.FlowStepKindAI {
-		slot = communitysvc.FlowStepSlot(s.db, rec.CommunityID, task.PatrolType, flow[stepIdx].Slot)
+		slot = flow[stepIdx].Slot
 	}
 	if slot == "" {
-		slot = communitysvc.FlowStepSlot(s.db, rec.CommunityID, task.PatrolType, sysmodel.SlotPatrolReportLine)
+		slot = sysmodel.SlotPatrolReportLine
 	}
 	userIDs := communitysvc.SlotUserIDs(s.db, rec.CommunityID, slot)
 	if len(userIDs) == 0 && slot != sysmodel.SlotPatrolReportLine {

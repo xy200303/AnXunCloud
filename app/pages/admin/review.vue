@@ -35,6 +35,7 @@
           <view class="foot-tags">
             <text class="tag" :style="{ color: colors.textSecondary, borderColor: colors.border }">{{ typeTextOf(r.checkin_type) }}</text>
             <text v-if="r.is_suspect" class="tag" :style="{ color: colors.warning, borderColor: colors.warning }">疑似作弊</text>
+            <text v-if="status == 'pending' && r.can_audit === false" class="tag" :style="{ color: colors.textSecondary, borderColor: colors.border }">待授权人处理</text>
           </view>
           <text class="card-time" :style="{ color: colors.textSecondary }">{{ r.checkin_time }}</text>
         </view>
@@ -66,14 +67,17 @@
           <CheckinDetailView :record="detail" />
         </scroll-view>
 
-        <!-- 待审核操作 -->
-        <view v-if="detail.audit_status == 'pending'" class="sheet-actions" :style="{ backgroundColor: colors.bgCard, borderTopColor: colors.border }">
+        <!-- 待审核操作：不在当前环节授权名单内的只给说明，不让点了再报错 -->
+        <view v-if="detail.audit_status == 'pending' && detail.can_audit !== false" class="sheet-actions" :style="{ backgroundColor: colors.bgCard, borderTopColor: colors.border }">
           <view class="btn-half" :style="{ borderColor: colors.danger }" @click="onRejectTap">
             <text class="btn-half-text" :style="{ color: colors.danger }">驳回</text>
           </view>
           <view class="btn-half btn-half-solid" :style="{ backgroundColor: colors.success }" @click="onPass">
             <text class="btn-half-text" :style="{ color: colors.white }">通过</text>
           </view>
+        </view>
+        <view v-else-if="detail.audit_status == 'pending'" class="sheet-actions" :style="{ backgroundColor: colors.bgCard, borderTopColor: colors.border }">
+          <text class="no-auth-text" :style="{ color: colors.textSecondary }">当前环节「{{ detail.current_step_name || '审核' }}」· 你不在授权名单内，待授权人处理</text>
         </view>
       </template>
     </AppBottomSheet>
@@ -448,6 +452,12 @@ export default {
   padding: 24rpx;
   border-top-width: 1rpx;
   border-top-style: solid;
+}
+
+.no-auth-text {
+  flex: 1;
+  text-align: center;
+  font-size: 26rpx;
 }
 
 .btn-half {

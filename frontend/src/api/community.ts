@@ -105,3 +105,23 @@ export function getMaintReviewFlow(communityId: string) {
 export function saveMaintReviewFlow(communityId: string, steps: ReviewFlowStep[]) {
   return request<null>({ url: `/communities/${communityId}/maint-review-flow`, method: 'put', data: { steps } })
 }
+
+// 审批链名单预览（GET /communities/:id/flow-preview）：每环节实际审核人+来源+空态原因，配置显性化用
+export interface FlowPreviewStep {
+  index: number
+  name: string
+  kind?: string
+  mode?: string
+  slot?: string
+  voters?: { id: string; name: string }[]
+  voter_source?: string
+  empty_reason?: '' | 'unconfigured' | 'no_member' | 'skipped'
+  voter_note?: string
+}
+export interface FlowPreviewView {
+  source: string
+  steps: FlowPreviewStep[]
+}
+export function getFlowPreview(communityId: string, flowCode: 'checkin_review' | 'maint_review' | 'report_review') {
+  return request<FlowPreviewView>({ url: `/communities/${communityId}/flow-preview`, method: 'get', params: { flow_code: flowCode } })
+}

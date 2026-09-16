@@ -87,6 +87,7 @@ func (s *ReviewService) List(c *gin.Context, q *dto.ReviewListQuery) (*response.
 	}
 	list := make([]gin.H, 0, len(rows))
 	batch := s.loadReviewBatch(rows)
+	batch.identity = middleware.CurrentIdentity(c)
 	for i := range rows {
 		list = append(list, s.reviewItemBatch(&rows[i], batch))
 	}
@@ -123,16 +124,15 @@ func (s *ReviewService) Pass(c *gin.Context, id string) *errs.Error {
 	}
 	flow := communitysvc.FlowOrResolve(s.db, r.FlowSnapshot, r.CommunityID, sysmodel.FlowCheckinReview)
 	stepIdx := int(r.AuditStep)
-	patrolType := s.patrolTypeOf(r.TaskID)
 	// 越界保险丝：流程已变短/空流程兜底单（audit_step 超出现行链长度）→ 汇报线名单处置，通过即整单生效
 	overEnd := stepIdx >= len(flow)
 	stepName := "主管审核"
-	slot := communitysvc.FlowStepSlot(s.db, r.CommunityID, patrolType, sysmodel.SlotPatrolReportLine)
+	slot := sysmodel.SlotPatrolReportLine
 	if !overEnd {
 		step := flow[stepIdx]
 		stepName = step.Name
 		if step.Kind != sysmodel.FlowStepKindAI {
-			slot = communitysvc.FlowStepSlot(s.db, r.CommunityID, patrolType, step.Slot)
+			slot = step.Slot
 		}
 		// AI 环节停放记录（闸门无下游/兜底）：slot 保持汇报线兜底
 	}
@@ -141,9 +141,11 @@ func (s *ReviewService) Pass(c *gin.Context, id string) *errs.Error {
 	}
 	now := time.Now()
 	by := middleware.CurrentUserID(c)
-	if overEnd || stepIdx+1 >= len(flow) { // 末环节/越界兜底 → 审核通过
+	// 空名单自动跳过走链：从下一环节起找可落定的环节（人工环节名单为空自动跳过）
+	walk := communitysvc.WalkFlowWithVoters(s.db, r.CommunityID, flow, stepIdx+1, "", false)
+	if overEnd || walk.Finish { // 末环节/越界兜底/后续无非空名单人工环节 → 审核通过
 		updates := map[string]any{
-			"audit_status": model.AuditPass, "audit_step": stepIdx + 1,
+			"audit_status": model.AuditPass, "audit_step": walk.Step,
 			"audit_by": by, "audit_at": now, "audit_remark": "",
 		}
 		res := s.db.Model(&model.CheckinRecord{}).Where("id = ? AND audit_status = ? AND audit_step = ?", r.ID, model.AuditPending, stepIdx).Updates(updates)
@@ -153,10 +155,11 @@ func (s *ReviewService) Pass(c *gin.Context, id string) *errs.Error {
 		if res.RowsAffected != 1 {
 			return errs.ErrConflict.WithMsg("审核状态已被其他人更新")
 		}
+		communitysvc.NotifySkippedFlowSteps(s.db, s.notifier, r.TenantID, "打卡审核", walk.Skipped, &r.ID)
 		return nil
 	}
-	// 非末环节 → 进度 +1，保持 pending，定向通知下一环节名单
-	updates := map[string]any{"audit_step": stepIdx + 1, "audit_by": by, "audit_at": now}
+	// 推进到下一有效环节，保持 pending，定向通知环节名单
+	updates := map[string]any{"audit_step": walk.Step, "audit_by": by, "audit_at": now}
 	res := s.db.Model(&model.CheckinRecord{}).Where("id = ? AND audit_status = ? AND audit_step = ?", r.ID, model.AuditPending, stepIdx).Updates(updates)
 	if res.Error != nil {
 		return errs.ErrInternal
@@ -164,17 +167,17 @@ func (s *ReviewService) Pass(c *gin.Context, id string) *errs.Error {
 	if res.RowsAffected != 1 {
 		return errs.ErrConflict.WithMsg("审核状态已被其他人更新")
 	}
-	next := flow[stepIdx+1]
-	if next.Kind == sysmodel.FlowStepKindAI {
+	communitysvc.NotifySkippedFlowSteps(s.db, s.notifier, r.TenantID, "打卡审核", walk.Skipped, &r.ID)
+	if walk.NeedGate || (walk.Step < len(flow) && flow[walk.Step].Kind == sysmodel.FlowStepKindAI) {
 		// 下一环节是 AI 闸门：触发异步判定路由（无结论现判；AI 不可用按存疑转下游/兜底）
 		if s.checkinAIGate != nil {
 			go s.checkinAIGate(r.ID)
 		}
 		return nil
 	}
-	nextSlot := communitysvc.FlowStepSlot(s.db, r.CommunityID, patrolType, next.Slot)
+	next := flow[walk.Step]
 	ptName := pointName(s.db, r.PointID)
-	for _, uid := range communitysvc.SlotUserIDs(s.db, r.CommunityID, nextSlot) {
+	for _, uid := range communitysvc.SlotUserIDs(s.db, r.CommunityID, next.Slot) {
 		_ = s.notifier.Send(uid, "checkin_audit",
 			"打卡记录待"+next.Name,
 			fmt.Sprintf("点位「%s」的打卡记录已通过「%s」，待您执行「%s」。", ptName, stepName, next.Name),
@@ -184,22 +187,13 @@ func (s *ReviewService) Pass(c *gin.Context, id string) *errs.Error {
 }
 
 // requireReportLine 巡查汇报线名单校验（抽查/催办归口汇报线成员；超管/租户管理员默认放行）。
-// 按打卡所属任务的巡查类型路由到对应业务线汇报线槽位（维度槽位 → 通用槽位回落，见扩展方案 §2）。
+// 汇报线只有通用槽位（维度槽位机制已拆除，三岗位极简模型）。
 func (s *ReviewService) requireReportLine(c *gin.Context, r *model.CheckinRecord) *errs.Error {
-	slot := communitysvc.ResolveReportLineSlot(s.db, r.CommunityID, s.patrolTypeOf(r.TaskID))
+	slot := sysmodel.SlotPatrolReportLine
 	if !communitysvc.SlotAuthorized(s.db, r.CommunityID, slot, middleware.CurrentIdentity(c)) {
 		return errs.ErrNotInSlot.WithMsg("当前用户不在本项目该巡查业务线的审核名单内")
 	}
 	return nil
-}
-
-// patrolTypeOf 任务巡查类型（记录必属任务；取不到按空串 → 通用汇报线槽位）。
-func (s *ReviewService) patrolTypeOf(taskID string) string {
-	var t model.InspectionTask
-	if err := s.db.Select("patrol_type").First(&t, "id = ?", taskID).Error; err != nil {
-		return ""
-	}
-	return t.PatrolType
 }
 
 // requireReportLineForRecords 抽查场景：记录涉及的「小区 × 巡查类型」组合均须通过汇报线校验。
@@ -215,7 +209,7 @@ func (s *ReviewService) requireReportLineForRecords(c *gin.Context, ids []string
 		Where("checkin_record.id IN ?", ids).
 		Distinct().Scan(&pairs)
 	for _, p := range pairs {
-		slot := communitysvc.ResolveReportLineSlot(s.db, p.CommunityID, p.PatrolType)
+		slot := sysmodel.SlotPatrolReportLine
 		if !communitysvc.SlotAuthorized(s.db, p.CommunityID, slot, middleware.CurrentIdentity(c)) {
 			return errs.ErrNotInSlot.WithMsg("当前用户不在本项目该巡查业务线的审核名单内")
 		}
@@ -232,49 +226,60 @@ func (s *ReviewService) BatchPass(c *gin.Context, ids []string) (gin.H, *errs.Er
 	if err := db.Find(&recs).Error; err != nil {
 		return nil, errs.ErrInternal
 	}
-	// 先全量校验授权（任一记录当前环节未授权则整批拒绝，避免半批推进）
-	flows := map[string]types.FlowStepArray{} // community_id → 审批链
-	for i := range recs {
-		flow, ok := flows[recs[i].CommunityID]
-		if !ok {
-			flow = communitysvc.ResolveFlow(s.db, recs[i].CommunityID, sysmodel.FlowCheckinReview)
-			flows[recs[i].CommunityID] = flow
-		}
-		stepIdx := int(recs[i].AuditStep)
-		if stepIdx >= len(flow) {
-			continue
-		}
-		slot := communitysvc.FlowStepSlot(s.db, recs[i].CommunityID, s.patrolTypeOf(recs[i].TaskID), flow[stepIdx].Slot)
-		if !communitysvc.SlotAuthorized(s.db, recs[i].CommunityID, slot, middleware.CurrentIdentity(c)) {
-			return nil, errs.ErrNotInSlot.WithMsg("当前用户不在「" + flow[stepIdx].Name + "」环节授权名单内")
-		}
-	}
+	// 逐条判定：可审的推进、不可审的跳过并报告原因（不再整批拒绝）
 	now := time.Now()
 	by := middleware.CurrentUserID(c)
+	identity := middleware.CurrentIdentity(c)
+	flows := map[string]types.FlowStepArray{} // community_id → 审批链
 	passed, advanced := 0, 0
+	skippedDetail := []gin.H{}
 	for i := range recs {
-		flow := flows[recs[i].CommunityID]
-		stepIdx := int(recs[i].AuditStep)
+		r := &recs[i]
+		flow, ok := flows[r.CommunityID]
+		if !ok {
+			flow = communitysvc.ResolveFlow(s.db, r.CommunityID, sysmodel.FlowCheckinReview)
+			flows[r.CommunityID] = flow
+		}
+		stepIdx := int(r.AuditStep)
 		if stepIdx >= len(flow) {
+			skippedDetail = append(skippedDetail, gin.H{"id": r.ID, "reason": "环节越界"})
 			continue
 		}
-		updates := map[string]any{"audit_step": stepIdx + 1, "audit_by": by, "audit_at": now}
-		if stepIdx+1 >= len(flow) {
+		step := flow[stepIdx]
+		slot := step.Slot
+		if step.Kind == sysmodel.FlowStepKindAI {
+			slot = sysmodel.SlotPatrolReportLine // AI 环节停放记录：汇报线兜底（与 Pass 同口径）
+		}
+		if !communitysvc.SlotAuthorized(s.db, r.CommunityID, slot, identity) {
+			skippedDetail = append(skippedDetail, gin.H{"id": r.ID, "reason": "不在「" + step.Name + "」环节授权名单内"})
+			continue
+		}
+		// 空名单自动跳过走链：推进到下一有效环节；链尾无非空名单人工环节则整单通过
+		walk := communitysvc.WalkFlowWithVoters(s.db, r.CommunityID, flow, stepIdx+1, "", false)
+		updates := map[string]any{"audit_step": walk.Step, "audit_by": by, "audit_at": now}
+		if walk.Finish {
 			updates["audit_status"] = model.AuditPass
 			updates["audit_remark"] = ""
-			passed++
-		} else {
-			advanced++
 		}
 		// 并发下不覆盖人工已处理的记录
 		res := s.db.Model(&model.CheckinRecord{}).
-			Where("id = ? AND audit_status = ? AND audit_step = ?", recs[i].ID, model.AuditPending, stepIdx).
+			Where("id = ? AND audit_status = ? AND audit_step = ?", r.ID, model.AuditPending, stepIdx).
 			Updates(updates)
 		if res.Error != nil {
 			return nil, errs.ErrInternal
 		}
+		if res.RowsAffected != 1 {
+			skippedDetail = append(skippedDetail, gin.H{"id": r.ID, "reason": "已被其他人处理"})
+			continue
+		}
+		if walk.Finish {
+			passed++
+		} else {
+			advanced++
+		}
+		communitysvc.NotifySkippedFlowSteps(s.db, s.notifier, r.TenantID, "打卡审核", walk.Skipped, &r.ID)
 	}
-	return gin.H{"passed": passed, "advanced": advanced, "skipped": len(ids) - passed - advanced}, nil
+	return gin.H{"passed": passed, "advanced": advanced, "skipped": len(ids) - passed - advanced, "skipped_detail": skippedDetail}, nil
 }
 
 // Reopen 撤销审核（pass/rejected → pending 且审批进度回 0，重新走完整链）：审核误操作的后悔药。
@@ -318,12 +323,12 @@ func (s *ReviewService) Reject(c *gin.Context, id, reason string) *errs.Error {
 	stepIdx := int(r.AuditStep)
 	// 越界保险丝（同 Pass）：流程变短/空流程兜底单 → 汇报线名单可打回
 	stepName := "主管审核"
-	slot := communitysvc.FlowStepSlot(s.db, r.CommunityID, s.patrolTypeOf(r.TaskID), sysmodel.SlotPatrolReportLine)
+	slot := sysmodel.SlotPatrolReportLine
 	if stepIdx < len(flow) {
 		step := flow[stepIdx]
 		stepName = step.Name
 		if step.Kind != sysmodel.FlowStepKindAI {
-			slot = communitysvc.FlowStepSlot(s.db, r.CommunityID, s.patrolTypeOf(r.TaskID), step.Slot)
+			slot = step.Slot
 		}
 	}
 	if !communitysvc.SlotAuthorized(s.db, r.CommunityID, slot, middleware.CurrentIdentity(c)) {

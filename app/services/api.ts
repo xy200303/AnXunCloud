@@ -1639,6 +1639,10 @@ export type ReviewRecord = {
   }>
   /** pending/passed/rejected */
   audit_status: string
+  /** 待审核时：当前环节名（如 主管审核） */
+  current_step_name?: string
+  /** 待审核时：当前用户是否在该环节授权名单内（false=只能查看，操作会被后端 40304 拦） */
+  can_audit?: boolean
   audit_by: string | null
   audit_at: string | null
   audit_remark: string

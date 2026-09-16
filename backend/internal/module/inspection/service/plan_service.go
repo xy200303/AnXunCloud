@@ -834,7 +834,7 @@ func (s *PlanService) FlipOverdue() (int64, error) {
 	for key, n := range lineStats {
 		parts := strings.SplitN(key, "|", 2)
 		cid, patrolType := parts[0], parts[1]
-		slot := communitysvc.ResolveReportLineSlot(s.db, cid, patrolType)
+		slot := sysmodel.SlotPatrolReportLine
 		for _, uid := range communitysvc.SlotUserIDs(s.db, cid, slot) {
 			_ = s.notifier.Send(uid, "task",
 				"巡查任务逾期提醒",

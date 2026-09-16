@@ -242,7 +242,8 @@ func (s *MaintenanceService) routeMaintenance(e *model.Equipment, m *model.Equip
 		m.FlowSnapshot = flow
 		s.db.Model(m).Update("flow_snapshot", flow)
 	}
-	walk := communitysvc.WalkFlow(flow, startIdx, outcome, false)
+	walk := communitysvc.WalkFlowWithVoters(s.db, e.CommunityID, flow, startIdx, outcome, false)
+	communitysvc.NotifySkippedFlowSteps(s.db, s.notifier, e.TenantID, "维保审核", walk.Skipped, &m.ID)
 	switch {
 	case walk.Finish:
 		if be := s.confirmAuto(m, len(flow) == 0); be != nil {
@@ -404,10 +405,11 @@ type ConfirmResult struct {
 	Advanced  int      `json:"advanced"` // 多环节链：通过当前环节、推进下一环节（仍 pending）
 	Skipped   int      `json:"skipped"`  // 非 pending（已确认/已驳回）幂等跳过
 	NotFound  []string `json:"not_found"`
+	Forbidden []string `json:"forbidden"` // 当前环节名单外（名单制授权，与打卡/报告链同口径）
 }
 
 // Confirm 批量确认（按维保审核链 maint_review 推进）：
-// 当前环节是人工环节 → RouteHumanPass：末环节 confirmed + 回写台账；非末环节 confirm_step 推进并通知下一环节名单；
+// 当前环节是人工环节 → 名单制授权后走空名单自动跳过走链：末环节/链尾无非空名单环节 confirmed + 回写台账；否则 confirm_step 推进并通知下一环节名单；
 // 停在 AI 环节的（兜底人工）直接 confirmed。跨租户记录整条拒绝（不暴露存在性）；已 confirmed 跳过（幂等）。
 // 台账回写：last_maintenance_date、ledger_fix 时同时回写 manufacture_date、按类型规则重算 next_due_date 与 scrap_date。
 func (s *MaintenanceService) Confirm(c *gin.Context, req *dto.ConfirmReq) (*ConfirmResult, *errs.Error) {
@@ -415,13 +417,14 @@ func (s *MaintenanceService) Confirm(c *gin.Context, req *dto.ConfirmReq) (*Conf
 	if identity == nil {
 		return nil, errs.ErrUnauthorized
 	}
-	result := &ConfirmResult{NotFound: []string{}}
+	result := &ConfirmResult{NotFound: []string{}, Forbidden: []string{}}
 	rules, _ := NewEquipmentService(s.db).typeRules()
 	flowCache := map[string]types.FlowStepArray{} // community_id → 审核链（事务内缓存）
 	var advances []struct {
-		m    *model.EquipmentMaintenance
-		flow types.FlowStepArray
-		next int
+		m       *model.EquipmentMaintenance
+		flow    types.FlowStepArray
+		next    int
+		skipped []string
 	}
 	err := s.db.Transaction(func(tx *gorm.DB) error {
 		for _, id := range req.IDs {
@@ -454,21 +457,28 @@ func (s *MaintenanceService) Confirm(c *gin.Context, req *dto.ConfirmReq) (*Conf
 				}
 			}
 			idx := int(m.ConfirmStep)
-			// 人工环节且非末位：推进下一环节（仍 pending）
+			// 名单制授权：当前人工环节须在槽位名单内（与打卡/报告链同口径）
+			if idx < len(flow) && flow[idx].Kind != sysmodel.FlowStepKindAI &&
+				!communitysvc.SlotAuthorized(s.db, e.CommunityID, flow[idx].Slot, identity) {
+				result.Forbidden = append(result.Forbidden, id)
+				continue
+			}
+			// 人工环节：空名单自动跳过走链推进；链尾无非空名单人工环节则落 confirmed
 			if idx < len(flow) && flow[idx].Kind != sysmodel.FlowStepKindAI {
-				if d := communitysvc.RouteHumanPass(flow, idx); !d.Finish {
+				if w := communitysvc.WalkFlowWithVoters(s.db, e.CommunityID, flow, idx+1, "", false); !w.Finish {
 					if err := tx.Model(&m).Updates(map[string]any{
-						"confirm_step": d.NextIdx, "confirmed_by": identity.UserID, "confirmed_at": time.Now(),
+						"confirm_step": w.Step, "confirmed_by": identity.UserID, "confirmed_at": time.Now(),
 					}).Error; err != nil {
 						return errs.ErrInternal
 					}
 					result.Advanced++
 					mCopy := m
 					advances = append(advances, struct {
-						m    *model.EquipmentMaintenance
-						flow types.FlowStepArray
-						next int
-					}{&mCopy, flow, d.NextIdx})
+						m       *model.EquipmentMaintenance
+						flow    types.FlowStepArray
+						next    int
+						skipped []string
+					}{&mCopy, flow, w.Step, w.Skipped})
 					continue
 				}
 			}
@@ -505,6 +515,7 @@ func (s *MaintenanceService) Confirm(c *gin.Context, req *dto.ConfirmReq) (*Conf
 		var e model.Equipment
 		if s.db.Select("code", "name", "community_id", "tenant_id").First(&e, "id = ?", adv.m.EquipmentID).Error == nil {
 			s.notifyMaintStep(&e, adv.m, adv.flow, adv.next)
+			communitysvc.NotifySkippedFlowSteps(s.db, s.notifier, e.TenantID, "维保审核", adv.skipped, &adv.m.ID)
 		}
 	}
 	return result, nil
@@ -521,7 +532,10 @@ func (s *MaintenanceService) runMaintGate(m *model.EquipmentMaintenance, flow ty
 	if cur.AIVerdict != nil && *cur.AIVerdict == model.AIVerdictPass {
 		outcome = sysmodel.AIGatePass
 	}
-	walk := communitysvc.WalkFlow(flow, idx, outcome, false)
+	var gateEquip model.Equipment
+	s.db.Select("community_id").First(&gateEquip, "id = ?", cur.EquipmentID)
+	walk := communitysvc.WalkFlowWithVoters(s.db, gateEquip.CommunityID, flow, idx, outcome, false)
+	communitysvc.NotifySkippedFlowSteps(s.db, s.notifier, cur.TenantID, "维保审核", walk.Skipped, &cur.ID)
 	switch {
 	case walk.Finish:
 		if be := s.confirmAuto(&cur, false); be != nil {
@@ -610,6 +624,18 @@ func (s *MaintenanceService) Reject(c *gin.Context, req *dto.RejectReq) *errs.Er
 	if m.ConfirmStatus != model.ConfirmPending {
 		return errs.ErrConflict.WithMsg("仅待确认记录可驳回")
 	}
+	// 名单制授权（与 Confirm 同口径）：当前人工环节须在槽位名单内
+	var e model.Equipment
+	if s.db.Select("code", "name", "community_id").First(&e, "id = ?", m.EquipmentID).Error == nil {
+		flow := m.FlowSnapshot
+		if len(flow) == 0 {
+			flow = communitysvc.ResolveFlow(s.db, e.CommunityID, sysmodel.FlowMaintReview)
+		}
+		if idx := int(m.ConfirmStep); idx < len(flow) && flow[idx].Kind != sysmodel.FlowStepKindAI &&
+			!communitysvc.SlotAuthorized(s.db, e.CommunityID, flow[idx].Slot, middleware.CurrentIdentity(c)) {
+			return errs.ErrNotInSlot
+		}
+	}
 	if err := s.db.Model(&m).Updates(map[string]any{
 		"confirm_status": model.ConfirmRejected,
 		"reject_reason":  strings.TrimSpace(req.Reason),
@@ -617,10 +643,7 @@ func (s *MaintenanceService) Reject(c *gin.Context, req *dto.RejectReq) *errs.Er
 		return errs.ErrInternal
 	}
 	// 通知登记人（附设备编号/名称与驳回理由）
-	var e model.Equipment
-	if s.db.Select("code", "name").First(&e, "id = ?", m.EquipmentID).Error == nil {
-		s.notifyMaintRejected(&e, &m, strings.TrimSpace(req.Reason))
-	}
+	s.notifyMaintRejected(&e, &m, strings.TrimSpace(req.Reason))
 	return nil
 }
 
@@ -860,7 +883,8 @@ func (s *MaintenanceService) Update(c *gin.Context, id string, req *dto.Maintena
 	// 审核链路由（与 Register 同引擎）：AI 环节按结论重走路由；人工环节保持 pending 不重复通知（避免骚扰）
 	if aiVerdict == model.AIVerdictPass || aiVerdict == model.AIVerdictReview {
 		flow := communitysvc.ResolveFlow(s.db, e.CommunityID, sysmodel.FlowMaintReview)
-		walk := communitysvc.WalkFlow(flow, int(m.ConfirmStep), gateOutcomeOf(aiVerdict), false)
+		walk := communitysvc.WalkFlowWithVoters(s.db, e.CommunityID, flow, int(m.ConfirmStep), gateOutcomeOf(aiVerdict), false)
+		communitysvc.NotifySkippedFlowSteps(s.db, s.notifier, e.TenantID, "维保审核", walk.Skipped, &m.ID)
 		switch {
 		case walk.Finish:
 			if be := s.confirmAuto(&m, len(flow) == 0); be != nil {

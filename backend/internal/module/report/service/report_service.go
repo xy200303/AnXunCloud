@@ -130,10 +130,15 @@ func (s *ReportService) resolveReportSteps(communityID, patrolType string, inspe
 	flow := s.reportFlow(communityID)
 	steps := make(types.ReportReviewStepArray, 0, len(flow))
 	for _, configured := range flow {
-		slot := communitysvc.FlowStepSlot(s.db, communityID, patrolType, configured.Slot)
+		slot := configured.Slot
 		defaults := types.IDArray{}
 		if slot == sysmodel.SlotReportInspector {
 			defaults = inspectorIDs
+			if len(defaults) == 0 {
+				// 当月无任务巡检员（如补生成历史月报告）时回落编制内巡检员岗位成员
+				// （巡查执行槽位名单），避免「巡检员确认」环节被误跳过
+				defaults = communitysvc.SlotUserIDs(s.db, communityID, sysmodel.SlotPatrolExecute)
+			}
 		} else {
 			defaults = communitysvc.SlotUserIDs(s.db, communityID, slot)
 		}
@@ -856,10 +861,14 @@ func (s *ReportService) SignCandidates(c *gin.Context, communityID, patrolType, 
 	}
 	steps := make([]gin.H, 0, len(flow))
 	for i, configured := range flow {
-		slot := communitysvc.FlowStepSlot(s.db, communityID, patrolType, configured.Slot)
+		slot := configured.Slot
 		ids := types.IDArray{}
 		if slot == sysmodel.SlotReportInspector {
 			ids = inspIDs
+			if len(ids) == 0 {
+				// 与生成固化同口径：当月无任务巡检员回落编制内巡检员岗位成员
+				ids = communitysvc.SlotUserIDs(s.db, communityID, sysmodel.SlotPatrolExecute)
+			}
 		} else {
 			ids = communitysvc.SlotUserIDs(s.db, communityID, slot)
 		}

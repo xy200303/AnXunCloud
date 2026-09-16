@@ -253,22 +253,12 @@ func ValidPostLine(line string) bool {
 	return ok
 }
 
-// 职责槽位代码（duty_binding.slot，系统固定枚举，见设计方案 §3.2；绑定岗位可配，代码只认槽位）
+// 职责槽位代码（duty_binding.slot，系统固定枚举；绑定岗位可配，代码只认槽位）
 const (
 	SlotReportInspector  = "report_inspector"   // 报告巡检员确认（可选流程节点）
 	SlotPatrolExecute    = "patrol_execute"     // 巡查任务执行
-	SlotPatrolReportLine = "patrol_report_line" // 巡查汇报关系（通用兜底）
-
-	// 巡查汇报关系·业务线维度槽位（《汇报线与审批链扩展设计方案》§2：<family>.<dimension> 命名，
-	// 解析时先查维度槽位、未配置回落通用槽位 SlotPatrolReportLine，每级内部仍按 项目→租户→平台 回落。
-	// 《专项巡检与专项检查报告设计方案》§3.1 起维度槽位按 patrol_type 字典约定衍生（patrol_report_line.<value>），
-	// 下列 4 个常量仅为存量静态目录；新类型无需再加常量）
-	SlotPatrolReportLineSafety      = "patrol_report_line.safety"      // 安全巡查汇报线
-	SlotPatrolReportLineEquipment   = "patrol_report_line.equipment"   // 设备专项巡查汇报线
-	SlotPatrolReportLineEnvironment = "patrol_report_line.environment" // 环境巡查汇报线
-	SlotPatrolReportLineBuilding    = "patrol_report_line.building"    // 楼栋巡查汇报线
-
-	SlotProjectReview = "project_review" // 项目经理复核（审批链第二环节用，扩展方案 §3.2）
+	SlotPatrolReportLine = "patrol_report_line" // 巡查打卡审核（汇报线，唯一槽位，不再按业务线分叉）
+	SlotProjectReview    = "project_review"     // 项目经理复核（审批链第二环节用）
 )
 
 // 审批流程 code（approval_flow.flow_code，系统固定枚举；步骤内容可配，代码只认流程 code）
@@ -306,15 +296,11 @@ type DutySlot struct {
 }
 
 // DutySlots 全部职责槽位（顺序即前端展示顺序；项目级覆盖页与租户/平台默认绑定页共用）。
-// 巡查汇报关系组：通用槽位居上作兜底，维度槽位随后（未配置维度槽位时回落通用绑定）。
+// 甲方口径三岗位极简模型：汇报线只有通用槽位，不再按业务线分叉。
 var DutySlots = []DutySlot{
 	{SlotReportInspector, "报告巡检员确认"},
 	{SlotPatrolExecute, "巡查任务执行"},
-	{SlotPatrolReportLine, "巡查打卡审核（默认）"},
-	{SlotPatrolReportLineSafety, "巡查打卡审核 · 安全巡查"},
-	{SlotPatrolReportLineEquipment, "巡查打卡审核 · 设备专项"},
-	{SlotPatrolReportLineEnvironment, "巡查打卡审核 · 环境巡查"},
-	{SlotPatrolReportLineBuilding, "巡查打卡审核 · 楼栋巡查"},
+	{SlotPatrolReportLine, "巡查打卡审核"},
 	{SlotProjectReview, "项目经理复核"},
 }
 

@@ -272,7 +272,7 @@ func (s *PostService) ListDutyBindings(tenantID *string) ([]gin.H, *errs.Error) 
 		}
 	}
 	items := make([]gin.H, 0, len(model.DutySlots))
-	for _, ds := range communitysvc.AllDutySlots(s.db) {
+	for _, ds := range model.DutySlots {
 		codes, source := types.StringArray{}, "platform"
 		if oc, ok := own[ds.Slot]; ok {
 			codes = oc
@@ -307,7 +307,7 @@ func (s *PostService) SaveDutyBindings(tenantID *string, req *dto.PostDutyBindin
 		return be
 	}
 	known := make(map[string]bool, len(model.DutySlots))
-	for _, ds := range communitysvc.AllDutySlots(s.db) {
+	for _, ds := range model.DutySlots {
 		known[ds.Slot] = true
 	}
 	seen := map[string]bool{}

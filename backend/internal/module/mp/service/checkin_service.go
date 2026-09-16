@@ -342,7 +342,8 @@ func (s *CheckinService) doCheckinLocked(ctx context.Context, inspectorID string
 	case req.Force:
 		routeReason = "强制提交"
 	}
-	walk := communitysvc.WalkFlow(flow, 0, outcome, forcedHuman)
+	walk := communitysvc.WalkFlowWithVoters(s.db, task.CommunityID, flow, 0, outcome, forcedHuman)
+	communitysvc.NotifySkippedFlowSteps(s.db, s.notifier, task.TenantID, "打卡审核", walk.Skipped, nil)
 	rec.AuditStep = int16(walk.Step)
 	switch {
 	case walk.Finish:

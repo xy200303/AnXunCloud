@@ -180,9 +180,8 @@ import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Search, Refresh, RefreshRight, Upload } from '@element-plus/icons-vue'
 import { listSignAssets, createSignAsset, revokeSignAsset, type SignAssetItem, type SignAssetType, type SignAssetStatus } from '@/api/sign-asset'
-import { listUsers } from '@/api/user'
 import { uploadImage, withFileToken } from '@/api/upload'
-import type { UserItem } from '@/api/types'
+import { useInspectors } from '@/composables/useInspectors'
 import type { UploadFile } from 'element-plus'
 
 
@@ -190,7 +189,7 @@ const activeTab = ref<SignAssetType>('company_seal')
 const loading = ref(false)
 const list = ref<SignAssetItem[]>([])
 const total = ref(0)
-const users = ref<UserItem[]>([])
+const { inspectors: users } = useInspectors()
 
 const query = reactive({
   page: 1,
@@ -262,18 +261,7 @@ function handleReset() {
 
 onMounted(async () => {
   fetchList()
-  fetchUsers()
 })
-
-// 用户候选（签名属主筛选，随租户上下文刷新）
-async function fetchUsers() {
-  try {
-    const data = await listUsers({ page: 1, page_size: 100, status: 1 })
-    users.value = data.list
-  } catch {
-    users.value = []
-  }
-}
 
 // ===== 废止（reason 必填） =====
 async function handleRevoke(row: SignAssetItem) {

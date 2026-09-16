@@ -265,67 +265,7 @@
     </el-dialog>
 
     <!-- 维保登记对话框 -->
-    <el-dialog v-model="registerVisible" title="维保登记" width="560px" :close-on-click-modal="false">
-      <el-alert
-        v-if="registerTarget"
-        :title="`${registerTarget.name}（${registerTarget.code}）`"
-        :closable="false"
-        class="register-target"
-      />
-      <el-form ref="registerFormRef" :model="registerForm" :rules="registerRules" label-width="96px">
-        <el-form-item label="维保类型" prop="maintenance_type">
-          <el-select v-model="registerForm.maintenance_type" style="width: 100%">
-            <el-option v-for="d in maintTypeOptions" :key="d.value" :label="d.label" :value="d.value" />
-          </el-select>
-        </el-form-item>
-        <el-form-item label="标签缺失">
-          <el-switch v-model="registerForm.label_missing" active-text="钢印磨损/铭牌缺失" />
-          <div class="text-secondary">勾选后日期免填；照片仍必传（拍设备本体作证）；经理确认后该设备退出自动到期判定</div>
-        </el-form-item>
-        <!-- 台账补录：允许随单提交出厂/最近维保日期，经理确认后一并回写台账 -->
-        <template v-if="registerForm.maintenance_type === 'ledger_fix' && !registerForm.label_missing">
-          <el-form-item label="出厂日期">
-            <el-date-picker v-model="registerForm.manufacture_date" type="date" value-format="YYYY-MM-DD" placeholder="瓶体钢印日期" style="width: 100%" />
-          </el-form-item>
-          <el-form-item label="最近维保日">
-            <el-date-picker v-model="registerForm.last_maintenance_date" type="date" value-format="YYYY-MM-DD" placeholder="维修贴纸日期" style="width: 100%" />
-          </el-form-item>
-        </template>
-        <el-form-item label="维保日期" prop="maintenance_date">
-          <el-date-picker v-model="registerForm.maintenance_date" type="date" value-format="YYYY-MM-DD" style="width: 100%" />
-        </el-form-item>
-        <el-form-item label="维保单位">
-          <el-input v-model="registerForm.vendor" placeholder="选填" maxlength="128" />
-        </el-form-item>
-        <el-form-item label="经办人">
-          <el-input v-model="registerForm.operator_name" placeholder="默认当前用户" maxlength="64" />
-        </el-form-item>
-        <el-form-item label="备注">
-          <el-input v-model="registerForm.note" placeholder="选填" maxlength="255" />
-        </el-form-item>
-        <el-form-item label="标签照片" prop="photos">
-          <div class="photo-upload">
-            <div v-for="(p, i) in registerForm.photos" :key="p.file_id" class="photo-item">
-              <el-image :src="p.url" fit="cover" class="photo-thumb" :preview-src-list="registerForm.photos.map((x) => x.url)" :initial-index="i" preview-teleported />
-              <el-button link type="danger" :icon="Delete" @click="registerForm.photos.splice(i, 1)" />
-            </div>
-            <el-upload
-              v-if="registerForm.photos.length < 9"
-              :show-file-list="false"
-              accept="image/*"
-              :http-request="handlePhotoUpload"
-            >
-              <el-button :icon="Plus" :loading="photoUploading">上传照片</el-button>
-            </el-upload>
-          </div>
-          <div class="text-secondary">必传至少 1 张新维修标签照片；提交后进经理确认，确认后台账才更新</div>
-        </el-form-item>
-      </el-form>
-      <template #footer>
-        <el-button @click="registerVisible = false">取消</el-button>
-        <el-button type="primary" :loading="registering" @click="handleRegister">提交登记</el-button>
-      </template>
-    </el-dialog>
+    <MaintenanceFormDialog v-model:visible="registerVisible" :equipment="registerTarget" @saved="fetchPendingTotal" />
 
     <!-- 设备详情抽屉：基础字段 + extra 档案信息（空值不显示） -->
     <el-drawer v-model="detailVisible" :title="detailRow ? `设备详情：${detailRow.name}（${detailRow.code}）` : '设备详情'" size="480px">
@@ -407,91 +347,7 @@
     </el-drawer>
 
     <!-- 批量导入：三步向导（列头直接兼容甲方台账结构） -->
-    <el-dialog v-model="importVisible" title="批量导入设备台账" width="640px" :close-on-click-modal="false" @closed="resetImport">
-      <el-steps :active="importStep" align-center finish-status="success" class="import-steps">
-        <el-step title="模板说明" />
-        <el-step title="上传文件" />
-        <el-step title="导入结果" />
-      </el-steps>
-
-      <div v-show="importStep === 0" class="import-pane">
-        <el-button :icon="Download" @click="handleDownloadTemplate">下载导入模板 equipment_import_template.xlsx</el-button>
-        <el-alert
-          title="模板列头与甲方现有台账（雄楚春天设施设备台帐）一致，原表可直接导入：第 1 行大标题自动跳过，按列头名识别（顺序可调）"
-          type="info"
-          :closable="false"
-          class="import-tip"
-        />
-        <el-table :data="templateFields" border size="small" class="import-fields">
-          <el-table-column prop="field" label="字段" width="110" />
-          <el-table-column prop="required" label="必填" width="70" align="center" />
-          <el-table-column prop="rule" label="填写规则" />
-        </el-table>
-      </div>
-
-      <div v-show="importStep === 1" class="import-pane">
-        <el-form label-width="96px">
-          <el-form-item label="导入到小区" required>
-            <el-select v-model="importCommunityId" placeholder="整个文件导入到该小区" style="width: 100%">
-              <el-option v-for="c in communities" :key="c.id" :label="c.name" :value="c.id" />
-            </el-select>
-          </el-form-item>
-        </el-form>
-        <el-upload
-          ref="uploadRef"
-          drag
-          :auto-upload="false"
-          :limit="1"
-          accept=".xlsx"
-          :on-change="handleFileChange"
-          :on-remove="() => (importFile = null)"
-          :on-exceed="handleFileExceed"
-        >
-          <el-icon :size="40" class="upload-icon"><UploadFilled /></el-icon>
-          <div class="el-upload__text">拖拽文件到此处，或 <em>点击选择文件</em></div>
-          <template #tip>
-            <div class="text-secondary">仅支持 .xlsx，单次最多 2000 行，文件 ≤ 5MB；同编号按更新处理（可重复导入）</div>
-          </template>
-        </el-upload>
-        <div v-if="importError" class="import-error">{{ importError }}</div>
-      </div>
-
-      <div v-show="importStep === 2" class="import-pane">
-        <el-alert
-          v-if="importResult"
-          :title="`导入完成：新增 ${importResult.created_count} 条，更新 ${importResult.updated_count} 条，失败 ${importResult.fail_count} 条，自动绑定点位 ${importResult.auto_bound} 条`"
-          :type="importResult.fail_count > 0 ? 'warning' : 'success'"
-          :closable="false"
-          show-icon
-        />
-        <template v-if="importResult && importResult.fail_details.length">
-          <div class="fail-header">
-            <span class="card-title">失败明细</span>
-          </div>
-          <el-table :data="importResult.fail_details" border size="small" max-height="260">
-            <el-table-column prop="row" label="行号" width="80" align="center" />
-            <el-table-column prop="code" label="设备编号" width="160" show-overflow-tooltip />
-            <el-table-column prop="reason" label="失败原因" />
-          </el-table>
-          <div class="text-secondary fail-tip">修正失败行后可重新上传，同编号设备不会重复创建</div>
-        </template>
-      </div>
-
-      <template #footer>
-        <template v-if="importStep === 0">
-          <el-button type="primary" @click="importStep = 1">下一步</el-button>
-        </template>
-        <template v-else-if="importStep === 1">
-          <el-button @click="importStep = 0">上一步</el-button>
-          <el-button type="primary" :loading="importing" :disabled="!importFile || !importCommunityId" @click="handleImport">
-            开始导入
-          </el-button>
-        </template>
-        <template v-else>
-          <el-button type="primary" @click="importVisible = false">完成</el-button>
-        </template>
-      </template>
-    </el-dialog>
+    <EquipmentImportDialog v-model:visible="importVisible" :initial-community-id="query.community_id" @done="fetchList" />
   </div>
 </template>
 
@@ -500,24 +356,27 @@ import { computed, onMounted, reactive, ref } from 'vue'
 import { useRoute } from 'vue-router'
 import {
   ElMessage, ElMessageBox,
-  type FormInstance, type FormRules, type UploadFile, type UploadInstance, type UploadRawFile, type UploadRequestOptions
+  type FormInstance, type FormRules
 } from 'element-plus'
-import { Search, Refresh, Plus, RefreshRight, Upload, Download, UploadFilled, Delete } from '@element-plus/icons-vue'
+import { Search, Refresh, Plus, RefreshRight, Upload, Download, Delete } from '@element-plus/icons-vue'
 import {
   listEquipment, createEquipment, updateEquipment, deleteEquipment, batchDeleteEquipment,
-  registerMaintenance, listMaintenancePending, listMaintenanceHistory,
-  importEquipment, getTypeSchema,
-  type EquipmentItem, type EquipmentQuery, type EquipmentStatus, type DueState, type BindState,
-  type MaintenanceItem, type MaintenanceType, type ConfirmStatus, type EquipmentImportResult,
+  listMaintenancePending, listMaintenanceHistory,
+  getTypeSchema,
+  type EquipmentItem, type EquipmentStatus, type DueState, type BindState,
+  type MaintenanceItem, type MaintenanceType, type ConfirmStatus,
   type EquipmentTypeSchema
 } from '@/api/equipment'
-import { uploadImage, withFileToken } from '@/api/upload'
+import { withFileToken } from '@/api/upload'
 import { listCommunityTree } from '@/api/community'
 import { listPoints } from '@/api/point'
 import { downloadFile, downloadFilePost } from '@/utils/download'
 import { useDictOptions } from '@/composables/useDictOptions'
 import { useCommunities } from '@/composables/useCommunities'
+import { usePagedList } from '@/composables/usePagedList'
 import ConfirmList from './ConfirmList.vue'
+import MaintenanceFormDialog from './MaintenanceFormDialog.vue'
+import EquipmentImportDialog from './EquipmentImportDialog.vue'
 
 // ===== 主 tab =====
 const route = useRoute()
@@ -537,36 +396,24 @@ const statusOptions: { label: string; value: EquipmentStatus }[] = [
 ]
 
 // ===== 列表 =====
-const loading = ref(false)
-const list = ref<EquipmentItem[]>([])
-const total = ref(0)
-const query = reactive<EquipmentQuery>({ page: 1, page_size: 20, type: '', community_id: '', status: '', due_state: '', bind_state: '', keyword: '' })
-
-async function fetchList() {
-  loading.value = true
-  try {
-    const data = await listEquipment({
-      page: query.page,
-      page_size: query.page_size,
-      type: query.type || undefined,
-      community_id: query.community_id || undefined,
-      status: (query.status || undefined) as EquipmentStatus | undefined,
-      due_state: (query.due_state || undefined) as DueState | undefined,
-      bind_state: (query.bind_state || undefined) as BindState | undefined,
-      keyword: query.keyword || undefined
-    })
-    list.value = data.list
-    total.value = data.total
-  } finally {
-    loading.value = false
-  }
-}
+const { loading, list, total, query, fetchList, handleSearch: searchList } = usePagedList(
+  (q) => listEquipment({
+    page: q.page,
+    page_size: q.page_size,
+    type: q.type || undefined,
+    community_id: q.community_id || undefined,
+    status: (q.status || undefined) as EquipmentStatus | undefined,
+    due_state: (q.due_state || undefined) as DueState | undefined,
+    bind_state: (q.bind_state || undefined) as BindState | undefined,
+    keyword: q.keyword || undefined
+  }),
+  () => ({ page: 1, page_size: 20, type: '', community_id: '', status: '', due_state: '', bind_state: '', keyword: '' })
+)
 
 function handleSearch() {
-  query.page = 1
   selectAllFiltered.value = false // 筛选条件变化后跨页全选失效（目标集已变）
   syncTypeSchema()
-  fetchList()
+  searchList()
 }
 
 // ===== 类型字段方案（页签动态列 + 表单专属字段）：按类型缓存，无方案记 null 走通用默认 =====
@@ -893,87 +740,13 @@ function handleExportSelected() {
   downloadFilePost('/equipment/export', { ids: selectedRows.value.map((r) => r.id) }, '设备台账_选中.xlsx')
 }
 
-// ===== 维保登记 =====
+// ===== 维保登记（表单与提交在 MaintenanceFormDialog 内，父组件只持有打开入口） =====
 const registerVisible = ref(false)
-const registering = ref(false)
-const photoUploading = ref(false)
-const registerFormRef = ref<FormInstance>()
 const registerTarget = ref<EquipmentItem | null>(null)
-
-const registerForm = reactive({
-  maintenance_type: 'repair' as MaintenanceType,
-  label_missing: false,
-  maintenance_date: '',
-  manufacture_date: '',
-  last_maintenance_date: '',
-  vendor: '',
-  operator_name: '',
-  note: '',
-  photos: [] as { file_id: string; url: string }[]
-})
-
-const registerRules: FormRules = {
-  maintenance_type: [{ required: true, message: '请选择维保类型', trigger: 'change' }],
-  maintenance_date: [{ required: true, message: '请选择维保日期', trigger: 'change' }],
-  photos: [
-    {
-      validator: (_r, _v, cb) =>
-        registerForm.photos.length === 0 ? cb(new Error('请至少上传 1 张新维修标签照片')) : cb(),
-      trigger: 'change'
-    }
-  ]
-}
 
 function openRegister(row: EquipmentItem) {
   registerTarget.value = row
-  registerFormRef.value?.clearValidate()
-  Object.assign(registerForm, {
-    maintenance_type: 'repair',
-    label_missing: false,
-    maintenance_date: new Date().toLocaleDateString('sv-SE'), // 本地今天，YYYY-MM-DD
-    manufacture_date: '', last_maintenance_date: '',
-    vendor: '', operator_name: '', note: '', photos: []
-  })
   registerVisible.value = true
-}
-
-async function handlePhotoUpload(opt: UploadRequestOptions) {
-  photoUploading.value = true
-  try {
-    // 管理端维保登记照片上传（scene=equipment，仅图片）；登记接口校验文件归属本人
-    const res = await uploadImage(opt.file, 'equipment')
-    registerForm.photos.push({ file_id: res.file_id, url: withFileToken(res.url) })
-    registerFormRef.value?.validateField('photos')
-  } catch {
-    // 拦截器已提示
-  } finally {
-    photoUploading.value = false
-  }
-}
-
-async function handleRegister() {
-  await registerFormRef.value?.validate()
-  if (!registerTarget.value) return
-  registering.value = true
-  try {
-    await registerMaintenance({
-      equipment_id: registerTarget.value.id,
-      maintenance_type: registerForm.maintenance_type,
-      maintenance_date: registerForm.maintenance_date || undefined,
-      manufacture_date: registerForm.maintenance_type === 'ledger_fix' ? registerForm.manufacture_date || undefined : undefined,
-      last_maintenance_date: registerForm.maintenance_type === 'ledger_fix' ? registerForm.last_maintenance_date || undefined : undefined,
-      vendor: registerForm.vendor || undefined,
-      operator_name: registerForm.operator_name || undefined,
-      note: registerForm.note || undefined,
-      file_ids: registerForm.photos.map((p) => p.file_id),
-      label_missing: registerForm.label_missing || undefined
-    })
-    ElMessage.success('登记已提交，待经理确认后生效')
-    registerVisible.value = false
-    fetchPendingTotal()
-  } finally {
-    registering.value = false
-  }
 }
 
 // ===== 设备详情抽屉（extra 档案信息键值中文对照，空值不显示） =====
@@ -1055,93 +828,11 @@ function handleExport() {
   }, '设备台账.xlsx')
 }
 
-// ===== 批量导入：三步向导 =====
+// ===== 批量导入：三步向导（流程在 EquipmentImportDialog 内，父组件只持有打开入口） =====
 const importVisible = ref(false)
-const importStep = ref(0)
-const importFile = ref<File | null>(null)
-const importError = ref('')
-const importing = ref(false)
-const importResult = ref<EquipmentImportResult | null>(null)
-const importCommunityId = ref('')
-const uploadRef = ref<UploadInstance>()
-
-const templateFields = [
-  { field: '设备编号', required: '*', rule: '租户内唯一；同编号按更新处理（可重复导入）' },
-  { field: '设备名称', required: '—', rule: '留空时以编号兜底' },
-  { field: '设备分类', required: '*', rule: '优先匹配设备类型字典；灭火器设施/消火栓设施/电梯轿厢/电梯机房按别名映射；未识别自动扩充字典（无规则参数，不自动判到期）' },
-  { field: '出厂日期', required: '—', rule: '2018-05-01 / 2018/5/1 / 2018年5月 均可；留空用投运日期兜底' },
-  { field: '投运日期', required: '—', rule: '原值保留在扩展属性，同时作为出厂日期兜底' },
-  { field: '设备等级/品牌/规格型号/维保状态/维保单位/产地', required: '—', rule: '原样保留到扩展属性' },
-  { field: '安装位置/管控区域', required: '—', rule: '拼接进备注；点位绑定待 App 扫码' },
-  { field: '异动状态', required: '—', rule: '启用/停用/报废，默认在用' }
-]
 
 function openImport() {
-  importStep.value = 0
-  importFile.value = null
-  importError.value = ''
-  importResult.value = null
-  importCommunityId.value = query.community_id || ''
   importVisible.value = true
-}
-
-function resetImport() {
-  importFile.value = null
-  importError.value = ''
-  importResult.value = null
-  uploadRef.value?.clearFiles()
-}
-
-function handleDownloadTemplate() {
-  downloadFile('/equipment/import-template', undefined, 'equipment_import_template.xlsx')
-}
-
-// 前置校验：非 .xlsx 或超限直接红字拒绝，不发起请求
-function validateFile(file: File): boolean {
-  if (!file.name.endsWith('.xlsx')) {
-    importError.value = '文件格式错误：仅支持 .xlsx 文件'
-    return false
-  }
-  if (file.size > 5 * 1024 * 1024) {
-    importError.value = '文件大小超限：请控制在 5MB 以内'
-    return false
-  }
-  importError.value = ''
-  return true
-}
-
-function handleFileChange(uploadFile: UploadFile) {
-  const raw = uploadFile.raw
-  if (!raw) return
-  if (!validateFile(raw)) {
-    uploadRef.value?.clearFiles()
-    importFile.value = null
-    return
-  }
-  importFile.value = raw
-}
-
-function handleFileExceed(files: File[]) {
-  uploadRef.value?.clearFiles()
-  const raw = files[0] as UploadRawFile
-  if (validateFile(raw)) {
-    uploadRef.value?.handleStart(raw)
-    importFile.value = raw
-  }
-}
-
-async function handleImport() {
-  if (!importFile.value || !importCommunityId.value) return
-  importing.value = true
-  try {
-    importResult.value = await importEquipment(importCommunityId.value, importFile.value)
-    importStep.value = 2
-    if (importResult.value.created_count > 0 || importResult.value.updated_count > 0) fetchList()
-  } catch {
-    // 拦截器已提示；文件级错误停留在当前步可重新选择
-  } finally {
-    importing.value = false
-  }
 }
 
 onMounted(() => {
@@ -1207,23 +898,6 @@ onMounted(() => {
   color: $color-danger;
 }
 
-.register-target {
-  margin-bottom: $spacing-lg;
-}
-
-.photo-upload {
-  display: flex;
-  flex-wrap: wrap;
-  gap: $spacing-sm;
-  align-items: center;
-}
-
-.photo-item {
-  display: flex;
-  align-items: center;
-  gap: 2px;
-}
-
 .photo-thumb {
   width: 64px;
   height: 64px;
@@ -1262,42 +936,5 @@ onMounted(() => {
     gap: $spacing-sm;
     margin-top: $spacing-xs;
   }
-}
-
-.import-steps {
-  margin-bottom: $spacing-xl;
-}
-
-.import-pane {
-  min-height: 280px;
-}
-
-.import-tip {
-  margin-top: $spacing-md;
-}
-
-.import-fields {
-  margin-top: $spacing-lg;
-}
-
-.upload-icon {
-  color: $color-text-secondary;
-}
-
-.import-error {
-  margin-top: $spacing-sm;
-  color: $color-danger;
-  font-size: $font-size-aux;
-}
-
-.fail-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin: $spacing-lg 0 $spacing-sm;
-}
-
-.fail-tip {
-  margin-top: $spacing-sm;
 }
 </style>

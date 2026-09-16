@@ -433,6 +433,7 @@ import { listPoints } from '@/api/point'
 import { POST_LINES, type ReviewFlowStep } from '@/api/post'
 import { listUsers } from '@/api/user'
 import { useUserStore } from '@/store/user'
+import { usePagedList } from '@/composables/usePagedList'
 import ReviewFlowEditor from '@/components/ReviewFlowEditor.vue'
 import type { CommunityItem, BuildingItem, PointItem, PostDictItem, StaffItem, DutyBindingItem } from '@/api/biz-types'
 import { POST_BUILDING_MANAGER } from '@/api/biz-types'
@@ -523,36 +524,10 @@ function refreshCurrent() {
 }
 
 // ===== 小区列表 =====
-const loading = ref(false)
-const list = ref<CommunityItem[]>([])
-const total = ref(0)
-const query = reactive({ page: 1, page_size: 20, name: '', status: '' as number | '' })
-
-async function fetchList() {
-  loading.value = true
-  try {
-    const data = await listCommunities({
-      ...query,
-      name: query.name || undefined,
-      status: query.status === '' ? undefined : query.status
-    })
-    list.value = data.list
-    total.value = data.total
-  } finally {
-    loading.value = false
-  }
-}
-
-function handleSearch() {
-  query.page = 1
-  fetchList()
-}
-
-function handleReset() {
-  query.name = ''
-  query.status = ''
-  handleSearch()
-}
+const { loading, list, total, query, fetchList, handleSearch, handleReset } = usePagedList(
+  (q) => listCommunities({ ...q, name: q.name || undefined, status: q.status === '' ? undefined : q.status }),
+  () => ({ page: 1, page_size: 20, name: '', status: '' as number | '' })
+)
 
 onMounted(() => {
   fetchTree()

@@ -254,12 +254,10 @@ import { checkinTypeLabel, checkinResultTag, auditStatusTag } from '@/utils/labe
 import { fmtDate } from '@/utils/date'
 import { useCommunities } from '@/composables/useCommunities'
 import { useInspectors } from '@/composables/useInspectors'
+import { usePagedList } from '@/composables/usePagedList'
 import type { CheckinItem, CheckinDetail } from '@/api/biz-types'
 
 const route = useRoute()
-const loading = ref(false)
-const list = ref<CheckinItem[]>([])
-const total = ref(0)
 const { communities } = useCommunities()
 const { inspectors } = useInspectors()
 const onlySuspect = ref(false)
@@ -305,7 +303,14 @@ function defaultRange(): [string, string] {
 }
 
 const timeRange = ref<[string, string] | null>(defaultRange())
-const query = reactive<CheckinQuery>({ page: 1, page_size: 20, community_id: undefined, inspector_id: undefined, result: '', exception_type: '' })
+const { loading, list, total, query, fetchList: fetchPage } = usePagedList(
+  (q) => listCheckins({
+    ...q,
+    ...filterParams(),
+    audit_status: currentAuditStatus()
+  }),
+  () => ({ page: 1, page_size: 20, community_id: undefined as string | undefined, inspector_id: undefined as string | undefined, result: '', exception_type: '' })
+)
 
 // tab 徽章计数（与列表过滤条件联动，不含审核状态本身）
 const counts = reactive<AuditCounts>({ auto_pass: 0, pending: 0, pass: 0, rejected: 0 })
@@ -318,7 +323,7 @@ function currentAuditStatus(): string | undefined {
 }
 
 // 列表与计数共用的过滤参数
-function filterParams() {
+function filterParams(): CheckinQuery {
   return {
     community_id: query.community_id,
     inspector_id: query.inspector_id,
@@ -338,20 +343,11 @@ async function fetchCounts() {
 }
 
 async function fetchList() {
-  loading.value = true
   try {
-    const data = await listCheckins({
-      ...query,
-      ...filterParams(),
-      audit_status: currentAuditStatus()
-    })
-    // 过滤全部走后端（含 force_submit/ai_verdict），分页总数即过滤后总数
-    list.value = data.list
-    total.value = data.total
+    await fetchPage()
   } finally {
-    loading.value = false
+    fetchCounts()
   }
-  fetchCounts()
 }
 
 function handleSearch() {

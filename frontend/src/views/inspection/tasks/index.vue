@@ -103,7 +103,7 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted, reactive, ref } from 'vue'
+import { onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { Search, Refresh, RefreshRight, Warning, CircleClose, Flag, Loading, CircleCheck, Clock } from '@element-plus/icons-vue'
@@ -112,42 +112,29 @@ import type { TaskItem } from '@/api/biz-types'
 import { usePatrolTypes } from '@/composables/usePatrolTypes'
 import { useCommunities } from '@/composables/useCommunities'
 import { useInspectors } from '@/composables/useInspectors'
+import { usePagedList } from '@/composables/usePagedList'
 
 const router = useRouter()
-const loading = ref(false)
-const list = ref<TaskItem[]>([])
-const total = ref(0)
 const { communities } = useCommunities()
 const { inspectors } = useInspectors()
 const activeTab = ref('all')
 const { patrolTypes, patrolTypeLabel } = usePatrolTypes()
 
-const query = reactive<TaskQuery>({ page: 1, page_size: 20, task_date: '', community_id: undefined, inspector_id: undefined, patrol_type: '' })
-
-async function fetchList() {
-  loading.value = true
-  try {
+const { loading, list, total, query, fetchList, handleReset: resetQuery } = usePagedList(
+  (q) => {
     // Tab 与 status/filter 参数映射（接口文档 §2.13.1）
-    const params: TaskQuery = { ...query, task_date: query.task_date || undefined, patrol_type: query.patrol_type || undefined }
+    const params: TaskQuery = { ...q, task_date: q.task_date || undefined, patrol_type: q.patrol_type || undefined }
     if (activeTab.value === 'doing') params.status = 'doing'
     else if (activeTab.value === 'done') params.status = 'done'
     else if (activeTab.value !== 'all') params.filter = activeTab.value as TaskQuery['filter']
-    const data = await listTasks(params)
-    list.value = data.list
-    total.value = data.total
-  } finally {
-    loading.value = false
-  }
-}
+    return listTasks(params)
+  },
+  () => ({ page: 1, page_size: 20, task_date: '', community_id: undefined as string | undefined, inspector_id: undefined as string | undefined, patrol_type: '' })
+)
 
 function handleReset() {
-  query.task_date = ''
-  query.community_id = undefined
-  query.inspector_id = undefined
-  query.patrol_type = ''
   activeTab.value = 'all'
-  query.page = 1
-  fetchList()
+  resetQuery()
 }
 
 onMounted(() => {

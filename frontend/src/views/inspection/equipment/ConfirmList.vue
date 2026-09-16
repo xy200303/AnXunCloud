@@ -115,7 +115,7 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted, reactive, ref } from 'vue'
+import { onMounted, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { CircleCheck, RefreshRight } from '@element-plus/icons-vue'
 import {
@@ -124,15 +124,16 @@ import {
 } from '@/api/equipment'
 import { withFileToken } from '@/api/upload'
 import { useDictOptions } from '@/composables/useDictOptions'
+import { usePagedList } from '@/composables/usePagedList'
 
 const emit = defineEmits<{ changed: [] }>()
 
-const loading = ref(false)
 const confirming = ref(false)
-const list = ref<MaintenanceItem[]>([])
-const total = ref(0)
 const selected = ref<MaintenanceItem[]>([])
-const query = reactive({ page: 1, page_size: 20 })
+const { loading, list, total, query, fetchList } = usePagedList(
+  (q) => listMaintenancePending(q),
+  () => ({ page: 1, page_size: 20 })
+)
 
 const { options: maintTypeOptions } = useDictOptions('equipment_maint_type')
 
@@ -143,17 +144,6 @@ function maintTypeLabel(t: MaintenanceType) {
 // AI 存疑行标红（后端已置顶，这里加强视觉提示）
 function rowClass({ row }: { row: MaintenanceItem }) {
   return row.ai_verdict === 'review' ? 'row-ai-review' : ''
-}
-
-async function fetchList() {
-  loading.value = true
-  try {
-    const d = await listMaintenancePending(query)
-    list.value = d.list
-    total.value = d.total
-  } finally {
-    loading.value = false
-  }
 }
 
 async function handleConfirm(ids: string[]) {

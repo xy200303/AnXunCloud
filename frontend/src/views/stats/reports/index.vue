@@ -372,13 +372,25 @@ import { downloadFile } from '@/utils/download'
 import { checkinTypeLabel, auditStatusTag } from '@/utils/labels'
 import { useUserStore } from '@/store/user'
 import { usePatrolTypes } from '@/composables/usePatrolTypes'
+import { usePagedList } from '@/composables/usePagedList'
 
 const userStore = useUserStore()
 // 巡查类型字典（报告类型筛选/生成下拉，按大类分组）
 const { patrolTypeGroups } = usePatrolTypes()
-const loading = ref(false)
-const list = ref<ReportItem[]>([])
-const total = ref(0)
+// 只看待我签（当前用户在报告当前级签字人名单内）
+const pendingMine = ref(false)
+
+const { loading, list, total, query, fetchList, handleSearch, handleReset } = usePagedList(
+  (q) => listReports({ ...q, pending_mine: pendingMine.value ? '1' : undefined }),
+  () => ({
+    page: 1,
+    page_size: 20,
+    community_id: undefined as string | undefined,
+    period: undefined as string | undefined,
+    patrol_type: undefined as string | undefined,
+    status: undefined as string | undefined
+  })
+)
 const { communities, loading: communitiesLoading } = useCommunities()
 
 const statusOptions: { label: string; value: ReportStatus }[] = [
@@ -393,41 +405,6 @@ function statusTag(s: string): { label: string; type: 'info' | 'warning' | 'succ
       approved: { label: '已通过', type: 'success' }
     }[s] || { label: s || '--', type: 'info' }
   ) as { label: string; type: 'info' | 'warning' | 'success' | 'danger' }
-}
-
-const query = reactive({
-  page: 1,
-  page_size: 20,
-  community_id: undefined as string | undefined,
-  period: undefined as string | undefined,
-  patrol_type: undefined as string | undefined,
-  status: undefined as string | undefined
-})
-// 只看待我签（当前用户在报告当前级签字人名单内）
-const pendingMine = ref(false)
-
-async function fetchList() {
-  loading.value = true
-  try {
-    const data = await listReports({ ...query, pending_mine: pendingMine.value ? '1' : undefined })
-    list.value = data.list
-    total.value = data.total
-  } finally {
-    loading.value = false
-  }
-}
-
-function handleSearch() {
-  query.page = 1
-  fetchList()
-}
-
-function handleReset() {
-  query.community_id = undefined
-  query.period = undefined
-  query.patrol_type = undefined
-  query.status = undefined
-  handleSearch()
 }
 
 onMounted(() => {

@@ -133,15 +133,21 @@ import { onMounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox, type FormInstance, type FormRules } from 'element-plus'
 import { Search, Refresh, Plus, RefreshRight } from '@element-plus/icons-vue'
-import { listTemplates, createTemplate, updateTemplate, deleteTemplate, type TemplateQuery } from '@/api/template'
+import { listTemplates, createTemplate, updateTemplate, deleteTemplate } from '@/api/template'
 import { useDictOptions } from '@/composables/useDictOptions'
+import { usePagedList } from '@/composables/usePagedList'
 import type { TemplateItem } from '@/api/biz-types'
 
 const router = useRouter()
-const loading = ref(false)
-const list = ref<TemplateItem[]>([])
-const total = ref(0)
-const query = reactive<TemplateQuery>({ page: 1, page_size: 20, name: '', point_type: '', status: '' })
+const { loading, list, total, query, fetchList, handleSearch, handleReset } = usePagedList(
+  (q) => listTemplates({
+    ...q,
+    name: q.name || undefined,
+    point_type: q.point_type || undefined,
+    status: q.status === '' ? undefined : q.status
+  }),
+  () => ({ page: 1, page_size: 20, name: '', point_type: '', status: '' as number | '' })
+)
 
 // 点位类型字典（与点位页同一字典，共享缓存）
 const { options: pointTypeOptions } = useDictOptions('point_type')
@@ -153,34 +159,6 @@ function pointTypeLabel(value: string) {
 // 检查项配置页
 function goItems(row: TemplateItem) {
   router.push(`/inspection/templates/${row.id}/items`)
-}
-
-async function fetchList() {
-  loading.value = true
-  try {
-    const data = await listTemplates({
-      ...query,
-      name: query.name || undefined,
-      point_type: query.point_type || undefined,
-      status: query.status === '' ? undefined : query.status
-    })
-    list.value = data.list
-    total.value = data.total
-  } finally {
-    loading.value = false
-  }
-}
-
-function handleSearch() {
-  query.page = 1
-  fetchList()
-}
-
-function handleReset() {
-  query.name = ''
-  query.point_type = ''
-  query.status = ''
-  handleSearch()
 }
 
 onMounted(() => {

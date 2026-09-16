@@ -532,6 +532,7 @@ import { usePatrolTypes } from '@/composables/usePatrolTypes'
 import { useCommunities } from '@/composables/useCommunities'
 import { useInspectors } from '@/composables/useInspectors'
 import { useDictOptions } from '@/composables/useDictOptions'
+import { usePagedList } from '@/composables/usePagedList'
 import type { PlanItem, PlanCycleConfig, PlanSelectionMode, PlanAssignMode, PlanKind, SpotcheckConfig, PointItem, PatrolType } from '@/api/biz-types'
 
 const userStore = useUserStore()
@@ -543,43 +544,17 @@ const { inspectors: inspectorOptions } = useInspectors()
 const { options: pointTypeOptions } = useDictOptions('point_type')
 
 // ===== 列表 =====
-const loading = ref(false)
-const list = ref<PlanItem[]>([])
-const total = ref(0)
-const query = reactive({ page: 1, page_size: 20, community_id: undefined as string | undefined, name: '', cycle_type: '', patrol_type: '', plan_kind: '', status: '' as number | '' })
-
-async function fetchList() {
-  loading.value = true
-  try {
-    const data = await listPlans({
-      ...query,
-      name: query.name || undefined,
-      cycle_type: query.cycle_type || undefined,
-      patrol_type: query.patrol_type || undefined,
-      plan_kind: query.plan_kind || undefined,
-      status: query.status === '' ? undefined : query.status
-    })
-    list.value = data.list
-    total.value = data.total
-  } finally {
-    loading.value = false
-  }
-}
-
-function handleSearch() {
-  query.page = 1
-  fetchList()
-}
-
-function handleReset() {
-  query.community_id = undefined
-  query.name = ''
-  query.cycle_type = ''
-  query.patrol_type = ''
-  query.plan_kind = ''
-  query.status = ''
-  handleSearch()
-}
+const { loading, list, total, query, fetchList, handleSearch, handleReset } = usePagedList(
+  (q) => listPlans({
+    ...q,
+    name: q.name || undefined,
+    cycle_type: q.cycle_type || undefined,
+    patrol_type: q.patrol_type || undefined,
+    plan_kind: q.plan_kind || undefined,
+    status: q.status === '' ? undefined : q.status
+  }),
+  () => ({ page: 1, page_size: 20, community_id: undefined as string | undefined, name: '', cycle_type: '', patrol_type: '', plan_kind: '', status: '' as number | '' })
+)
 
 onMounted(() => {
   fetchList()

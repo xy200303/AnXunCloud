@@ -445,7 +445,7 @@ import {
   type FormInstance, type FormRules, type UploadFile, type UploadInstance, type UploadRawFile
 } from 'element-plus'
 import { Search, Refresh, Plus, RefreshRight, Grid, MapLocation, Delete, Upload, Download, UploadFilled, Files } from '@element-plus/icons-vue'
-import { listPoints, createPoint, updatePoint, deletePoint, generateQrcodes, importPoints, batchCreatePoints, type PointQuery, type PointImportResult, type PointBatchResult } from '@/api/point'
+import { listPoints, createPoint, updatePoint, deletePoint, generateQrcodes, importPoints, batchCreatePoints, type PointImportResult, type PointBatchResult } from '@/api/point'
 import { listEquipment, type EquipmentItem, type DueState } from '@/api/equipment'
 import { withFileToken } from '@/api/upload'
 import { listTemplates } from '@/api/template'
@@ -454,6 +454,7 @@ import { getMapConfig } from '@/api/map'
 import MapPickerDialog from '@/components/MapPickerDialog.vue'
 import { downloadFile } from '@/utils/download'
 import { useDictOptions } from '@/composables/useDictOptions'
+import { usePagedList } from '@/composables/usePagedList'
 import type { PointItem, TemplateItem } from '@/api/biz-types'
 
 // ===== 左树 =====
@@ -491,11 +492,24 @@ function handleNodeClick(node: TreeNode) {
 }
 
 // ===== 列表 =====
-const loading = ref(false)
-const list = ref<PointItem[]>([])
-const total = ref(0)
 const selected = ref<PointItem[]>([])
-const query = reactive<PointQuery>({ page: 1, page_size: 20, name: '', type: '', status: '' })
+const { loading, list, total, query, fetchList, handleSearch, handleReset } = usePagedList(
+  (q) => listPoints({
+    ...q,
+    name: q.name || undefined,
+    type: q.type || undefined,
+    status: q.status === '' ? undefined : q.status
+  }),
+  () => ({
+    page: 1,
+    page_size: 20,
+    name: '',
+    type: '',
+    status: '' as number | '',
+    community_id: undefined as string | undefined,
+    building_id: undefined as string | undefined
+  })
+)
 
 const { options: pointTypeOptions } = useDictOptions('point_type')
 
@@ -504,36 +518,6 @@ const templates = ref<TemplateItem[]>([])
 const filteredTemplates = computed(() =>
   templates.value.filter((t) => !t.point_type || t.point_type === form.type)
 )
-
-async function fetchList() {
-  loading.value = true
-  try {
-    const data = await listPoints({
-      ...query,
-      name: query.name || undefined,
-      type: query.type || undefined,
-      status: query.status === '' ? undefined : query.status
-    })
-    list.value = data.list
-    total.value = data.total
-  } finally {
-    loading.value = false
-  }
-}
-
-function handleSearch() {
-  query.page = 1
-  fetchList()
-}
-
-function handleReset() {
-  query.name = ''
-  query.type = ''
-  query.status = ''
-  query.community_id = undefined
-  query.building_id = undefined
-  handleSearch()
-}
 
 // ===== 地图选点：进入页面拉取地图配置，key 非空才开放选点按钮 =====
 const mapKey = ref('')

@@ -117,13 +117,14 @@ import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox, type FormInstance, type FormRules } from 'element-plus'
 import { Search, Refresh, Plus, RefreshRight } from '@element-plus/icons-vue'
 import { listConfigs, listConfigGroups, createConfig, updateConfig, deleteConfig } from '@/api/config'
+import { usePagedList } from '@/composables/usePagedList'
 import AiConfigPanel from './AiConfigPanel.vue'
 import type { ConfigItem } from '@/api/types'
 
-const loading = ref(false)
-const list = ref<ConfigItem[]>([])
-const total = ref(0)
-const query = reactive({ page: 1, page_size: 20, name: '', key: '', group: '' })
+const { loading, list, total, query, fetchList, handleSearch } = usePagedList(
+  (q) => listConfigs({ ...q, name: q.name || undefined, key: q.key || undefined, group: q.group || undefined }),
+  () => ({ page: 1, page_size: 20, name: '', key: '', group: '' })
+)
 
 // ===== 分组 =====
 const groups = ref<string[]>([])
@@ -159,27 +160,7 @@ function handleTabChange() {
   fetchList()
 }
 
-async function fetchList() {
-  loading.value = true
-  try {
-    const data = await listConfigs({
-      ...query,
-      name: query.name || undefined,
-      key: query.key || undefined,
-      group: query.group || undefined
-    })
-    list.value = data.list
-    total.value = data.total
-  } finally {
-    loading.value = false
-  }
-}
-
-function handleSearch() {
-  query.page = 1
-  fetchList()
-}
-
+// 重置只清筛选词，保留当前分组页签
 function handleReset() {
   query.name = ''
   query.key = ''

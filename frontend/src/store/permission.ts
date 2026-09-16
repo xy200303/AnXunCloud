@@ -6,11 +6,8 @@ import type { RouteMenu } from '@/api/types'
 
 const Layout = () => import('@/layout/index.vue')
 
-// 不进入 keep-alive 缓存的页面（详情/图表大页）：避免多参数实例与大图表常驻内存
-const NO_CACHE_PATHS = new Set([
-  '/inspection/tasks/detail',
-  '/inspection/templates/items',
-  '/platform/dicts/data',
+// 闲时不预热的页面（图表大页会连带拉 echarts 大 chunk，首次访问再加载）
+const NO_PRELOAD_PATHS = new Set([
   '/stats/inspection',
   '/stats/performance',
   '/stats/reports'
@@ -60,7 +57,7 @@ function buildRoutes(menus: RouteMenu[], parentPath = ''): RouteRecordRaw[] {
         path: fullPath,
         component: resolveComponent(fullPath),
         name: fullPath,
-        meta: { title: m.title, icon: m.icon, noCache: NO_CACHE_PATHS.has(fullPath) || undefined }
+        meta: { title: m.title, icon: m.icon }
       } as RouteRecordRaw
     })
     .flat()
@@ -85,19 +82,19 @@ export const usePermissionStore = defineStore('permission', {
           path: '/inspection/tasks/detail/:id',
           component: viewModules['../views/inspection/tasks/detail/index.vue'],
           name: '/inspection/tasks/detail',
-          meta: { title: '任务明细', noCache: true }
+          meta: { title: '任务明细' }
         },
         {
           path: '/inspection/templates/:id/items',
           component: viewModules['../views/inspection/templates/items/index.vue'],
           name: '/inspection/templates/items',
-          meta: { title: '检查项配置', noCache: true }
+          meta: { title: '检查项配置' }
         },
         {
           path: '/platform/dicts/data/:typeCode',
           component: viewModules['../views/platform/dicts/data/index.vue'],
           name: '/platform/dicts/data',
-          meta: { title: '字典数据', noCache: true }
+          meta: { title: '字典数据' }
         }
       ]
       children.push(...hiddenRoutes)
@@ -117,8 +114,8 @@ export const usePermissionStore = defineStore('permission', {
         children
       }
       this.loaded = true
-      // 仅预热菜单页（children 的前段）；隐藏详情页带参数且体积大，不预拉
-      preloadViewChunks(children.filter((r) => r.meta?.noCache !== true))
+      // 仅预热菜单页；图表大页与带参详情页不预拉（前者连带 echarts 大 chunk，后者体积大且需参数）
+      preloadViewChunks(children.filter((r) => !r.path.includes(':') && !NO_PRELOAD_PATHS.has(r.name as string)))
       return [layoutRoute]
     },
     reset() {

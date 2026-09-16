@@ -554,8 +554,8 @@ func registerSPA(r *gin.Engine, distPath string) {
 		fp := filepath.Join(root, clean)
 		if strings.HasPrefix(fp, root+string(os.PathSeparator)) {
 			if st, err := os.Stat(fp); err == nil && !st.IsDir() {
-				// 带内容哈希的构建产物（/assets/*.js|css）可长缓存
-				if strings.HasPrefix(clean, "assets"+string(os.PathSeparator)) || strings.HasPrefix(clean, "assets/") {
+				// 带内容哈希的构建产物（/assets/*.js|css）可长缓存（clean 以 / 开头）
+				if strings.HasPrefix(clean, "/assets/") {
 					c.Header("Cache-Control", "public, max-age=31536000, immutable")
 				}
 				serveFileSmart(c, fp, st)

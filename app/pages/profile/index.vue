@@ -54,6 +54,10 @@
         <text  hover-class="hover-dim" class="row-text" :style="{ color: colors.textRegular }">手写签名</text>
         <text  hover-class="hover-dim" class="row-arrow" :style="{ color: colors.textSecondary }">{{ signatureText }} ></text>
       </view>
+      <view v-if="showAdmin"  hover-class="hover-dim" class="row" @click="goAccounts">
+        <text  hover-class="hover-dim" class="row-text" :style="{ color: colors.textRegular }">切换账号</text>
+        <text  hover-class="hover-dim" class="row-arrow" :style="{ color: colors.textSecondary }">测试工具 ></text>
+      </view>
       <view  hover-class="hover-dim" class="row" @click="goPassword">
         <text  hover-class="hover-dim" class="row-text" :style="{ color: colors.textRegular }">修改密码</text>
         <text  hover-class="hover-dim" class="row-arrow" :style="{ color: colors.textSecondary }">></text>
@@ -260,6 +264,10 @@ export default {
     /** 修改密码页 */
     goPassword() {
       uni.navigateTo({ url: '/pages/profile/password' })
+    },
+    /** 切换账号页（测试工具，管理员入口） */
+    goAccounts() {
+      uni.navigateTo({ url: '/pages/profile/accounts' })
     },
     /** 超管切换「当前公司」：拉租户列表 → 底部面板选择 → 写租户上下文（后续请求按所选租户隔离） */
     switchTenant() {

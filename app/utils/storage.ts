@@ -7,6 +7,9 @@ export const KEY_ACCESS_TOKEN = 'access_token'
 export const KEY_REFRESH_TOKEN = 'refresh_token'
 export const KEY_USER_INFO = 'user_info'
 
+/** 切换账号（测试工具）保存的账号凭据列表；设备级数据，登出不清理 */
+export const KEY_SWITCH_ACCOUNTS = 'switch_accounts'
+
 /** 会话性数据 storage key 注册表（登出/强制登出随登录态一并清理，防共用设备串户） */
 export const KEY_OFFLINE_QUEUE = 'offline_checkins'
 export const KEY_CHECKIN_DRAFT_PREFIX = 'checkin_draft:'

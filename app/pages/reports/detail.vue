@@ -93,17 +93,21 @@
       @update:visible="rejectDlgShow = $event"
       @confirm="onRejectConfirm"
     />
+
+    <!-- 手写签名板（未配置签名时签字现场手写；勾选「保存」则写入签章资产下次直接用） -->
+    <SignaturePad ref="pad" :show-save-option="true" @save="onPadSave" />
   </view>
 </template>
 
 <script lang="ts">
-import { apiReportDetail, apiSignStep, openReportPdf, type ReportDetail, type ReportSignReq } from '@/services/api'
+import { apiReportDetail, apiSignStep, apiUploadLocal, apiUpdateProfile, openReportPdf, type ReportDetail, type ReportSignReq } from '@/services/api'
 import { useAuthStore } from '@/stores/auth'
 import { Colors } from '@/utils/theme'
 import AppDialog from '@/components/AppDialog.vue'
+import SignaturePad from '@/components/SignaturePad.vue'
 
 export default {
-  components: { AppDialog },
+  components: { AppDialog, SignaturePad },
   data() { return { colors: Colors, d: null as ReportDetail | null, busy: false, reportId: '', errorMsg: '', rejectDlgShow: false, rejectReason: '' } },
   computed: {
     currentStep(): any { return this.d?.review_steps?.[this.d.review_step] },
@@ -156,7 +160,38 @@ export default {
       uni.previewImage({ urls: [url] })
     },
     submit(req: ReportSignReq, message: string) { if (!this.d) return; this.busy = true; apiSignStep(this.d.id, this.d.review_step, req).then(async () => { uni.showToast({ title: message, icon: 'none' }); await this.load() }).catch((e: Error) => { uni.showToast({ title: e.message || '操作失败', icon: 'none' }) }).finally(() => { this.busy = false }) },
-    approve() { this.submit({ action: 'approve' }, '签署已提交') },
+    approve() {
+      // 未配置手写签名 → 现场弹签名板（可勾选保存复用），不再要求先去个人中心设置
+      const sig = useAuthStore().userInfo?.signature_url
+      if (sig == null || sig == '') {
+        const pad: any = this.$refs.pad
+        pad.open()
+        return
+      }
+      this.submit({ action: 'approve' }, '签署已提交')
+    },
+    /** 签名板确认：上传 PNG（scene=signature）→ 勾选保存则写入签章资产 → 携一次性签名完成签字 */
+    onPadSave(filePath: string, saveForLater: boolean) {
+      const pad: any = this.$refs.pad
+      apiUploadLocal(filePath, 'signature')
+        .then((up) => {
+          const save = saveForLater
+            ? (() => {
+                const u = useAuthStore().userInfo
+                return apiUpdateProfile(u != null ? u.name : '', u != null ? u.phone : '', up.file_id).then(() => useAuthStore().fetchProfile())
+              })()
+            : Promise.resolve()
+          return save.then(() => up.file_id)
+        })
+        .then((fileId) => {
+          pad.finish(true)
+          this.submit({ action: 'approve', signature_file_id: fileId }, '签署已提交')
+        })
+        .catch((e: Error) => {
+          pad.finish(false)
+          uni.showToast({ title: e.message || '签名上传失败', icon: 'none' })
+        })
+    },
     reject() { this.rejectReason = ''; this.rejectDlgShow = true },
     onRejectConfirm(reason: string) {
       this.rejectReason = reason

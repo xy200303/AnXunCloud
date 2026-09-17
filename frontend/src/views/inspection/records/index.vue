@@ -160,7 +160,7 @@
               <span v-else class="text-secondary">待授权人处理</span>
             </template>
             <el-button
-              v-if="activeTab === 'reviewed'"
+              v-if="activeTab === 'reviewed' && row.can_report_line !== false"
               v-perms="'inspection:checkin:review'"
               link
               type="warning"
@@ -245,7 +245,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onActivated, onMounted, reactive, ref } from 'vue'
 import { useRoute } from 'vue-router'
 import { Search, Refresh, Aim, Download } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox, type FormInstance, type FormRules, type TableInstance } from 'element-plus'
@@ -253,7 +253,7 @@ import { listCheckins, getCheckin, getCheckinAuditCounts, type CheckinQuery, typ
 import { downloadFile } from '@/utils/download'
 import { passReview, rejectReview, reopenReview, batchPassReview, spotcheck, type SpotcheckBody } from '@/api/review'
 import CheckinDetailDrawer from '@/components/CheckinDetailDrawer.vue'
-import { checkinTypeLabel, checkinResultTag, auditStatusTag } from '@/utils/labels'
+import { checkinTypeLabel, checkinResultTag, auditStatusTag, aiVerdictTag } from '@/utils/labels'
 import { fmtDate } from '@/utils/date'
 import { useCommunities } from '@/composables/useCommunities'
 import { useInspectors } from '@/composables/useInspectors'
@@ -277,18 +277,6 @@ function exceptionTypeTags(v?: string): Array<{ value: string; label: string }> 
   if (!v) return []
   const labels: Record<string, string> = { device_missing: '设备缺失', unable_to_capture: '无法拍摄' }
   return v.split(',').filter(Boolean).map((x) => ({ value: x, label: labels[x] || x }))
-}
-
-// AI 结论标签
-function aiVerdictTag(v: string): { label: string; type: 'info' | 'warning' | 'success' | 'danger' } {
-  return (
-    {
-      pass: { label: '大模型通过', type: 'success' },
-      review: { label: '转人工', type: 'warning' },
-      abnormal: { label: 'AI 判异常', type: 'danger' },
-      error: { label: '审核失败', type: 'info' }
-    }[v] || { label: v, type: 'info' }
-  ) as { label: string; type: 'info' | 'warning' | 'success' | 'danger' }
 }
 
 const emptyText = computed(() => {
@@ -415,6 +403,16 @@ onMounted(() => {
   if (route.query.inspector_id) query.inspector_id = String(route.query.inspector_id)
   if (route.query.is_suspect) onlySuspect.value = true
   if (route.query.tab === 'pending') activeTab.value = 'pending'
+  fetchList()
+})
+
+// keep-alive 缓存页：再次激活（非首次）时重拉列表与计数，分页/筛选状态保持不变
+let activated = false
+onActivated(() => {
+  if (!activated) {
+    activated = true
+    return
+  }
   fetchList()
 })
 

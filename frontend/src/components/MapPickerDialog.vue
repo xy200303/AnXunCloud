@@ -69,12 +69,7 @@ import { ElMessage } from 'element-plus'
 import { Aim, Search } from '@element-plus/icons-vue'
 import { searchMapPlaces, type MapPlace } from '@/api/map'
 
-// 腾讯地图 GL 为全局变量注入，无官方类型包，统一按 any 使用
-declare global {
-  interface Window {
-    TMap?: any
-  }
-}
+// 腾讯地图 GL 为全局变量注入，window.TMap 最小类型声明见 src/types/tmap.d.ts
 
 interface LngLat {
   lng: number

@@ -135,6 +135,9 @@ function handleReset() {
 
 onMounted(fetchList)
 
+// keep-alive 下由 logs/index.vue 在再次激活时调用（onActivated 不穿透子组件）
+defineExpose({ reload: fetchList })
+
 
 const exporting = ref(false)
 

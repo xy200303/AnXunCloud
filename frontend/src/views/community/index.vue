@@ -424,7 +424,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onActivated, onMounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox, type FormInstance, type FormRules } from 'element-plus'
 import { Search, Refresh, Plus, RefreshRight, MapLocation } from '@element-plus/icons-vue'
@@ -538,6 +538,16 @@ const { loading, list, total, query, fetchList, handleSearch, handleReset } = us
 onMounted(() => {
   fetchTree()
   fetchList()
+})
+
+// keep-alive 缓存页：再次激活（非首次）时刷新当前视图列表，树展开/筛选状态保持不变
+let activated = false
+onActivated(() => {
+  if (!activated) {
+    activated = true
+    return
+  }
+  refreshCurrent()
 })
 
 // ===== 小区新增/编辑 =====

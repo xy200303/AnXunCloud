@@ -354,7 +354,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onActivated, onMounted, reactive, ref } from 'vue'
 import { useRoute } from 'vue-router'
 import {
   ElMessage, ElMessageBox,
@@ -846,6 +846,18 @@ onMounted(() => {
   }
   fetchList()
   fetchPendingTotal()
+})
+
+// keep-alive 缓存页：再次激活（非首次）时重拉当前 tab 数据，分页/筛选状态保持不变
+let activated = false
+onActivated(() => {
+  if (!activated) {
+    activated = true
+    return
+  }
+  fetchList()
+  fetchPendingTotal()
+  confirmRef.value?.fetchList()
 })
 </script>
 

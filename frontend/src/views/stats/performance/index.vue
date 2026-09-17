@@ -103,7 +103,7 @@
 
 <script setup lang="ts">
 // 巡检员绩效报表（五段式，表格为主，支持按列排序）
-import { computed, onMounted, ref } from 'vue'
+import { computed, onActivated, onMounted, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import { Search, Refresh } from '@element-plus/icons-vue'
 import { useRouter } from 'vue-router'
@@ -169,6 +169,16 @@ function handleSortChange({ prop, order }: { prop: string; order: string | null 
 }
 
 onMounted(() => {
+  fetchList()
+})
+
+// keep-alive 缓存页：再次激活（非首次）时重拉报表，筛选/排序/分页状态保持不变
+let activated = false
+onActivated(() => {
+  if (!activated) {
+    activated = true
+    return
+  }
   fetchList()
 })
 

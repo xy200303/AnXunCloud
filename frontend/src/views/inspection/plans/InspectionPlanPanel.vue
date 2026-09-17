@@ -560,6 +560,9 @@ onMounted(() => {
   fetchList()
 })
 
+// keep-alive 下由 plans/index.vue 在再次激活时调用（onActivated 不穿透子组件）
+defineExpose({ reload: fetchList })
+
 function cycleLabel(row: PlanItem) {
   if (row.plan_kind === 'spotcheck') {
     const days = (row.cycle_config?.days || []).map((d) => (d === -1 ? '月末' : `${d}日`)).join('、')

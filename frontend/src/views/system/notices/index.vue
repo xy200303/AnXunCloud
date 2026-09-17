@@ -135,7 +135,7 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted, reactive, ref } from 'vue'
+import { onActivated, onMounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox, type FormInstance, type FormRules, type UploadRequestOptions } from 'element-plus'
 import { Search, Refresh, Plus, RefreshRight, ArrowDown, Paperclip, Close, Upload } from '@element-plus/icons-vue'
 import { listNotices, createNotice, updateNotice, deleteNotice } from '@/api/notice'
@@ -155,6 +155,16 @@ const { loading, list, total, query, fetchList, handleSearch, handleReset } = us
 )
 
 onMounted(fetchList)
+
+// keep-alive 缓存页：再次激活（非首次）时重拉列表，分页/筛选状态保持不变
+let activated = false
+onActivated(() => {
+  if (!activated) {
+    activated = true
+    return
+  }
+  fetchList()
+})
 
 
 // ===== 发布/编辑 =====

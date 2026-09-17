@@ -167,7 +167,11 @@ let pollTimer: ReturnType<typeof setInterval> | null = null
 
 onMounted(() => {
   fetchMessages()
-  pollTimer = setInterval(fetchMessages, 60000)
+  // 后台标签页跳过轮询，回到前台后下一轮自动恢复
+  pollTimer = setInterval(() => {
+    if (document.hidden) return
+    fetchMessages()
+  }, 60000)
 })
 
 onUnmounted(() => {

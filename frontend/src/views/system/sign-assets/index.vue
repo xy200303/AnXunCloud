@@ -176,7 +176,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onActivated, onMounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Search, Refresh, RefreshRight, Upload } from '@element-plus/icons-vue'
 import { listSignAssets, createSignAsset, revokeSignAsset, type SignAssetItem, type SignAssetType, type SignAssetStatus } from '@/api/sign-asset'
@@ -260,6 +260,16 @@ function handleReset() {
 }
 
 onMounted(async () => {
+  fetchList()
+})
+
+// keep-alive 缓存页：再次激活（非首次）时重拉列表，分页/筛选状态保持不变
+let activated = false
+onActivated(() => {
+  if (!activated) {
+    activated = true
+    return
+  }
   fetchList()
 })
 

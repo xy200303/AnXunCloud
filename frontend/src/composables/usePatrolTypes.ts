@@ -20,13 +20,15 @@ let loadingPromise: Promise<void> | null = null
 
 function ensureLoaded() {
   if (options.value.length) return
-  if (!loadingPromise) {
-    loadingPromise = listDictOptions('patrol_type', true)
-      .then((list) => {
-        options.value = (list || []).map((x) => ({ value: x.value, label: x.label, category: x.attrs?.category || '' }))
-      })
-      .catch(() => {})
-  }
+  if (loadingPromise) return
+  loadingPromise = listDictOptions('patrol_type', true)
+    .then((list) => {
+      options.value = (list || []).map((x) => ({ value: x.value, label: x.label, category: x.attrs?.category || '' }))
+    })
+    .catch(() => {})
+    .finally(() => {
+      loadingPromise = null
+    })
 }
 
 export function usePatrolTypes() {

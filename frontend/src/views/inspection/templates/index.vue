@@ -129,7 +129,7 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted, reactive, ref } from 'vue'
+import { onActivated, onMounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox, type FormInstance, type FormRules } from 'element-plus'
 import { Search, Refresh, Plus, RefreshRight } from '@element-plus/icons-vue'
@@ -162,6 +162,16 @@ function goItems(row: TemplateItem) {
 }
 
 onMounted(() => {
+  fetchList()
+})
+
+// keep-alive 缓存页：再次激活（非首次）时重拉列表，分页/筛选状态保持不变
+let activated = false
+onActivated(() => {
+  if (!activated) {
+    activated = true
+    return
+  }
   fetchList()
 })
 

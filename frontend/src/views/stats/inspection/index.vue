@@ -268,7 +268,7 @@
 <script setup lang="ts">
 // 巡检报表：覆盖率 + 及时率（五段式：筛选条 + 指标卡 + 图表 + 明细表 + 导出）
 // 说明：后端菜单将两个报表合在「巡检报表」一页，这里用 Tab 承载
-import { computed, onMounted, ref } from 'vue'
+import { computed, onActivated, onMounted, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import { Search, Refresh } from '@element-plus/icons-vue'
 import { getCoverage, getTimeliness, exportReport, getPatrolRounds } from '@/api/stats'
@@ -296,16 +296,28 @@ const dateRange = ref<[string, string]>(defaultRange())
 const coverage = ref<CoverageData | null>(null)
 const timeliness = ref<TimelinessData | null>(null)
 
-async function fetchAll() {
+// 单 tab 拉取：覆盖率 / 及时率 分开请求；已加载的 tab 切回不重拉（数据即缓存）
+async function fetchTab(tab: 'coverage' | 'timeliness') {
   loading.value = true
   try {
     const params = { start_date: dateRange.value[0], end_date: dateRange.value[1], community_id: communityId.value }
-    const [cov, tim] = await Promise.all([getCoverage(params), getTimeliness(params)])
-    coverage.value = cov
-    timeliness.value = tim
+    if (tab === 'coverage') coverage.value = await getCoverage(params)
+    else timeliness.value = await getTimeliness(params)
   } finally {
     loading.value = false
   }
+}
+
+// 查询/重置：刷新当前 tab；筛选条件已变，其余 tab 缓存失效（切过去时由 watch 重拉）
+function fetchAll() {
+  if (activeTab.value === 'rounds') {
+    coverage.value = null
+    timeliness.value = null
+    return
+  }
+  if (activeTab.value === 'coverage') timeliness.value = null
+  else coverage.value = null
+  fetchTab(activeTab.value as 'coverage' | 'timeliness')
 }
 
 function handleReset() {
@@ -314,7 +326,23 @@ function handleReset() {
   fetchAll()
 }
 
+// tab 懒加载：首次切到未加载的 tab 时拉取
+watch(activeTab, (tab) => {
+  if (tab === 'coverage' && !coverage.value) fetchTab('coverage')
+  else if (tab === 'timeliness' && !timeliness.value) fetchTab('timeliness')
+})
+
 onMounted(() => {
+  if (activeTab.value !== 'rounds') fetchTab(activeTab.value as 'coverage' | 'timeliness')
+})
+
+// keep-alive 缓存页：再次激活（非首次）时刷新当前 tab 并失效另一 tab 缓存
+let activated = false
+onActivated(() => {
+  if (!activated) {
+    activated = true
+    return
+  }
   fetchAll()
 })
 

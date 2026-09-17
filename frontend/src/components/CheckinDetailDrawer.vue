@@ -172,7 +172,7 @@
 
 <script setup lang="ts">
 import PhotoViewer from '@/components/PhotoViewer.vue'
-import { checkinTypeLabel, checkinResultTag, auditStatusTag } from '@/utils/labels'
+import { checkinTypeLabel, checkinResultTag, auditStatusTag, aiVerdictTag } from '@/utils/labels'
 import type { CheckinItem, CheckinDetail } from '@/api/biz-types'
 
 defineProps<{
@@ -195,17 +195,6 @@ function dispositionTag(d: string): { label: string; type: 'info' | 'warning' | 
       report_pending: { label: '上报待处理', type: 'warning' }
     }[d] || { label: d, type: 'info' }
   ) as { label: string; type: 'info' | 'warning' | 'success' | 'danger' | 'primary' }
-}
-
-// AI 结论：pass 大模型通过 / review 转人工 / error 审核失败
-function aiVerdictTag(v: string): { label: string; type: 'info' | 'warning' | 'success' | 'danger' } {
-  return (
-    {
-      pass: { label: '大模型通过', type: 'success' },
-      review: { label: '转人工', type: 'warning' },
-      error: { label: '审核失败', type: 'danger' }
-    }[v] || { label: v, type: 'info' }
-  ) as { label: string; type: 'info' | 'warning' | 'success' | 'danger' }
 }
 
 function photoMeta(d: CheckinDetail) {

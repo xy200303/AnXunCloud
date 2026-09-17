@@ -3,10 +3,10 @@
     <div class="table-card">
       <el-tabs v-model="activeTab">
         <el-tab-pane label="操作日志" name="operation">
-          <operation-log v-if="activeTab === 'operation'" />
+          <operation-log v-if="activeTab === 'operation'" ref="panelRef" />
         </el-tab-pane>
         <el-tab-pane label="登录日志" name="login">
-          <login-log v-if="activeTab === 'login'" />
+          <login-log v-if="activeTab === 'login'" ref="panelRef" />
         </el-tab-pane>
       </el-tabs>
     </div>
@@ -15,11 +15,22 @@
 
 <script setup lang="ts">
 // 日志管理：后端菜单为单页 /system/logs，操作日志与登录日志以 Tab 承载
-import { ref } from 'vue'
+import { onActivated, ref } from 'vue'
 import OperationLog from './components/OperationLog.vue'
 import LoginLog from './components/LoginLog.vue'
 
 const activeTab = ref('operation')
+
+// keep-alive 缓存页：再次激活（非首次）时让当前日志面板重拉列表（onActivated 不穿透子组件，经 expose 转发）
+const panelRef = ref<{ reload: () => void } | null>(null)
+let activated = false
+onActivated(() => {
+  if (!activated) {
+    activated = true
+    return
+  }
+  panelRef.value?.reload()
+})
 </script>
 
 <style scoped lang="scss">

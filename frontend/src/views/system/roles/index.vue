@@ -195,7 +195,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, onMounted, reactive, ref } from 'vue'
+import { computed, nextTick, onActivated, onMounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox, type FormInstance, type FormRules, type TreeInstance } from 'element-plus'
 import { Plus, RefreshRight } from '@element-plus/icons-vue'
 import { listRoles, getRole, createRole, updateRole, deleteRole, assignRoleMenus } from '@/api/role'
@@ -248,6 +248,16 @@ async function fetchRoles() {
 onMounted(() => {
   fetchRoles()
   fetchMenuTree()
+})
+
+// keep-alive 缓存页：再次激活（非首次）时重拉角色列表
+let activated = false
+onActivated(() => {
+  if (!activated) {
+    activated = true
+    return
+  }
+  fetchRoles()
 })
 
 

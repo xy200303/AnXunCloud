@@ -336,6 +336,8 @@ export interface CheckinItem {
   current_step_name?: string
   // 当前用户是否在该记录当前环节授权名单内（待审核时下发；false 时前端展示「待授权人处理」而非放行按钮）
   can_audit?: boolean
+  // 当前用户是否在汇报线名单内（撤销审核/抽查授权前置；false 时不展示撤销审核按钮）
+  can_report_line?: boolean
   audit_by?: string
   audit_at?: string
   audit_remark?: string

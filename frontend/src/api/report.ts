@@ -2,7 +2,19 @@
 import { request, type PageResult } from '@/utils/request'
 
 export type ReportStatus = 'pending_review' | 'approved'
-export interface ReportReviewStep { slot: string; name: string; mode: 'any' | 'all'; candidate_ids: string[]; users?: { user_id: string; name: string; signed: boolean; signed_at?: string; signature_url?: string | null }[]; signed: any[] }
+// 签字留痕（对齐后端 types.SignEntry；proxy_* 三字段同时非空表示代签）
+export interface ReportSignEntry {
+  user_id: string
+  name: string
+  signed_at: string
+  signature_file_id?: string
+  asset_id?: string
+  proxy_by?: string
+  proxy_name?: string
+  proxy_reason?: string
+}
+
+export interface ReportReviewStep { slot: string; name: string; mode: 'any' | 'all'; candidate_ids: string[]; users?: { user_id: string; name: string; signed: boolean; signed_at?: string; signature_url?: string | null }[]; signed: ReportSignEntry[] }
 
 export interface ReportItem {
   id: string

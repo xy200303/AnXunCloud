@@ -121,7 +121,7 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted, reactive, ref } from 'vue'
+import { onActivated, onMounted, reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox, type FormInstance, type FormRules } from 'element-plus'
 import { ArrowLeft, Plus, RefreshRight } from '@element-plus/icons-vue'
@@ -194,6 +194,16 @@ onMounted(() => {
   getTemplate(templateId).then((t) => {
     tplName.value = t.name
   })
+})
+
+// keep-alive 缓存页：再次激活（非首次）时重拉检查项
+let activated = false
+onActivated(() => {
+  if (!activated) {
+    activated = true
+    return
+  }
+  fetchItems()
 })
 
 // ===== 新增/编辑 =====

@@ -274,6 +274,9 @@ async function handleDelete(row: ReportPlan) {
 onMounted(() => {
   fetchList()
 })
+
+// keep-alive 下由 plans/index.vue 在再次激活时调用（onActivated 不穿透子组件）
+defineExpose({ reload: fetchList })
 </script>
 
 <style scoped>

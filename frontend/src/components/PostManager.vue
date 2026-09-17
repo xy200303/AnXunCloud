@@ -251,6 +251,14 @@ onMounted(() => {
   fetchDutyBindings()
 })
 
+// ä¾å¤å±è·¯ç±é¡µï¼å¦ posts/index.vueï¼å¨ keep-alive åæ¬¡æ¿æ´»æ¶è°ç¨å·æ°ï¼onActivated ä¸ç©¿éå­ç»ä»¶ï¼
+function reload() {
+  fetchPosts()
+  fetchDutyBindings()
+}
+
+defineExpose({ reload })
+
 // ===== 岗位新增/编辑/删除 =====
 const postFormVisible = ref(false)
 const postSubmitting = ref(false)

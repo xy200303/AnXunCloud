@@ -438,7 +438,7 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted, reactive, ref, computed } from 'vue'
+import { onActivated, onMounted, reactive, ref, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import {
   ElMessage, ElMessageBox,
@@ -456,7 +456,7 @@ import StatusDot from '@/components/StatusDot.vue'
 import { downloadFile } from '@/utils/download'
 import { useDictOptions } from '@/composables/useDictOptions'
 import { usePagedList } from '@/composables/usePagedList'
-import type { PointItem, TemplateItem } from '@/api/biz-types'
+import type { PointItem, PointForm, TemplateItem } from '@/api/biz-types'
 
 // ===== 左树 =====
 interface TreeNode {
@@ -529,7 +529,7 @@ function handleMapPick(pos: { lng: number; lat: number }) {
   form.latitude = pos.lat
 }
 
-// 拉取地图服务配置（key 为空时「地图选点」保持禁用）；打开表单时也会重新拉，避免配完 key 必须刷新整页
+// 拉取地图服务配置（key 为空时「地图选点」保持禁用）；每次打开表单时拉取，配完 key 立即生效
 function refreshMapKey() {
   getMapConfig().then((d) => {
     mapKey.value = d.provider === 'tencent' ? d.key : ''
@@ -539,11 +539,20 @@ function refreshMapKey() {
 onMounted(() => {
   fetchTree()
   fetchList()
-  refreshMapKey()
   // 启用中的检查项模板
   listTemplates({ page: 1, page_size: 100, status: 1 }).then((d) => {
     templates.value = d.list
   })
+})
+
+// keep-alive 缓存页：再次激活（非首次）时重拉列表，树与筛选状态保持不变
+let activated = false
+onActivated(() => {
+  if (!activated) {
+    activated = true
+    return
+  }
+  fetchList()
 })
 
 // 打卡方式展示：凭证 + 围栏两个维度组合成一句话
@@ -648,7 +657,7 @@ async function handleSubmit() {
       })
     } catch { return }
   }
-  const payload = {
+  const payload: PointForm = {
     community_id: form.communityBuilding[0],
     building_id: form.communityBuilding.length === 1 ? null : form.communityBuilding[1],
     unit_no: form.communityBuilding[1] ? form.unit_no : null,
@@ -668,10 +677,10 @@ async function handleSubmit() {
   submitting.value = true
   try {
     if (form.id) {
-      await updatePoint(form.id, payload as any)
+      await updatePoint(form.id, payload)
       ElMessage.success('点位已更新')
     } else {
-      const res = await createPoint(payload as any)
+      const res = await createPoint(payload)
       ElMessage.success(`点位已创建，二维码编号 ${res.qrcode_no}`)
     }
     formVisible.value = false

@@ -18,13 +18,14 @@ FROM golang:1.26.5-alpine AS backend-dev
 ARG GOPROXY
 ENV GOPROXY=$GOPROXY
 WORKDIR /app
-RUN go install github.com/air-verse/air@latest
+# 钉版：避免 latest 漂移导致不可复现构建（与 go.mod 的 go 版本兼容）
+RUN go install github.com/air-verse/air@v1.61.4
 COPY backend/go.mod backend/go.sum ./
 RUN go mod download
 CMD ["air", "-c", ".air.toml"]
 
 # ========== 前端开发 ==========
-FROM node:20-alpine AS frontend-dev
+FROM node:22-alpine AS frontend-dev
 ARG NPM_REGISTRY
 RUN npm config set registry $NPM_REGISTRY
 WORKDIR /app
@@ -34,7 +35,7 @@ RUN npm ci --no-audit --no-fund
 CMD ["sh", "-c", "npm install --no-audit --no-fund && npm run dev -- --host 0.0.0.0"]
 
 # ========== 生产：阶段一 构建前端 SPA ==========
-FROM node:20-alpine AS fe
+FROM node:22-alpine AS fe
 ARG NPM_REGISTRY
 RUN npm config set registry $NPM_REGISTRY
 WORKDIR /fe
@@ -59,6 +60,8 @@ FROM alpine:3.20 AS prod
 ARG ALPINE_MIRROR
 RUN sed -i "s/dl-cdn.alpinelinux.org/$ALPINE_MIRROR/g" /etc/apk/repositories \
     && apk add --no-cache ca-certificates tzdata curl
+# 非 root 运行：appuser 持有 /app/uploads（local 上传模式挂载卷）
+RUN adduser -D -u 10001 appuser && mkdir -p /app/uploads && chown appuser /app/uploads
 ENV TZ=Asia/Shanghai
 # 水印中文字体（Noto Sans SC，随仓库 backend/fonts 提供，构建阶段一并复制）
 COPY --from=be /be/fonts /app/fonts
@@ -69,4 +72,5 @@ COPY --from=be /out/server /app/server
 COPY --from=be /out/seed-demo /app/seed-demo
 COPY --from=fe /fe/dist /app/dist
 EXPOSE 8080
+USER appuser
 CMD ["/app/server"]

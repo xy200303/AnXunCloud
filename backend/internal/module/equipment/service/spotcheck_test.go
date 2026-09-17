@@ -193,7 +193,7 @@ func contains(s, sub string) bool {
 func TestJudgeDeviceSpecialStates(t *testing.T) {
 	now := day("2026-09-09")
 
-	t.Run("label_missing 退出判定", func(t *testing.T) {
+	t.Run("label_missing 判异常转维保处置", func(t *testing.T) {
 		e := eq("e1", "X-001", dayPtr("2026-08-01"), nil) // 已逾期
 		e.LabelMissing = true
 		j := JudgeDevice(e, false, 30, now)
@@ -201,11 +201,11 @@ func TestJudgeDeviceSpecialStates(t *testing.T) {
 			t.Fatalf("got %s", j.State)
 		}
 		pass, note := DeviceJudgeSubmit(j, true, now)
-		if !pass {
-			t.Fatal("标签缺失不应判异常")
+		if pass {
+			t.Fatal("标签缺失应判异常（甲方口径：算异常维保）")
 		}
-		if note == "" {
-			t.Fatal("应有处置提示")
+		if !contains(note, "标签缺失") {
+			t.Fatalf("note=%q", note)
 		}
 	})
 	t.Run("报废日已过视同逾期且每次判异常（不去重）", func(t *testing.T) {

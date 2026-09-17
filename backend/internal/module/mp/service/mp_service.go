@@ -516,8 +516,8 @@ func (s *MPService) injectEquipmentItems(taskID, taskDate string, points []gin.H
 				"auto_judge":   j.View(),
 			})
 			// 日期标签抽查（紧跟该设备的有效期项之后）：临期/逾期必触发（到期核验），否则确定性哈希随机；
-			// 台账长期未验证（超 6 个月）概率翻倍；标签缺失设备不参与（LoadPointEquipment 已排除）
-			if spotEnabled {
+			// 台账长期未验证（超 6 个月）概率翻倍；标签缺失设备有效期项已判异常，不再叠加抽查
+			if spotEnabled && j.State != eqsvc.AutoLabelMissing {
 				triggered := j.State == eqsvc.DueWarning || j.State == eqsvc.DueOverdue
 				if !triggered {
 					lv, ok := verified[j.EquipmentID]

@@ -46,6 +46,17 @@ func (ctl *MaintenanceController) PendingList(c *gin.Context) {
 	write(c, page, be)
 }
 
+// RecordList GET /equipment/maintenances（维保流水总表：全状态，按小区/状态/日期/关键字筛选）
+func (ctl *MaintenanceController) RecordList(c *gin.Context) {
+	var q dto.MaintRecordQuery
+	if be := bind.Query(c, &q); be != nil {
+		response.Fail(c, be)
+		return
+	}
+	page, be := ctl.maintenance.RecordList(c, &q)
+	write(c, page, be)
+}
+
 // Confirm POST /equipment/maintenance/confirm（批量确认，幂等）
 func (ctl *MaintenanceController) Confirm(c *gin.Context) {
 	var req dto.ConfirmReq

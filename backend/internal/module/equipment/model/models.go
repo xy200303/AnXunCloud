@@ -71,7 +71,7 @@ type Equipment struct {
 	ScrapDate          *time.Time     `gorm:"type:date" json:"scrap_date"`            // 报废日期（自动计算展示）
 	WarnDays           *int           `json:"warn_days"`                              // 临期阈值覆盖（NULL 用全局配置）
 	LastNotifiedAt     *time.Time     `json:"last_notified_at"`                       // 上次提醒时间（防打扰）
-	LabelMissing       bool           `gorm:"default:false" json:"label_missing"`     // 标签缺失/无法辨认：确认链打上/清除；true=退出自动到期判定与抽查
+	LabelMissing       bool           `gorm:"default:false" json:"label_missing"`     // 标签缺失/无法辨认：确认链打上/清除；true=豁免到期催办，打卡合成项判异常转维保处置
 	Status             string         `gorm:"size:16;default:in_service" json:"status"`
 	Extra              types.JSONMap  `gorm:"type:jsonb;default:'{}'" json:"extra"` // 类型特有属性口袋（充装量/载重等）
 	Remark             string         `gorm:"size:255" json:"remark"`

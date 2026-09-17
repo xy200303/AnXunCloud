@@ -102,6 +102,17 @@ type ConfirmListQuery struct {
 	response.PageQuery
 }
 
+// MaintRecordQuery 维保流水总表分页查询（全状态；台账页「维保记录」tab）。
+type MaintRecordQuery struct {
+	response.PageQuery
+	CommunityID   string `form:"community_id"`
+	ConfirmStatus string `form:"confirm_status"`                // pending/confirmed/rejected
+	Keyword       string `form:"keyword"`                       // 设备编号/名称模糊
+	StartDate     string `form:"start_date"`                    // 维保日期起（YYYY-MM-DD）
+	EndDate       string `form:"end_date"`                      // 维保日期止（YYYY-MM-DD）
+	LabelMissing  string `form:"label_missing" binding:"omitempty,oneof=1 true"` // 1/true=仅标签缺失登记
+}
+
 // ========== 导入导出 ==========
 
 // ImportResult 台账导入结果（同编号按更新处理，幂等可重导）。

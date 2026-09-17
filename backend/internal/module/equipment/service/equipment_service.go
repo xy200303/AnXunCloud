@@ -31,7 +31,7 @@ const (
 	DueOverdue = "overdue" // 已逾期
 	// v1.7 特殊态（筛选/展示优先于到期判定）
 	DueScrap        = "scrap"         // 报废日已过
-	DueLabelMissing = "label_missing" // 标签缺失（确认链打标，退出自动判定）
+	DueLabelMissing = "label_missing" // 标签缺失（确认链打标；豁免到期催办，打卡判异常转维保）
 )
 
 // 设备状态中文标签（导出/展示用）

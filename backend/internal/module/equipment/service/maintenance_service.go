@@ -725,6 +725,41 @@ func (s *MaintenanceService) markConfirmAuth(c *gin.Context, rows []model.Equipm
 	}
 }
 
+// RecordList 维保流水总表（全状态，最新在前；台账页「维保记录」tab）。
+// 数据权限：维保表无 community_id，经设备归属小区子查询收口（与台账列表同口径）。
+func (s *MaintenanceService) RecordList(c *gin.Context, q *dto.MaintRecordQuery) (*response.Page, *errs.Error) {
+	eqScope := middleware.ApplyCommunityFilter(s.db.Model(&model.Equipment{}).Select("id"), c, "equipment.community_id")
+	if q.CommunityID != "" {
+		eqScope = eqScope.Where("community_id = ?", q.CommunityID)
+	}
+	if kw := strings.TrimSpace(q.Keyword); kw != "" {
+		eqScope = eqScope.Where("code LIKE ? OR name LIKE ?", "%"+kw+"%", "%"+kw+"%")
+	}
+	db := s.db.Model(&model.EquipmentMaintenance{}).Where("equipment_id IN (?)", eqScope)
+	if q.ConfirmStatus != "" {
+		db = db.Where("confirm_status = ?", q.ConfirmStatus)
+	}
+	if q.LabelMissing == "1" || q.LabelMissing == "true" {
+		db = db.Where("label_missing = ?", true)
+	}
+	if q.StartDate != "" {
+		db = db.Where("maintenance_date >= ?", q.StartDate)
+	}
+	if q.EndDate != "" {
+		db = db.Where("maintenance_date <= ?", q.EndDate)
+	}
+	var total int64
+	if err := db.Count(&total).Error; err != nil {
+		return nil, errs.ErrInternal
+	}
+	var rows []model.EquipmentMaintenance
+	offset, limit := q.Normalize()
+	if err := db.Order("created_at DESC").Offset(offset).Limit(limit).Find(&rows).Error; err != nil {
+		return nil, errs.ErrInternal
+	}
+	return &response.Page{List: s.toMaintenanceItems(rows), Total: total, Page: q.Page, PageSize: q.PageSize}, nil
+}
+
 // History 某设备维保历史（含确认状态与照片凭证）。
 func (s *MaintenanceService) History(c *gin.Context, equipmentID string, q *response.PageQuery) (*response.Page, *errs.Error) {
 	var e model.Equipment

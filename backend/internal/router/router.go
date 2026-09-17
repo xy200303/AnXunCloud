@@ -289,6 +289,7 @@ func New(cfg *config.Config, db *gorm.DB, rdb *redis.Client) (*gin.Engine, *insp
 			equipment.GET("/export", middleware.RequirePerm("equipment:export"), equipmentCtl.Export)
 			equipment.POST("/export", middleware.RequirePerm("equipment:export"), equipmentCtl.ExportSelected)
 			equipment.GET("/maintenance-pending", middleware.RequirePerm("equipment:confirm"), maintCtl.PendingList)
+			equipment.GET("/maintenances", middleware.RequirePerm("equipment:list"), maintCtl.RecordList)
 			equipment.POST("/maintenance", middleware.RequirePerm("equipment:maintenance"), middleware.OperLog(db, "equipment", "maintenance"), maintCtl.Register)
 			equipment.POST("/maintenance/confirm", middleware.RequirePerm("equipment:confirm"), middleware.OperLog(db, "equipment", "confirm"), maintCtl.Confirm)
 			equipment.POST("/maintenance/reject", middleware.RequirePerm("equipment:confirm"), middleware.OperLog(db, "equipment", "reject"), maintCtl.Reject)

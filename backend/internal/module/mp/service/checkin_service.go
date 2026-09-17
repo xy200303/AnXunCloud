@@ -985,7 +985,10 @@ func (s *CheckinService) equipmentSynthetics(task *insmodel.InspectionTask, poin
 	now := time.Now()
 	taskDate := task.TaskDate.Format("2006-01-02")
 	for _, j := range judges {
-		// 临期/逾期必触发（到期核验）；否则确定性哈希随机；长期未验证翻倍
+		// 临期/逾期必触发（到期核验）；否则确定性哈希随机；长期未验证翻倍；标签缺失设备有效期项已判异常，不再叠加抽查
+		if j.State == eqsvc.AutoLabelMissing {
+			continue
+		}
 		triggered := j.State == eqsvc.DueWarning || j.State == eqsvc.DueOverdue
 		if !triggered {
 			lv, ok := verified[j.EquipmentID]

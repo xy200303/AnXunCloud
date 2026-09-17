@@ -33,7 +33,7 @@ type DeviceJudge struct {
 }
 
 // JudgeDevice 单台设备判定（纯函数）：pending 为该设备是否存在待确认登记。
-// 优先级：label_missing（退出判定）> 报废日已过（视同逾期）> 到期日判定。
+// 优先级：label_missing（标签缺失/无法辨认）> 报废日已过（视同逾期）> 到期日判定。
 // 临期阈值逐设备取 warn_days，缺省用 globalWarn（与 EquipmentService.warnDaysOf 同口径）。
 func JudgeDevice(e model.Equipment, pending bool, globalWarn int, now time.Time) DeviceJudge {
 	warn := globalWarn
@@ -93,10 +93,10 @@ func overdueNote(j DeviceJudge) string {
 // firstOverdue=true 表示该设备首次逾期打卡（此前无逾期异常快照）→ 产异常；
 // 同一设备持续逾期的后续打卡只标「催办中」不再产新异常（逐台独立去重，互不影响）；
 // 报废日已过视同逾期且每次都判异常（使用报废设备本身即违规，不去重）；
-// 标签缺失设备退出判定（理论上不会进入打卡合成项，防御性按合格处理）。
+// 标签缺失设备每次都判异常（甲方口径：算异常维保，强制转人工审核走经理处置通道，不去重）。
 func DeviceJudgeSubmit(j DeviceJudge, firstOverdue bool, now time.Time) (pass bool, note string) {
 	if j.State == AutoLabelMissing {
-		return true, "标签缺失，待经理处置"
+		return false, "标签缺失/无法辨认，需维保补签处置"
 	}
 	if j.ScrapDue {
 		return false, fmt.Sprintf("设备已过报废日期（%s），应立即停用更换", dateStr(j.ScrapDate))
@@ -159,7 +159,8 @@ func LoadPointEquipment(db *gorm.DB, pointIDs []string) (map[string][]model.Equi
 		return out, nil
 	}
 	var rows []model.Equipment
-	if err := db.Where("point_id IN ? AND status = ? AND label_missing = ? AND type IN ?", pointIDs, model.StatusInService, false, remindTypes).Find(&rows).Error; err != nil {
+	// label_missing 设备同样纳入：打卡合成项判异常转维保处置（甲方口径：标签缺失算异常维保），仅到期催办豁免
+	if err := db.Where("point_id IN ? AND status = ? AND type IN ?", pointIDs, model.StatusInService, remindTypes).Find(&rows).Error; err != nil {
 		return nil, err
 	}
 	for i := range rows {

@@ -64,8 +64,8 @@
       </view>
     </view>
 
-    <!-- 切换账号（测试工具，管理员可见；与退出登录同款的独立区块，微信风格上下排列） -->
-    <view v-if="showAdmin" hover-class="hover-dim" class="btn-block" :style="{ backgroundColor: colors.bgCard }" @click="goAccounts">
+    <!-- 切换账号：退出当前账号回登录页，已保存的账号可一键登录（微信风格，与退出登录上下排列） -->
+    <view hover-class="hover-dim" class="btn-block" :style="{ backgroundColor: colors.bgCard }" @click="onSwitchAccount">
       <text hover-class="hover-dim" class="btn-block-text" :style="{ color: colors.textPrimary }">切换账号</text>
     </view>
 
@@ -84,6 +84,16 @@
       :items="tenantNames"
       @update:visible="tenantSheetShow = $event"
       @select="onTenantSelect"
+    />
+    <AppDialog
+      :visible="switchDlgShow"
+      kind="primary"
+      title="切换账号"
+      content="将退出当前账号并返回登录页，已保存的账号可一键登录。"
+      confirm-text="切换"
+      cancel-text="取消"
+      @update:visible="switchDlgShow = $event"
+      @confirm="onSwitchConfirm"
     />
     <AppDialog
       :visible="logoutDlgShow"
@@ -126,6 +136,8 @@ type ProfileData = {
   tenantList: Array<{ id: string; name: string }>
   /** 退出登录确认弹窗 */
   logoutDlgShow: boolean
+  /** 切换账号确认弹窗 */
+  switchDlgShow: boolean
 }
 
 export default {
@@ -138,7 +150,8 @@ export default {
       equipmentPendingCount: 0,
       tenantSheetShow: false,
       tenantList: [],
-      logoutDlgShow: false
+      logoutDlgShow: false,
+      switchDlgShow: false
     }
   },
   onLoad() {
@@ -266,9 +279,12 @@ export default {
     goPassword() {
       uni.navigateTo({ url: '/pages/profile/password' })
     },
-    /** 切换账号页（测试工具，管理员入口） */
-    goAccounts() {
-      uni.navigateTo({ url: '/pages/profile/accounts' })
+    /** 切换账号：确认后退出当前账号回登录页（登录页可一键登录已保存账号） */
+    onSwitchAccount() {
+      this.switchDlgShow = true
+    },
+    onSwitchConfirm() {
+      useAuthStore().logout()
     },
     /** 超管切换「当前公司」：拉租户列表 → 底部面板选择 → 写租户上下文（后续请求按所选租户隔离） */
     switchTenant() {

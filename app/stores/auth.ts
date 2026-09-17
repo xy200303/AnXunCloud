@@ -98,29 +98,6 @@ export const useAuthStore = defineStore('auth', {
           .catch((_e: any) => { this.resetToLogin() })
       })
     },
-    /**
-     * 切换账号（测试工具）：注销当前会话（清理同登出）后用新凭据登录，成功直达首页。
-     * 失败时本地会话已清，回登录页手动登录。
-     */
-    switchAccount(username: string, password: string, tenantCode?: string): Promise<void> {
-      return new Promise<void>((resolve, reject) => {
-        unbindPushDevice()
-          .then(() => apiLogout())
-          .catch((_e: any) => {})
-          .then(() => {
-            this.clearLocalSession()
-            return this.login(username, password, tenantCode)
-          })
-          .then(() => {
-            uni.reLaunch({ url: '/pages/tasks/today' })
-            resolve()
-          })
-          .catch((e: Error) => {
-            uni.reLaunch({ url: '/pages/login/index' })
-            reject(e)
-          })
-      })
-    },
     /** 清空本地会话（登录态 + 会话数据 + 租户上下文 + 角标）；不跳转页面 */
     clearLocalSession() {
       this.token = ''

@@ -7,8 +7,40 @@ export const KEY_ACCESS_TOKEN = 'access_token'
 export const KEY_REFRESH_TOKEN = 'refresh_token'
 export const KEY_USER_INFO = 'user_info'
 
-/** 切换账号（测试工具）保存的账号凭据列表；设备级数据，登出不清理 */
+/** 多账号切换：本机保存的账号凭据列表；设备级数据，登出不清理 */
 export const KEY_SWITCH_ACCOUNTS = 'switch_accounts'
+
+/** 保存的账号凭据（本机 storage；password 明文仅供本机一键登录回填） */
+export type SwitchAccount = {
+  username: string
+  password: string
+  /** 公司编码：用户名跨租户重名时消歧，空 = 不传 */
+  tenant_code: string
+  /** 展示名（登录成功时取用户姓名），空 = 显示用户名 */
+  remark: string
+}
+
+export function loadSwitchAccounts(): SwitchAccount[] {
+  const raw = uni.getStorageSync(KEY_SWITCH_ACCOUNTS) as string
+  if (raw == '') return []
+  try {
+    const list = JSON.parse(raw) as SwitchAccount[]
+    return Array.isArray(list) ? list : []
+  } catch (e) {
+    return []
+  }
+}
+
+export function saveSwitchAccounts(list: SwitchAccount[]): void {
+  uni.setStorageSync(KEY_SWITCH_ACCOUNTS, JSON.stringify(list))
+}
+
+/** 登录成功后保存/覆盖账号（同账号同公司为同一条）；置顶为最近使用 */
+export function upsertSwitchAccount(entry: SwitchAccount): void {
+  const list = loadSwitchAccounts().filter((a) => !(a.username == entry.username && a.tenant_code == entry.tenant_code))
+  list.unshift(entry)
+  saveSwitchAccounts(list)
+}
 
 /** 会话性数据 storage key 注册表（登出/强制登出随登录态一并清理，防共用设备串户） */
 export const KEY_OFFLINE_QUEUE = 'offline_checkins'

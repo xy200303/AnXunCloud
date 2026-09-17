@@ -45,12 +45,6 @@
       }
     },
     {
-      "path": "pages/profile/accounts",
-      "style": {
-        "navigationBarTitleText": "切换账号"
-      }
-    },
-    {
       "path": "pages/profile/about",
       "style": {
         "navigationBarTitleText": "关于安巡云"

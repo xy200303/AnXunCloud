@@ -54,10 +54,6 @@
         <text  hover-class="hover-dim" class="row-text" :style="{ color: colors.textRegular }">手写签名</text>
         <text  hover-class="hover-dim" class="row-arrow" :style="{ color: colors.textSecondary }">{{ signatureText }} ></text>
       </view>
-      <view v-if="showAdmin"  hover-class="hover-dim" class="row" @click="goAccounts">
-        <text  hover-class="hover-dim" class="row-text" :style="{ color: colors.textRegular }">切换账号</text>
-        <text  hover-class="hover-dim" class="row-arrow" :style="{ color: colors.textSecondary }">测试工具 ></text>
-      </view>
       <view  hover-class="hover-dim" class="row" @click="goPassword">
         <text  hover-class="hover-dim" class="row-text" :style="{ color: colors.textRegular }">修改密码</text>
         <text  hover-class="hover-dim" class="row-arrow" :style="{ color: colors.textSecondary }">></text>
@@ -68,9 +64,14 @@
       </view>
     </view>
 
+    <!-- 切换账号（测试工具，管理员可见；与退出登录同款的独立区块，微信风格上下排列） -->
+    <view v-if="showAdmin" hover-class="hover-dim" class="btn-block" :style="{ backgroundColor: colors.bgCard }" @click="goAccounts">
+      <text hover-class="hover-dim" class="btn-block-text" :style="{ color: colors.textPrimary }">切换账号</text>
+    </view>
+
     <!-- 退出登录（danger 独立区块，二次确认） -->
-    <view  hover-class="hover-dim" class="btn-logout" :style="{ backgroundColor: colors.bgCard }" @click="onLogout">
-      <text  hover-class="hover-dim" class="btn-logout-text" :style="{ color: colors.danger }">退出登录</text>
+    <view  hover-class="hover-dim" class="btn-block" :style="{ backgroundColor: colors.bgCard }" @click="onLogout">
+      <text  hover-class="hover-dim" class="btn-block-text" :style="{ color: colors.danger }">退出登录</text>
     </view>
 
     <!-- 手写签名板（个人中心配置入口：保存即写入签章资产，下次签字直接用） -->
@@ -450,14 +451,15 @@ export default {
   overflow: hidden;
 }
 
-.btn-logout {
+.btn-block {
   height: 104rpx;
   border-radius: 20rpx;
   align-items: center;
   justify-content: center;
+  margin-bottom: 24rpx;
 }
 
-.btn-logout-text {
+.btn-block-text {
   font-size: 34rpx;
   font-weight: 600;
 }

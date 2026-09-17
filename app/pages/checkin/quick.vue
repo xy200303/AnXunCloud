@@ -177,6 +177,16 @@
       @update:visible="escapeDlgShow = $event"
       @confirm="onEscapeDlgConfirm"
     />
+    <!-- 记录已归档提示（自绘，替代原生 showModal）：确认后退出向导 -->
+    <AppDialog
+      :visible="lockedDlgShow"
+      kind="warning"
+      title="提示"
+      content="该记录已归档，不可修改"
+      confirm-text="知道了"
+      @update:visible="lockedDlgShow = $event"
+      @confirm="exitWizard"
+    />
   </view>
 </template>
 
@@ -282,6 +292,7 @@ type QuickData = {
   /** 拍照项逃生入口：异常类型面板 / 佐证确认弹窗状态 */
   escapeSheetShow: boolean
   escapeDlgShow: boolean
+  lockedDlgShow: boolean
   /** 面板选择确认期间暂存的当前项与异常类型 */
   escapeItem: WizardItemSnap | null
   escapeType: string
@@ -416,6 +427,8 @@ export default {
       forceExit: false,
       escapeSheetShow: false,
       escapeDlgShow: false,
+      /** 记录已归档提示弹窗（确认后退出向导） */
+      lockedDlgShow: false,
       escapeItem: null,
       escapeType: ''
     }
@@ -1860,13 +1873,7 @@ export default {
           this.overlayMsg = ''
           const code = e != null && typeof e.code == 'number' ? e.code : 0
           if (code == CODE_CHECKIN_LOCKED) {
-            uni.showModal({
-              title: '提示',
-              content: '该记录已归档，不可修改',
-              showCancel: false,
-              confirmText: '知道了',
-              success: () => this.exitWizard()
-            })
+            this.lockedDlgShow = true
             return
           }
           if (code == CODE_AI_DISABLED) {

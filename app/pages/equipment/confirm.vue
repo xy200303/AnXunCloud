@@ -11,7 +11,7 @@
       :colors="colors"
       @retry="reload"
     >
-      <!-- pending 列表：AI 存疑（review）后端已置顶，行头红条加强提示 -->
+      <!-- pending 列表：AI 存疑（review）后端已置顶，行头红条加强提示；点卡片开详情弹层（与打卡审核同交互） -->
       <template #default>
       <view class="content">
         <view
@@ -19,8 +19,10 @@
           :key="m.id"
           class="card"
           :style="{ backgroundColor: colors.bgCard, borderLeftColor: m.ai_verdict == 'review' ? colors.danger : colors.bgCard }"
+          hover-class="hover-dim"
+          @click="openDetail(m)"
         >
-          <view class="card-head" @click="toggleExpand(m.id)">
+          <view class="card-head">
             <view class="card-title-row">
               <!-- 多选框 -->
               <view
@@ -40,40 +42,9 @@
           <text class="card-sub" :style="{ color: colors.textSecondary }">
             {{ maintTypeText(m.maintenance_type) }} · {{ m.maintenance_date }} · {{ m.operator_name }} 经办 · {{ m.created_by_name }} 登记
           </text>
-
-          <!-- 展开：登记信息 + 照片 -->
-          <view v-if="expanded[m.id]" class="expand">
-            <text v-if="m.vendor != null && m.vendor != ''" class="info-line" :style="{ color: colors.textRegular }">维保单位：{{ m.vendor }}</text>
-            <text v-if="m.maintenance_type == 'ledger_fix'" class="info-line" :style="{ color: colors.textRegular }">
-              补录日期：出厂 {{ m.fix_manufacture_date != '' ? m.fix_manufacture_date : '--' }} / 维保 {{ m.fix_last_maintenance_date != '' ? m.fix_last_maintenance_date : '--' }}
-            </text>
-            <text v-if="m.note != ''" class="info-line" :style="{ color: colors.textRegular }">备注：{{ m.note }}</text>
-            <text v-if="m.ai_verdict == 'review' && m.ai_reason != null && m.ai_reason != ''" class="info-line" :style="{ color: colors.danger }">AI 说明：{{ m.ai_reason }}</text>
-            <text class="info-line" :style="{ color: colors.textSecondary }">登记时间：{{ m.created_at }}</text>
-            <view class="photos">
-              <image
-                v-for="(p, pi) in m.photos"
-                :key="p.file_id"
-                class="photo"
-                :src="toAbsUrl(p.url)"
-                mode="aspectFill"
-                lazy-load
-                @click="preview(m, pi)"
-              />
-              <text v-if="m.photos.length == 0" class="info-line" :style="{ color: colors.textSecondary }">无照片</text>
-            </view>
-            <!-- 单条操作：不在当前环节授权名单内的只给说明，不让点了再报错 -->
-            <view v-if="m.can_confirm !== false" class="row-actions">
-              <view class="btn-half" :style="{ borderColor: colors.danger }" @click="onRejectTap(m)">
-                <text class="btn-half-text" :style="{ color: colors.danger }">驳回</text>
-              </view>
-              <view class="btn-half btn-half-solid" :style="{ backgroundColor: colors.success }" @click="onPass(m)">
-                <text class="btn-half-text" :style="{ color: colors.white }">通过</text>
-              </view>
-            </view>
-            <view v-else class="row-actions">
-              <text class="info-line" :style="{ color: colors.textSecondary }">当前环节「{{ m.current_step_name || '确认' }}」· 你不在授权名单内，待授权人处理</text>
-            </view>
+          <view class="card-foot">
+            <text v-if="m.ai_verdict == 'review' && m.ai_reason != null && m.ai_reason != ''" class="card-ai" :style="{ color: colors.danger }">AI 说明：{{ m.ai_reason }}</text>
+            <text v-if="m.can_confirm === false" class="card-noauth" :style="{ color: colors.textSecondary }">待授权人处理</text>
           </view>
         </view>
       </view>
@@ -82,6 +53,62 @@
         <AppListFooter :loading-more="loadingMore" :no-more="noMore" :visible="list.length > 0" :colors="colors" />
       </template>
     </AppListShell>
+
+    <!-- 详情弹层（与打卡审核同交互：点开看明细，底部驳回/通过） -->
+    <AppBottomSheet
+      :visible="detail != null"
+      :mask-color="colors.mask"
+      :background-color="colors.bgPage"
+      height="80%"
+      @close="closeDetail"
+    >
+      <template v-if="detail != null">
+        <scroll-view scroll-y class="sheet-scroll">
+          <view class="sheet-head">
+            <text class="sheet-title" :style="{ color: colors.textPrimary }">{{ detail.equipment_name }}</text>
+            <text class="sheet-close" :style="{ color: colors.textSecondary }" @click="closeDetail">×</text>
+          </view>
+          <view class="sheet-body">
+            <text class="info-line" :style="{ color: colors.textRegular }">编号：{{ detail.equipment_code }}<text v-if="detail.point_name != null && detail.point_name != ''"> · {{ detail.point_name }}</text></text>
+            <text class="info-line" :style="{ color: colors.textRegular }">
+              {{ maintTypeText(detail.maintenance_type) }} · {{ detail.maintenance_date }} · {{ detail.operator_name }} 经办 · {{ detail.created_by_name }} 登记
+            </text>
+            <text v-if="detail.vendor != null && detail.vendor != ''" class="info-line" :style="{ color: colors.textRegular }">维保单位：{{ detail.vendor }}</text>
+            <text v-if="detail.maintenance_type == 'ledger_fix'" class="info-line" :style="{ color: colors.textRegular }">
+              补录日期：出厂 {{ detail.fix_manufacture_date != '' ? detail.fix_manufacture_date : '--' }} / 维保 {{ detail.fix_last_maintenance_date != '' ? detail.fix_last_maintenance_date : '--' }}
+            </text>
+            <text v-if="detail.note != ''" class="info-line" :style="{ color: colors.textRegular }">备注：{{ detail.note }}</text>
+            <text v-if="detail.ai_verdict == 'review' && detail.ai_reason != null && detail.ai_reason != ''" class="info-line" :style="{ color: colors.danger }">AI 说明：{{ detail.ai_reason }}</text>
+            <text class="info-line" :style="{ color: colors.textSecondary }">登记时间：{{ detail.created_at }}</text>
+            <view class="photos">
+              <image
+                v-for="(p, pi) in detail.photos"
+                :key="p.file_id"
+                class="photo"
+                :src="toAbsUrl(p.url)"
+                mode="aspectFill"
+                lazy-load
+                @click="preview(detail, pi)"
+              />
+              <text v-if="detail.photos.length == 0" class="info-line" :style="{ color: colors.textSecondary }">无照片</text>
+            </view>
+          </view>
+        </scroll-view>
+
+        <!-- 底部操作：不在当前环节授权名单内的只给说明，不让点了再报错 -->
+        <view v-if="detail.can_confirm !== false" class="sheet-actions" :style="{ backgroundColor: colors.bgCard, borderTopColor: colors.border }">
+          <view class="btn-half" :style="{ borderColor: colors.danger }" @click="onRejectTap">
+            <text class="btn-half-text" :style="{ color: colors.danger }">驳回</text>
+          </view>
+          <view class="btn-half btn-half-solid" :style="{ backgroundColor: colors.success }" @click="onPass">
+            <text class="btn-half-text" :style="{ color: colors.white }">通过</text>
+          </view>
+        </view>
+        <view v-else class="sheet-actions" :style="{ backgroundColor: colors.bgCard, borderTopColor: colors.border }">
+          <text class="no-auth-text" :style="{ color: colors.textSecondary }">当前环节「{{ detail.current_step_name || '确认' }}」· 你不在授权名单内，待授权人处理</text>
+        </view>
+      </template>
+    </AppBottomSheet>
 
     <!-- 底部批量通过栏 -->
     <view v-if="selectedCount > 0" class="footer-bar" :style="{ backgroundColor: colors.bgCard, borderTopColor: colors.border }">
@@ -132,6 +159,7 @@ import {
 import { toAbsUrl } from '@/utils/url'
 import AppListShell from '@/components/AppListShell.vue'
 import AppListFooter from '@/components/AppListFooter.vue'
+import AppBottomSheet from '@/components/AppBottomSheet.vue'
 import AppDialog from '@/components/AppDialog.vue'
 
 const PAGE_SIZE = 20
@@ -147,8 +175,8 @@ type ConfirmData = {
   list: MaintenanceItem[]
   /** 勾选状态（id → true） */
   selected: Record<string, boolean>
-  /** 展开状态（id → true） */
-  expanded: Record<string, boolean>
+  /** 详情弹层当前记录（null = 关闭） */
+  detail: MaintenanceItem | null
   maintTypeOptions: DictOption[]
   rejecting: boolean
   rejectReason: string
@@ -160,7 +188,7 @@ type ConfirmData = {
 }
 
 export default {
-  components: { AppListShell, AppListFooter, AppDialog },
+  components: { AppListShell, AppListFooter, AppBottomSheet, AppDialog },
   data(): ConfirmData {
     return {
       colors: Colors,
@@ -172,7 +200,7 @@ export default {
       total: 0,
       list: [] as MaintenanceItem[],
       selected: {},
-      expanded: {},
+      detail: null,
       maintTypeOptions: [] as DictOption[],
       rejecting: false,
       rejectReason: '',
@@ -223,12 +251,17 @@ export default {
       }
       this.selected[id] = !this.selected[id]
     },
-    toggleExpand(id: string) {
-      this.expanded[id] = !this.expanded[id]
+    /** 打开详情弹层（点卡片；勾选框已 stop 冒泡） */
+    openDetail(m: MaintenanceItem) {
+      this.detail = m
+    },
+    closeDetail() {
+      this.detail = null
     },
     reload() {
       this.page = 1
       this.selected = {}
+      this.detail = null
       this.fetchPage(false)
     },
     loadMore() {
@@ -289,15 +322,19 @@ export default {
           this.acting = false
         })
     },
-    onPass(m: MaintenanceItem) {
-      this.doConfirm([m.id])
+    /** 详情弹层「通过」 */
+    onPass() {
+      if (this.detail == null) return
+      this.doConfirm([this.detail.id])
     },
     onBatchPass() {
       const ids = this.list.filter((m) => this.selected[m.id]).map((m) => m.id)
       this.doConfirm(ids)
     },
-    onRejectTap(m: MaintenanceItem) {
-      this.rejectTarget = m
+    /** 详情弹层「驳回」 */
+    onRejectTap() {
+      if (this.detail == null) return
+      this.rejectTarget = this.detail
       this.rejectReason = ''
       this.rejecting = true
     },
@@ -387,8 +424,61 @@ export default {
   margin-top: 8rpx;
 }
 
-.expand {
-  margin-top: 16rpx;
+.card-foot {
+  margin-top: 12rpx;
+}
+
+.card-ai {
+  font-size: 26rpx;
+  line-height: 36rpx;
+}
+
+.card-noauth {
+  font-size: 24rpx;
+  margin-top: 8rpx;
+}
+
+/* 详情弹层（与打卡审核同款） */
+.sheet-scroll {
+  flex: 1;
+  min-height: 0;
+  padding: 24rpx;
+}
+
+.sheet-head {
+  flex-direction: row;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8rpx 8rpx 16rpx;
+}
+
+.sheet-title {
+  font-size: 34rpx;
+  font-weight: 600;
+  flex: 1;
+}
+
+.sheet-close {
+  font-size: 48rpx;
+  padding: 0 16rpx;
+  line-height: 48rpx;
+}
+
+.sheet-body {
+  padding: 0 8rpx 24rpx;
+}
+
+.sheet-actions {
+  flex-direction: row;
+  padding: 24rpx;
+  border-top-width: 1rpx;
+  border-top-style: solid;
+}
+
+.no-auth-text {
+  flex: 1;
+  text-align: center;
+  font-size: 26rpx;
 }
 
 .info-line {
@@ -408,11 +498,6 @@ export default {
   border-radius: 12rpx;
   margin-right: 16rpx;
   margin-bottom: 16rpx;
-}
-
-.row-actions {
-  flex-direction: row;
-  margin-top: 24rpx;
 }
 
 .btn-half {

@@ -8,6 +8,7 @@
             <el-badge :value="pendingTotal" :hidden="pendingTotal === 0" :max="99">维保确认</el-badge>
           </template>
         </el-tab-pane>
+        <el-tab-pane label="维保记录" name="records" />
       </el-tabs>
     </div>
 
@@ -173,7 +174,10 @@
     </template>
 
     <!-- ========== 维保确认 ========== -->
-    <ConfirmList v-else ref="confirmRef" @changed="fetchPendingTotal" />
+    <ConfirmList v-else-if="mainTab === 'confirm'" ref="confirmRef" @changed="fetchPendingTotal" />
+
+    <!-- ========== 维保记录（全状态流水总表） ========== -->
+    <MaintRecordList v-else ref="recordRef" />
 
     <!-- 新增/编辑对话框 -->
     <el-dialog v-model="formVisible" :title="form.id ? '编辑设备' : '新增设备'" width="640px" :close-on-click-modal="false">
@@ -377,14 +381,16 @@ import { useDictOptions } from '@/composables/useDictOptions'
 import { useCommunities } from '@/composables/useCommunities'
 import { usePagedList } from '@/composables/usePagedList'
 import ConfirmList from './ConfirmList.vue'
+import MaintRecordList from './MaintRecordList.vue'
 import StatusDot from '@/components/StatusDot.vue'
 import MaintenanceFormDialog from './MaintenanceFormDialog.vue'
 import EquipmentImportDialog from './EquipmentImportDialog.vue'
 
 // ===== 主 tab =====
 const route = useRoute()
-const mainTab = ref<'list' | 'confirm'>('list')
+const mainTab = ref<'list' | 'confirm' | 'records'>('list')
 const confirmRef = ref<InstanceType<typeof ConfirmList>>()
+const recordRef = ref<InstanceType<typeof MaintRecordList>>()
 
 // ===== 字典与小区（共享缓存 composable） =====
 const { options: typeOptions } = useDictOptions('equipment_type')
@@ -858,6 +864,7 @@ onActivated(() => {
   fetchList()
   fetchPendingTotal()
   confirmRef.value?.fetchList()
+  recordRef.value?.fetchList()
 })
 </script>
 

@@ -211,6 +211,22 @@ export function listMaintenancePending(params: { page?: number; page_size?: numb
   return request<PageResult<MaintenanceItem>>({ url: '/equipment/maintenance-pending', method: 'get', params })
 }
 
+/** 维保流水总表（全状态；台账页「维保记录」tab） */
+export interface MaintenanceRecordQuery {
+  page?: number
+  page_size?: number
+  community_id?: string
+  confirm_status?: string
+  keyword?: string
+  start_date?: string
+  end_date?: string
+  label_missing?: string
+}
+
+export function listMaintenanceRecords(params: MaintenanceRecordQuery) {
+  return request<PageResult<MaintenanceItem>>({ url: '/equipment/maintenances', method: 'get', params })
+}
+
 export interface ConfirmResult {
   confirmed: number
   skipped: number

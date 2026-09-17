@@ -59,7 +59,7 @@ import { useAuthStore } from '@/stores/auth'
 import AppListShell from '@/components/AppListShell.vue'
 import AppSegmentTabs from '@/components/AppSegmentTabs.vue'
 
-type TabKey = 'pending' | 'doing' | 'done'
+type TabKey = 'pending' | 'doing' | 'done' | 'all'
 
 type PendingData = {
   colors: ColorTokens
@@ -75,7 +75,8 @@ type PendingData = {
 const TABS: { value: TabKey; label: string }[] = [
   { value: 'pending', label: '等待签字' },
   { value: 'doing', label: '进行中' },
-  { value: 'done', label: '已完成' }
+  { value: 'done', label: '已完成' },
+  { value: 'all', label: '全部' }
 ]
 
 /** 当前签字节点文案（对齐报告状态机） */
@@ -115,11 +116,13 @@ export default {
     emptyTitle(): string {
       if (this.tab == 'pending') return '暂时没有要你签字的报告'
       if (this.tab == 'doing') return '暂时没有进行中的报告'
+      if (this.tab == 'all') return '数据权限内还没有报告'
       return '还没有已完成的报告'
     },
     emptySub(): string {
       if (this.tab == 'pending') return '月度报告到达你的签字节点时会出现在这里'
       if (this.tab == 'doing') return '你已签字、仍在审批流程中的报告会显示在这里'
+      if (this.tab == 'all') return '你数据权限内的全部报告（含在途）都列在这里'
       return '已归档的月度报告会保留在这里，可随时查看完整内容'
     }
   },
@@ -155,12 +158,14 @@ export default {
     },
     load() {
       this.loading = !this.loaded
-      // 等待签字：pending_mine=1；进行中：signed_mine=doing（我签过未归档）；已完成：status=approved
+      // 等待签字：pending_mine=1；进行中：signed_mine=doing（我签过未归档）；已完成：status=approved；全部：不过滤（数据权限收口在服务端）
       let req: Promise<any>
       if (this.tab == 'pending') {
         req = apiReports(1, 50, true)
       } else if (this.tab == 'doing') {
         req = apiReports(1, 50, false, '', 'doing')
+      } else if (this.tab == 'all') {
+        req = apiReports(1, 50, false)
       } else {
         req = apiReports(1, 50, false, 'approved')
       }

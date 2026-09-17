@@ -59,9 +59,11 @@ RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -o /out/server ./cmd/server \
 FROM alpine:3.20 AS prod
 ARG ALPINE_MIRROR
 RUN sed -i "s/dl-cdn.alpinelinux.org/$ALPINE_MIRROR/g" /etc/apk/repositories \
-    && apk add --no-cache ca-certificates tzdata curl
-# 非 root 运行：appuser 持有 /app/uploads（local 上传模式挂载卷）
+    && apk add --no-cache ca-certificates tzdata curl su-exec
+# 非 root 运行：entrypoint 以 root 启动，chown 挂载卷（修复早期 root 容器创建的存量卷）后降权为 appuser
 RUN adduser -D -u 10001 appuser && mkdir -p /app/uploads && chown appuser /app/uploads
+COPY backend/scripts/docker-entrypoint.sh /app/docker-entrypoint.sh
+RUN chmod +x /app/docker-entrypoint.sh
 ENV TZ=Asia/Shanghai
 # 水印中文字体（Noto Sans SC，随仓库 backend/fonts 提供，构建阶段一并复制）
 COPY --from=be /be/fonts /app/fonts
@@ -72,5 +74,6 @@ COPY --from=be /out/server /app/server
 COPY --from=be /out/seed-demo /app/seed-demo
 COPY --from=fe /fe/dist /app/dist
 EXPOSE 8080
-USER appuser
+# 不以 USER 指令降权：entrypoint 需要 root 完成挂载卷 chown，随后 su-exec 降为 appuser
+ENTRYPOINT ["/app/docker-entrypoint.sh"]
 CMD ["/app/server"]

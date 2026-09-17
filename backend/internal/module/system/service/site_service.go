@@ -6,10 +6,12 @@ import (
 	"regexp"
 	"strings"
 
+	"go.uber.org/zap"
 	"gorm.io/gorm"
 
 	"anxuncloud/internal/module/system/model"
 	"anxuncloud/internal/pkg/errs"
+	"anxuncloud/internal/pkg/logger"
 	"anxuncloud/internal/pkg/storage"
 	"anxuncloud/internal/pkg/uploadfile"
 )
@@ -103,6 +105,7 @@ func (s *SiteService) ReleaseFileKey(rel *model.AppRelease) (string, bool) {
 func (s *SiteService) ListReleases() ([]model.AppRelease, *errs.Error) {
 	var rows []model.AppRelease
 	if err := s.db.Order("created_at DESC").Find(&rows).Error; err != nil {
+		logger.L.Error("发布物列表查询失败", zap.Error(err))
 		return nil, errs.ErrInternal
 	}
 	return rows, nil
@@ -132,6 +135,7 @@ func (s *SiteService) UploadRelease(userID, platform, version, note, filename st
 
 	key, _, md5hex, written, err := s.store.SaveStream("app", userID, ext, r)
 	if err != nil {
+		logger.L.Error("发布物文件保存失败", zap.String("filename", filename), zap.Error(err))
 		return nil, errs.ErrInternal.WithMsg("文件保存失败")
 	}
 	if written > 0 {

@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"go.uber.org/zap"
 	"gorm.io/gorm"
 
 	"anxuncloud/internal/config"
@@ -19,6 +20,7 @@ import (
 	"anxuncloud/internal/pkg/authz"
 	"anxuncloud/internal/pkg/errs"
 	"anxuncloud/internal/pkg/exifutil"
+	"anxuncloud/internal/pkg/logger"
 	"anxuncloud/internal/pkg/storage"
 	"anxuncloud/internal/pkg/timefmt"
 )
@@ -150,6 +152,7 @@ func (s *UploadService) SaveLocal(userID string, scene, filename string, size in
 	}
 	key, url, data, md5, err := s.store.Save(scene, userID, ext, bytes.NewReader(data))
 	if err != nil {
+		logger.L.Error("本地直传文件保存失败", zap.String("scene", scene), zap.String("filename", filename), zap.Error(err))
 		return nil, errs.ErrInternal
 	}
 	// JPEG 尝试解析 EXIF 拍摄时间（失败不阻塞）
@@ -200,6 +203,7 @@ func (s *UploadService) SaveAdminLocal(userID string, scene, filename string, si
 	}
 	key, url, _, md5, err := s.store.Save(scene, userID, ext, bytes.NewReader(data))
 	if err != nil {
+		logger.L.Error("管理端上传文件保存失败", zap.String("scene", scene), zap.String("filename", filename), zap.Error(err))
 		return nil, errs.ErrInternal
 	}
 	mime := "image/" + ext

@@ -1,6 +1,9 @@
 <template>
   <!-- App 端 PDF 预览：web-view 内嵌后端 pdf.js 查看器（报告正文在内嵌页内渲染） -->
-  <web-view :src="src"></web-view>
+  <web-view v-if="src != ''" :src="src"></web-view>
+  <view v-else style="display: flex; align-items: center; justify-content: center; height: 100vh; color: #909399; font-size: 14px;">
+    <text>PDF 地址缺失，请返回重试</text>
+  </view>
 </template>
 
 <script lang="ts">

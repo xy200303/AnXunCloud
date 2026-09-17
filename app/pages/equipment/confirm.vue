@@ -90,8 +90,8 @@
       </view>
     </view>
 
-    <!-- 驳回原因弹层 -->
-    <view v-if="rejecting" class="mask mask-center" :style="{ backgroundColor: colors.mask }" @click="rejecting = false">
+    <!-- 驳回原因弹层（遮罩点击不关闭，避免误触丢失已填理由；用「取消」显式关闭） -->
+    <view v-if="rejecting" class="mask mask-center" :style="{ backgroundColor: colors.mask }">
       <view class="dialog" :style="{ backgroundColor: colors.bgCard }" @click.stop="">
         <text class="dialog-title" :style="{ color: colors.textPrimary }">驳回原因（必填）</text>
         <textarea
@@ -123,6 +123,7 @@
 </template>
 
 <script lang="ts">
+import { toastErr } from '@/utils/ui'
 import { Colors, ColorTokens } from '@/utils/theme'
 import {
   apiMaintenancePending, apiMaintenanceConfirm, apiMaintenanceReject, apiDictOptions,

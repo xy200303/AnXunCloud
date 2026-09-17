@@ -101,10 +101,10 @@
 import { Colors, ColorTokens } from '@/utils/theme'
 import { apiEquipmentDetail, apiEquipmentRegister, apiMaintenanceUpdate, apiMaintenanceMine, apiUploadLocal, EquipmentDetail, CODE_QUALITY_FAIL } from '@/services/api'
 import { compressForUpload } from '@/utils/image'
+import { toAbsUrl } from '@/utils/url'
+import { MAINTAIN_EDIT_KEY } from '@/utils/storage'
+import { toastErr } from '@/utils/ui'
 import AppDialog from '@/components/AppDialog.vue'
-
-/** 「我的提交 → 修改照片」编辑草稿的 storage 键（与 mine.vue 约定一致） */
-const MAINTAIN_EDIT_KEY = 'maintain_edit_draft'
 
 type MaintainEditDraft = {
   id: string
@@ -216,12 +216,16 @@ export default {
       this.loading = false
     }
   },
+  onUnload() {
+    // 离开编辑模式（提交成功返回/中途取消）：清除编辑草稿，防残留串到下次登记
+    if (this.editId != '') uni.removeStorageSync(MAINTAIN_EDIT_KEY)
+  },
   methods: {
     /** 编辑模式预填：优先 mine.vue 写入的草稿；缺失（如页面刷新）时拉我的提交列表兜底 */
     prefillDraft() {
       const draft = uni.getStorageSync(MAINTAIN_EDIT_KEY) as MaintainEditDraft | ''
       if (draft != null && typeof draft == 'object' && draft.id == this.editId && Array.isArray(draft.photos)) {
-        this.photos = draft.photos.map((p) => p.url)
+        this.photos = draft.photos.map((p) => toAbsUrl(p.url))
         this.fileIds = draft.photos.map((p) => p.file_id)
         return
       }
@@ -229,7 +233,7 @@ export default {
         .then((p) => {
           const m = p.list.find((it) => it.id == this.editId)
           if (m != null) {
-            this.photos = m.photos.map((ph) => ph.url)
+            this.photos = m.photos.map((ph) => toAbsUrl(ph.url))
             this.fileIds = m.photos.map((ph) => ph.file_id)
           }
         })
@@ -254,7 +258,7 @@ export default {
               this.imgError = false
             })
             .catch((e: Error) => {
-              uni.showToast({ title: e.message, icon: 'none' })
+              toastErr(e)
             })
             .finally(() => {
               this.uploading = false
@@ -295,6 +299,7 @@ export default {
         apiMaintenanceUpdate(this.editId, { file_ids: this.fileIds })
           .then((r) => {
             uni.hideLoading()
+            uni.removeStorageSync(MAINTAIN_EDIT_KEY) // 提交成功清除编辑草稿（onUnload 兜底再清一次）
             const autoOk = r.confirm_status == 'confirmed'
             this.openResult(autoOk ? 'ok' : 'pending', autoOk ? '维保已生效' : '修改已提交', autoOk ? '系统核对通过，台账已更新' : '已更新照片，经理确认后生效')
           })

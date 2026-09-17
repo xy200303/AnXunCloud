@@ -52,10 +52,12 @@
 </template>
 
 <script lang="ts">
+import { toastErr } from '@/utils/ui'
 import { Colors, ColorTokens } from '@/utils/theme'
 import { apiEquipmentDue, EquipmentListItem, EquipmentDueState } from '@/services/api'
 import AppListShell from '@/components/AppListShell.vue'
 import AppChipScroller from '@/components/AppChipScroller.vue'
+import { useAuthStore } from '@/stores/auth'
 
 type PageData = {
   colors: ColorTokens
@@ -168,6 +170,11 @@ export default {
     goDetail(e: EquipmentListItem) {
       this.lastLoadedAt = 0
       if (this.mode == 'pick') {
+        // 登记维保须 equipment:maintenance 权限（只有台账查看权限的用户前置拦截，不走进拍照流程才被 403）
+        if (!useAuthStore().hasPerm('equipment:maintenance')) {
+          uni.showToast({ title: '你没有维保登记权限', icon: 'none' })
+          return
+        }
         // 选设备模式：直达维保拍照页（name/code 作详情拉取失败时的回显兜底）
         uni.navigateTo({
           url:

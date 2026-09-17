@@ -115,6 +115,7 @@
 </template>
 
 <script lang="ts">
+import { toastErr } from '@/utils/ui'
 import { Colors, ColorTokens } from '@/utils/theme'
 import { apiReviewRecords, apiReviewPass, apiReviewReject, ReviewRecord } from '@/services/api'
 import AppBottomSheet from '@/components/AppBottomSheet.vue'
@@ -162,7 +163,7 @@ export default {
       status: 'pending',
       tabs: [
         { label: '待审核', value: 'pending' },
-        { label: '已通过', value: 'passed' },
+        { label: '已通过', value: 'pass' },
         { label: '已驳回', value: 'rejected' }
       ],
       loading: true,
@@ -255,7 +256,9 @@ export default {
           }
           this.openDetail(res.list[0])
         })
-        .catch(() => {})
+        .catch((e: Error) => {
+          uni.showToast({ title: e.message || '记录加载失败', icon: 'none' })
+        })
     },
     openDetail(r: ReviewRecord) {
       this.detail = r

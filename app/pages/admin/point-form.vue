@@ -62,10 +62,10 @@
           </view>
         </picker>
 
-        <text class="label" :style="{ color: colors.textRegular }">检查项模板（选填，可多选）</text>
+        <text class="label" :style="{ color: colors.textRegular }">检查项模板（必选，可多选）</text>
         <view class="field" :style="{ borderColor: colors.border }" @click="openTemplateSheet">
           <text class="field-text" :style="{ color: templateIds.length == 0 ? colors.textSecondary : colors.textPrimary }">
-            {{ templateIds.length == 0 ? '不关联模板' : templateNamesText }}
+            {{ templateIds.length == 0 ? '请选择模板' : templateNamesText }}
           </text>
           <text class="field-arrow" :style="{ color: colors.textSecondary }">▾</text>
         </view>
@@ -269,6 +269,7 @@
 </template>
 
 <script lang="ts">
+import { toastErr } from '@/utils/ui'
 import { Colors, ColorTokens } from '@/utils/theme'
 import {
   apiCommunityTree,
@@ -457,7 +458,9 @@ export default {
           // 只保留启用模板
           this.templates = list.filter((t) => t.status == 1)
         })
-        .catch((_e: any) => {})
+        .catch((e: any) => {
+          uni.showToast({ title: e?.message || '模板列表加载失败', icon: 'none' })
+        })
       apiDictOptions('point_type')
         .then((opts) => {
           this.typeOptions = opts
@@ -647,6 +650,10 @@ export default {
       }
       if (this.credential == 'nfc' && this.nfcId.trim() == '') {
         uni.showToast({ title: '凭证方式为 NFC 时须填写 NFC 卡号', icon: 'none' })
+        return null
+      }
+      if (this.templateIds.length == 0) {
+        uni.showToast({ title: '请选择检查项模板', icon: 'none' })
         return null
       }
       return {

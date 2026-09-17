@@ -90,9 +90,11 @@
 </template>
 
 <script lang="ts">
+import { toastErr } from '@/utils/ui'
 import { Colors, ColorTokens } from '@/utils/theme'
 import { apiMessages, apiMarkMessageRead, apiAnnouncements, apiCheckinBrief, MessageItem, AnnouncementItem } from '@/services/api'
 import { useMessageStore } from '@/stores/message'
+import { useAuthStore } from '@/stores/auth'
 import { syncBadge } from '@/utils/push'
 import AppListShell from '@/components/AppListShell.vue'
 import AppListFooter from '@/components/AppListFooter.vue'
@@ -113,6 +115,7 @@ type MessagesData = {
   noticeShow: boolean
   noticeLoading: boolean
   notices: AnnouncementItem[]
+  noticeLoadedAt: number
   lastLoadedAt: number
   /** 消息详情查看弹窗（无图标单按钮） */
   msgDlg: { show: boolean; title: string; content: string }
@@ -124,6 +127,7 @@ function typeTextOf(t: string): string {
   if (t == 'checkin_audit') return '审核'
   if (t == 'task') return '任务'
   if (t == 'equipment_maint_pending') return '维保'
+  if (t == 'equipment_expire' || t == 'equipment_scrap' || t == 'equipment_maint_reject') return '设备'
   if (t == 'announcement' || t == 'notice') return '公告'
   return '系统'
 }
@@ -133,6 +137,7 @@ function typeColorOf(t: string): string {
   if (t == 'checkin_audit') return Colors.danger
   if (t == 'task') return Colors.warning
   if (t == 'equipment_maint_pending') return Colors.primary
+  if (t == 'equipment_expire' || t == 'equipment_scrap' || t == 'equipment_maint_reject') return Colors.primary
   if (t == 'announcement' || t == 'notice') return Colors.success
   return Colors.info
 }
@@ -153,6 +158,7 @@ export default {
       noticeShow: false,
       noticeLoading: false,
       notices: [] as AnnouncementItem[],
+      noticeLoadedAt: 0,
       lastLoadedAt: 0,
       msgDlg: { show: false, title: '', content: '' }
     }
@@ -282,6 +288,11 @@ export default {
         }
         // 管理侧审核提醒（待执行审核 / AI 转人工）：biz_id = 打卡记录 ID，直达审核页并弹出该记录详情
         if (biz != null && biz != '') {
+          // 名单/权限可能在消息投递后变化：无审核权限时不跳进错误页，直接看消息内容
+          if (!useAuthStore().hasPerm('inspection:checkin:review')) {
+            this.msgDlg = { show: true, title: m.title, content: m.content }
+            return
+          }
           uni.navigateTo({ url: '/pages/admin/review?id=' + encodeURIComponent(biz) })
           return
         }
@@ -310,12 +321,13 @@ export default {
     // ===== 公告 =====
     openAnnouncements() {
       this.noticeShow = true
-      if (this.notices.length > 0) return
+      if (this.notices.length > 0 && Date.now() - this.noticeLoadedAt < 20000) return
       this.noticeLoading = true
       apiAnnouncements(1, 50)
         .then((res) => {
           this.notices = res.list
           this.noticeLoading = false
+          this.noticeLoadedAt = Date.now()
         })
         .catch((e: Error) => {
           this.noticeLoading = false

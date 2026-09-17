@@ -96,6 +96,7 @@
 </template>
 
 <script lang="ts">
+import { toastErr } from '@/utils/ui'
 import { Colors, ColorTokens } from '@/utils/theme'
 import { APP_VERSION } from '@/utils/appVersion'
 import { apiUploadLocal, apiUpdateProfile, apiTenants, apiEquipmentDue, apiMaintenancePending } from '@/services/api'

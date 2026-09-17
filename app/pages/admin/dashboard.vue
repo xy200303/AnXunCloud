@@ -63,7 +63,7 @@
             <text v-if="t.missing_count > 0 && t.status != 'done' && t.status != 'pending'" :style="{ color: colors.warning }"> · 漏 {{ t.missing_count }}</text>
           </text>
           <view
-            v-if="t.status != 'done'"
+            v-if="t.status != 'done' && t.can_remind !== false"
             class="btn-remind"
             :style="{ borderColor: colors.warning }"
             @click.stop="onRemind(t)"
@@ -95,6 +95,7 @@
 </template>
 
 <script lang="ts">
+import { toastErr } from '@/utils/ui'
 import { Colors, ColorTokens } from '@/utils/theme'
 import { apiAdminDashboard, apiTaskMonitorList, apiTaskRemind, DashboardData, MonitorTask } from '@/services/api'
 import AppSegmentTabs from '@/components/AppSegmentTabs.vue'

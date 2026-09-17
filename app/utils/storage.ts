@@ -7,11 +7,35 @@ export const KEY_ACCESS_TOKEN = 'access_token'
 export const KEY_REFRESH_TOKEN = 'refresh_token'
 export const KEY_USER_INFO = 'user_info'
 
+/** 会话性数据 storage key 注册表（登出/强制登出随登录态一并清理，防共用设备串户） */
+export const KEY_OFFLINE_QUEUE = 'offline_checkins'
+export const KEY_CHECKIN_DRAFT_PREFIX = 'checkin_draft:'
+export const MAINTAIN_EDIT_KEY = 'maintain_edit_draft'
+export const KEY_UPDATE_PKG_CACHE = 'update_pkg_cache'
+
 /** 清空登录态（token / refresh_token / 用户缓存） */
 export function clearAuthStorage(): void {
   uni.removeStorageSync(KEY_ACCESS_TOKEN)
   uni.removeStorageSync(KEY_REFRESH_TOKEN)
   uni.removeStorageSync(KEY_USER_INFO)
+}
+
+/** 清空会话性数据（离线打卡队列 / 打卡草稿前缀 key / 维保编辑草稿 / 安装包缓存）；不碰登录态 */
+export function clearSessionStorage(): void {
+  uni.removeStorageSync(KEY_OFFLINE_QUEUE)
+  uni.removeStorageSync(MAINTAIN_EDIT_KEY)
+  uni.removeStorageSync(KEY_UPDATE_PKG_CACHE)
+  try {
+    const info = uni.getStorageInfoSync()
+    const keys = (info && info.keys) || []
+    for (let i = 0; i < keys.length; i++) {
+      if (keys[i].indexOf(KEY_CHECKIN_DRAFT_PREFIX) == 0) {
+        uni.removeStorageSync(keys[i])
+      }
+    }
+  } catch (e) {
+    // getStorageInfoSync 异常不阻断登出主流程
+  }
 }
 
 export function getAccessToken(): string {

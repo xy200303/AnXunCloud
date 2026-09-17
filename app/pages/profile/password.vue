@@ -55,6 +55,7 @@
 </template>
 
 <script lang="ts">
+import { toastErr } from '@/utils/ui'
 import { Colors, ColorTokens } from '@/utils/theme'
 import { apiChangePassword } from '@/services/api'
 

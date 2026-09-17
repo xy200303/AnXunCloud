@@ -76,6 +76,7 @@
 </template>
 
 <script lang="ts">
+import { toastErr } from '@/utils/ui'
 import { Colors, ColorTokens } from '@/utils/theme'
 import { apiEquipmentList, apiCommunityTree, apiDictOptions, EquipmentListItem, EquipmentDueState, CommunityTreeNode, DictOption } from '@/services/api'
 import AppListShell from '@/components/AppListShell.vue'

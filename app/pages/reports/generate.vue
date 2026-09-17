@@ -90,6 +90,7 @@
 </template>
 
 <script lang="ts">
+import { toastErr } from '@/utils/ui'
 import { Colors, ColorTokens, ShadowCard } from '@/utils/theme'
 import { apiCommunityTree, apiDictOptions, apiReportGenerate, apiReportSignCandidates, DictOption, ReportSignCandidate } from '@/services/api'
 import AppSelectionSheet from '@/components/AppSelectionSheet.vue'
@@ -189,12 +190,17 @@ export default {
           this.loadCandidates()
         }
       })
-      .catch(() => {})
+      .catch((e: Error) => {
+        // 小区树加载失败会导致选择器为空、提交按钮永远置灰且无原因——必须显性报错
+        uni.showToast({ title: e.message || '小区列表加载失败，请退出重进', icon: 'none' })
+      })
     apiDictOptions('patrol_type')
       .then((opts) => {
         this.typeOptions = opts
       })
-      .catch(() => {})
+      .catch((e: Error) => {
+        uni.showToast({ title: e.message || '巡查类型加载失败', icon: 'none' })
+      })
   },
   methods: {
     onCommunityPick(event: any) {

@@ -10,9 +10,10 @@
  */
 
 import { apiOfflineSync, apiUploadLocal, CheckinReqPayload } from '@/services/api'
+import { KEY_OFFLINE_QUEUE } from '@/utils/storage'
 
-/** 队列 storage key */
-const KEY_QUEUE = 'offline_checkins'
+/** 队列 storage key（集中注册表见 utils/storage.ts） */
+const KEY_QUEUE = KEY_OFFLINE_QUEUE
 
 /** 网络异常错误文案前缀（request.ts 网络失败 / api.ts 上传失败） */
 export const NETWORK_ERR_PREFIX = '网络异常'
@@ -61,6 +62,20 @@ export function listOfflineCheckins(): OfflineEntry[] {
   } catch (e) {
     return []
   }
+}
+
+/** 同任务下同点位是否存在待补传的离线暂存（防重复打卡/旧离线数据覆盖新在线记录） */
+export function hasOfflineCheckin(taskID: string, pointID: string): boolean {
+  return listOfflineCheckins().some((e) => e.req.task_id == taskID && e.req.point_id == pointID)
+}
+
+/** 某任务有待补传暂存的点位集合（列表页状态标注用） */
+export function offlinePointSet(taskID: string): Record<string, boolean> {
+  const out: Record<string, boolean> = {}
+  listOfflineCheckins().forEach((e) => {
+    if (e.req.task_id == taskID) out[e.req.point_id] = true
+  })
+  return out
 }
 
 /** 待补传条数 */

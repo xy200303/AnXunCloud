@@ -14,7 +14,8 @@ import {
   getAccessToken,
   getRefreshToken,
   saveTokens,
-  clearAuthStorage
+  clearAuthStorage,
+  clearSessionStorage
 } from '@/utils/storage'
 import { currentTenantId } from '@/stores/tenant'
 
@@ -131,6 +132,7 @@ export function forceLogoutToLogin(msg?: string): void {
   if (loggingOut) return
   loggingOut = true
   clearAuthStorage()
+  clearSessionStorage() // 会话数据（离线队列/草稿等）一并清除，防共用设备串户
   uni.showToast({ title: msg != null && msg != '' ? msg : '登录已失效，请重新登录', icon: 'none' })
   uni.reLaunch({ url: '/pages/login/index' })
   // reLaunch 完成后解锁，避免并发请求重复跳转/连弹 toast

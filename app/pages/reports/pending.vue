@@ -52,6 +52,7 @@
 </template>
 
 <script lang="ts">
+import { toastErr } from '@/utils/ui'
 import { Colors, ColorTokens } from '@/utils/theme'
 import { apiReports, ReportListItem } from '@/services/api'
 import { useAuthStore } from '@/stores/auth'
@@ -137,7 +138,8 @@ export default {
       uni.showToast({ title: '暂无生成报告权限', icon: 'none' })
       return
     }
-    this.menuOpen = !this.menuOpen
+    // 菜单只有「生成报告」一项，不再经过遮罩菜单两步操作
+    this.goGenerate()
   },
   methods: {
     goGenerate() {

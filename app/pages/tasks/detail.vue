@@ -77,8 +77,10 @@
 </template>
 
 <script lang="ts">
+import { toastErr } from '@/utils/ui'
 import { Colors, ColorTokens } from '@/utils/theme'
 import { apiTaskDetail, apiItemDrafts, ItemDraft, TaskPoint } from '@/services/api'
+import { offlinePointSet } from '@/utils/offline'
 
 /** 点位行视图模型：文案/颜色在数据层预计算 */
 type PointView = {
@@ -93,6 +95,8 @@ type PointView = {
   checked: boolean
   /** 已打卡且已归档锁定（不可修改） */
   locked: boolean
+  /** 本地离线队列有待补传暂存（未真正入库；拦截重复打卡） */
+  offline_pending?: boolean
   my_checkin: TaskPoint['my_checkin']
 }
 
@@ -165,11 +169,16 @@ type SnapStage = 'recognizing' | 'doing' | ''
 /** 点位项级进度（从云端草稿派生）：stage 进度档 + done 已有结论项数 */
 type DraftStat = { stage: SnapStage; done: number }
 
-function toPointView(p: TaskPoint, draftStats: Record<string, DraftStat>): PointView {
+function toPointView(p: TaskPoint, draftStats: Record<string, DraftStat>, offlineSet: Record<string, boolean>): PointView {
   const ck = p.my_checkin
+  const offlinePending = ck == null && offlineSet[p.point_id] == true
   let statusText = '待打卡'
   let statusColor = Colors.info
-  if (ck != null) {
+  if (offlinePending) {
+    // 本地离线队列有待补传：优先标注，防止用户再打一次卡造成旧离线数据覆盖新在线记录
+    statusText = '离线待补传'
+    statusColor = Colors.warning
+  } else if (ck != null) {
     if (ck.result == 'abnormal') {
       statusText = '异常'
       statusColor = Colors.danger
@@ -200,6 +209,7 @@ function toPointView(p: TaskPoint, draftStats: Record<string, DraftStat>): Point
     status_color: statusColor,
     checked: ck != null,
     locked: ck != null && ck.locked,
+    offline_pending: offlinePending,
     my_checkin: ck
   }
 }
@@ -339,7 +349,8 @@ export default {
               if (d.ai_status == 'done') stat.done += 1 // done 含手动项（手动行 ai_status=done）
             }
           })
-          this.points = res.points.map((p: TaskPoint) => toPointView(p, draftStats))
+          const offlineSet = offlinePointSet(this.taskId)
+          this.points = res.points.map((p: TaskPoint) => toPointView(p, draftStats, offlineSet))
           this.visibleCount = POINTS_CHUNK
           uni.stopPullDownRefresh()
         })
@@ -351,6 +362,10 @@ export default {
         })
     },
     onPointTap(p: PointView) {
+      if (p.offline_pending) {
+        uni.showToast({ title: '该点位已离线暂存，网络恢复后自动补传，无需重复打卡', icon: 'none' })
+        return
+      }
       if (!p.checked) {
         if (this.aiEnabled) {
           // 未打卡点位：直接进向导并从该点位开始（之后按顺序继续余下点位）

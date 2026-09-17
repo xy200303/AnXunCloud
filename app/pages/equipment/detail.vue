@@ -209,9 +209,9 @@ export default {
       })
       return out
     },
-    /** 维保登记入口：equipment:maintenance 权限 */
+    /** 维保登记入口：equipment:maintenance 权限；已报废设备不显示（后端同样拒绝，前置避免拍完照才被拦） */
     canRegister(): boolean {
-      return useAuthStore().hasPerm('equipment:maintenance')
+      return useAuthStore().hasPerm('equipment:maintenance') && this.detail?.status != 'scrapped'
     }
   },
   onLoad(options: any) {
@@ -260,8 +260,9 @@ export default {
           this.history = append ? this.history.concat(res.list) : res.list
           this.historyLoaded = true
         })
-        .catch(() => {
+        .catch((e: Error) => {
           this.historyLoaded = true
+          uni.showToast({ title: e.message || '维保历史加载失败', icon: 'none' })
         })
     },
     loadMoreHistory() {

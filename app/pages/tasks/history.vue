@@ -66,6 +66,7 @@
 </template>
 
 <script lang="ts">
+import { toastErr } from '@/utils/ui'
 import { Colors, ColorTokens } from '@/utils/theme'
 import { apiTasksHistory, TodayTask } from '@/services/api'
 
@@ -145,6 +146,10 @@ export default {
   },
   onLoad() {
     this.load()
+  },
+  onShow() {
+    // 打卡/补拍返回后刷新进度与点位状态（避免「需要手动刷新才显示」）
+    if (this.loaded) this.load()
   },
   onPullDownRefresh() {
     this.load()

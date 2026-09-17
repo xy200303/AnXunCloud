@@ -1,4 +1,5 @@
 import { apiPointByCode } from '@/services/api'
+import { toastErr } from '@/utils/ui'
 import { isNfcSupported, readCardOnce, toastNfcUnavailable } from '@/utils/nfc'
 
 let scanning = false

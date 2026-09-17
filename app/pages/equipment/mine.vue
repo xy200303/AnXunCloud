@@ -31,7 +31,7 @@
             <image
               v-for="(p, pi) in m.photos"
               :key="p.file_id"
-              :src="p.url"
+              :src="toAbsUrl(p.url)"
               class="thumb"
               mode="aspectFill"
               @click="preview(m, pi)"
@@ -78,11 +78,11 @@
 <script lang="ts">
 import { Colors, ColorTokens } from '@/utils/theme'
 import { apiMaintenanceMine, MaintenanceItem } from '@/services/api'
+import { toAbsUrl } from '@/utils/url'
+import { MAINTAIN_EDIT_KEY } from '@/utils/storage'
+import { toastErr } from '@/utils/ui'
 import AppListShell from '@/components/AppListShell.vue'
 import AppChipScroller from '@/components/AppChipScroller.vue'
-
-/** 编辑草稿传递：修改照片跳入维保拍照页时经 storage 带完整记录（file_id + url） */
-export const MAINTAIN_EDIT_KEY = 'maintain_edit_draft'
 
 type PageData = {
   colors: ColorTokens
@@ -130,6 +130,7 @@ export default {
     this.load()
   },
   methods: {
+    toAbsUrl,
     statusText(s: string): string {
       if (s == 'confirmed') return '已生效'
       if (s == 'rejected') return '已驳回'
@@ -152,12 +153,12 @@ export default {
         .catch((e: Error) => {
           this.loading = false
           if (!this.loaded) this.errorMsg = e.message
-          else uni.showToast({ title: e.message, icon: 'none' })
+          else toastErr(e)
           uni.stopPullDownRefresh()
         })
     },
     preview(m: MaintenanceItem, idx: number) {
-      uni.previewImage({ urls: m.photos.map((p) => p.url), current: idx })
+      uni.previewImage({ urls: m.photos.map((p) => toAbsUrl(p.url)), current: idx })
     },
     /** 修改照片：带草稿进维保拍照页编辑模式（record 仍 pending 才可改，后端兜底校验） */
     goEdit(m: MaintenanceItem) {

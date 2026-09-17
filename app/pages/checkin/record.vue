@@ -25,7 +25,7 @@
         <text v-if="buildingName != ''" class="head-sub" :style="{ color: colors.textSecondary }">{{ buildingName }}</text>
         <!-- 审核状态（提交后可见：打回红条带原因并引导修改；其余一行状态） -->
         <view v-if="auditStatus == 'rejected'" class="audit-bar" :style="{ backgroundColor: '#FDECEC' }">
-          <text class="audit-bar-text" :style="{ color: colors.danger }">审核未通过{{ auditRemark != '' ? '：' + auditRemark : '' }}。请修改后重新提交</text>
+          <text class="audit-bar-text" :style="{ color: colors.danger }">审核未通过{{ auditRemark != '' ? '：' + auditRemark : '' }}。{{ canModify ? '请修改后重新提交' : '如需重巡请联系主管' }}</text>
         </view>
         <view v-else-if="auditStatus != ''" class="meta-row">
           <text class="meta-label" :style="{ color: colors.textSecondary }">审核状态</text>
@@ -98,6 +98,7 @@
 </template>
 
 <script lang="ts">
+import { toastErr } from '@/utils/ui'
 import { Colors, ColorTokens, ShadowCard } from '@/utils/theme'
 import { apiTaskDetail, apiCheckinItems, CheckinItemAI } from '@/services/api'
 
@@ -153,14 +154,13 @@ export default {
       if (this.accuracy != null) parts.push('精度 ±' + Math.round(this.accuracy) + ' 米')
       return parts.join(' · ')
     },
-    /** 可修改：AI 启用（修改走向导重拍重识别）+ 未归档锁定 + 任务未巡完（收工即定稿） */
+    /** 可修改：未归档锁定 + 任务未巡完（收工即定稿）。向导对 AI 未启用有降级处理（CODE_AI_DISABLED），不据此拦截 */
     canModify(): boolean {
-      return this.aiEnabled && !this.locked && this.taskStatus != 'done'
+      return !this.locked && this.taskStatus != 'done'
     },
     lockReason(): string {
       if (this.locked) return '月度报告已归档封存，不可修改'
       if (this.taskStatus == 'done') return '任务已巡完，不能改了'
-      if (!this.aiEnabled) return 'AI 未启用，暂不支持修改'
       return '当前不可修改'
     }
   },

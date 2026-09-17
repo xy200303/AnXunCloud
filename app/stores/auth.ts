@@ -6,12 +6,14 @@
 
 import { defineStore } from 'pinia'
 import { apiLogin, apiLogout, apiProfile, UserInfo } from '@/services/api'
+import { checkPerm } from '@/utils/perm'
 import {
   KEY_USER_INFO,
   getAccessToken,
   getRefreshToken,
   saveTokens,
-  clearAuthStorage
+  clearAuthStorage,
+  clearSessionStorage
 } from '@/utils/storage'
 import { bindPushDevice, unbindPushDevice, syncBadge, setAppBadge } from '@/utils/push'
 import { useTenantStore } from '@/stores/tenant'
@@ -40,20 +42,11 @@ export const useAuthStore = defineStore('auth', {
     },
     /**
      * 权限点判断：传入单个 code 或数组，任一命中即 true；userInfo 为空返回 false。
-     * 超管以 super_admin 角色兜底（与 api.ts hasPerm 同口径）。
+     * 超管以 super_admin 角色兜底。纯逻辑收敛在 utils/perm.checkPerm（单一来源）。
      */
     hasPerm(): (codes: string | string[]) => boolean {
       const u = this.userInfo
-      return (codes: string | string[]): boolean => {
-        if (u == null) return false
-        if ((u.roles ?? []).indexOf('super_admin') >= 0) return true
-        const list = typeof codes == 'string' ? [codes] : codes
-        const perms = u.perms ?? []
-        for (let i = 0; i < list.length; i++) {
-          if (perms.indexOf(list[i]) >= 0) return true
-        }
-        return false
-      }
+      return (codes: string | string[]): boolean => checkPerm(u, codes)
     }
   },
   actions: {
@@ -110,6 +103,7 @@ export const useAuthStore = defineStore('auth', {
       this.refreshToken = ''
       this.userInfo = null
       clearAuthStorage()
+      clearSessionStorage() // 会话数据（离线队列/草稿等）随登出清除，防共用设备串户
       useTenantStore().clear() // 租户上下文随登出清除（超管当前公司选择不跨账号残留）
       // 登出清零图标角标（App 端生效，其他端静默跳过）
       setAppBadge(0)

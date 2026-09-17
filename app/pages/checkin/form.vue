@@ -9,7 +9,8 @@
     <!-- 加载失败 -->
     <view v-else-if="!loaded" class="empty">
       <text class="empty-title" :style="{ color: colors.textRegular }">{{ errorMsg }}</text>
-      <text class="empty-retry" :style="{ color: colors.primary }" @click="load">重试</text>
+      <text v-if="errorMsg == '该点位已打卡'" class="empty-retry" :style="{ color: colors.primary }" @click="goRecord">查看打卡记录</text>
+      <text v-else class="empty-retry" :style="{ color: colors.primary }" @click="load">重试</text>
     </view>
 
     <!-- 打卡表单 -->
@@ -312,7 +313,10 @@ import { isNfcSupported, readCardOnce, toastNfcUnavailable } from '@/utils/nfc'
 import { extractPointCode } from '@/utils/scan'
 import { getLocationGcj02 } from '@/utils/geo'
 import { compressForUpload } from '@/utils/image'
-import { enqueueOfflineCheckin, uuidv7, NETWORK_ERR_PREFIX, OfflinePhoto } from '@/utils/offline'
+import { enqueueOfflineCheckin, hasOfflineCheckin, uuidv7, NETWORK_ERR_PREFIX, OfflinePhoto } from '@/utils/offline'
+import { KEY_CHECKIN_DRAFT_PREFIX } from '@/utils/storage'
+import { useAuthStore } from '@/stores/auth'
+import { toastErr } from '@/utils/ui'
 import AppDialog from '@/components/AppDialog.vue'
 
 /** 检查项视图模型：模板项 + 录入状态 */
@@ -347,9 +351,12 @@ function isEquipAuto(it: ItemView): boolean {
   return it.judge_type == 'equipment_validity' && it.auto_judge != null
 }
 
-/** 本地草稿 storage key（按任务+点位隔离） */
+/** 本地草稿 storage key（按用户+任务+点位隔离，防异账号恢复；uid 取不到时退回任务+点位旧格式） */
 function draftKey(taskId: string, pointId: string): string {
-  return 'checkin_draft:' + taskId + ':' + pointId
+  const u = useAuthStore().userInfo
+  const uid = u == null || u.id == null ? '' : String(u.id)
+  if (uid != '') return KEY_CHECKIN_DRAFT_PREFIX + uid + ':' + taskId + ':' + pointId
+  return KEY_CHECKIN_DRAFT_PREFIX + taskId + ':' + pointId
 }
 
 /** 草稿逐项内容：结论/备注/处置方式/抽查日期；照片本地路径不持久化（重启后临时路径可能失效） */
@@ -604,6 +611,14 @@ export default {
     }
   },
   methods: {
+    /** 「该点位已打卡」终态出口：跳打卡记录页（重试对该错误无意义） */
+    goRecord() {
+      uni.redirectTo({
+        url:
+          '/pages/checkin/record?task_id=' + encodeURIComponent(this.taskId) +
+          '&point_id=' + encodeURIComponent(this.pointId)
+      })
+    },
     isEquipAuto,
     isEquipSpot,
     canLabelPhoto,
@@ -613,6 +628,12 @@ export default {
       if (this.taskId == '' || this.pointId == '') {
         this.loading = false
         this.errorMsg = '缺少打卡参数'
+        return
+      }
+      // 离线队列已有该点位暂存：拦截重复打卡（旧离线数据补传会覆盖新在线记录）
+      if (hasOfflineCheckin(this.taskId, this.pointId)) {
+        uni.showToast({ title: '该点位已离线暂存，网络恢复后自动补传', icon: 'none' })
+        setTimeout(() => uni.navigateBack(), 800)
         return
       }
       this.loading = true
@@ -1370,7 +1391,7 @@ export default {
             )
             return
           }
-          uni.showToast({ title: e.message, icon: 'none' })
+          toastErr(e)
         })
     }
   }

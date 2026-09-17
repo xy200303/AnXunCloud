@@ -61,10 +61,11 @@ import { Colors, ColorTokens } from '@/utils/theme'
 import { getPublicOrigin } from '@/services/request'
 import { LatestRelease } from '@/utils/update'
 import { platformOf } from '@/utils/nfc'
+import { KEY_UPDATE_PKG_CACHE } from '@/utils/storage'
 import AppDialog from '@/components/AppDialog.vue'
 
-/** 安装包本地缓存键：{version, path}——按版本匹配，同版本直接安装不重下 */
-const CACHE_KEY = 'update_pkg_cache'
+/** 安装包本地缓存键：{version, path}——按版本匹配，同版本直接安装不重下（集中注册表见 utils/storage.ts） */
+const CACHE_KEY = KEY_UPDATE_PKG_CACHE
 
 type PkgCache = { version: string; path: string }
 

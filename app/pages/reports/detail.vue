@@ -98,6 +98,7 @@
 
 <script lang="ts">
 import { apiReportDetail, apiSignStep, openReportPdf, type ReportDetail, type ReportSignReq } from '@/services/api'
+import { useAuthStore } from '@/stores/auth'
 import { Colors } from '@/utils/theme'
 import AppDialog from '@/components/AppDialog.vue'
 
@@ -107,9 +108,9 @@ export default {
   computed: {
     currentStep(): any { return this.d?.review_steps?.[this.d.review_step] },
     canSign(): boolean {
-      const uid = String(uni.getStorageSync('user_id') || '')
+      const uid = String(useAuthStore().userInfo?.id || '')
       const step = this.currentStep
-      return !!this.d && this.d.status === 'pending_review' && !!step && step.candidate_ids.includes(uid) && !step.signed?.some((x: any) => x.user_id === uid)
+      return !!this.d && this.d.status === 'pending_review' && uid !== '' && !!step && step.candidate_ids.includes(uid) && !step.signed?.some((x: any) => x.user_id === uid)
     },
     statsItems(): Array<{ label: string; value: string | number; danger?: boolean }> {
       const s = (this.d?.stats ?? {}) as Record<string, any>
@@ -134,7 +135,7 @@ export default {
       try {
         this.d = await apiReportDetail(this.reportId)
       } catch (e: any) {
-        this.errorMsg = '报告加载失败，请稍后重试'
+        this.errorMsg = e?.message || '报告加载失败，请稍后重试'
       }
     },
     statusLabel(status: string) { return status === 'approved' ? '已通过' : '待审核' },
@@ -154,7 +155,7 @@ export default {
       if (url == null || url == '') return
       uni.previewImage({ urls: [url] })
     },
-    async submit(req: ReportSignReq, message: string) { if (!this.d) return; this.busy = true; try { await apiSignStep(this.d.id, this.d.review_step, req); uni.showToast({ title: message, icon: 'none' }); await this.load() } finally { this.busy = false } },
+    submit(req: ReportSignReq, message: string) { if (!this.d) return; this.busy = true; apiSignStep(this.d.id, this.d.review_step, req).then(async () => { uni.showToast({ title: message, icon: 'none' }); await this.load() }).catch((e: Error) => { uni.showToast({ title: e.message || '操作失败', icon: 'none' }) }).finally(() => { this.busy = false }) },
     approve() { this.submit({ action: 'approve' }, '签署已提交') },
     reject() { this.rejectReason = ''; this.rejectDlgShow = true },
     onRejectConfirm(reason: string) {

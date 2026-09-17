@@ -84,6 +84,7 @@
 </template>
 
 <script lang="ts">
+import { toastErr } from '@/utils/ui'
 import { Colors, ColorTokens } from '@/utils/theme'
 import { apiPointList, apiCommunityTree, apiDictOptions, PointItem, CommunityTreeNode, DictOption } from '@/services/api'
 import { useAuthStore } from '@/stores/auth'

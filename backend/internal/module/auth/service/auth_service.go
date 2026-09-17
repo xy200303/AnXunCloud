@@ -51,8 +51,8 @@ func (s *AuthService) Login(ctx context.Context, req *dto.LoginReq, ip, ua strin
 
 // LoginChannel 账号密码登录（按渠道建立会话/写日志；APP 端走 ChannelApp）。
 func (s *AuthService) LoginChannel(ctx context.Context, req *dto.LoginReq, channel, ip, ua string) (*dto.TokenResp, *errs.Error) {
-	// 登录限流：连续失败达 security.login_fail_limit 锁定 10 分钟
-	if be := s.checkLoginLimit(ctx, ip); be != nil {
+	// 登录限流：IP 与 username+IP 双维度计数，任一连续失败达 security.login_fail_limit 锁定 10 分钟
+	if be := s.checkLoginLimit(ctx, ip, req.Username); be != nil {
 		s.writeLoginLog(nil, nil, req.Username, ip, ua, "fail", "登录过于频繁已锁定", channel)
 		return nil, be
 	}
@@ -65,7 +65,7 @@ func (s *AuthService) LoginChannel(ctx context.Context, req *dto.LoginReq, chann
 		if be.Code == errs.ErrTenantCodeRequired.Code {
 			return nil, be
 		}
-		s.incrLoginFail(ctx, ip)
+		s.incrLoginFail(ctx, ip, req.Username)
 		s.writeLoginLog(nil, nil, req.Username, ip, ua, "fail", be.Msg, channel)
 		return nil, be
 	}
@@ -87,8 +87,8 @@ func (s *AuthService) LoginChannel(ctx context.Context, req *dto.LoginReq, chann
 	if be != nil {
 		return nil, be
 	}
-	// 登录成功：清除失败计数、更新最近登录时间
-	s.rdb.Del(ctx, "limit:login:"+ip)
+	// 登录成功：清除双维度失败计数、更新最近登录时间
+	s.rdb.Del(ctx, "limit:login:"+ip, loginUserLimitKey(req.Username, ip))
 	now := time.Now()
 	s.db.Model(&model.SysUser{}).Where("id = ?", user.ID).Update("last_login_at", now)
 	s.writeLoginLog(&user.ID, &user.TenantID, req.Username, ip, ua, "success", "登录成功", channel)
@@ -124,22 +124,22 @@ func (s *AuthService) RegisterTenants() ([]gin.H, *errs.Error) {
 // Register 开放注册（免登录，受 auth.register_enabled 开关控制）。
 // 注册成功的用户不绑定任何角色（登录后无菜单，仅可访问登录即可的接口）。
 func (s *AuthService) Register(ctx context.Context, req *dto.RegisterReq, ip string) *errs.Error {
-	if be := s.checkLoginLimit(ctx, ip); be != nil {
+	if be := s.checkLoginLimit(ctx, ip, req.Username); be != nil {
 		return be
 	}
 	if !s.RegisterConfig()["enabled"].(bool) {
 		return errs.ErrRegisterDisabled
 	}
 	if !password.ValidUsernameRange(req.Username, 4, 20) {
-		s.incrLoginFail(ctx, ip)
+		s.incrLoginFail(ctx, ip, req.Username)
 		return errs.ErrParam.WithMsg("username 须为 4–20 位字母数字下划线")
 	}
 	if !password.ValidPassword(req.Password) {
-		s.incrLoginFail(ctx, ip)
+		s.incrLoginFail(ctx, ip, req.Username)
 		return errs.ErrParam.WithMsg("password 须为 8–32 位且含字母与数字")
 	}
 	if !password.ValidPhone(req.Phone) {
-		s.incrLoginFail(ctx, ip)
+		s.incrLoginFail(ctx, ip, req.Username)
 		return errs.ErrParam.WithMsg("phone 手机号格式错误")
 	}
 	// 注册目标租户：下拉选择的公司（tenant_code），缺省 = 默认租户（私有化单租户场景）
@@ -150,7 +150,7 @@ func (s *AuthService) Register(ctx context.Context, req *dto.RegisterReq, ip str
 	if code := strings.TrimSpace(req.TenantCode); code != "" {
 		var t model.Tenant
 		if err := s.db.Where("code = ? AND status = ?", code, model.StatusEnabled).First(&t).Error; err != nil {
-			s.incrLoginFail(ctx, ip)
+			s.incrLoginFail(ctx, ip, req.Username)
 			return errs.ErrParam.WithMsg("所选公司不存在或已停用")
 		}
 		tenantID = t.ID
@@ -159,12 +159,12 @@ func (s *AuthService) Register(ctx context.Context, req *dto.RegisterReq, ip str
 	// 用户名租户内唯一（P3）；手机号保持全局唯一（小程序按手机号绑定的消歧前提）
 	s.db.Model(&model.SysUser{}).Where("tenant_id = ? AND username = ?", tenantID, req.Username).Count(&count)
 	if count > 0 {
-		s.incrLoginFail(ctx, ip)
+		s.incrLoginFail(ctx, ip, req.Username)
 		return errs.ErrUsernameExists
 	}
 	s.db.Model(&model.SysUser{}).Where("phone = ?", req.Phone).Count(&count)
 	if count > 0 {
-		s.incrLoginFail(ctx, ip)
+		s.incrLoginFail(ctx, ip, req.Username)
 		return errs.ErrPhoneExists
 	}
 	hash, err := password.Hash(req.Password)
@@ -452,22 +452,38 @@ func (s *AuthService) issueTokens(ctx context.Context, user *model.SysUser, chan
 	}, nil
 }
 
-// checkLoginLimit 判断 IP 是否因连续失败被锁定。
-func (s *AuthService) checkLoginLimit(ctx context.Context, ip string) *errs.Error {
+// loginUserLimitKey username+IP 维度的限流键（username 归一小写，防大小写绕过）。
+func loginUserLimitKey(username, ip string) string {
+	return "limit:login:u:" + strings.ToLower(strings.TrimSpace(username)) + ":" + ip
+}
+
+// checkLoginLimit 双维度限流判定：IP 维度与 username+IP 维度任一超限即锁定。
+func (s *AuthService) checkLoginLimit(ctx context.Context, ip, username string) *errs.Error {
 	limit := s.loginFailLimit()
-	n, err := s.rdb.Get(ctx, "limit:login:"+ip).Int()
-	if err == nil && n >= limit {
-		return errs.ErrTooMany.WithMsg("登录失败次数过多，请 10 分钟后再试")
+	keys := []string{"limit:login:" + ip, loginUserLimitKey(username, ip)}
+	vals, err := s.rdb.MGet(ctx, keys...).Result()
+	if err != nil {
+		return nil // Redis 故障不限流（与旧行为一致）
+	}
+	for _, v := range vals {
+		s, ok := v.(string)
+		if !ok {
+			continue
+		}
+		if n, err := strconv.Atoi(s); err == nil && n >= limit {
+			return errs.ErrTooMany.WithMsg("登录失败次数过多，请 10 分钟后再试")
+		}
 	}
 	return nil
 }
 
-// incrLoginFail 累计失败次数（10 分钟窗口）。
-func (s *AuthService) incrLoginFail(ctx context.Context, ip string) {
-	key := "limit:login:" + ip
+// incrLoginFail 双维度累计失败次数（10 分钟窗口）。
+func (s *AuthService) incrLoginFail(ctx context.Context, ip, username string) {
 	pipe := s.rdb.Pipeline()
-	pipe.Incr(ctx, key)
-	pipe.Expire(ctx, key, 10*time.Minute)
+	for _, key := range []string{"limit:login:" + ip, loginUserLimitKey(username, ip)} {
+		pipe.Incr(ctx, key)
+		pipe.Expire(ctx, key, 10*time.Minute)
+	}
 	pipe.Exec(ctx)
 }
 

@@ -15,6 +15,7 @@ import (
 	sysmodel "anxuncloud/internal/module/system/model"
 	"anxuncloud/internal/pkg/logger"
 	"anxuncloud/internal/pkg/push"
+	"anxuncloud/internal/pkg/safe"
 )
 
 // Notifier 统一通知出口（db 写站内消息，push 发个推推送；push 为叶子依赖，无循环引用）。
@@ -102,7 +103,7 @@ func (n *Notifier) pushAsync(userIDs []string, msgType, title, content string, b
 	if bizID != nil {
 		payload["biz_id"] = *bizID
 	}
-	go func() {
+	safe.Go(func() {
 		start := time.Now()
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
@@ -120,7 +121,7 @@ func (n *Notifier) pushAsync(userIDs []string, msgType, title, content string, b
 			logger.L.Warn("App 推送失败", zap.Error(firstErr), zap.String("type", msgType), zap.Int("ok", ok), zap.Int("failed", failed))
 		}
 		n.logPush(userIDs, msgType, title, bizID, cidCount, ok, failed, int(time.Since(start).Milliseconds()), firstErr)
-	}()
+	})
 }
 
 // logPush 推送结果落操作日志（module=push/action=push_send，系统操作员）：按接收人所属租户分组各写一行，

@@ -184,7 +184,9 @@ func registerDefaults(v *viper.Viper) {
 		"jwt.refresh_ttl":         "168h",
 		"cors.allow_origins":      []string{"*"},
 		"log.level":               "info",
-		"app.base_url":            "https://pi.hbuer.com",
+		// app.base_url 不再内置默认域名：prod 环境必须在 .env.prod 配置 APP_BASE_URL（cmd/server 启动时 fatal 校验），
+		// 避免漏配时静默拼出指向他人域名的文件 URL / 短链接 / 二维码
+		"app.base_url":            "",
 		"wechat.appid":            "",
 		"wechat.secret":           "",
 		"wechat.mock":             true,

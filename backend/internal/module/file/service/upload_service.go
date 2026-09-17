@@ -14,7 +14,7 @@ import (
 	"gorm.io/gorm"
 
 	"anxuncloud/internal/config"
-	"anxuncloud/internal/module/mp/dto"
+	"anxuncloud/internal/module/file/dto"
 	sysmodel "anxuncloud/internal/module/system/model"
 	"anxuncloud/internal/pkg/authz"
 	"anxuncloud/internal/pkg/errs"
@@ -112,7 +112,7 @@ func (s *UploadService) Preflight(userID string, req *dto.STSReq) (gin.H, *errs.
 			return nil, errs.ErrParam.WithMsg("files.md5 必须是 32 位十六进制摘要")
 		}
 		item := gin.H{"name": filepath.Base(f.Name), "size": f.Size, "md5": md5hex, "reused": false}
-		if existing, ok := s.FindReusable(req.Scene, md5hex, f.Size, tenantID); ok {
+		if existing, ok := s.FindReusable(req.Scene, md5hex, f.Size, tenantID, userID); ok {
 			item["reused"] = true
 			item["file_id"] = existing.ID
 			item["url"] = existing.URL
@@ -145,7 +145,7 @@ func (s *UploadService) SaveLocal(userID string, scene, filename string, size in
 	if err != nil || int64(len(data)) > s.store.MaxFileSize() {
 		return nil, errs.ErrUploadTooLarge
 	}
-	if existing, ok := s.FindReusable(scene, storage.MD5Hex(data), int64(len(data)), s.UserTenantID(userID)); ok {
+	if existing, ok := s.FindReusable(scene, storage.MD5Hex(data), int64(len(data)), s.UserTenantID(userID), userID); ok {
 		return gin.H{"file_id": existing.ID, "url": existing.URL}, nil
 	}
 	key, url, data, md5, err := s.store.Save(scene, userID, ext, bytes.NewReader(data))
@@ -195,7 +195,7 @@ func (s *UploadService) SaveAdminLocal(userID string, scene, filename string, si
 	if err != nil || int64(len(data)) > s.store.MaxFileSize() {
 		return nil, errs.ErrUploadTooLarge
 	}
-	if existing, ok := s.FindReusable(scene, storage.MD5Hex(data), int64(len(data)), s.UserTenantID(userID)); ok {
+	if existing, ok := s.FindReusable(scene, storage.MD5Hex(data), int64(len(data)), s.UserTenantID(userID), userID); ok {
 		return gin.H{"file_id": existing.ID, "url": existing.URL}, nil
 	}
 	key, url, _, md5, err := s.store.Save(scene, userID, ext, bytes.NewReader(data))
@@ -217,14 +217,14 @@ func (s *UploadService) SaveAdminLocal(userID string, scene, filename string, si
 	return gin.H{"file_id": rec.ID, "url": url}, nil
 }
 
-// FindReusable 查找同场景、同租户下内容相同的已登记文件。
-// 租户条件用于避免复用记录后触发下载权限串租户；空租户只匹配空租户记录。
-func (s *UploadService) FindReusable(scene, md5 string, size int64, tenantID *string) (*sysmodel.UploadFile, bool) {
+// FindReusable 查找同场景、同租户、同上传人下内容相同的已登记文件。
+// 租户+本人双重限定：避免复用他人记录后触发下载权限/归属争议；空租户只匹配空租户记录。
+func (s *UploadService) FindReusable(scene, md5 string, size int64, tenantID *string, userID string) (*sysmodel.UploadFile, bool) {
 	if md5 == "" || size < 0 {
 		return nil, false
 	}
 	var existing sysmodel.UploadFile
-	query := s.db.Where("scene = ? AND md5 = ? AND size = ?", scene, md5, size)
+	query := s.db.Where("scene = ? AND md5 = ? AND size = ? AND user_id = ?", scene, md5, size, userID)
 	if tenantID == nil {
 		query = query.Where("tenant_id IS NULL")
 	} else {
@@ -333,7 +333,7 @@ func (s *UploadService) Callback(c *gin.Context, body []byte) (int, any) {
 				return 400, gin.H{"Status": "MD5Mismatch"}
 			}
 		}
-		if existing, ok := s.FindReusable(form.Scene, md5hex, form.Size, &tenantID); ok {
+		if existing, ok := s.FindReusable(form.Scene, md5hex, form.Size, &tenantID, form.UID); ok {
 			if err := s.store.Delete(form.Object); err != nil {
 				return 500, gin.H{"Status": "DuplicateCleanupFailed"}
 			}

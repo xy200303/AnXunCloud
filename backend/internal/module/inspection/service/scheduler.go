@@ -22,6 +22,10 @@ type PlanJob struct {
 }
 
 // Scheduler 统一计划引擎：每日任务生成、逾期翻转、分区滚动、报告生成计划（注册式）。
+//
+// 单实例部署前提：内置任务的当日防重标记（registerBuiltin 内的 lastGen/lastPart/lastFlip）
+// 仅为进程内存变量，多副本部署会产生重复执行——届时须改为 Redis SETNX 日锁
+// （如 lock:sched:task_generate:20260101，EX 到次日）后再并行扩容。
 type Scheduler struct {
 	db      *gorm.DB
 	plans   *PlanService
@@ -148,8 +152,18 @@ func (s *Scheduler) Stop() { close(s.stopCh) }
 func (s *Scheduler) tick() {
 	now := time.Now()
 	for _, j := range s.jobs {
-		if err := j.Run(now); err != nil {
-			logger.L.Warn("计划任务执行失败", zap.String("job", j.Name), zap.Error(err))
+		s.runJob(j, now)
+	}
+}
+
+// runJob 单个任务安全执行：panic 只记日志，不中断本轮其余任务和调度循环。
+func (s *Scheduler) runJob(j PlanJob, now time.Time) {
+	defer func() {
+		if r := recover(); r != nil {
+			logger.L.Error("计划任务 panic", zap.String("job", j.Name), zap.Any("err", r), zap.Stack("stack"))
 		}
+	}()
+	if err := j.Run(now); err != nil {
+		logger.L.Warn("计划任务执行失败", zap.String("job", j.Name), zap.Error(err))
 	}
 }

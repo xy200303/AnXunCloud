@@ -9,8 +9,8 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"anxuncloud/internal/middleware"
+	"anxuncloud/internal/module/file/dto"
 	"anxuncloud/internal/module/file/service"
-	mpdto "anxuncloud/internal/module/mp/dto"
 	"anxuncloud/internal/pkg/bind"
 	"anxuncloud/internal/pkg/errs"
 	"anxuncloud/internal/pkg/response"
@@ -49,7 +49,7 @@ func (ctl *FileController) Upload(c *gin.Context) {
 
 // STS POST /api/files/sts（直传凭证签发；云模式返回凭证，local 返回本地上传入口）
 func (ctl *FileController) STS(c *gin.Context) {
-	var req mpdto.STSReq
+	var req dto.STSReq
 	if be := bind.JSON(c, &req); be != nil {
 		response.Fail(c, be)
 		return
@@ -64,7 +64,7 @@ func (ctl *FileController) STS(c *gin.Context) {
 
 // Preflight POST /api/files/preflight（上传前摘要预检）
 func (ctl *FileController) Preflight(c *gin.Context) {
-	var req mpdto.STSReq
+	var req dto.STSReq
 	if be := bind.JSON(c, &req); be != nil {
 		response.Fail(c, be)
 		return

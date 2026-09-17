@@ -13,6 +13,7 @@ import (
 	"gorm.io/gorm"
 
 	"anxuncloud/internal/module/system/model"
+	"anxuncloud/internal/pkg/safe"
 	"anxuncloud/internal/pkg/logger"
 	"go.uber.org/zap"
 )
@@ -45,8 +46,20 @@ func ActionName(action string) string {
 	return action
 }
 
-// 敏感字段脱敏（密码类参数不落日志；覆盖 password/new_password/old_password 等所有 *password* 键）
-var sensitiveRe = regexp.MustCompile(`(?i)("\w*password\w*"\s*:\s*")[^"]*(")`)
+// 敏感字段脱敏（密钥类参数不落日志；覆盖 *password*/*secret*/*api_key*/*apikey*/*token*/*credential* 键，大小写不敏感）
+var sensitiveRe = regexp.MustCompile(`(?i)("\w*(?:password|secret|api_?key|token|credential)\w*"\s*:\s*")[^"]*(")`)
+
+// configValueRe 系统配置（/system/configs）的 value 特判：value 可能是 AI key 等密钥，日志只留 key 不留值。
+var configValueRe = regexp.MustCompile(`("value"\s*:\s*")[^"]*(")`)
+
+// maskParams 操作日志参数脱敏：通用敏感键打码；/system/configs 的 value 键一律打码（密钥不区分键名）。
+func maskParams(path string, params []byte) string {
+	masked := sensitiveRe.ReplaceAllString(string(params), "${1}******${2}")
+	if strings.Contains(path, "/system/configs") {
+		masked = configValueRe.ReplaceAllString(masked, "${1}******${2}")
+	}
+	return masked
+}
 
 // OperLog 操作日志中间件：请求结束后异步写入 sys_operation_log。
 // module/action 语义见接口文档 §2.9（如 system / create）。
@@ -66,7 +79,7 @@ func OperLog(db *gorm.DB, module, action string) gin.HandlerFunc {
 		if c.Writer.Status() >= 400 {
 			status = "fail"
 		}
-		masked := sensitiveRe.ReplaceAllString(string(params), "${1}******${2}")
+		masked := maskParams(c.Request.URL.Path, params)
 		log := model.SysOperationLog{
 			Username: "-",
 			Module:   module,
@@ -85,13 +98,13 @@ func OperLog(db *gorm.DB, module, action string) gin.HandlerFunc {
 			log.TenantID = &identity.TenantID
 		}
 		// 异步落库，避免阻塞请求；用 Background 防止请求结束取消写入
-		go func(rec model.SysOperationLog) {
+		safe.Go(func() {
 			ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 			defer cancel()
-			if err := db.WithContext(ctx).Create(&rec).Error; err != nil {
-				logger.L.Warn("写入操作日志失败", zap.Error(err), zap.String("path", rec.Path))
+			if err := db.WithContext(ctx).Create(&log).Error; err != nil {
+				logger.L.Warn("写入操作日志失败", zap.Error(err), zap.String("path", log.Path))
 			}
-		}(log)
+		})
 	}
 }
 
@@ -108,6 +121,8 @@ func CORS(allowOrigins []string) gin.HandlerFunc {
 		allowed[o] = struct{}{}
 	}
 	return func(c *gin.Context) {
+		// 响应随 Origin 变化（白名单命中才反射 Origin），声明 Vary 防止共享缓存串源
+		c.Header("Vary", "Origin")
 		origin := c.GetHeader("Origin")
 		if origin != "" {
 			if allowAll {

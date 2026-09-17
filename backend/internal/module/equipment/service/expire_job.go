@@ -9,6 +9,7 @@ import (
 
 	"anxuncloud/internal/module/equipment/model"
 	sysmodel "anxuncloud/internal/module/system/model"
+	"anxuncloud/internal/pkg/configread"
 	"anxuncloud/internal/pkg/logger"
 	"anxuncloud/internal/pkg/notify"
 
@@ -36,12 +37,7 @@ func (s *ExpireService) Run(now time.Time) error {
 	if today == s.lastRun {
 		return nil
 	}
-	checkTime := "08:00"
-	var v string
-	if err := s.db.Model(&sysmodel.SysConfig{}).Where("key = ?", "equipment.expire_check_time").
-		Select("value").Scan(&v).Error; err == nil && strings.TrimSpace(v) != "" {
-		checkTime = strings.TrimSpace(v)
-	}
+	checkTime := strings.TrimSpace(configread.GetString(s.db, "equipment.expire_check_time", "08:00"))
 	if now.Format("15:04") < checkTime {
 		return nil
 	}
@@ -79,17 +75,30 @@ func (s *ExpireService) ScanExpiring(now time.Time) (int, error) {
 	if len(remindTypes) == 0 {
 		return scrapNotified, nil
 	}
+	today := truncateDay(now)
 	var rows []model.Equipment
 	if err := s.db.
 		// 标签缺失设备退出自动判定与提醒（走经理处置通道）
 		Where("status = ? AND next_due_date IS NOT NULL AND tenant_id IS NOT NULL AND label_missing = ?", model.StatusInService, false).
 		Where("type IN ?", remindTypes).
+		// SQL 上界：仅临期窗口内（到期日 ≤ 今天 + 最大预警天数）或已逾期的设备才可能命中，避免全量加载
+		Where("next_due_date <= ?", today.AddDate(0, 0, maxWarnDays(s.db, remindTypes, globalWarn)).Format("2006-01-02")).
 		// 存在 pending 登记的设备暂停催办（已登记待确认，不该再催；驳回后自然恢复）
 		Where("NOT EXISTS (SELECT 1 FROM equipment_maintenance m WHERE m.equipment_id = equipment.id AND m.confirm_status = ?)", model.ConfirmPending).
 		Find(&rows).Error; err != nil {
 		return scrapNotified, err
 	}
-	today := truncateDay(now)
+	// 按租户分组批量预取接收人（field_staff/project_admin 与 tenant_admin 各查一次，避免逐台两查）
+	tenantIDs := make([]string, 0, 8)
+	seen := make(map[string]bool, 8)
+	for i := range rows {
+		if tid := *rows[i].TenantID; !seen[tid] {
+			seen[tid] = true
+			tenantIDs = append(tenantIDs, tid)
+		}
+	}
+	staffByTenant := s.userIDsByRolesBatch(tenantIDs, []string{sysmodel.FieldStaffCode, sysmodel.ProjectAdminCode})
+	adminByTenant := s.userIDsByRolesBatch(tenantIDs, []string{sysmodel.TenantAdminCode})
 	notified := 0
 	for i := range rows {
 		e := &rows[i]
@@ -122,8 +131,8 @@ func (s *ExpireService) ScanExpiring(now time.Time) (int, error) {
 		default:
 			continue
 		}
-		// 接收人从简：该设备租户内 field_staff/project_admin 角色且 enabled 的用户
-		recipients := s.userIDsByRoles(*e.TenantID, []string{sysmodel.FieldStaffCode, sysmodel.ProjectAdminCode})
+		// 接收人从简：该设备租户内 field_staff/project_admin 角色且 enabled 的用户（租户分组预取）
+		recipients := staffByTenant[*e.TenantID]
 		if len(recipients) > 0 {
 			if err := s.notifier.SendBatch(recipients, e.TenantID, MsgTypeExpire, title, content, &e.ID); err != nil {
 				logger.L.Warn("设备到期提醒发送失败", zap.String("equipment_id", e.ID), zap.Error(err))
@@ -132,7 +141,7 @@ func (s *ExpireService) ScanExpiring(now time.Time) (int, error) {
 		}
 		// 逾期升级：额外通知 tenant_admin（督促口径）
 		if escalate {
-			admins := s.userIDsByRoles(*e.TenantID, []string{sysmodel.TenantAdminCode})
+			admins := adminByTenant[*e.TenantID]
 			if len(admins) > 0 {
 				escContent := fmt.Sprintf("设备「%s（%s）」维保已逾期 %d 天仍未登记，请督促巡检员尽快完成维保。", e.Name, e.Code, -days)
 				if err := s.notifier.SendBatch(admins, e.TenantID, MsgTypeExpire, "设备维保逾期升级", escContent, &e.ID); err != nil {
@@ -221,4 +230,53 @@ func UserIDsByRoleCodes(db *gorm.DB, tenantID string, roleCodes []string) []stri
 // userIDsByRoles 租户内挂指定角色编码（启用角色）且账号启用的用户 ID 列表。
 func (s *ExpireService) userIDsByRoles(tenantID string, roleCodes []string) []string {
 	return UserIDsByRoleCodes(s.db, tenantID, roleCodes)
+}
+
+// maxWarnDays 临期窗口的最大预警天数：全局配置与在用设备 warn_days 自定义值的较大者，
+// 用作 ScanExpiring 的 SQL 上界（到期日 ≤ 今天 + 该值才可能命中临期分支）。
+func maxWarnDays(db *gorm.DB, remindTypes []string, globalWarn int) int {
+	maxWarn := globalWarn
+	var custom int
+	if err := db.Model(&model.Equipment{}).
+		Where("status = ? AND type IN ? AND warn_days > 0", model.StatusInService, remindTypes).
+		Select("COALESCE(MAX(warn_days), 0)").Scan(&custom).Error; err == nil && custom > maxWarn {
+		maxWarn = custom
+	}
+	return maxWarn
+}
+
+// userIDsByRolesBatch 多租户批量查询：一次查出全部给定租户内挂指定角色编码（启用角色）
+// 且账号启用的用户，返回 tenantID → 用户 ID 列表（避免逐台设备两次查询）。
+func (s *ExpireService) userIDsByRolesBatch(tenantIDs []string, roleCodes []string) map[string][]string {
+	out := make(map[string][]string, len(tenantIDs))
+	if len(tenantIDs) == 0 {
+		return out
+	}
+	var roleIDs []string
+	s.db.Model(&sysmodel.SysRole{}).
+		Where("code IN ? AND status = ?", roleCodes, sysmodel.StatusEnabled).
+		Pluck("id", &roleIDs)
+	if len(roleIDs) == 0 {
+		return out
+	}
+	// role_ids 为 jsonb 数组：任一角色命中即可
+	conds := make([]string, 0, len(roleIDs))
+	args := make([]any, 0, len(roleIDs))
+	for _, rid := range roleIDs {
+		conds = append(conds, "role_ids @> ?::jsonb")
+		args = append(args, fmt.Sprintf(`["%s"]`, rid))
+	}
+	var rows []struct {
+		TenantID string
+		ID       string
+	}
+	s.db.Model(&sysmodel.SysUser{}).
+		Select("tenant_id", "id").
+		Where("tenant_id IN ? AND status = ?", tenantIDs, sysmodel.StatusEnabled).
+		Where(strings.Join(conds, " OR "), args...).
+		Scan(&rows)
+	for _, r := range rows {
+		out[r.TenantID] = append(out[r.TenantID], r.ID)
+	}
+	return out
 }

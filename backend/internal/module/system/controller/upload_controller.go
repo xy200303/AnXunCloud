@@ -4,17 +4,17 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"anxuncloud/internal/middleware"
-	mpsvc "anxuncloud/internal/module/mp/service"
+	filesvc "anxuncloud/internal/module/file/service"
 	"anxuncloud/internal/pkg/errs"
 	"anxuncloud/internal/pkg/response"
 )
 
 // UploadController 管理端图片上传（手写签名、公章、头像等）。
 type UploadController struct {
-	upload *mpsvc.UploadService
+	upload *filesvc.UploadService
 }
 
-func NewUploadController(upload *mpsvc.UploadService) *UploadController {
+func NewUploadController(upload *filesvc.UploadService) *UploadController {
 	return &UploadController{upload: upload}
 }
 

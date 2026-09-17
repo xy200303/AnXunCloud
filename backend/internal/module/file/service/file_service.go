@@ -13,8 +13,7 @@ import (
 	"gorm.io/gorm"
 
 	"anxuncloud/internal/middleware"
-	mpdto "anxuncloud/internal/module/mp/dto"
-	mpsvc "anxuncloud/internal/module/mp/service"
+	"anxuncloud/internal/module/file/dto"
 	sysmodel "anxuncloud/internal/module/system/model"
 	"anxuncloud/internal/pkg/authz"
 	"anxuncloud/internal/pkg/errs"
@@ -27,10 +26,10 @@ import (
 type FileService struct {
 	db     *gorm.DB
 	store  *storage.Storage
-	upload *mpsvc.UploadService // 复用 STS 直传签发
+	upload *UploadService // 复用 STS 直传签发
 }
 
-func NewFileService(db *gorm.DB, store *storage.Storage, upload *mpsvc.UploadService) *FileService {
+func NewFileService(db *gorm.DB, store *storage.Storage, upload *UploadService) *FileService {
 	return &FileService{db: db, store: store, upload: upload}
 }
 
@@ -50,11 +49,11 @@ var imageExts = map[string]bool{
 }
 
 // STS 直传凭证签发（复用上传服务的 local/云存储分支逻辑）。
-func (s *FileService) STS(userID string, req *mpdto.STSReq) (gin.H, *errs.Error) {
+func (s *FileService) STS(userID string, req *dto.STSReq) (gin.H, *errs.Error) {
 	return s.upload.STS(userID, req)
 }
 
-func (s *FileService) Preflight(userID string, req *mpdto.STSReq) (gin.H, *errs.Error) {
+func (s *FileService) Preflight(userID string, req *dto.STSReq) (gin.H, *errs.Error) {
 	return s.upload.Preflight(userID, req)
 }
 
@@ -88,7 +87,7 @@ func (s *FileService) Upload(c *gin.Context, scene, filename string, size int64,
 		return nil, errs.ErrUploadTooLarge
 	}
 	tenantID := s.upload.UserTenantID(uid)
-	if existing, ok := s.upload.FindReusable(scene, storage.MD5Hex(data), int64(len(data)), tenantID); ok {
+	if existing, ok := s.upload.FindReusable(scene, storage.MD5Hex(data), int64(len(data)), tenantID, uid); ok {
 		return gin.H{"file_id": existing.ID, "url": existing.URL, "name": existing.Name, "md5": existing.MD5}, nil
 	}
 	key, url, storedData, md5, err := s.store.Save(scene, uid, ext, bytes.NewReader(data))
@@ -147,7 +146,7 @@ func (s *FileService) Download(c *gin.Context, key string) (data []byte, redirec
 // checkRead 按 scene 的读权限规则：
 // - export/{reports,stats,qrcode}：对应权限点（报告下载/统计导出/点位二维码）；
 // - signature/seal：本人或签章/报告相关权限；
-// - 其余（checkin/avatar/notice）：登录即可（内部系统内容图）。
+// - 其余（checkin/avatar/notice）：同租户登录可读；租户为空的文件仅限上传者本人（或超管）。
 func (s *FileService) checkRead(c *gin.Context, rec *sysmodel.UploadFile) *errs.Error {
 	id := middleware.CurrentIdentity(c)
 	if id == nil {
@@ -188,7 +187,14 @@ func (s *FileService) checkRead(c *gin.Context, rec *sysmodel.UploadFile) *errs.
 		}
 		return allow("system:signasset:list", "report:list", "report:download")
 	case "checkin", "avatar", "notice":
-		if rec.TenantID != nil && *rec.TenantID != "" && *rec.TenantID != id.TenantID {
+		if rec.TenantID != nil && *rec.TenantID != "" {
+			if *rec.TenantID != id.TenantID {
+				return errs.ErrDataScope
+			}
+			return nil
+		}
+		// 空租户文件不做租户比对，仅限上传者本人可读（超管已在上方放行），防止跨租户猜测下载
+		if rec.UserID == "" || rec.UserID != id.UserID {
 			return errs.ErrDataScope
 		}
 	}

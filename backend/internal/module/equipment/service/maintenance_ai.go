@@ -10,6 +10,7 @@ import (
 	"anxuncloud/internal/module/equipment/model"
 	"anxuncloud/internal/pkg/ai"
 	"anxuncloud/internal/pkg/logger"
+	"anxuncloud/internal/pkg/strutil"
 	"anxuncloud/internal/pkg/uploadfile"
 
 	"gorm.io/gorm"
@@ -205,7 +206,7 @@ func (s *MaintenanceService) aiPreCheck(recID string) {
 		} else if verdict != model.AIVerdictReview {
 			// 读不到日期格式：不因此判 review（钢印格式五花八门），仅记录
 			if strings.TrimSpace(reading) != "" {
-				issues = append(issues, "日期识别结果："+truncateStr2(reading, 60))
+				issues = append(issues, "日期识别结果："+strutil.Truncate(reading, 60))
 			}
 		}
 		if len(issues) > 0 {
@@ -218,17 +219,8 @@ func (s *MaintenanceService) aiPreCheck(recID string) {
 	}
 	if err := s.db.Model(&m).Updates(map[string]any{
 		"ai_verdict": verdict,
-		"ai_reason":  truncateStr2(reason, 500),
+		"ai_reason":  strutil.Truncate(reason, 500),
 	}).Error; err != nil {
 		logger.L.Warn("维保登记 AI 预检回写失败", zap.String("rec_id", recID), zap.Error(err))
 	}
-}
-
-// truncateStr2 截断字符串（本包内工具，避免依赖 mp 包）。
-func truncateStr2(s string, n int) string {
-	rs := []rune(strings.TrimSpace(s))
-	if len(rs) <= n {
-		return string(rs)
-	}
-	return string(rs[:n])
 }

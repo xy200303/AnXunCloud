@@ -28,6 +28,7 @@ import (
 	"anxuncloud/internal/pkg/notify"
 	"anxuncloud/internal/pkg/pdf"
 	"anxuncloud/internal/pkg/response"
+	"anxuncloud/internal/pkg/safe"
 	"anxuncloud/internal/pkg/storage"
 	"anxuncloud/internal/pkg/timefmt"
 	"anxuncloud/internal/pkg/types"
@@ -615,7 +616,9 @@ func (s *ReportService) List(c *gin.Context, q *dto.ReportListQuery) (*response.
 	}
 	// 列表直接展示当前报告实际圈定的审核链，避免自动生成报告只能进入详情后才能确认审核路径。
 	signerIDSet := map[string]bool{}
+	commIDSet := map[string]bool{}
 	for i := range rows {
+		commIDSet[rows[i].CommunityID] = true
 		for _, step := range rows[i].ReviewSteps {
 			for _, id := range step.CandidateIDs {
 				signerIDSet[id] = true
@@ -623,6 +626,19 @@ func (s *ReportService) List(c *gin.Context, q *dto.ReportListQuery) (*response.
 		}
 	}
 	signerNames := s.userNamesOf(signerIDSet)
+	// 小区名一次 IN 预载（消除逐行 commName 单查）
+	commNames := map[string]string{}
+	if len(commIDSet) > 0 {
+		commIDs := make([]string, 0, len(commIDSet))
+		for id := range commIDSet {
+			commIDs = append(commIDs, id)
+		}
+		var comms []sysmodel.Community
+		s.db.Select("id", "name").Where("id IN ?", commIDs).Find(&comms)
+		for i := range comms {
+			commNames[comms[i].ID] = comms[i].Name
+		}
+	}
 	list := make([]gin.H, 0, len(rows))
 	for i := range rows {
 		r := &rows[i]
@@ -637,7 +653,7 @@ func (s *ReportService) List(c *gin.Context, q *dto.ReportListQuery) (*response.
 			reviewSteps = append(reviewSteps, gin.H{"slot": step.Slot, "name": step.Name, "mode": step.Mode, "candidate_ids": step.CandidateIDs, "candidate_names": names, "signed": step.Signed})
 		}
 		list = append(list, gin.H{
-			"id": r.ID, "community_id": r.CommunityID, "community_name": s.commName(r.CommunityID),
+			"id": r.ID, "community_id": r.CommunityID, "community_name": commNames[r.CommunityID],
 			"period": r.Period, "title": r.Title, "status": r.Status,
 			"patrol_type":        r.PatrolType,
 			"patrol_type_label":  s.patrolTypeLabel(r.PatrolType),
@@ -765,30 +781,12 @@ func (s *ReportService) createReport(communityID, patrolType string, start, end 
 
 	var r model.InspectionReport
 	// 判重/重算按 community_id+period+patrol_type（COALESCE 归一，综合月报 NULL/'' 等价，与唯一索引一致）
-	err := s.db.Where("community_id = ? AND period = ? AND COALESCE(patrol_type, '') = ?",
-		communityID, label, patrolType).First(&r).Error
+	dedupWhere := s.db.Where("community_id = ? AND period = ? AND COALESCE(patrol_type, '') = ?",
+		communityID, label, patrolType)
+	err := dedupWhere.First(&r).Error
 	if err == nil {
-		if r.Status == model.StatusApproved {
-			return nil, errs.ErrReportApproved
-		}
-		// 重算：重置签字流程（溯源字段随请求刷新）
-		updates := map[string]any{
-			"title": title, "status": initialStatus, "plan_id": inspectionPlanID,
-			"report_plan_id": reportPlanID, "period_start": start, "period_end": endOfDay,
-			"detail_mode": detailModeOr(detailMode),
-			"stats":       stats, "inspector_ids": inspectorIDs,
-			"review_steps": reviewSteps, "review_step": initialStep,
-			"review_current_ids": reviewCurrentIDs(reviewSteps, initialStep),
-			"reject_reason":      "", "file_id": nil, "seal_file_id": nil,
-		}
-		if err := s.db.Model(&r).Updates(updates).Error; err != nil {
-			return nil, errs.ErrInternal
-		}
-		s.lockRangeCheckins(communityID, start, end) // 归档锁定当期打卡（不可再覆盖修改）
-		if initialStatus == model.StatusApproved {
-			go s.archivePDF(r.ID)
-		}
-		return gin.H{"id": r.ID, "title": title, "status": initialStatus, "regenerated": true}, nil
+		return s.recalcReport(&r, title, initialStatus, initialStep, inspectionPlanID, reportPlanID,
+			start, endOfDay, detailMode, stats, inspectorIDs, reviewSteps, communityID)
 	}
 	r = model.InspectionReport{
 		CommunityID: communityID, Period: label, PatrolType: patrolType,
@@ -800,13 +798,59 @@ func (s *ReportService) createReport(communityID, patrolType string, start, end 
 		ReviewSteps:  reviewSteps, ReviewStep: initialStep, ReviewCurrentIDs: reviewCurrentIDs(reviewSteps, initialStep),
 	}
 	if err := s.db.Create(&r).Error; err != nil {
+		// First-then-Create 竞态：并发请求先一步插入触发唯一索引 uk_inspection_report（23505）→ 转入重算分支
+		if isUniqueViolation(err) {
+			var existing model.InspectionReport
+			if ferr := dedupWhere.First(&existing).Error; ferr == nil {
+				return s.recalcReport(&existing, title, initialStatus, initialStep, inspectionPlanID, reportPlanID,
+					start, endOfDay, detailMode, stats, inspectorIDs, reviewSteps, communityID)
+			}
+			return nil, errs.ErrConflict.WithMsg("报告正在并发生成，请稍后重试")
+		}
 		return nil, errs.ErrInternal
 	}
 	s.lockRangeCheckins(communityID, start, end) // 归档锁定当期打卡（不可再覆盖修改）
 	if initialStatus == model.StatusApproved {
-		go s.archivePDF(r.ID)
+		safe.Go(func() { s.archivePDF(r.ID) })
 	}
 	return gin.H{"id": r.ID, "title": title, "status": r.Status, "regenerated": false}, nil
+}
+
+// recalcReport 同口径报告重算：重置签字流程（溯源字段随请求刷新）。
+// 已归档报告报 ErrReportApproved；Updates 附带 status <> 'approved' 条件，
+// 防与并发签字互相覆盖（条件不命中说明刚被并发归档，同样报 ErrReportApproved）。
+func (s *ReportService) recalcReport(r *model.InspectionReport, title, initialStatus string, initialStep int,
+	inspectionPlanID, reportPlanID *string, start, endOfDay time.Time, detailMode string,
+	stats types.JSONMap, inspectorIDs types.IDArray, reviewSteps types.ReportReviewStepArray, communityID string) (gin.H, *errs.Error) {
+	if r.Status == model.StatusApproved {
+		return nil, errs.ErrReportApproved
+	}
+	updates := map[string]any{
+		"title": title, "status": initialStatus, "plan_id": inspectionPlanID,
+		"report_plan_id": reportPlanID, "period_start": start, "period_end": endOfDay,
+		"detail_mode": detailModeOr(detailMode),
+		"stats":       stats, "inspector_ids": inspectorIDs,
+		"review_steps": reviewSteps, "review_step": initialStep,
+		"review_current_ids": reviewCurrentIDs(reviewSteps, initialStep),
+		"reject_reason":      "", "file_id": nil, "seal_file_id": nil,
+	}
+	tx := s.db.Model(r).Where("status <> ?", model.StatusApproved).Updates(updates)
+	if tx.Error != nil {
+		return nil, errs.ErrInternal
+	}
+	if tx.RowsAffected == 0 {
+		return nil, errs.ErrReportApproved
+	}
+	s.lockRangeCheckins(communityID, start, endOfDay.Add(time.Second)) // 归档锁定当期打卡（不可再覆盖修改）
+	if initialStatus == model.StatusApproved {
+		safe.Go(func() { s.archivePDF(r.ID) })
+	}
+	return gin.H{"id": r.ID, "title": title, "status": initialStatus, "regenerated": true}, nil
+}
+
+// isUniqueViolation 判断 PG 唯一约束冲突（23505）。
+func isUniqueViolation(err error) bool {
+	return err != nil && (strings.Contains(err.Error(), "23505") || strings.Contains(err.Error(), "duplicate key"))
 }
 
 // parseDateRange 解析任意期间（YYYY-MM-DD 起止，含头含尾）为 [start, end) 时间区间。
@@ -1013,11 +1057,10 @@ func (s *ReportService) SignStep(c *gin.Context, id string, step int, req *dto.S
 		return nil, errs.ErrReportStatusNotAllowed
 	}
 	if newStatus == model.StatusApproved {
-		go s.archivePDF(r.ID)
+		safe.Go(func() { s.archivePDF(r.ID) })
 	} else {
-		for _, uid := range steps[next].CandidateIDs {
-			s.notify(uid, "report", "报告待审核", fmt.Sprintf("「%s」待你进行%s", r.Title, steps[next].Name), &r.ID)
-		}
+		_ = s.notifier.SendBatch(steps[next].CandidateIDs, r.TenantID, "report", "报告待审核",
+			fmt.Sprintf("「%s」待你进行%s", r.Title, steps[next].Name), &r.ID)
 	}
 	return gin.H{"status": newStatus, "review_step": next, "signed_count": len(steps[step].Signed)}, nil
 }
@@ -1219,11 +1262,6 @@ func (s *ReportService) archivePDF(reportID string) {
 		return
 	}
 	logger.L.Info("月报 PDF 归档完成", zap.String("report_id", reportID), zap.String("file_id", fid))
-}
-
-// notify 写站内消息 + App 推送（统一走 notify.Notifier，仿 OrderService.Notify）。
-func (s *ReportService) notify(userID, msgType, title, content string, bizID *string) {
-	_ = s.notifier.Send(userID, msgType, title, content, bizID)
 }
 
 // getWithScope 取报告并做数据权限校验（self 档用户放宽到本人相关报告）。

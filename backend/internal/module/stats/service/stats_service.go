@@ -225,26 +225,53 @@ func (s *StatsService) Performance(c *gin.Context, q *dto.PerformanceQuery) (*re
 	var rows []row
 	query.Scan(&rows)
 
-	// 异常发现数与疑似数（按打卡记录统计）
+	// 异常发现数与疑似数（按打卡记录统计）：按巡检员一次 GROUP BY 聚合，
+	// 所辖小区名一次按 inspector 聚合，姓名一次 IN 查询（消除逐人 3 查）；内存排序分页保留
+	inspectorIDs := make([]string, 0, len(rows))
+	for _, r := range rows {
+		inspectorIDs = append(inspectorIDs, r.InspectorID)
+	}
+	type abRow struct {
+		InspectorID string
+		Abnormal    int64
+		Suspect     int64
+	}
+	abByID := map[string]abRow{}
+	commNamesByID := map[string][]string{}
+	userNames := map[string]string{}
+	if len(inspectorIDs) > 0 {
+		var abRows []abRow
+		ck := s.db.Model(&insmodel.CheckinRecord{}).
+			Where("inspector_id IN ? AND checkin_time >= ? AND checkin_time < ? AND superseded_by IS NULL", inspectorIDs, q.StartDate, endExclusive)
+		ck = middleware.ApplyCommunityFilter(ck, c, "checkin_record.community_id")
+		ck.Select("inspector_id, COUNT(*) FILTER (WHERE result = 'abnormal') AS abnormal, COUNT(*) FILTER (WHERE is_suspect) AS suspect").
+			Group("inspector_id").Scan(&abRows)
+		for _, r := range abRows {
+			abByID[r.InspectorID] = r
+		}
+		var cnRows []struct {
+			InspectorID string
+			Name        string
+		}
+		s.db.Model(&insmodel.InspectionTask{}).Distinct("inspector_id", "community.name").
+			Joins("JOIN community ON community.id = inspection_task.community_id").
+			Where("inspector_id IN ? AND task_date >= ? AND task_date <= ?", inspectorIDs, q.StartDate, q.EndDate).
+			Scan(&cnRows)
+		for _, r := range cnRows {
+			commNamesByID[r.InspectorID] = append(commNamesByID[r.InspectorID], r.Name)
+		}
+		var users []sysmodel.SysUser
+		s.db.Select("id", "name").Where("id IN ?", inspectorIDs).Find(&users)
+		for i := range users {
+			userNames[users[i].ID] = users[i].Name
+		}
+	}
 	items := make([]gin.H, 0, len(rows))
 	for _, r := range rows {
-		var ab struct {
-			Abnormal int64
-			Suspect  int64
-		}
-		ck := s.db.Model(&insmodel.CheckinRecord{}).
-			Where("inspector_id = ? AND checkin_time >= ? AND checkin_time < ? AND superseded_by IS NULL", r.InspectorID, q.StartDate, endExclusive)
-		ck = middleware.ApplyCommunityFilter(ck, c, "checkin_record.community_id")
-		ck.Select("COUNT(*) FILTER (WHERE result = 'abnormal') AS abnormal, COUNT(*) FILTER (WHERE is_suspect) AS suspect").Scan(&ab)
-		// 所辖小区名
-		var commNames []string
-		s.db.Model(&insmodel.InspectionTask{}).Distinct().
-			Joins("JOIN community ON community.id = inspection_task.community_id").
-			Where("inspector_id = ? AND task_date >= ? AND task_date <= ?", r.InspectorID, q.StartDate, q.EndDate).
-			Pluck("community.name", &commNames)
+		ab := abByID[r.InspectorID]
 		items = append(items, gin.H{
-			"inspector_id": r.InspectorID, "inspector_name": s.userName(r.InspectorID),
-			"community_names": commNames,
+			"inspector_id": r.InspectorID, "inspector_name": userNames[r.InspectorID],
+			"community_names": commNamesByID[r.InspectorID],
 			"total_tasks":     r.TotalTasks, "done_tasks": r.DoneTasks,
 			"should_points": r.ShouldPoints, "done_points": r.DonePoints,
 			"coverage_rate":    pct(r.DonePoints, r.ShouldPoints),

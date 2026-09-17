@@ -17,6 +17,7 @@ import (
 	insmodel "anxuncloud/internal/module/inspection/model"
 	sysmodel "anxuncloud/internal/module/system/model"
 	"anxuncloud/internal/pkg/logger"
+	"anxuncloud/internal/pkg/strutil"
 	"anxuncloud/internal/pkg/types"
 
 	"go.uber.org/zap"
@@ -96,8 +97,8 @@ func (s *CheckinService) gateJudge(rec *insmodel.CheckinRecord, point *insmodel.
 	if err != nil {
 		logger.L.Warn("闸门 AI 判定失败", zap.String("rec_id", rec.ID), zap.Error(err))
 		s.db.Model(&insmodel.CheckinRecord{}).Where("id = ? AND audit_status = ?", rec.ID, insmodel.AuditPending).
-			Updates(map[string]any{"ai_verdict": insmodel.AIVerdictError, "ai_reason": truncateStr(err.Error(), 200)})
-		rec.AIReason = truncateStr(err.Error(), 200)
+			Updates(map[string]any{"ai_verdict": insmodel.AIVerdictError, "ai_reason": strutil.Truncate(err.Error(), 200)})
+		rec.AIReason = strutil.Truncate(err.Error(), 200)
 		return insmodel.AIVerdictError, sysmodel.AIGateReview
 	}
 	writeItemVerdicts(s.db, rec.ID, res.Items)
@@ -117,10 +118,10 @@ func (s *CheckinService) gateJudge(rec *insmodel.CheckinRecord, point *insmodel.
 	}
 	s.db.Model(&insmodel.CheckinRecord{}).Where("id = ? AND audit_status = ?", rec.ID, insmodel.AuditPending).
 		Updates(map[string]any{
-			"ai_verdict": verdict, "ai_reason": truncateStr(res.Reason, 500),
-			"ai_quality_pass": res.Quality.Pass, "ai_quality_issue": truncateStr(res.Quality.Issue, 255),
+			"ai_verdict": verdict, "ai_reason": strutil.Truncate(res.Reason, 500),
+			"ai_quality_pass": res.Quality.Pass, "ai_quality_issue": strutil.Truncate(res.Quality.Issue, 255),
 		})
-	rec.AIReason = truncateStr(res.Reason, 500)
+	rec.AIReason = strutil.Truncate(res.Reason, 500)
 	return verdict, gateBucketOf(verdict)
 }
 
@@ -166,9 +167,10 @@ func (s *CheckinService) notifyStepReviewers(recID, pointName string, stepIdx in
 	var rec struct {
 		CommunityID  string
 		TaskID       string
+		TenantID     *string
 		FlowSnapshot types.FlowStepArray
 	}
-	if err := s.db.Model(&insmodel.CheckinRecord{}).Select("community_id", "task_id", "flow_snapshot").Where("id = ?", recID).First(&rec).Error; err != nil {
+	if err := s.db.Model(&insmodel.CheckinRecord{}).Select("community_id", "task_id", "tenant_id", "flow_snapshot").Where("id = ?", recID).First(&rec).Error; err != nil {
 		return
 	}
 	var task struct {
@@ -187,7 +189,7 @@ func (s *CheckinService) notifyStepReviewers(recID, pointName string, stepIdx in
 	}
 	userIDs := communitysvc.SlotUserIDs(s.db, rec.CommunityID, slot)
 	if len(userIDs) == 0 && slot != sysmodel.SlotPatrolReportLine {
-		// 维度槽位未配置名单：回落通用汇报线
+		// 该环节槽位名单为空：回落通用汇报线
 		userIDs = communitysvc.SlotUserIDs(s.db, rec.CommunityID, sysmodel.SlotPatrolReportLine)
 	}
 	title := "打卡记录待审核：" + pointName
@@ -196,7 +198,5 @@ func (s *CheckinService) notifyStepReviewers(recID, pointName string, stepIdx in
 		title = "打卡记录转人工：" + pointName
 		content = fmt.Sprintf("点位「%s」的打卡记录需人工复核。理由：%s", pointName, reason)
 	}
-	for _, uid := range userIDs {
-		_ = s.notifier.Send(uid, "checkin_audit", title, content, &recID)
-	}
+	_ = s.notifier.SendBatch(userIDs, rec.TenantID, "checkin_audit", title, content, &recID)
 }

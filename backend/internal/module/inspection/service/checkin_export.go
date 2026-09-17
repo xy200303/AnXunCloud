@@ -5,7 +5,6 @@ import (
 	"strings"
 
 	"github.com/gin-gonic/gin"
-	"gorm.io/gorm"
 
 	"anxuncloud/internal/module/inspection/dto"
 	"anxuncloud/internal/module/inspection/model"
@@ -25,22 +24,6 @@ type checkinPointInfo struct {
 	name         string
 	ptype        string
 	buildingName string
-}
-
-// checkinPoint 取点位名称/类型/楼栋名（查不到返回零值，同 pointName 风格）。
-func checkinPoint(db *gorm.DB, id string) checkinPointInfo {
-	var p model.InspectionPoint
-	if db.Select("name", "type", "building_id").First(&p, "id = ?", id).Error != nil {
-		return checkinPointInfo{}
-	}
-	info := checkinPointInfo{name: p.Name, ptype: p.Type}
-	if p.BuildingID != nil {
-		var b model.Building
-		if db.Select("name").First(&b, "id = ?", *p.BuildingID).Error == nil {
-			info.buildingName = b.Name
-		}
-	}
-	return info
 }
 
 // CheckinExport 巡检记录导出行（与列表同一套过滤含审核状态，上限 checkinExportLimit 条）。
@@ -68,10 +51,73 @@ func (s *TaskService) CheckinExport(c *gin.Context, q *dto.CheckinListQuery) ([]
 	for _, d := range dicts {
 		typeLabels[d.Value] = d.Label
 	}
+	// 批量预载：点位（名称/类型/楼栋）、楼栋名、小区名、巡检员名各一次 IN 查询（消除逐行 N+1，
+	// 上限 5000 行 × 每行 3~4 查 ≈ 2 万 SQL）；查不到按原口径返回零值
+	pointIDs, commIDs, userIDs := []string{}, []string{}, []string{}
+	seenP, seenC, seenU := map[string]bool{}, map[string]bool{}, map[string]bool{}
+	for i := range rows {
+		r := &rows[i]
+		if !seenP[r.PointID] {
+			seenP[r.PointID] = true
+			pointIDs = append(pointIDs, r.PointID)
+		}
+		if !seenC[r.CommunityID] {
+			seenC[r.CommunityID] = true
+			commIDs = append(commIDs, r.CommunityID)
+		}
+		if !seenU[r.InspectorID] {
+			seenU[r.InspectorID] = true
+			userIDs = append(userIDs, r.InspectorID)
+		}
+	}
+	points := map[string]checkinPointInfo{}
+	if len(pointIDs) > 0 {
+		var pts []model.InspectionPoint
+		s.db.Select("id", "name", "type", "building_id").Where("id IN ?", pointIDs).Find(&pts)
+		buildingIDs, seenB := []string{}, map[string]bool{}
+		for i := range pts {
+			points[pts[i].ID] = checkinPointInfo{name: pts[i].Name, ptype: pts[i].Type}
+			if pts[i].BuildingID != nil && *pts[i].BuildingID != "" && !seenB[*pts[i].BuildingID] {
+				seenB[*pts[i].BuildingID] = true
+				buildingIDs = append(buildingIDs, *pts[i].BuildingID)
+			}
+		}
+		if len(buildingIDs) > 0 {
+			buildingNames := map[string]string{}
+			var bs []model.Building
+			s.db.Select("id", "name").Where("id IN ?", buildingIDs).Find(&bs)
+			for _, b := range bs {
+				buildingNames[b.ID] = b.Name
+			}
+			for i := range pts {
+				if pts[i].BuildingID != nil {
+					info := points[pts[i].ID]
+					info.buildingName = buildingNames[*pts[i].BuildingID]
+					points[pts[i].ID] = info
+				}
+			}
+		}
+	}
+	commNames := map[string]string{}
+	if len(commIDs) > 0 {
+		var comms []sysmodel.Community
+		s.db.Select("id", "name").Where("id IN ?", commIDs).Find(&comms)
+		for i := range comms {
+			commNames[comms[i].ID] = comms[i].Name
+		}
+	}
+	userNames := map[string]string{}
+	if len(userIDs) > 0 {
+		var users []sysmodel.SysUser
+		s.db.Select("id", "name").Where("id IN ?", userIDs).Find(&users)
+		for i := range users {
+			userNames[users[i].ID] = users[i].Name
+		}
+	}
 	out := make([]excel.CheckinExportRow, 0, len(rows))
 	for i := range rows {
 		r := &rows[i]
-		pt := checkinPoint(s.db, r.PointID)
+		pt := points[r.PointID]
 		typeLabel := typeLabels[pt.ptype]
 		if typeLabel == "" {
 			typeLabel = pt.ptype
@@ -82,11 +128,11 @@ func (s *TaskService) CheckinExport(c *gin.Context, q *dto.CheckinListQuery) ([]
 		}
 		out = append(out, excel.CheckinExportRow{
 			CheckinTime:   timefmt.T(r.CheckinTime),
-			CommunityName: commName(s.db, r.CommunityID),
+			CommunityName: commNames[r.CommunityID],
 			BuildingName:  pt.buildingName,
 			PointName:     pt.name,
 			PointType:     typeLabel,
-			InspectorName: userName(s.db, r.InspectorID),
+			InspectorName: userNames[r.InspectorID],
 			Result:        resultLabel(r.Result),
 			Remark:        r.Remark,
 			CheckinType:   checkinTypeLabel(r.CheckinType),

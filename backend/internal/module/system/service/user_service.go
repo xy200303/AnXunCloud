@@ -791,14 +791,21 @@ func (s *UserService) UpdateProfile(uid string, name, phone string, sigKey *stri
 	if strings.TrimSpace(name) == "" {
 		return errs.ErrParam.WithMsg("name 为必填项")
 	}
-	if !password.ValidPhone(phone) {
-		return errs.ErrParam.WithMsg("phone 手机号格式错误")
-	}
-	// 手机号同时可能作为他人登录名（导入用户 username=手机号），两处都要排重
-	var count int64
-	s.db.Model(&model.SysUser{}).Where("id <> ? AND (phone = ? OR username = ?)", uid, phone, phone).Count(&count)
-	if count > 0 {
-		return errs.ErrPhoneExists
+	// 手机号留空 = 不修改（后台导入的账号可能无手机号，不能因此卡死头像/签名等资料更新）；
+	// 传了值才校验格式与排重
+	phone = strings.TrimSpace(phone)
+	if phone == "" {
+		phone = u.Phone
+	} else {
+		if !password.ValidPhone(phone) {
+			return errs.ErrParam.WithMsg("phone 手机号格式错误")
+		}
+		// 手机号同时可能作为他人登录名（导入用户 username=手机号），两处都要排重
+		var count int64
+		s.db.Model(&model.SysUser{}).Where("id <> ? AND (phone = ? OR username = ?)", uid, phone, phone).Count(&count)
+		if count > 0 {
+			return errs.ErrPhoneExists
+		}
 	}
 	if sigKey != nil && s.signAssets != nil {
 		value := strings.TrimSpace(*sigKey)

@@ -18,15 +18,19 @@ type MessageService struct {
 
 func NewMessageService(db *gorm.DB) *MessageService { return &MessageService{db: db} }
 
-// MessageListQuery 消息列表查询（is_read 空串=全部）。
+// MessageListQuery 消息列表查询（is_read 空串=全部；type 空串=全部，App 端按类型筛选用）。
 type MessageListQuery struct {
 	response.PageQuery
+	Type   string `form:"type"`
 	IsRead string `form:"is_read"`
 }
 
 // List 当前用户消息列表 + 未读数。
 func (s *MessageService) List(userID string, q *MessageListQuery) (gin.H, *errs.Error) {
 	db := s.db.Model(&model.SysMessage{}).Where("user_id = ?", userID)
+	if q.Type != "" {
+		db = db.Where("type = ?", q.Type)
+	}
 	if v, ok, be := bind.BoolFilter(q.IsRead); be != nil {
 		return nil, be
 	} else if ok {

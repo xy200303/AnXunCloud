@@ -38,17 +38,6 @@ func RecordFlatPhotos(db *gorm.DB, recordID string) []gin.H {
 	return out
 }
 
-// RecordPhotoCount 一条打卡的照片总数（逐项照片聚合；列表页 photo_count 用）。
-func RecordPhotoCount(db *gorm.DB, recordID string) int {
-	var items []model.CheckinRecordItem
-	db.Select("photos").Where("record_id = ?", recordID).Find(&items)
-	n := 0
-	for _, it := range items {
-		n += len(it.Photos)
-	}
-	return n
-}
-
 // ItemPhotoURLs 逐项照片 file_id → 可访问 URL（优先水印图）。
 func ItemPhotoURLs(db *gorm.DB, refs []string) []string {
 	urls := make([]string, 0, len(refs))

@@ -15,6 +15,7 @@ import (
 	"anxuncloud/internal/module/inspection/model"
 	sysmodel "anxuncloud/internal/module/system/model"
 	"anxuncloud/internal/pkg/bind"
+	"anxuncloud/internal/pkg/configread"
 	"anxuncloud/internal/pkg/errs"
 	"anxuncloud/internal/pkg/notify"
 	"anxuncloud/internal/pkg/response"
@@ -113,9 +114,15 @@ func (s *TaskService) List(c *gin.Context, q *dto.TaskListQuery) (*response.Page
 		return nil, errs.ErrInternal
 	}
 	counters := s.loadCounters(tasks)
+	batch := s.loadTaskBatch(tasks)
+	// can_remind：催办归口汇报线名单（与 Remind 同口径），前置透出避免「点了才被拦」
+	identity := middleware.CurrentIdentity(c)
+	slots := communitysvc.NewSlotCache(s.db)
 	list := make([]gin.H, 0, len(tasks))
 	for i := range tasks {
-		list = append(list, s.toItem(&tasks[i], counters[tasks[i].ID]))
+		item := s.toItem(&tasks[i], counters[tasks[i].ID], batch)
+		item["can_remind"] = reportLineAuthorized(slots, identity, tasks[i].CommunityID)
+		list = append(list, item)
 	}
 	return &response.Page{List: list, Total: total, Page: q.Page, PageSize: q.PageSize}, nil
 }
@@ -145,26 +152,67 @@ func (s *TaskService) loadCounters(tasks []model.InspectionTask) map[string]task
 	return out
 }
 
-func (s *TaskService) toItem(t *model.InspectionTask, cnt taskCounters) gin.H {
-	var plan model.InspectionPlan
-	planName := ""
-	// Unscoped：计划已删除时仍需展示其名称（历史任务可追溯），标注「已删除」
-	if s.db.Unscoped().Select("name", "time_window", "deleted_at").First(&plan, "id = ?", t.PlanID).Error == nil {
-		planName = plan.Name
-		if plan.DeletedAt.Valid {
-			planName += "（已删除）"
+// taskBatchCtx 任务监控列表批量预载上下文（消除 toItem 逐行 N+1：计划/小区/巡检员各 1 次 IN 查询）。
+type taskBatchCtx struct {
+	planNames map[string]string // 含「已删除」标注（Unscoped 语义保留）
+	commNames map[string]string
+	userNames map[string]string
+}
+
+// loadTaskBatch 按本页任务集合批量预载计划名/小区名/巡检员名。
+func (s *TaskService) loadTaskBatch(tasks []model.InspectionTask) *taskBatchCtx {
+	ctx := &taskBatchCtx{planNames: map[string]string{}, commNames: map[string]string{}, userNames: map[string]string{}}
+	planIDs, commIDs, userIDs := []string{}, []string{}, []string{}
+	seenP, seenC, seenU := map[string]bool{}, map[string]bool{}, map[string]bool{}
+	for i := range tasks {
+		t := &tasks[i]
+		if !seenP[t.PlanID] {
+			seenP[t.PlanID] = true
+			planIDs = append(planIDs, t.PlanID)
+		}
+		if !seenC[t.CommunityID] {
+			seenC[t.CommunityID] = true
+			commIDs = append(commIDs, t.CommunityID)
+		}
+		if !seenU[t.InspectorID] {
+			seenU[t.InspectorID] = true
+			userIDs = append(userIDs, t.InspectorID)
 		}
 	}
+	if len(planIDs) > 0 {
+		// Unscoped：计划已删除时仍需展示其名称（历史任务可追溯），标注「已删除」
+		var plans []model.InspectionPlan
+		s.db.Unscoped().Select("id", "name", "deleted_at").Where("id IN ?", planIDs).Find(&plans)
+		for i := range plans {
+			name := plans[i].Name
+			if plans[i].DeletedAt.Valid {
+				name += "（已删除）"
+			}
+			ctx.planNames[plans[i].ID] = name
+		}
+	}
+	if len(commIDs) > 0 {
+		var comms []sysmodel.Community
+		s.db.Select("id", "name").Where("id IN ?", commIDs).Find(&comms)
+		for i := range comms {
+			ctx.commNames[comms[i].ID] = comms[i].Name
+		}
+	}
+	if len(userIDs) > 0 {
+		var users []sysmodel.SysUser
+		s.db.Select("id", "name").Where("id IN ?", userIDs).Find(&users)
+		for i := range users {
+			ctx.userNames[users[i].ID] = users[i].Name
+		}
+	}
+	return ctx
+}
+
+func (s *TaskService) toItem(t *model.InspectionTask, cnt taskCounters, batch *taskBatchCtx) gin.H {
+	planName := batch.planNames[t.PlanID]
 	timeWindow := t.TimeWindow
-	commName, inspectorName := "", ""
-	var comm sysmodel.Community
-	if s.db.Select("name").First(&comm, "id = ?", t.CommunityID).Error == nil {
-		commName = comm.Name
-	}
-	var u sysmodel.SysUser
-	if s.db.Select("name").First(&u, "id = ?", t.InspectorID).Error == nil {
-		inspectorName = u.Name
-	}
+	commName := batch.commNames[t.CommunityID]
+	inspectorName := batch.userNames[t.InspectorID]
 	progress := 0
 	if t.TotalPoints > 0 {
 		progress = t.DonePoints * 100 / t.TotalPoints
@@ -483,12 +531,33 @@ func (s *TaskService) CheckinAuditCounts(c *gin.Context, q *dto.CheckinListQuery
 	return out, nil
 }
 
-// exceptionTypesOf 记录内逐项异常类型去重拼接（列表"异常类型"列展示；空=无异常类型上报）。
-func exceptionTypesOf(db *gorm.DB, recordID string) string {
-	var types_ []string
-	db.Model(&model.CheckinRecordItem{}).Distinct("exception_type").
-		Where("record_id = ? AND exception_type <> ''", recordID).Pluck("exception_type", &types_)
-	return strings.Join(types_, ",")
+// checkinItemAgg 记录逐项聚合结果（列表"异常类型"列 + photo_count）。
+type checkinItemAgg struct {
+	exceptionTypes string
+	photoCount     int
+}
+
+// checkinItemAggsOf 本页记录逐项的一次 GROUP BY 聚合（record_id IN 当前页 ids）：
+// 异常类型去重拼接（空=无异常类型上报）与照片总数（JSONB 数组长度求和），消除逐行各 1 查。
+func checkinItemAggsOf(db *gorm.DB, recordIDs []string) map[string]checkinItemAgg {
+	out := map[string]checkinItemAgg{}
+	if len(recordIDs) == 0 {
+		return out
+	}
+	var rows []struct {
+		RecordID       string `gorm:"column:record_id"`
+		ExceptionTypes string `gorm:"column:exception_types"`
+		PhotoCount     int    `gorm:"column:photo_count"`
+	}
+	db.Model(&model.CheckinRecordItem{}).
+		Select(`record_id,
+			COALESCE(string_agg(DISTINCT exception_type, ',') FILTER (WHERE exception_type <> ''), '') AS exception_types,
+			COALESCE(SUM(jsonb_array_length(photos)), 0) AS photo_count`).
+		Where("record_id IN ?", recordIDs).Group("record_id").Scan(&rows)
+	for _, r := range rows {
+		out[r.RecordID] = checkinItemAgg{exceptionTypes: r.ExceptionTypes, photoCount: r.PhotoCount}
+	}
+	return out
 }
 
 // CheckinList 打卡记录分页检索。
@@ -516,23 +585,68 @@ func (s *TaskService) CheckinList(c *gin.Context, q *dto.CheckinListQuery) (*res
 	}
 	list := make([]gin.H, 0, len(rows))
 	flows := map[string]types.FlowStepArray{} // community_id → 打卡审核链（当前环节名展示用）
-	slotUsers := map[string]types.IDArray{}   // project|slot → 环节名单（can_audit 判定缓存）
+	slots := communitysvc.NewSlotCache(s.db)  // project|slot → 环节名单（can_audit 判定缓存）
 	identity := middleware.CurrentIdentity(c)
+	// 批量预载：点位名/小区名/巡检员名各一次 IN 查询，逐项聚合（异常类型+照片数）一次 GROUP BY（消除逐行 5 查）
+	pointIDs, commIDs, userIDs, recIDs := []string{}, []string{}, []string{}, []string{}
+	seenP, seenC, seenU := map[string]bool{}, map[string]bool{}, map[string]bool{}
 	for i := range rows {
 		r := &rows[i]
+		recIDs = append(recIDs, r.ID)
+		if !seenP[r.PointID] {
+			seenP[r.PointID] = true
+			pointIDs = append(pointIDs, r.PointID)
+		}
+		if !seenC[r.CommunityID] {
+			seenC[r.CommunityID] = true
+			commIDs = append(commIDs, r.CommunityID)
+		}
+		if !seenU[r.InspectorID] {
+			seenU[r.InspectorID] = true
+			userIDs = append(userIDs, r.InspectorID)
+		}
+	}
+	pointNames, commNames, userNames := map[string]string{}, map[string]string{}, map[string]string{}
+	if len(pointIDs) > 0 {
+		var pts []model.InspectionPoint
+		s.db.Select("id", "name").Where("id IN ?", pointIDs).Find(&pts)
+		for i := range pts {
+			pointNames[pts[i].ID] = pts[i].Name
+		}
+	}
+	if len(commIDs) > 0 {
+		var comms []sysmodel.Community
+		s.db.Select("id", "name").Where("id IN ?", commIDs).Find(&comms)
+		for i := range comms {
+			commNames[comms[i].ID] = comms[i].Name
+		}
+	}
+	if len(userIDs) > 0 {
+		var users []sysmodel.SysUser
+		s.db.Select("id", "name").Where("id IN ?", userIDs).Find(&users)
+		for i := range users {
+			userNames[users[i].ID] = users[i].Name
+		}
+	}
+	aggs := checkinItemAggsOf(s.db, recIDs)
+	for i := range rows {
+		r := &rows[i]
+		agg := aggs[r.ID]
 		list = append(list, gin.H{
 			"id": r.ID, "task_id": r.TaskID, "point_id": r.PointID,
-			"point_name":      pointName(s.db, r.PointID),
-			"community_name":  commName(s.db, r.CommunityID),
-			"exception_types": exceptionTypesOf(s.db, r.ID),
-			"inspector_id":    r.InspectorID, "inspector_name": userName(s.db, r.InspectorID),
+			"point_name":      pointNames[r.PointID],
+			"community_name":  commNames[r.CommunityID],
+			"exception_types": agg.exceptionTypes,
+			"inspector_id":    r.InspectorID, "inspector_name": userNames[r.InspectorID],
 			"checkin_time": timefmt.T(r.CheckinTime), "checkin_type": r.CheckinType,
 			"distance_to_point": distanceOrNil(r), "result": r.Result,
-			"is_suspect": r.IsSuspect, "photo_count": RecordPhotoCount(s.db, r.ID),
+			"is_suspect": r.IsSuspect, "photo_count": agg.photoCount,
 			"audit_status": r.AuditStatus, "audit_step": r.AuditStep,
 			"current_step_name": s.currentStepName(flows, r),
-			"can_audit":         s.checkinAuditable(flows, slotUsers, r, identity),
-			"ai_verdict":        r.AIVerdict, "ai_reason": r.AIReason,
+			"can_audit":         s.checkinAuditable(flows, slots, r, identity),
+			// 撤销审核/抽查归口汇报线名单（与 Reopen/SpotCheck 同口径），前置透出
+			"can_report_line": reportLineAuthorized(slots, identity, r.CommunityID),
+			"ai_verdict":      r.AIVerdict, "ai_reason": r.AIReason,
 			"force_submit": r.ForceSubmit,
 		})
 	}
@@ -541,17 +655,9 @@ func (s *TaskService) CheckinList(c *gin.Context, q *dto.CheckinListQuery) (*res
 
 // checkinAuditable 当前用户是否可审核该待审记录（与 Pass 同口径：名单制授权；
 // 环节越界/AI 停放/当前环节空名单自愈均回落汇报线）。非待审记录恒 false。
-func (s *TaskService) checkinAuditable(flows map[string]types.FlowStepArray, slotUsers map[string]types.IDArray, r *model.CheckinRecord, idt *middleware.Identity) bool {
+func (s *TaskService) checkinAuditable(flows map[string]types.FlowStepArray, slots *communitysvc.SlotCache, r *model.CheckinRecord, idt *middleware.Identity) bool {
 	if r.AuditStatus != model.AuditPending || idt == nil {
 		return false
-	}
-	if idt.SuperAdmin {
-		return true
-	}
-	for _, code := range idt.RoleCodes {
-		if code == sysmodel.TenantAdminCode {
-			return true
-		}
 	}
 	// 快照优先（在途记录按提交时规则审）；无快照走小区级缓存的现配
 	flow := r.FlowSnapshot
@@ -569,28 +675,18 @@ func (s *TaskService) checkinAuditable(flows map[string]types.FlowStepArray, slo
 		if step.Kind != sysmodel.FlowStepKindAI {
 			slot = step.Slot
 			// 在途自愈同口径：当前人工环节名单为空 → 授权回落汇报线
-			if len(cachedSlotUsers(s.db, slotUsers, r.CommunityID, slot)) == 0 {
+			if len(slots.Users(r.CommunityID, slot)) == 0 {
 				slot = sysmodel.SlotPatrolReportLine
 			}
 		}
 	}
-	for _, uid := range cachedSlotUsers(s.db, slotUsers, r.CommunityID, slot) {
-		if uid == idt.UserID {
-			return true
-		}
-	}
-	return false
+	return slots.Authorized(r.CommunityID, slot, idt)
 }
 
-// cachedSlotUsers 环节名单查询缓存（project|slot → 名单）。
-func cachedSlotUsers(db *gorm.DB, cache map[string]types.IDArray, projectID, slot string) types.IDArray {
-	key := projectID + "|" + slot
-	users, ok := cache[key]
-	if !ok {
-		users = communitysvc.SlotUserIDs(db, projectID, slot)
-		cache[key] = users
-	}
-	return users
+// reportLineAuthorized 当前用户是否在项目汇报线名单内（催办等归口汇报线的操作授权前置判定；
+// 与 SlotAuthorized 同口径：超管/租户管理员放行）。
+func reportLineAuthorized(slots *communitysvc.SlotCache, idt *middleware.Identity, communityID string) bool {
+	return slots.Authorized(communityID, sysmodel.SlotPatrolReportLine, idt)
 }
 
 // currentStepName 待审核记录的当前审批环节名（pending 才有值；供列表"待审核（环节名）"展示）。
@@ -688,15 +784,9 @@ func exifCheck(r *model.CheckinRecord, exifTime string, limit int) gin.H {
 	return gin.H{"shot_at": exifTime, "deviation_seconds": dev, "passed": dev <= limit}
 }
 
-// cfgInt 读取系统参数整数值（缺失/非法回退默认值）。
+// cfgInt 读取系统参数整数值（缺失/非法回退默认值；统一委托 pkg/configread）。
 func (s *TaskService) cfgInt(key string, def int) int {
-	var v string
-	if err := s.db.Model(&sysmodel.SysConfig{}).Where("key = ?", key).Select("value").Scan(&v).Error; err == nil {
-		if n, err2 := strconv.Atoi(v); err2 == nil {
-			return n
-		}
-	}
-	return def
+	return configread.GetInt(s.db, key, def)
 }
 
 // taskDueDate 可空完成期限转 YYYY-MM-DD（nil 返回空串，抽查任务透出用）。
@@ -756,7 +846,7 @@ func (s *TaskService) Remind(c *gin.Context, id string) *errs.Error {
 	if be := middleware.CheckCommunity(s.db, c, t.CommunityID); be != nil {
 		return be
 	}
-	// 催办归口该任务巡查业务线的汇报线主管（维度槽位 → 通用槽位回落；超管/租户管理员默认放行）
+	// 催办归口汇报线名单（超管/租户管理员默认放行）
 	slot := sysmodel.SlotPatrolReportLine
 	if !communitysvc.SlotAuthorized(s.db, t.CommunityID, slot, middleware.CurrentIdentity(c)) {
 		return errs.ErrNotInSlot.WithMsg("当前用户不在本项目该巡查业务线的审核名单内")

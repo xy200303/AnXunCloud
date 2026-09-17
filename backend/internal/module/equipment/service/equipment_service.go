@@ -5,7 +5,6 @@ package service
 
 import (
 	"fmt"
-	"strconv"
 	"strings"
 	"time"
 
@@ -17,6 +16,7 @@ import (
 	"anxuncloud/internal/module/equipment/model"
 	insmodel "anxuncloud/internal/module/inspection/model"
 	sysmodel "anxuncloud/internal/module/system/model"
+	"anxuncloud/internal/pkg/configread"
 	"anxuncloud/internal/pkg/errs"
 	"anxuncloud/internal/pkg/response"
 	"anxuncloud/internal/pkg/timefmt"
@@ -145,15 +145,9 @@ func parseDate(s string) (*time.Time, *errs.Error) {
 // CfgInt 读取系统参数整数值（导出供 mp 模块用；缺失/非法回退默认值）。
 func CfgInt(db *gorm.DB, key string, def int) int { return cfgInt(db, key, def) }
 
-// cfgInt 读取系统参数整数值（缺失/非法回退默认值；与 task_service.cfgInt 同口径直读 sys_config）。
+// cfgInt 读取系统参数整数值（缺失/非法回退默认值；统一委托 pkg/configread 直读 sys_config）。
 func cfgInt(db *gorm.DB, key string, def int) int {
-	var v string
-	if err := db.Model(&sysmodel.SysConfig{}).Where("key = ?", key).Select("value").Scan(&v).Error; err == nil {
-		if n, err2 := strconv.Atoi(strings.TrimSpace(v)); err2 == nil {
-			return n
-		}
-	}
-	return def
+	return configread.GetInt(db, key, def)
 }
 
 // cfgBool 读取系统参数布尔值（委托 spotcheck.go 的导出实现，包内调用统一小写）。

@@ -140,18 +140,41 @@ func (s *PlanService) Detail(c *gin.Context, id string) (gin.H, *errs.Error) {
 	} else {
 		pointIDs = p.PointIDs
 	}
+	// 点位/楼栋各一次 IN 批量预载（消除逐点 2 查），再按原 pointIDs 顺序组装；
+	// pointIDs 是 types.IDArray（driver.Valuer 会整体序列化），必须显式转 []string 才能被 IN 展开
+	ptByID := map[string]*model.InspectionPoint{}
+	buildingIDSet := map[string]struct{}{}
+	if len(pointIDs) > 0 {
+		var pts []model.InspectionPoint
+		s.db.Where("id IN ?", []string(pointIDs)).Find(&pts)
+		for i := range pts {
+			ptByID[pts[i].ID] = &pts[i]
+			if pts[i].BuildingID != nil && *pts[i].BuildingID != "" {
+				buildingIDSet[*pts[i].BuildingID] = struct{}{}
+			}
+		}
+	}
+	buildingNames := map[string]string{}
+	if len(buildingIDSet) > 0 {
+		bIDs := make([]string, 0, len(buildingIDSet))
+		for id := range buildingIDSet {
+			bIDs = append(bIDs, id)
+		}
+		var bs []model.Building
+		s.db.Select("id", "name").Where("id IN ?", bIDs).Find(&bs)
+		for _, b := range bs {
+			buildingNames[b.ID] = b.Name
+		}
+	}
 	points := make([]gin.H, 0, len(pointIDs))
 	for i, pid := range pointIDs {
-		var pt model.InspectionPoint
-		if s.db.First(&pt, "id = ?", pid).Error != nil {
+		pt, ok := ptByID[pid]
+		if !ok {
 			continue
 		}
 		buildingName := ""
 		if pt.BuildingID != nil {
-			var b model.Building
-			if s.db.Select("name").First(&b, "id = ?", *pt.BuildingID).Error == nil {
-				buildingName = b.Name
-			}
+			buildingName = buildingNames[*pt.BuildingID]
 		}
 		points = append(points, gin.H{"id": pt.ID, "name": pt.Name, "building_name": buildingName, "sort": i + 1})
 	}
@@ -835,12 +858,10 @@ func (s *PlanService) FlipOverdue() (int64, error) {
 		parts := strings.SplitN(key, "|", 2)
 		cid, patrolType := parts[0], parts[1]
 		slot := sysmodel.SlotPatrolReportLine
-		for _, uid := range communitysvc.SlotUserIDs(s.db, cid, slot) {
-			_ = s.notifier.Send(uid, "task",
-				"巡查任务逾期提醒",
-				fmt.Sprintf("截至昨日，本项目%s有 %d 个巡查任务逾期未巡，请跟进督办。", s.patrolLineName(patrolType), n),
-				nil)
-		}
+		_ = s.notifier.SendBatch(communitysvc.SlotUserIDs(s.db, cid, slot), middleware.CommunityTenantID(s.db, cid), "task",
+			"巡查任务逾期提醒",
+			fmt.Sprintf("截至昨日，本项目%s有 %d 个巡查任务逾期未巡，请跟进督办。", s.patrolLineName(patrolType), n),
+			nil)
 	}
 	return res.RowsAffected, nil
 }

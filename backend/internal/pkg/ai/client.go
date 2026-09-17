@@ -140,9 +140,11 @@ type ReviewInput struct {
 }
 
 // Client 多协议视觉审核客户端。
+// 持有共享 *http.Client（连接池复用），单次调用超时通过 context 控制。
 type Client struct {
 	getCfg func(key string) (string, bool)
 	store  *storage.Storage // 可空；local 模式用于本地读照片转 base64
+	httpc  *http.Client
 }
 
 // Option 可选装配项。
@@ -155,7 +157,13 @@ func WithStorage(s *storage.Storage) Option {
 
 // NewClient 构造客户端；getCfg 每次调用时实时读取，不缓存。
 func NewClient(getCfg func(key string) (string, bool), opts ...Option) *Client {
-	c := &Client{getCfg: getCfg}
+	// 连接池基于默认 Transport 克隆：AI 调用低频但单连接耗时长，限制每主机空闲连接避免句柄堆积
+	tr := http.DefaultTransport.(*http.Transport).Clone()
+	tr.MaxIdleConns = 100
+	tr.MaxIdleConnsPerHost = 4
+	tr.MaxConnsPerHost = 8
+	tr.IdleConnTimeout = 90 * time.Second
+	c := &Client{getCfg: getCfg, httpc: &http.Client{Transport: tr}}
 	for _, o := range opts {
 		o(c)
 	}
@@ -204,7 +212,12 @@ func (c *Client) ReviewCheckin(ctx context.Context, input ReviewInput) (*ReviewR
 		return nil, fmt.Errorf("ai.model 未配置")
 	}
 
-	httpc := &http.Client{Timeout: time.Duration(c.cfgInt("ai.timeout_seconds", defaultTimeoutSecs)) * time.Second}
+	// 单次调用超时用 context 控制（http.Client 不设置 Timeout，避免长连接被整体掐断后无法复用）
+	timeout := time.Duration(c.cfgInt("ai.timeout_seconds", defaultTimeoutSecs)) * time.Second
+	ctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
+	httpc := c.httpc
 	protocol, _ := c.cfg("ai.protocol")
 	switch strings.ToLower(strings.TrimSpace(protocol)) {
 	case "", ProtocolOpenAIChat:

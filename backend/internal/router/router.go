@@ -49,7 +49,7 @@ import (
 func New(cfg *config.Config, db *gorm.DB, rdb *redis.Client) (*gin.Engine, *inspectionsvc.Scheduler) {
 	gin.SetMode(cfg.Server.Mode)
 	r := gin.New()
-	r.Use(middleware.Recovery(), middleware.CORS(cfg.CORS.AllowOrigins))
+	r.Use(middleware.Recovery(), middleware.CORS(cfg.CORS.AllowOrigins), middleware.AccessLog())
 
 	// 依赖装配
 	jwtm := jwtutil.NewManager(cfg.JWT.Secret, cfg.JWT.AccessTTL, cfg.JWT.RefreshTTL)
@@ -91,11 +91,11 @@ func New(cfg *config.Config, db *gorm.DB, rdb *redis.Client) (*gin.Engine, *insp
 	expireSvc := equipmentsvc.NewExpireService(db, notifier)
 	statsSvc := statssvc.NewStatsService(db, store)
 	reportSvc := reportsvc.NewReportService(db, rdb, store, configSvc.Get, notifier)
-	mpSvc := mpsvc.NewMPService(db, rdb, sess, jwtm, cfg.Wechat)
+	mpSvc := mpsvc.NewMPService(db, rdb, sess, jwtm, cfg.Wechat, messageSvc)
 	checkinSvc := mpsvc.NewCheckinService(db, rdb, store, configSvc.Get, notifier)
 	reviewSvc.BindCheckinAIGate(checkinSvc.RunAIGate) // 审批链推进到 AI 环节时触发打卡闸门
-	checkinSvc.StartAIItemWorkers() // 逐项 AI 识别队列消费 worker（ai.worker_concurrency，随 router 装配启动）
-	uploadSvc := mpsvc.NewUploadService(db, store, cfg.Upload, cfg.OSS)
+	checkinSvc.StartAIItemWorkers()                   // 逐项 AI 识别队列消费 worker（ai.worker_concurrency，随 router 装配启动）
+	uploadSvc := filesvc.NewUploadService(db, store, cfg.Upload, cfg.OSS)
 	scheduler := inspectionsvc.NewScheduler(db, planSvc, reportSvc, configSvc.Get)
 	// 设备台账：每日到期扫描提醒（临期/逾期/升级经理，时间取 equipment.expire_check_time）
 	scheduler.Register(inspectionsvc.PlanJob{Name: "equipment_expire", Run: expireSvc.Run})
@@ -133,6 +133,18 @@ func New(cfg *config.Config, db *gorm.DB, rdb *redis.Client) (*gin.Engine, *insp
 	// 健康检查 + 本地文件静态路由（仅非敏感场景：checkin/avatar/notice 等内容图；
 	// signature/seal/export 由 /api/files 鉴权提供，store.URL 已按前缀分流）
 	r.GET("/healthz", func(c *gin.Context) { response.OK(c, gin.H{"status": "up"}) })
+	// 就绪探针：db SELECT 1 + Redis Ping，任一失败 503（K8s readiness 摘流量用；/healthz 仅存活）
+	r.GET("/readyz", func(c *gin.Context) {
+		if err := db.Exec("SELECT 1").Error; err != nil {
+			c.JSON(http.StatusServiceUnavailable, gin.H{"status": "not_ready"})
+			return
+		}
+		if err := rdb.Ping(c.Request.Context()).Err(); err != nil {
+			c.JSON(http.StatusServiceUnavailable, gin.H{"status": "not_ready"})
+			return
+		}
+		response.OK(c, gin.H{"status": "ready"})
+	})
 	r.GET("/uploads/*key", func(c *gin.Context) {
 		c.Header("X-Content-Type-Options", "nosniff")
 		key := strings.TrimPrefix(c.Param("key"), "/")
@@ -382,10 +394,10 @@ func New(cfg *config.Config, db *gorm.DB, rdb *redis.Client) (*gin.Engine, *insp
 			mpAuth.GET("/tasks/:id", mpCtl.TaskDetail)
 			mpAuth.GET("/points/by-code/:code", mpCtl.PointByCode)
 			mpAuth.GET("/points/nearby", mpCtl.NearbyPoints)
-			mpAuth.GET("/equipment/due", maintCtl.MpDueDevices)          // 设备台账：我的待维保列表（临期+逾期）
-			mpAuth.POST("/equipment/maintenance", maintCtl.MpRegister)   // 维保登记（一键+一拍，pending 待经理确认）
-			mpAuth.GET("/equipment/maintenance-mine", maintCtl.Mine)     // 我的提交（全部状态，最新在前）
-			mpAuth.PUT("/equipment/maintenance/:id", maintCtl.Update)    // 待确认登记修改（限本人，重走 AI 核验）
+			mpAuth.GET("/equipment/due", maintCtl.MpDueDevices)        // 设备台账：我的待维保列表（临期+逾期）
+			mpAuth.POST("/equipment/maintenance", maintCtl.MpRegister) // 维保登记（一键+一拍，pending 待经理确认）
+			mpAuth.GET("/equipment/maintenance-mine", maintCtl.Mine)   // 我的提交（全部状态，最新在前）
+			mpAuth.PUT("/equipment/maintenance/:id", maintCtl.Update)  // 待确认登记修改（限本人，重走 AI 核验）
 			mpAuth.POST("/checkin", mpCtl.Checkin)
 			mpAuth.POST("/checkin/offline-sync", mpCtl.OfflineSync)
 			mpAuth.POST("/checkin/ai-item-jobs", mpCtl.SubmitAIItemJob)                          // 逐项 AI 识别：提交

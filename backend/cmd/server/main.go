@@ -38,6 +38,7 @@ func main() {
 		fmt.Fprintf(os.Stderr, "初始化日志失败: %v\n", err)
 		os.Exit(1)
 	}
+	defer func() { _ = logger.L.Sync() }() // 退出前冲刷缓冲日志（stderr 同步失败忽略）
 
 	db, err := database.Connect(cfg.Postgres)
 	if err != nil {
@@ -60,6 +61,9 @@ func main() {
 	}
 	if cfg.Env == "prod" && (len(cfg.JWT.Secret) < 32 || strings.Contains(strings.ToLower(cfg.JWT.Secret), "change")) {
 		logger.L.Fatal("生产环境 JWT_SECRET 不符合安全要求，请配置至少 32 位随机密钥")
+	}
+	if cfg.Env == "prod" && cfg.App.BaseURL == "" {
+		logger.L.Fatal("生产环境必须配置 APP_BASE_URL（对外访问地址，用于拼接文件 URL、短链接与下载二维码）")
 	}
 	if err := database.Seed(db, cfg.Admin.Username, cfg.Admin.Password, cfg.Admin.Name); err != nil {
 		logger.L.Fatal("初始化数据失败", zap.Error(err))
@@ -100,6 +104,7 @@ func main() {
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 	<-quit
 	logger.L.Info("正在关闭服务...")
+	scheduler.Stop() // 先停调度循环，避免关闭窗口内再起新一轮任务
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	if err := srv.Shutdown(ctx); err != nil {

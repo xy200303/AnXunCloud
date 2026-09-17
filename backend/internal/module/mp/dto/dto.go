@@ -1,8 +1,6 @@
 // Package dto 小程序端请求结构。
 package dto
 
-import "anxuncloud/internal/pkg/response"
-
 type MPLoginReq struct {
 	Code      string `json:"code" binding:"required"`
 	PhoneCode string `json:"phone_code"`
@@ -44,12 +42,12 @@ type CheckinItemReq struct {
 // 服务端发现该 ID 已存在则直接幂等返回已有记录，不产生重复数据（UUIDv7 的核心收益）。
 // 照片全部归属逐项（check_items[].photos），无记录级照片；"现场全貌"类需求用通用模板检查项表达。
 type CheckinReq struct {
-	ID          string  `json:"id"`
-	TaskID      string  `json:"task_id" binding:"required"`
-	PointID     string  `json:"point_id" binding:"required"`
-	CheckinType string  `json:"checkin_type" binding:"required,oneof=qrcode fence nfc"`
-	QRCodeNo    string  `json:"qrcode_no"`
-	NFCID       string  `json:"nfc_id"`
+	ID          string `json:"id"`
+	TaskID      string `json:"task_id" binding:"required"`
+	PointID     string `json:"point_id" binding:"required"`
+	CheckinType string `json:"checkin_type" binding:"required,oneof=qrcode fence nfc"`
+	QRCodeNo    string `json:"qrcode_no"`
+	NFCID       string `json:"nfc_id"`
 	// Longitude/Latitude 手机定位（0,0=定位失败/未授权）：坐标降级为可选机制，
 	// 仅围栏点位（require_fence）强制要求有效定位，校验在 checkMode 内按点位配置判定
 	Longitude float64 `json:"longitude"`
@@ -103,21 +101,6 @@ type PhotoItemAbnormalDraftReq struct {
 
 type OfflineSyncReq struct {
 	Items []CheckinReq `json:"items" binding:"required,min=1"`
-}
-
-type STSReq struct {
-	Scene string `json:"scene" binding:"required,oneof=checkin avatar"`
-	Files []struct {
-		Name string `json:"name" binding:"required"`
-		Size int64  `json:"size"`
-		MD5  string `json:"md5"`
-	} `json:"files" binding:"required,min=1,max=6"`
-}
-
-type MessageQuery struct {
-	response.PageQuery
-	Type   string `form:"type"`
-	IsRead string `form:"is_read"`
 }
 
 // PushDeviceBindReq 推送设备绑定（cid 为个推 SDK 客户端标识；platform 可选 android/ios）。

@@ -26,18 +26,18 @@ func NewStaffService(db *gorm.DB) *StaffService { return &StaffService{db: db} }
 // ResolveSlotPosts 解析槽位绑定的岗位 code，三级回落（菜单归位方案 §3，最终决策）：
 // 项目级覆盖 → 租户级默认（project_id 空 + tenant_id=项目所属租户）→ 平台默认（两级皆空）。
 // 查不到绑定返回空数组（该环节按规则跳过/降级）。
-func ResolveSlotPosts(db *gorm.DB, projectID, slot string) types.StringArray {
-	codes, _ := resolveSlotPosts(db, projectID, slot)
+func ResolveSlotPosts(db *gorm.DB, communityID, slot string) types.StringArray {
+	codes, _ := resolveSlotPosts(db, communityID, slot)
 	return codes
 }
 
 // resolveSlotPosts 三级回落解析，返回岗位 code 与来源（project/tenant/platform；空串=未配置）。
-func resolveSlotPosts(db *gorm.DB, projectID, slot string) (types.StringArray, string) {
+func resolveSlotPosts(db *gorm.DB, communityID, slot string) (types.StringArray, string) {
 	var b sysmodel.DutyBinding
-	if err := db.Where("project_id = ? AND slot = ?", projectID, slot).First(&b).Error; err == nil {
+	if err := db.Where("project_id = ? AND slot = ?", communityID, slot).First(&b).Error; err == nil {
 		return b.PostCodes, "project"
 	}
-	if tid := middleware.CommunityTenantID(db, projectID); tid != nil {
+	if tid := middleware.CommunityTenantID(db, communityID); tid != nil {
 		if err := db.Where("project_id IS NULL AND tenant_id = ? AND slot = ?", *tid, slot).First(&b).Error; err == nil {
 			return b.PostCodes, "tenant"
 		}
@@ -50,8 +50,8 @@ func resolveSlotPosts(db *gorm.DB, projectID, slot string) (types.StringArray, s
 
 // SlotUserIDs 槽位默认人员名单：绑定岗位在该项目编制内的在职成员（用户须存在且启用，去重）。
 // 名单即授权：只要人在名单里即可承担该职责，不再要求持有特定角色/权限点。
-func SlotUserIDs(db *gorm.DB, projectID, slot string) types.IDArray {
-	posts := ResolveSlotPosts(db, projectID, slot)
+func SlotUserIDs(db *gorm.DB, communityID, slot string) types.IDArray {
+	posts := ResolveSlotPosts(db, communityID, slot)
 	if len(posts) == 0 {
 		return types.IDArray{}
 	}
@@ -61,7 +61,7 @@ func SlotUserIDs(db *gorm.DB, projectID, slot string) types.IDArray {
 	}
 	var staffs []sysmodel.ProjectStaff
 	if err := db.Select("user_id", "posts").
-		Where("project_id = ? AND status = ?", projectID, sysmodel.StatusEnabled).
+		Where("project_id = ? AND status = ?", communityID, sysmodel.StatusEnabled).
 		Order("created_at ASC").Find(&staffs).Error; err != nil {
 		return types.IDArray{}
 	}
@@ -77,7 +77,7 @@ func SlotUserIDs(db *gorm.DB, projectID, slot string) types.IDArray {
 	if len(candidateIDs) == 0 {
 		return types.IDArray{}
 	}
-	tenantID := middleware.CommunityTenantID(db, projectID)
+	tenantID := middleware.CommunityTenantID(db, communityID)
 	if tenantID == nil {
 		return types.IDArray{}
 	}
@@ -103,7 +103,7 @@ func SlotUserIDs(db *gorm.DB, projectID, slot string) types.IDArray {
 // SlotAuthorized 名单制授权统一判定（月报签字、巡查汇报线共用）：
 // 超管与租户管理员默认放行——名单约束的是项目内职责分工，不约束平台/租户管理者；
 // 其余用户须为该项目该槽位名单成员（SlotUserIDs 三级回落解析）。
-func SlotAuthorized(db *gorm.DB, projectID, slot string, id *middleware.Identity) bool {
+func SlotAuthorized(db *gorm.DB, communityID, slot string, id *middleware.Identity) bool {
 	if id == nil {
 		return false
 	}
@@ -115,7 +115,7 @@ func SlotAuthorized(db *gorm.DB, projectID, slot string, id *middleware.Identity
 			return true
 		}
 	}
-	for _, uid := range SlotUserIDs(db, projectID, slot) {
+	for _, uid := range SlotUserIDs(db, communityID, slot) {
 		if uid == id.UserID {
 			return true
 		}
@@ -495,26 +495,26 @@ func uniqueStrings(ids []string) []string {
 // ---------- 审批链配置（项目级覆盖；扩展方案 §3） ----------
 
 // GetReviewFlow 项目审核链视图（来源 project/tenant/platform/default）。
-func (s *StaffService) GetReviewFlow(c *gin.Context, projectID string) (gin.H, *errs.Error) {
-	if be := middleware.CheckCommunity(s.db, c, projectID); be != nil {
+func (s *StaffService) GetReviewFlow(c *gin.Context, communityID string) (gin.H, *errs.Error) {
+	if be := middleware.CheckCommunity(s.db, c, communityID); be != nil {
 		return nil, be
 	}
-	steps, source := ResolveFlowWithSource(s.db, projectID, sysmodel.FlowCheckinReview)
+	steps, source := ResolveFlowWithSource(s.db, communityID, sysmodel.FlowCheckinReview)
 	return gin.H{"flow_code": sysmodel.FlowCheckinReview, "steps": steps, "source": source}, nil
 }
 
 // SaveReviewFlow 保存项目级审核链覆盖（upsert project_id 行）。
-func (s *StaffService) SaveReviewFlow(c *gin.Context, projectID string, steps types.FlowStepArray) *errs.Error {
-	if be := middleware.CheckCommunity(s.db, c, projectID); be != nil {
+func (s *StaffService) SaveReviewFlow(c *gin.Context, communityID string, steps types.FlowStepArray) *errs.Error {
+	if be := middleware.CheckCommunity(s.db, c, communityID); be != nil {
 		return be
 	}
 	if be := ValidateFlowSteps(s.db, steps); be != nil {
 		return be
 	}
 	var f sysmodel.ApprovalFlow
-	err := s.db.Where("project_id = ? AND flow_code = ?", projectID, sysmodel.FlowCheckinReview).First(&f).Error
+	err := s.db.Where("project_id = ? AND flow_code = ?", communityID, sysmodel.FlowCheckinReview).First(&f).Error
 	if err != nil {
-		f = sysmodel.ApprovalFlow{ProjectID: &projectID, FlowCode: sysmodel.FlowCheckinReview, Steps: steps}
+		f = sysmodel.ApprovalFlow{ProjectID: &communityID, FlowCode: sysmodel.FlowCheckinReview, Steps: steps}
 		if err := s.db.Create(&f).Error; err != nil {
 			return errs.ErrInternal
 		}
@@ -526,35 +526,35 @@ func (s *StaffService) SaveReviewFlow(c *gin.Context, projectID string, steps ty
 	return nil
 }
 
-func (s *StaffService) GetReportReviewFlow(c *gin.Context, projectID string) (gin.H, *errs.Error) {
-	if be := middleware.CheckCommunity(s.db, c, projectID); be != nil {
+func (s *StaffService) GetReportReviewFlow(c *gin.Context, communityID string) (gin.H, *errs.Error) {
+	if be := middleware.CheckCommunity(s.db, c, communityID); be != nil {
 		return nil, be
 	}
-	steps, source := ResolveFlowWithSource(s.db, projectID, sysmodel.FlowReportReview)
+	steps, source := ResolveFlowWithSource(s.db, communityID, sysmodel.FlowReportReview)
 	return gin.H{"flow_code": sysmodel.FlowReportReview, "steps": steps, "source": source}, nil
 }
 
 // GetMaintReviewFlow 项目级维保审核链视图（GET /communities/:id/maint-review-flow）。
-func (s *StaffService) GetMaintReviewFlow(c *gin.Context, projectID string) (gin.H, *errs.Error) {
-	if be := middleware.CheckCommunity(s.db, c, projectID); be != nil {
+func (s *StaffService) GetMaintReviewFlow(c *gin.Context, communityID string) (gin.H, *errs.Error) {
+	if be := middleware.CheckCommunity(s.db, c, communityID); be != nil {
 		return nil, be
 	}
-	steps, source := ResolveFlowWithSource(s.db, projectID, sysmodel.FlowMaintReview)
+	steps, source := ResolveFlowWithSource(s.db, communityID, sysmodel.FlowMaintReview)
 	return gin.H{"flow_code": sysmodel.FlowMaintReview, "steps": steps, "source": source}, nil
 }
 
 // SaveMaintReviewFlow 保存项目级维保审核链覆盖（PUT /communities/:id/maint-review-flow；upsert project_id 行）。
-func (s *StaffService) SaveMaintReviewFlow(c *gin.Context, projectID string, steps types.FlowStepArray) *errs.Error {
-	if be := middleware.CheckCommunity(s.db, c, projectID); be != nil {
+func (s *StaffService) SaveMaintReviewFlow(c *gin.Context, communityID string, steps types.FlowStepArray) *errs.Error {
+	if be := middleware.CheckCommunity(s.db, c, communityID); be != nil {
 		return be
 	}
 	if be := ValidateFlowSteps(s.db, steps); be != nil {
 		return be
 	}
 	var f sysmodel.ApprovalFlow
-	err := s.db.Where("project_id = ? AND flow_code = ?", projectID, sysmodel.FlowMaintReview).First(&f).Error
+	err := s.db.Where("project_id = ? AND flow_code = ?", communityID, sysmodel.FlowMaintReview).First(&f).Error
 	if err != nil {
-		f = sysmodel.ApprovalFlow{ProjectID: &projectID, FlowCode: sysmodel.FlowMaintReview, Steps: steps}
+		f = sysmodel.ApprovalFlow{ProjectID: &communityID, FlowCode: sysmodel.FlowMaintReview, Steps: steps}
 		if err := s.db.Create(&f).Error; err != nil {
 			return errs.ErrInternal
 		}
@@ -566,16 +566,16 @@ func (s *StaffService) SaveMaintReviewFlow(c *gin.Context, projectID string, ste
 	return nil
 }
 
-func (s *StaffService) SaveReportReviewFlow(c *gin.Context, projectID string, steps types.FlowStepArray) *errs.Error {
-	if be := middleware.CheckCommunity(s.db, c, projectID); be != nil {
+func (s *StaffService) SaveReportReviewFlow(c *gin.Context, communityID string, steps types.FlowStepArray) *errs.Error {
+	if be := middleware.CheckCommunity(s.db, c, communityID); be != nil {
 		return be
 	}
 	if be := ValidateReportFlowSteps(s.db, steps); be != nil {
 		return be
 	}
 	var f sysmodel.ApprovalFlow
-	if err := s.db.Where("project_id = ? AND flow_code = ?", projectID, sysmodel.FlowReportReview).First(&f).Error; err != nil {
-		f = sysmodel.ApprovalFlow{ProjectID: &projectID, FlowCode: sysmodel.FlowReportReview, Steps: steps}
+	if err := s.db.Where("project_id = ? AND flow_code = ?", communityID, sysmodel.FlowReportReview).First(&f).Error; err != nil {
+		f = sysmodel.ApprovalFlow{ProjectID: &communityID, FlowCode: sysmodel.FlowReportReview, Steps: steps}
 		if err := s.db.Create(&f).Error; err != nil {
 			return errs.ErrInternal
 		}

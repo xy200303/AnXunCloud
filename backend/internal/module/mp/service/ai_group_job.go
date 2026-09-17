@@ -23,6 +23,7 @@ import (
 	"anxuncloud/internal/pkg/ai"
 	"anxuncloud/internal/pkg/errs"
 	"anxuncloud/internal/pkg/logger"
+	"anxuncloud/internal/pkg/strutil"
 	"anxuncloud/internal/pkg/uploadfile"
 )
 
@@ -98,7 +99,7 @@ func (s *CheckinService) SubmitAIGroupJob(ctx context.Context, inspectorID strin
 			continue // 手动确认项不调 AI
 		}
 		items = append(items, ai.ItemPhoto{
-			Name: it.Name, Requirement: strVal(it.Requirement), AIHint: strVal(it.AIHint),
+			Name: it.Name, Requirement: strutil.StrVal(it.Requirement), AIHint: strutil.StrVal(it.AIHint),
 			JudgeType: it.JudgeType, JudgeConfig: it.JudgeConfig,
 		})
 	}
@@ -191,10 +192,10 @@ func (s *CheckinService) processAIGroupJob(p aiGroupJobPayload) {
 		}
 	}
 	fail := func(msg string) {
-		s.rdb.HSet(ctx, key, "status", "failed", "reason", truncateStr(msg, 200))
+		s.rdb.HSet(ctx, key, "status", "failed", "reason", strutil.Truncate(msg, 200))
 		s.rdb.Expire(ctx, key, aiGroupJobTTL)
 		for _, it := range p.Items {
-			writeDraft(it.Name, map[string]any{"ai_status": insmodel.ItemDraftFailed, "ai_reason": truncateStr(msg, 200)})
+			writeDraft(it.Name, map[string]any{"ai_status": insmodel.ItemDraftFailed, "ai_reason": strutil.Truncate(msg, 200)})
 		}
 	}
 	refs := make([]ai.PhotoRef, 0, len(p.FileIDs))
@@ -235,7 +236,7 @@ func (s *CheckinService) processAIGroupJob(p aiGroupJobPayload) {
 		out := aiGroupResultItem{Name: it.Name, Result: groupResultUnrecognized, Reason: "AI 未识别出该项，默认正常"}
 		verdict, reading := ai.VerdictReview, ""
 		if ok {
-			out.Reason = truncateStr(iv.Reason, 500)
+			out.Reason = strutil.Truncate(iv.Reason, 500)
 			switch iv.Verdict {
 			case ai.VerdictPass:
 				out.Result = groupResultNormal
@@ -251,13 +252,13 @@ func (s *CheckinService) processAIGroupJob(p aiGroupJobPayload) {
 		}
 		result.Items = append(result.Items, out)
 		var readingPtr *string
-		if rd := truncateStr(reading, 64); rd != "" {
+		if rd := strutil.Truncate(reading, 64); rd != "" {
 			readingPtr = &rd
 		}
 		writeDraft(it.Name, map[string]any{
 			"ai_status": insmodel.ItemDraftDone, "ai_verdict": verdict,
-			"ai_reason": truncateStr(out.Reason, 500), "ai_reading": readingPtr,
-			"quality_pass": res.Quality.Pass, "quality_issue": truncateStr(res.Quality.Issue, 255),
+			"ai_reason": strutil.Truncate(out.Reason, 500), "ai_reading": readingPtr,
+			"quality_pass": res.Quality.Pass, "quality_issue": strutil.Truncate(res.Quality.Issue, 255),
 		})
 	}
 	raw, err := json.Marshal(result)
@@ -269,7 +270,7 @@ func (s *CheckinService) processAIGroupJob(p aiGroupJobPayload) {
 		"status", "done",
 		"result", string(raw),
 		"quality_pass", strconv.FormatBool(res.Quality.Pass),
-		"quality_issue", truncateStr(res.Quality.Issue, 255),
+		"quality_issue", strutil.Truncate(res.Quality.Issue, 255),
 	)
 	s.rdb.Expire(ctx, key, aiGroupJobTTL)
 }

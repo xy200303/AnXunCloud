@@ -21,6 +21,7 @@ import (
 	"anxuncloud/internal/pkg/logger"
 	"anxuncloud/internal/pkg/notify"
 	"anxuncloud/internal/pkg/response"
+	"anxuncloud/internal/pkg/strutil"
 	"anxuncloud/internal/pkg/timefmt"
 	"anxuncloud/internal/pkg/types"
 	"anxuncloud/internal/pkg/uploadfile"
@@ -183,7 +184,7 @@ func (s *MaintenanceService) Register(c *gin.Context, req *dto.MaintenanceRegist
 			return "", false, errs.ErrPhotoQuality.WithMsg("照片未通过系统核验（" + reason + "），请重新拍摄")
 		default:
 			syncChecked = true
-			syncVerdict, syncReason, syncReading = verdict, truncateStr2(reason, 500), reading
+			syncVerdict, syncReason, syncReading = verdict, strutil.Truncate(reason, 500), reading
 			m.AIVerdict = &syncVerdict
 			m.AIReason = &syncReason
 		}
@@ -210,19 +211,19 @@ func (s *MaintenanceService) Register(c *gin.Context, req *dto.MaintenanceRegist
 			outcome = sysmodel.AIGatePass
 			s.db.Model(&m).Updates(map[string]any{
 				"ai_verdict": model.AIVerdictPass,
-				"ai_reason":  truncateStr2(appendReason(reason, "AI 核对通过"), 500),
+				"ai_reason":  strutil.Truncate(strutil.AppendNote(reason, "AI 核对通过"), 500),
 			})
 			break
 		}
 		// 存疑/读不出兜底：同步写入结论（疑似更换标注在 ai_reason）
 		if suspectReplace {
-			reason = appendReason(reason, trustNote)
+			reason = strutil.AppendNote(reason, trustNote)
 		} else if syncVerdict == model.AIVerdictPass {
-			reason = appendReason(reason, "未读出可信维修日期，待人工确认")
+			reason = strutil.AppendNote(reason, "未读出可信维修日期，待人工确认")
 		}
 		s.db.Model(&m).Updates(map[string]any{
 			"ai_verdict": model.AIVerdictReview,
-			"ai_reason":  truncateStr2(reason, 500),
+			"ai_reason":  strutil.Truncate(reason, 500),
 		})
 	}
 	// 审核链路由（maint_review，与打卡链同一引擎）：空流程 = 登记即生效回写台账；
@@ -256,7 +257,7 @@ func (s *MaintenanceService) routeMaintenance(e *model.Equipment, m *model.Equip
 			reason = *m.AIReason
 		}
 		if err := s.db.Model(m).Updates(map[string]any{
-			"confirm_status": model.ConfirmRejected, "reject_reason": truncateStr2(reason, 255),
+			"confirm_status": model.ConfirmRejected, "reject_reason": strutil.Truncate(reason, 255),
 		}).Error; err != nil {
 			return "", false, errs.ErrInternal
 		}
@@ -322,15 +323,6 @@ func (s *MaintenanceService) notifyPendingConfirm(e *model.Equipment, m *model.E
 	}
 }
 
-// appendReason 追加理由（分号连接，忽略空段）。
-func appendReason(base, add string) string {
-	base = strings.TrimSpace(base)
-	if base == "" {
-		return add
-	}
-	return base + "；" + add
-}
-
 // confirmByAI 自动确认：同事务 confirmed（confirmed_by 置空）+ 台账回写。
 // mode：ConfirmModeAI（AI 闸门通过）/ ConfirmModeAuto（空审核链默认直通）。
 // 幂等：台账 last_maintenance_date 已被更新的记录推进 → ApplyLedgerWriteback 跳过回写，流水保留并注明。
@@ -362,10 +354,10 @@ func (s *MaintenanceService) confirmByAI(m *model.EquipmentMaintenance, mode str
 			// 台账已被更新的记录推进：流水保留，注明跳过原因
 			note := "台账最近维保日期已不早于本次登记，跳过回写（流水保留）"
 			if m.AIReason != nil {
-				note = appendReason(*m.AIReason, note)
+				note = strutil.AppendNote(*m.AIReason, note)
 			}
 			if err := tx.Model(&model.EquipmentMaintenance{}).Where("id = ?", m.ID).
-				Update("ai_reason", truncateStr2(note, 500)).Error; err != nil {
+				Update("ai_reason", strutil.Truncate(note, 500)).Error; err != nil {
 				return errs.ErrInternal
 			}
 		}
@@ -558,7 +550,7 @@ func (s *MaintenanceService) runMaintGate(m *model.EquipmentMaintenance, flow ty
 			reason = *cur.AIReason
 		}
 		s.db.Model(&cur).Updates(map[string]any{
-			"confirm_status": model.ConfirmRejected, "reject_reason": truncateStr2(reason, 255),
+			"confirm_status": model.ConfirmRejected, "reject_reason": strutil.Truncate(reason, 255),
 		})
 		var e model.Equipment
 		if s.db.Select("code", "name").First(&e, "id = ?", cur.EquipmentID).Error == nil {
@@ -923,21 +915,21 @@ func (s *MaintenanceService) Update(c *gin.Context, id string, req *dto.Maintena
 		case blocked:
 			return false, errs.ErrPhotoQuality.WithMsg("照片未通过系统核验（" + reason + "），请重新拍摄")
 		default:
-			reason = truncateStr2(reason, 500)
+			reason = strutil.Truncate(reason, 500)
 			trusted, suspectReplace, trustNote := JudgeLabelTrust(verdict, reading, m.MaintenanceDate, e.ManufactureDate)
 			if trusted {
 				aiVerdict = model.AIVerdictPass
 				updates["ai_verdict"] = aiVerdict
-				updates["ai_reason"] = truncateStr2(appendReason(reason, "AI 核对通过，待经理确认"), 500)
+				updates["ai_reason"] = strutil.Truncate(strutil.AppendNote(reason, "AI 核对通过，待经理确认"), 500)
 			} else {
 				if suspectReplace {
-					reason = appendReason(reason, trustNote)
+					reason = strutil.AppendNote(reason, trustNote)
 				} else if verdict == model.AIVerdictPass {
-					reason = appendReason(reason, "未读出可信维修日期，待人工确认")
+					reason = strutil.AppendNote(reason, "未读出可信维修日期，待人工确认")
 				}
 				aiVerdict = model.AIVerdictReview
 				updates["ai_verdict"] = aiVerdict
-				updates["ai_reason"] = truncateStr2(reason, 500)
+				updates["ai_reason"] = strutil.Truncate(reason, 500)
 			}
 		}
 	}
@@ -961,7 +953,7 @@ func (s *MaintenanceService) Update(c *gin.Context, id string, req *dto.Maintena
 				reason = *m.AIReason
 			}
 			s.db.Model(&m).Updates(map[string]any{
-				"confirm_status": model.ConfirmRejected, "reject_reason": truncateStr2(reason, 255),
+				"confirm_status": model.ConfirmRejected, "reject_reason": strutil.Truncate(reason, 255),
 			})
 			s.notifyMaintRejected(&e, &m, reason)
 		case walk.Step > 0:

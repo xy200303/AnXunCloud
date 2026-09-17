@@ -12,6 +12,7 @@ import (
 
 	"anxuncloud/internal/middleware"
 	sysmodel "anxuncloud/internal/module/system/model"
+	"anxuncloud/internal/pkg/configread"
 	"anxuncloud/internal/pkg/errs"
 	"anxuncloud/internal/pkg/notify"
 	"anxuncloud/internal/pkg/types"
@@ -35,12 +36,12 @@ func DefaultReportReviewFlow() types.FlowStepArray {
 
 // ResolveFlow 解析审批链配置：项目级 → 租户级 → 平台默认 → 内置默认。
 // 记录存在即命中（含显式空 = 默认通过），无记录才继续回落；打卡/维保链空流程语义 = 提交即生效。
-func ResolveFlow(db *gorm.DB, projectID, flowCode string) types.FlowStepArray {
+func ResolveFlow(db *gorm.DB, communityID, flowCode string) types.FlowStepArray {
 	var f sysmodel.ApprovalFlow
-	if err := db.Where("project_id = ? AND flow_code = ?", projectID, flowCode).First(&f).Error; err == nil {
+	if err := db.Where("project_id = ? AND flow_code = ?", communityID, flowCode).First(&f).Error; err == nil {
 		return f.Steps
 	}
-	if tid := middleware.CommunityTenantID(db, projectID); tid != nil {
+	if tid := middleware.CommunityTenantID(db, communityID); tid != nil {
 		if err := db.Where("project_id IS NULL AND tenant_id = ? AND flow_code = ?", *tid, flowCode).First(&f).Error; err == nil {
 			return f.Steps
 		}
@@ -58,12 +59,12 @@ func ResolveFlow(db *gorm.DB, projectID, flowCode string) types.FlowStepArray {
 }
 
 // ResolveFlowWithSource 解析审批链并给出来源（project/tenant/platform/default），供配置页展示。
-func ResolveFlowWithSource(db *gorm.DB, projectID, flowCode string) (types.FlowStepArray, string) {
+func ResolveFlowWithSource(db *gorm.DB, communityID, flowCode string) (types.FlowStepArray, string) {
 	var f sysmodel.ApprovalFlow
-	if err := db.Where("project_id = ? AND flow_code = ?", projectID, flowCode).First(&f).Error; err == nil {
+	if err := db.Where("project_id = ? AND flow_code = ?", communityID, flowCode).First(&f).Error; err == nil {
 		return f.Steps, "project"
 	}
-	if tid := middleware.CommunityTenantID(db, projectID); tid != nil {
+	if tid := middleware.CommunityTenantID(db, communityID); tid != nil {
 		if err := db.Where("project_id IS NULL AND tenant_id = ? AND flow_code = ?", *tid, flowCode).First(&f).Error; err == nil {
 			return f.Steps, "tenant"
 		}
@@ -84,12 +85,7 @@ func ResolveFlowWithSource(db *gorm.DB, projectID, flowCode string) (types.FlowS
 // equipment.ai_auto_confirm 开 → [AI 闸门]（可信直接生效；其余按 AI 环节默认 OnReview=next 转人工兜底）；
 // 关（甲方口径：一律经理确认）→ [项目经理复核]。
 func DefaultMaintReviewFlow(db *gorm.DB) types.FlowStepArray {
-	var cfg sysmodel.SysConfig
-	autoConfirm := false
-	if err := db.Select("value").Where("key = ?", "equipment.ai_auto_confirm").First(&cfg).Error; err == nil {
-		autoConfirm = cfg.Value == "true"
-	}
-	if autoConfirm {
+	if configread.GetBool(db, "equipment.ai_auto_confirm", false) {
 		return types.FlowStepArray{{Kind: sysmodel.FlowStepKindAI, Name: "AI 审核"}}
 	}
 	return types.FlowStepArray{{Slot: sysmodel.SlotProjectReview, Name: "经理确认"}}
@@ -97,16 +93,16 @@ func DefaultMaintReviewFlow(db *gorm.DB) types.FlowStepArray {
 
 // WalkResult 通用走链结果（打卡/维保审核链共用）。
 type WalkResult struct {
-	Finish    bool // 整单通过，流程结束（Step = len(flow)）
-	Reject    bool // 整单打回（Step = 当前 AI 环节下标）
-	Step      int  // 落定环节下标
-	NeedGate  bool // 停在 AI 环节且尚无结论（调用方异步接力）
-	NotifyIdx int  // 需通知的人工环节下标（-1 = 不通知）
-	Fallback  bool // 通知走兜底（AI 环节越末位/空流程强制人工）
+	Finish    bool     // 整单通过，流程结束（Step = len(flow)）
+	Reject    bool     // 整单打回（Step = 当前 AI 环节下标）
+	Step      int      // 落定环节下标
+	NeedGate  bool     // 停在 AI 环节且尚无结论（调用方异步接力）
+	NotifyIdx int      // 需通知的人工环节下标（-1 = 不通知）
+	Fallback  bool     // 通知走兜底（AI 环节越末位/空流程强制人工）
 	Skipped   []string // 因名单为空被自动跳过的人工环节名（WalkFlowSkipEmpty 填充）
 }
 
-// WalkFlow 通用走链：人工环节 → 待审；AI 环节 → 按 outcome 三分支路由（'' = 无结论原地等闸门）；
+// WalkFlow 通用走链：人工环节 → 待审；AI 环节 → 按 outcome 三分支路由（” = 无结论原地等闸门）；
 // 空流程 → Finish（forcedHuman 时 Fallback 兜底人工）。goto 向前跳，必终止。
 func WalkFlow(flow types.FlowStepArray, startIdx int, outcome string, forcedHuman bool) WalkResult {
 	if len(flow) == 0 {
@@ -164,10 +160,10 @@ func WalkFlowSkipEmpty(flow types.FlowStepArray, startIdx int, outcome string, f
 	return w
 }
 
-// WalkFlowWithVoters 生产口径包装：名单解析绑定 db+projectID 的空名单自动跳过走链。
-func WalkFlowWithVoters(db *gorm.DB, projectID string, flow types.FlowStepArray, startIdx int, outcome string, forcedHuman bool) WalkResult {
+// WalkFlowWithVoters 生产口径包装：名单解析绑定 db+communityID 的空名单自动跳过走链。
+func WalkFlowWithVoters(db *gorm.DB, communityID string, flow types.FlowStepArray, startIdx int, outcome string, forcedHuman bool) WalkResult {
 	return WalkFlowSkipEmpty(flow, startIdx, outcome, forcedHuman, func(slot string) []string {
-		return SlotUserIDs(db, projectID, slot)
+		return SlotUserIDs(db, communityID, slot)
 	})
 }
 
@@ -208,14 +204,15 @@ func adminUserIDs(db *gorm.DB, tenantID string) []string {
 		Pluck("id", &ids)
 	return ids
 }
+
 // FlowOrResolve 记录审核时取链：快照优先（在途记录按提交时的规则审完，改流程只影响新单）。
 // 快照为空（存量 NULL/空流程——FlowStepArray.Scan 把 NULL 读成空数组）才回落现配：
 // 只有带环节的链才有"停在第 N 环节"的冻结语义，空流程（默认通过+兜底）跟随最新配置即可。
-func FlowOrResolve(db *gorm.DB, snapshot types.FlowStepArray, projectID, flowCode string) types.FlowStepArray {
+func FlowOrResolve(db *gorm.DB, snapshot types.FlowStepArray, communityID, flowCode string) types.FlowStepArray {
 	if len(snapshot) > 0 {
 		return snapshot
 	}
-	return ResolveFlow(db, projectID, flowCode)
+	return ResolveFlow(db, communityID, flowCode)
 }
 
 // ValidateReportFlowSteps 报告审核链校验（0-5 环节；不允许 AI 环节——报告签字是人的动作）。
@@ -262,7 +259,7 @@ func ValidateFlowSteps(db *gorm.DB, steps types.FlowStepArray) *errs.Error {
 	return validateHumanSteps(db, human)
 }
 
-// validateAIRoute AI 分支路由值校验：''（默认）/finish/next/reject/goto:N（N 须指向后面的环节，防环）。
+// validateAIRoute AI 分支路由值校验：”（默认）/finish/next/reject/goto:N（N 须指向后面的环节，防环）。
 func validateAIRoute(steps types.FlowStepArray, idx int, route, label string, allowReject bool) *errs.Error {
 	if route == "" {
 		return nil
@@ -347,7 +344,7 @@ func RouteAIStep(flow types.FlowStepArray, idx int, outcome string) RouteDecisio
 	}
 }
 
-// validateHumanSteps 人工环节校验（槽位须在槽位目录内（含字典衍生维度槽位）且不重复；名称 1-32 字）。
+// validateHumanSteps 人工环节校验（槽位须在槽位目录内且不重复；名称 1-32 字）。
 func validateHumanSteps(db *gorm.DB, steps types.FlowStepArray) *errs.Error {
 	known := make(map[string]bool, len(sysmodel.DutySlots))
 	for _, ds := range sysmodel.DutySlots {
@@ -372,4 +369,3 @@ func validateHumanSteps(db *gorm.DB, steps types.FlowStepArray) *errs.Error {
 	}
 	return nil
 }
-

@@ -8,6 +8,8 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"anxuncloud/internal/middleware"
+	filedto "anxuncloud/internal/module/file/dto"
+	filesvc "anxuncloud/internal/module/file/service"
 	"anxuncloud/internal/module/mp/dto"
 	"anxuncloud/internal/module/mp/service"
 	systemsvc "anxuncloud/internal/module/system/service"
@@ -20,11 +22,11 @@ import (
 type MPController struct {
 	mp      *service.MPService
 	checkin *service.CheckinService
-	upload  *service.UploadService
+	upload  *filesvc.UploadService
 	notices *systemsvc.NoticeService
 }
 
-func NewMPController(mp *service.MPService, checkin *service.CheckinService, upload *service.UploadService, notices *systemsvc.NoticeService) *MPController {
+func NewMPController(mp *service.MPService, checkin *service.CheckinService, upload *filesvc.UploadService, notices *systemsvc.NoticeService) *MPController {
 	return &MPController{mp: mp, checkin: checkin, upload: upload, notices: notices}
 }
 
@@ -260,7 +262,7 @@ func (ctl *MPController) SavePhotoItemAbnormalDraft(c *gin.Context) {
 
 // STS POST /upload/sts
 func (ctl *MPController) STS(c *gin.Context) {
-	var req dto.STSReq
+	var req filedto.STSReq
 	if be := bind.JSON(c, &req); be != nil {
 		response.Fail(c, be)
 		return
@@ -271,7 +273,7 @@ func (ctl *MPController) STS(c *gin.Context) {
 
 // Preflight POST /upload/preflight（上传前摘要预检）
 func (ctl *MPController) Preflight(c *gin.Context) {
-	var req dto.STSReq
+	var req filedto.STSReq
 	if be := bind.JSON(c, &req); be != nil {
 		response.Fail(c, be)
 		return
@@ -309,7 +311,7 @@ func (ctl *MPController) Callback(c *gin.Context) {
 
 // Messages GET /messages
 func (ctl *MPController) Messages(c *gin.Context) {
-	var q dto.MessageQuery
+	var q systemsvc.MessageListQuery
 	if be := bind.Query(c, &q); be != nil {
 		response.Fail(c, be)
 		return

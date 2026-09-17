@@ -17,11 +17,13 @@ import (
 	"anxuncloud/internal/module/inspection/model"
 	sysmodel "anxuncloud/internal/module/system/model"
 	"anxuncloud/internal/pkg/ai"
+	"anxuncloud/internal/pkg/configread"
 	"anxuncloud/internal/pkg/errs"
 	"anxuncloud/internal/pkg/logger"
 	"anxuncloud/internal/pkg/notify"
 	"anxuncloud/internal/pkg/response"
 	"anxuncloud/internal/pkg/storage"
+	"anxuncloud/internal/pkg/strutil"
 	"anxuncloud/internal/pkg/types"
 	"anxuncloud/internal/pkg/uploadfile"
 )
@@ -34,12 +36,12 @@ const spotcheckAILimit = 50
 
 // ReviewService 打卡记录审核与抽查服务。
 type ReviewService struct {
-	db       *gorm.DB
-	aiCli    *ai.Client
+	db    *gorm.DB
+	aiCli *ai.Client
 	// checkinAIGate 打卡 AI 闸门回调（mp 模块装配注入；人工环节推进到 AI 环节时触发），为 nil 跳过（记录停 AI 环节等人工兜底）。
 	checkinAIGate func(recID string)
-	store    *storage.Storage // 可空；逐项照片 file_id 转 URL 用
-	notifier *notify.Notifier
+	store         *storage.Storage // 可空；逐项照片 file_id 转 URL 用
+	notifier      *notify.Notifier
 }
 
 // BindCheckinAIGate 注入打卡 AI 闸门回调（router 装配：mp.CheckinService.RunAIGate）。
@@ -49,13 +51,7 @@ func (s *ReviewService) BindCheckinAIGate(gate func(recID string)) {
 
 func NewReviewService(db *gorm.DB, notifier *notify.Notifier) *ReviewService {
 	// 配置改由 sys_config 直读（审核/抽查为低频操作，无需走 config:all 缓存），存储抽象按环境配置自装配
-	getCfg := func(key string) (string, bool) {
-		var cfg sysmodel.SysConfig
-		if err := db.Select("value").Where("key = ?", key).First(&cfg).Error; err != nil {
-			return "", false
-		}
-		return cfg.Value, true
-	}
+	getCfg := configread.Getter(db)
 	var opts []ai.Option
 	var store *storage.Storage
 	if cfg, err := config.Load(); err == nil {
@@ -112,8 +108,6 @@ func (s *ReviewService) scopeQuery(c *gin.Context, auditStatus, communityID, ins
 	}
 	return middleware.ApplyCommunityFilter(db, c, "checkin_record.community_id"), nil
 }
-
-
 
 // Pass 审核通过当前环节（审批链按链执行，扩展方案 §3）：
 // 操作者须在当前环节槽位名单内；非末环节通过后推进到下一环节并通知下一环节名单，末环节通过才置 pass。
@@ -184,12 +178,10 @@ func (s *ReviewService) Pass(c *gin.Context, id string) *errs.Error {
 	}
 	next := flow[walk.Step]
 	ptName := pointName(s.db, r.PointID)
-	for _, uid := range communitysvc.SlotUserIDs(s.db, r.CommunityID, next.Slot) {
-		_ = s.notifier.Send(uid, "checkin_audit",
-			"打卡记录待"+next.Name,
-			fmt.Sprintf("点位「%s」的打卡记录已通过「%s」，待您执行「%s」。", ptName, stepName, next.Name),
-			&r.ID)
-	}
+	_ = s.notifier.SendBatch(communitysvc.SlotUserIDs(s.db, r.CommunityID, next.Slot), r.TenantID, "checkin_audit",
+		"打卡记录待"+next.Name,
+		fmt.Sprintf("点位「%s」的打卡记录已通过「%s」，待您执行「%s」。", ptName, stepName, next.Name),
+		&r.ID)
 	return nil
 }
 
@@ -492,7 +484,6 @@ func (s *ReviewService) spotcheckAI(c *gin.Context, req *dto.SpotcheckReq) (gin.
 	return gin.H{"picked": picked, "to_review": toReview, "passed": passed, "failed": failed}, nil
 }
 
-
 // reviewInputOf 由打卡记录组装大模型审核上下文（照片全部来自逐项快照）。
 func (s *ReviewService) reviewInputOf(r *model.CheckinRecord) ai.ReviewInput {
 	var point model.InspectionPoint
@@ -516,7 +507,7 @@ func (s *ReviewService) reviewInputOf(r *model.CheckinRecord) ai.ReviewInput {
 				}
 			}
 			itemPhotos = append(itemPhotos, ai.ItemPhoto{
-				Name: it.Name, Requirement: strVal(it.Requirement), AIHint: strVal(it.AIHint),
+				Name: it.Name, Requirement: strutil.StrVal(it.Requirement), AIHint: strutil.StrVal(it.AIHint),
 				JudgeType: it.JudgeType, JudgeConfig: it.JudgeConfig, Photos: irefs,
 			})
 		}
@@ -533,14 +524,6 @@ func truncateRunes(s string, n int) string {
 		return string(r[:n])
 	}
 	return s
-}
-
-// strVal 可空文本快照取值（nil → 空串）。
-func strVal(p *string) string {
-	if p == nil {
-		return ""
-	}
-	return *p
 }
 
 // writeItemVerdicts 逐项 AI 结论落库（按 record_id+name 匹配快照行；模型未返回逐项结论时为空不做事）。

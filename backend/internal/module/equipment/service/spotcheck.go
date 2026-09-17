@@ -9,7 +9,7 @@ import (
 
 	"anxuncloud/internal/module/equipment/model"
 	insmodel "anxuncloud/internal/module/inspection/model"
-	sysmodel "anxuncloud/internal/module/system/model"
+	"anxuncloud/internal/pkg/configread"
 )
 
 // ========== 日期标签抽查（equipment_date_spot，v1.7 二期；落到逐台模型） ==========
@@ -17,27 +17,14 @@ import (
 // SpotItemPrefix 抽查合成项名前缀（标签抽查·名称(编号)）。
 const SpotItemPrefix = "标签抽查·"
 
-// CfgBool 读取系统参数布尔值（缺失/非法回退默认值；与 cfgInt 同口径直读 sys_config，导出供 mp 模块用）。
+// CfgBool 读取系统参数布尔值（缺失/非法回退默认值；统一委托 pkg/configread，导出供 mp 模块用）。
 func CfgBool(db *gorm.DB, key string, def bool) bool {
-	var v string
-	if err := db.Model(&sysmodel.SysConfig{}).Where("key = ?", key).Select("value").Scan(&v).Error; err == nil {
-		switch v {
-		case "true":
-			return true
-		case "false":
-			return false
-		}
-	}
-	return def
+	return configread.GetBool(db, key, def)
 }
 
-// CfgString 读取系统参数字符串（缺失回退默认值）。
+// CfgString 读取系统参数字符串（缺失/空串回退默认值；统一委托 pkg/configread）。
 func CfgString(db *gorm.DB, key, def string) string {
-	var v string
-	if err := db.Model(&sysmodel.SysConfig{}).Where("key = ?", key).Select("value").Scan(&v).Error; err == nil && v != "" {
-		return v
-	}
-	return def
+	return configread.GetString(db, key, def)
 }
 
 // SpotTriggered 确定性哈希抽查判定（纯函数）：同任务同点位同设备同日结果固定。

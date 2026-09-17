@@ -2,7 +2,6 @@ package service
 
 import (
 	"context"
-	"strings"
 	"time"
 
 	"gorm.io/gorm"
@@ -15,6 +14,7 @@ import (
 	sysmodel "anxuncloud/internal/module/system/model"
 	"anxuncloud/internal/pkg/ai"
 	"anxuncloud/internal/pkg/logger"
+	"anxuncloud/internal/pkg/strutil"
 	"anxuncloud/internal/pkg/types"
 
 	"go.uber.org/zap"
@@ -80,7 +80,7 @@ func (s *CheckinService) resolveCheckinMaintenances(ctx context.Context, point *
 				logger.L.Warn("打卡维保标签同步核验失败，降级待确认", zap.String("equipment_id", equipmentID), zap.Error(err))
 			case blocked:
 				// 明显不合格（质量/内容判不像）：硬拦截不落流水——未登记，备注说明，设备维持逾期可重新拍
-				it.Note = truncateStr(appendItemNote(it.Note, "新标签照片未通过系统核验（"+reason+"），未登记维保，请重新拍摄"), 512)
+				it.Note = strutil.Truncate(strutil.AppendNote(it.Note, "新标签照片未通过系统核验（"+reason+"），未登记维保，请重新拍摄"), 512)
 				continue
 			default:
 				trusted, suspectReplace, trustNote := eqsvc.JudgeLabelTrust(verdict, reading, time.Now(), e.ManufactureDate)
@@ -90,11 +90,11 @@ func (s *CheckinService) resolveCheckinMaintenances(ctx context.Context, point *
 					action.outcome = sysmodel.AIGatePass
 				case suspectReplace:
 					action.aiVerdict = eqmodel.AIVerdictReview
-					action.aiReason = truncateStr(appendItemNote(reason, trustNote), 500)
+					action.aiReason = strutil.Truncate(strutil.AppendNote(reason, trustNote), 500)
 				case verdict == eqmodel.AIVerdictPass:
 					// 模型判 pass 但未读出可信维修年月：兜底转人工
 					action.aiVerdict = eqmodel.AIVerdictReview
-					action.aiReason = truncateStr(appendItemNote(reason, "未读出可信维修日期，待人工确认"), 500)
+					action.aiReason = strutil.Truncate(strutil.AppendNote(reason, "未读出可信维修日期，待人工确认"), 500)
 				}
 			}
 		}
@@ -109,13 +109,13 @@ func (s *CheckinService) resolveCheckinMaintenances(ctx context.Context, point *
 		switch {
 		case action.finish:
 			it.Pass = true
-			it.Note = truncateStr(appendItemNote(it.Note, "已拍新标签，系统核对通过，维保已生效"), 512)
+			it.Note = strutil.Truncate(strutil.AppendNote(it.Note, "已拍新标签，系统核对通过，维保已生效"), 512)
 		case action.reject:
-			it.Note = truncateStr(appendItemNote(it.Note, "已拍新标签，系统审核不通过，请重新登记"), 512)
+			it.Note = strutil.Truncate(strutil.AppendNote(it.Note, "已拍新标签，系统审核不通过，请重新登记"), 512)
 		case action.aiVerdict == eqmodel.AIVerdictPass:
-			it.Note = truncateStr(appendItemNote(it.Note, "已拍新标签，系统核对通过，待经理确认"), 512)
+			it.Note = strutil.Truncate(strutil.AppendNote(it.Note, "已拍新标签，系统核对通过，待经理确认"), 512)
 		default:
-			it.Note = truncateStr(appendItemNote(it.Note, "已登记维保待确认"), 512)
+			it.Note = strutil.Truncate(strutil.AppendNote(it.Note, "已登记维保待确认"), 512)
 		}
 		actions = append(actions, action)
 	}
@@ -153,11 +153,11 @@ func (s *CheckinService) persistCheckinMaintenances(tx *gorm.DB, rec *insmodel.C
 			FlowSnapshot:    a.flow, // 流程快照固化：确认全程按登记时的链推进
 		}
 		if a.aiVerdict != "" {
-			v := truncateStr(a.aiVerdict, 16)
+			v := strutil.Truncate(a.aiVerdict, 16)
 			m.AIVerdict = &v
 		}
 		if a.aiReason != "" {
-			r := truncateStr(a.aiReason, 500)
+			r := strutil.Truncate(a.aiReason, 500)
 			m.AIReason = &r
 		}
 		switch {
@@ -172,7 +172,7 @@ func (s *CheckinService) persistCheckinMaintenances(tx *gorm.DB, rec *insmodel.C
 			m.ConfirmedAt = &now
 		case a.reject:
 			m.ConfirmStatus = eqmodel.ConfirmRejected
-			reason := truncateStr(a.aiReason, 255)
+			reason := strutil.Truncate(a.aiReason, 255)
 			if reason == "" {
 				reason = "AI 核对不通过"
 			}
@@ -197,7 +197,7 @@ func (s *CheckinService) persistCheckinMaintenances(tx *gorm.DB, rec *insmodel.C
 		}
 		if skipped {
 			// 台账已被更新的记录推进：流水保留，注明跳过原因
-			note := truncateStr(appendItemNote(strVal(m.AIReason), "台账最近维保日期已不早于本次维保，跳过回写（流水保留）"), 500)
+			note := strutil.Truncate(strutil.AppendNote(strutil.StrVal(m.AIReason), "台账最近维保日期已不早于本次维保，跳过回写（流水保留）"), 500)
 			if err := tx.Model(&m).Update("ai_reason", note).Error; err != nil {
 				return err
 			}
@@ -248,19 +248,6 @@ func (s *CheckinService) notifyPendingMaintenances(rec *insmodel.CheckinRecord, 
 			logger.L.Warn("打卡维保待确认通知发送失败", zap.String("maintenance_id", a.maintenanceID), zap.Error(err))
 		}
 	}
-}
-
-// appendItemNote 追加备注/理由（分号连接，忽略空段）。
-func appendItemNote(base, add string) string {
-	base = strings.TrimSpace(base)
-	add = strings.TrimSpace(add)
-	if base == "" {
-		return add
-	}
-	if add == "" {
-		return base
-	}
-	return base + "；" + add
 }
 
 // truncateDayLocal 按本地时区截断到日（maintenance_date 入库日粒度，与 equipment 模块 truncateDay 同口径）。

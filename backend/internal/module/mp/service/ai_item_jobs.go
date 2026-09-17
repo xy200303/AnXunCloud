@@ -21,6 +21,7 @@ import (
 	"anxuncloud/internal/pkg/ai"
 	"anxuncloud/internal/pkg/errs"
 	"anxuncloud/internal/pkg/logger"
+	"anxuncloud/internal/pkg/strutil"
 	"anxuncloud/internal/pkg/timefmt"
 	"anxuncloud/internal/pkg/uploadfile"
 
@@ -119,7 +120,7 @@ func (s *CheckinService) SubmitAIItemJob(ctx context.Context, inspectorID string
 		JobID: uuid.NewString(), UserID: inspectorID,
 		TaskID: task.ID, PointID: req.PointID, CommunityID: task.CommunityID, TenantID: task.TenantID,
 		PointName: point.Name, PointType: point.Type,
-		Name: tplItem.Name, Requirement: strVal(tplItem.Requirement), AIHint: strVal(tplItem.AIHint),
+		Name: tplItem.Name, Requirement: strutil.StrVal(tplItem.Requirement), AIHint: strutil.StrVal(tplItem.AIHint),
 		JudgeType: tplItem.JudgeType, JudgeConfig: tplItem.JudgeConfig,
 		FileIDs: fileIDs,
 	}
@@ -265,9 +266,9 @@ func (s *CheckinService) processAIItemJob(ctx context.Context, raw string) {
 		}
 	}
 	fail := func(msg string) {
-		s.rdb.HSet(ctx, key, "status", "failed", "reason", truncateStr(msg, 200))
+		s.rdb.HSet(ctx, key, "status", "failed", "reason", strutil.Truncate(msg, 200))
 		s.rdb.Expire(ctx, key, aiItemJobTTL)
-		writeDraft(map[string]any{"ai_status": insmodel.ItemDraftFailed, "ai_reason": truncateStr(msg, 200)})
+		writeDraft(map[string]any{"ai_status": insmodel.ItemDraftFailed, "ai_reason": strutil.Truncate(msg, 200)})
 	}
 	refs := make([]ai.PhotoRef, 0, len(p.FileIDs))
 	for _, ref := range p.FileIDs {
@@ -302,20 +303,20 @@ func (s *CheckinService) processAIItemJob(ctx context.Context, raw string) {
 	s.rdb.HSet(ctx, key,
 		"status", "done",
 		"verdict", verdict,
-		"reason", truncateStr(reason, 500),
-		"reading", truncateStr(strings.TrimSpace(reading), 64),
+		"reason", strutil.Truncate(reason, 500),
+		"reading", strutil.Truncate(strings.TrimSpace(reading), 64),
 		"quality_pass", strconv.FormatBool(res.Quality.Pass),
-		"quality_issue", truncateStr(res.Quality.Issue, 255),
+		"quality_issue", strutil.Truncate(res.Quality.Issue, 255),
 	)
 	s.rdb.Expire(ctx, key, aiItemJobTTL)
 	var readingPtr *string
-	if rd := truncateStr(strings.TrimSpace(reading), 64); rd != "" {
+	if rd := strutil.Truncate(strings.TrimSpace(reading), 64); rd != "" {
 		readingPtr = &rd
 	}
 	writeDraft(map[string]any{
 		"ai_status": insmodel.ItemDraftDone, "ai_verdict": verdict,
-		"ai_reason": truncateStr(reason, 500), "ai_reading": readingPtr,
-		"quality_pass": res.Quality.Pass, "quality_issue": truncateStr(res.Quality.Issue, 255),
+		"ai_reason": strutil.Truncate(reason, 500), "ai_reading": readingPtr,
+		"quality_pass": res.Quality.Pass, "quality_issue": strutil.Truncate(res.Quality.Issue, 255),
 	})
 }
 
@@ -390,7 +391,7 @@ func (s *CheckinService) SaveManualDraft(ctx context.Context, inspectorID string
 		TenantID: task.TenantID, TaskID: task.ID, PointID: req.PointID,
 		InspectorID: inspectorID, CommunityID: task.CommunityID,
 		ItemName: tplItem.Name, AIStatus: insmodel.ItemDraftDone,
-		ManualPass: &req.Pass, ManualNote: truncateStr(strings.TrimSpace(req.Note), 512),
+		ManualPass: &req.Pass, ManualNote: strutil.Truncate(strings.TrimSpace(req.Note), 512),
 	}
 	if err := s.db.Clauses(clause.OnConflict{
 		Columns: []clause.Column{{Name: "task_id"}, {Name: "point_id"}, {Name: "item_name"}},

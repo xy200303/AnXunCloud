@@ -113,10 +113,12 @@ export interface FlowPreviewStep {
   kind?: string
   mode?: string
   slot?: string
-  voters?: { id: string; name: string }[]
+  voters?: { id: string; name: string; can_see?: boolean }[]
   voter_source?: string
   empty_reason?: '' | 'unconfigured' | 'no_member' | 'skipped'
   voter_note?: string
+  // 名单中对本小区无数据可见性的成员数（报告链按单据实例授权，恒为 0）
+  hidden_count?: number
 }
 export interface FlowPreviewView {
   source: string

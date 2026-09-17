@@ -113,6 +113,43 @@ func ApplyCommunityFilter(db *gorm.DB, c *gin.Context, column string) *gorm.DB {
 	return db.Where(column+" IN ?", identity.ProjectIDs)
 }
 
+// UserCanSeeCommunity 配置时校验用：该用户对该小区是否具备数据可见性（「能审必能看」的「看」）。
+// 与登录态 buildIdentity + CheckCommunity 同口径：超管可见；租户不一致不可见；
+// data_scope=all 可见；project 档看编制推导的可见项目集合；self 档（含角色上限 self）不可见。
+// 用户不存在/停用/租户停用一律不可见。审批链配置页据此把「审了也看不到数据」的名单成员标红。
+func UserCanSeeCommunity(db *gorm.DB, userID, communityID string) bool {
+	var user model.SysUser
+	if err := db.Select("id", "tenant_id", "username", "name", "status", "role_ids").
+		First(&user, "id = ?", userID).Error; err != nil || user.Status != model.StatusEnabled {
+		return false
+	}
+	identity, err := buildIdentity(db, &user, "")
+	if err != nil {
+		return false
+	}
+	if identity.SuperAdmin {
+		return true
+	}
+	if identity.TenantID != "" {
+		t := CommunityTenantID(db.Session(&gorm.Session{NewDB: true}), communityID)
+		if t == nil || *t != identity.TenantID {
+			return false
+		}
+	}
+	if identity.DataScopeAll {
+		return true
+	}
+	if identity.ScopeSelf {
+		return false
+	}
+	for _, id := range identity.ProjectIDs {
+		if id == communityID {
+			return true
+		}
+	}
+	return false
+}
+
 // CheckCommunity 校验当前用户是否有权访问指定项目数据，越权返回 40302。
 // 无 identity（调度/内部调用）放行；超管未指定租户时按默认租户校验（与 ApplyCommunityFilter 同规），
 // 显式指定租户时校验小区归属该租户；

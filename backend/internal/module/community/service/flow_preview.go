@@ -39,6 +39,18 @@ func (s *StaffService) FlowPreview(c *gin.Context, communityID, flowCode string)
 		posts, postSource := resolveSlotPosts(s.db, communityID, voterSlot)
 		userIDs := SlotUserIDs(s.db, communityID, voterSlot)
 		voters := s.userBriefs(userIDs)
+		// 配置时可见性校验（「能审必能看」）：名单成员对该小区无数据可见性则标红，
+		// 避免「能审但看不到待审数据」。报告链候选人按单据实例授权可见（getWithScope 参与者放行），不标红。
+		hidden := 0
+		if flowCode != sysmodel.FlowReportReview {
+			for _, v := range voters {
+				see := middleware.UserCanSeeCommunity(s.db, v["id"].(string), communityID)
+				v["can_see"] = see
+				if !see {
+					hidden++
+				}
+			}
+		}
 		emptyReason := ""
 		if len(voters) == 0 {
 			switch {
@@ -53,6 +65,7 @@ func (s *StaffService) FlowPreview(c *gin.Context, communityID, flowCode string)
 		item := gin.H{
 			"index": i, "name": st.Name, "mode": st.Mode, "slot": slot,
 			"voters": voters, "voter_source": postSource, "empty_reason": emptyReason,
+			"hidden_count": hidden,
 		}
 		if fallbackInspector {
 			item["voter_note"] = "生成报告时按当月任务巡检员确定；无任务巡检员时回落本名单（编制内巡检员）"

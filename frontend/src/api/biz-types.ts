@@ -334,6 +334,8 @@ export interface CheckinItem {
   // 审批链（扩展方案 §3）：已通过环节数与待审核时的当前环节名（列表"待<环节名>"展示用）
   audit_step?: number
   current_step_name?: string
+  // 当前用户是否在该记录当前环节授权名单内（待审核时下发；false 时前端展示「待授权人处理」而非放行按钮）
+  can_audit?: boolean
   audit_by?: string
   audit_at?: string
   audit_remark?: string

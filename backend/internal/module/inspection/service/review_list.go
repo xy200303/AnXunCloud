@@ -195,9 +195,24 @@ func (s *ReviewService) auditActionable(r *model.CheckinRecord, ctx *reviewBatch
 		stepName = step.Name
 		if step.Kind != sysmodel.FlowStepKindAI {
 			slot = step.Slot
+			// 与 Pass 在途自愈同口径：当前人工环节名单为空时授权回落汇报线
+			if len(s.slotUsersCached(ctx, r.CommunityID, slot)) == 0 {
+				slot = sysmodel.SlotPatrolReportLine
+			}
 		}
 	}
 	return stepName, s.slotAuthorizedCached(ctx, r.CommunityID, slot)
+}
+
+// slotUsersCached 环节名单批次缓存（project|slot → 名单），供授权判定与空名单判定共用。
+func (s *ReviewService) slotUsersCached(ctx *reviewBatchCtx, projectID, slot string) types.IDArray {
+	key := projectID + "|" + slot
+	users, ok := ctx.slotUsers[key]
+	if !ok {
+		users = communitysvc.SlotUserIDs(s.db, projectID, slot)
+		ctx.slotUsers[key] = users
+	}
+	return users
 }
 
 // slotAuthorizedCached 名单制授权判定（同 communitysvc.SlotAuthorized，名单按 project|slot 走批次缓存）。
@@ -214,13 +229,7 @@ func (s *ReviewService) slotAuthorizedCached(ctx *reviewBatchCtx, projectID, slo
 			return true
 		}
 	}
-	key := projectID + "|" + slot
-	users, ok := ctx.slotUsers[key]
-	if !ok {
-		users = communitysvc.SlotUserIDs(s.db, projectID, slot)
-		ctx.slotUsers[key] = users
-	}
-	for _, uid := range users {
+	for _, uid := range s.slotUsersCached(ctx, projectID, slot) {
 		if uid == idt.UserID {
 			return true
 		}

@@ -72,9 +72,16 @@
             <div v-if="previewApi" class="voter-line">
               <template v-if="previewSteps[idx]">
                 <span v-if="previewSteps[idx].voters?.length" class="voter-names">
-                  实际审核人：{{ previewSteps[idx].voters!.map((v) => v.name).join('、') }}
+                  实际审核人：<template v-for="(v, vi) in previewSteps[idx].voters!" :key="v.id"><span
+                    v-if="v.can_see === false"
+                    class="voter-hidden"
+                    title="该成员不在本小区数据可见范围内，能审但看不到待审数据，请调整其岗位或角色数据权限"
+                  >{{ v.name }}（不可见）</span><template v-else>{{ v.name }}</template><template v-if="vi < previewSteps[idx].voters!.length - 1">、</template></template>
                 </span>
                 <span v-else class="voter-empty">当前无人能审（{{ emptyReasonLabel(previewSteps[idx].empty_reason) }}），该环节将自动跳过</span>
+                <div v-if="(previewSteps[idx].hidden_count ?? 0) > 0" class="voter-warn">
+                  {{ previewSteps[idx].hidden_count }} 名成员看不到本小区数据（能审必能看）：请调整其岗位编制或角色数据权限
+                </div>
                 <div v-if="previewSteps[idx].voter_note" class="voter-note">{{ previewSteps[idx].voter_note }}</div>
               </template>
             </div>
@@ -265,7 +272,7 @@ function slotLabel(slot: string) {
 }
 
 // ===== 生效名单预览（项目级；每环节实际审核人 + 空名单警示） =====
-const previewSteps = ref<Record<number, { voters?: { id: string; name: string }[]; empty_reason?: string; voter_note?: string }>>({})
+const previewSteps = ref<Record<number, { voters?: { id: string; name: string; can_see?: boolean }[]; empty_reason?: string; voter_note?: string; hidden_count?: number }>>({})
 
 async function fetchPreview() {
   if (!props.previewApi) return
@@ -524,6 +531,16 @@ onMounted(() => {
 
 .voter-note {
   color: $color-text-secondary;
+}
+
+.voter-hidden {
+  color: $color-danger;
+  text-decoration: underline dotted;
+  cursor: help;
+}
+
+.voter-warn {
+  color: $color-danger;
 }
 
 .flow-editor {

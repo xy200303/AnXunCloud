@@ -112,7 +112,7 @@
         @row-click="handleRowClick"
         @selection-change="(rows: CheckinItem[]) => (selectedRows = rows)"
       >
-        <el-table-column v-if="activeTab === 'pending'" type="selection" width="44" reserve-selection />
+        <el-table-column v-if="activeTab === 'pending'" type="selection" width="44" reserve-selection :selectable="(row: CheckinItem) => row.can_audit !== false" />
         <el-table-column prop="checkin_time" label="打卡时间" width="160" />
         <el-table-column prop="inspector_name" label="巡检员" width="100" />
         <el-table-column prop="community_name" label="小区" min-width="120" />
@@ -153,8 +153,11 @@
           <template #default="{ row }">
             <el-button link type="primary" @click.stop="openDetail(row)">详情</el-button>
             <template v-if="activeTab === 'pending'">
-              <el-button v-perms="'inspection:checkin:review'" link type="success" @click="handlePass(row)">通过</el-button>
-              <el-button v-perms="'inspection:checkin:review'" link type="danger" @click="handleReject(row)">驳回</el-button>
+              <template v-if="row.can_audit !== false">
+                <el-button v-perms="'inspection:checkin:review'" link type="success" @click="handlePass(row)">通过</el-button>
+                <el-button v-perms="'inspection:checkin:review'" link type="danger" @click="handleReject(row)">驳回</el-button>
+              </template>
+              <span v-else class="text-secondary">待授权人处理</span>
             </template>
             <el-button
               v-if="activeTab === 'reviewed'"

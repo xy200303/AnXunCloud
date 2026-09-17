@@ -128,11 +128,18 @@ func (s *ReviewService) Pass(c *gin.Context, id string) *errs.Error {
 	overEnd := stepIdx >= len(flow)
 	stepName := "主管审核"
 	slot := sysmodel.SlotPatrolReportLine
+	// 走链起点：正常从下一环节起；当前环节名单为空（在途自愈）时从本环节起走（本环节按自动跳过处理）
+	walkStart := stepIdx + 1
 	if !overEnd {
 		step := flow[stepIdx]
 		stepName = step.Name
 		if step.Kind != sysmodel.FlowStepKindAI {
 			slot = step.Slot
+			// 在途自愈：当前人工环节名单为空（改配置/清空编制导致卡死）→ 授权回落汇报线，走链从本环节起自动跳过
+			if len(communitysvc.SlotUserIDs(s.db, r.CommunityID, slot)) == 0 {
+				slot = sysmodel.SlotPatrolReportLine
+				walkStart = stepIdx
+			}
 		}
 		// AI 环节停放记录（闸门无下游/兜底）：slot 保持汇报线兜底
 	}
@@ -141,8 +148,8 @@ func (s *ReviewService) Pass(c *gin.Context, id string) *errs.Error {
 	}
 	now := time.Now()
 	by := middleware.CurrentUserID(c)
-	// 空名单自动跳过走链：从下一环节起找可落定的环节（人工环节名单为空自动跳过）
-	walk := communitysvc.WalkFlowWithVoters(s.db, r.CommunityID, flow, stepIdx+1, "", false)
+	// 空名单自动跳过走链：从 walkStart 起找可落定的环节（人工环节名单为空自动跳过）
+	walk := communitysvc.WalkFlowWithVoters(s.db, r.CommunityID, flow, walkStart, "", false)
 	if overEnd || walk.Finish { // 末环节/越界兜底/后续无非空名单人工环节 → 审核通过
 		updates := map[string]any{
 			"audit_status": model.AuditPass, "audit_step": walk.Step,
@@ -247,15 +254,20 @@ func (s *ReviewService) BatchPass(c *gin.Context, ids []string) (gin.H, *errs.Er
 		}
 		step := flow[stepIdx]
 		slot := step.Slot
+		walkStart := stepIdx + 1
 		if step.Kind == sysmodel.FlowStepKindAI {
 			slot = sysmodel.SlotPatrolReportLine // AI 环节停放记录：汇报线兜底（与 Pass 同口径）
+		} else if len(communitysvc.SlotUserIDs(s.db, r.CommunityID, slot)) == 0 {
+			// 在途自愈：当前人工环节名单为空（改配置/清空编制导致卡死）→ 授权回落汇报线，走链从本环节起自动跳过
+			slot = sysmodel.SlotPatrolReportLine
+			walkStart = stepIdx
 		}
 		if !communitysvc.SlotAuthorized(s.db, r.CommunityID, slot, identity) {
 			skippedDetail = append(skippedDetail, gin.H{"id": r.ID, "reason": "不在「" + step.Name + "」环节授权名单内"})
 			continue
 		}
 		// 空名单自动跳过走链：推进到下一有效环节；链尾无非空名单人工环节则整单通过
-		walk := communitysvc.WalkFlowWithVoters(s.db, r.CommunityID, flow, stepIdx+1, "", false)
+		walk := communitysvc.WalkFlowWithVoters(s.db, r.CommunityID, flow, walkStart, "", false)
 		updates := map[string]any{"audit_step": walk.Step, "audit_by": by, "audit_at": now}
 		if walk.Finish {
 			updates["audit_status"] = model.AuditPass

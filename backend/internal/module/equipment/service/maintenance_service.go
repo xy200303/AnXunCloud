@@ -457,15 +457,26 @@ func (s *MaintenanceService) Confirm(c *gin.Context, req *dto.ConfirmReq) (*Conf
 				}
 			}
 			idx := int(m.ConfirmStep)
+			// 走链起点：正常从下一环节起；当前环节名单为空（在途自愈）时从本环节起走（本环节按自动跳过处理）
+			walkStart := idx + 1
 			// 名单制授权：当前人工环节须在槽位名单内（与打卡/报告链同口径）
-			if idx < len(flow) && flow[idx].Kind != sysmodel.FlowStepKindAI &&
-				!communitysvc.SlotAuthorized(s.db, e.CommunityID, flow[idx].Slot, identity) {
+			authSlot := ""
+			if idx < len(flow) && flow[idx].Kind != sysmodel.FlowStepKindAI {
+				authSlot = flow[idx].Slot
+				// 在途自愈：当前人工环节名单为空（改配置/清空编制导致卡死）→ 授权回落汇报线，走链从本环节起自动跳过
+				if len(communitysvc.SlotUserIDs(s.db, e.CommunityID, authSlot)) == 0 {
+					authSlot = sysmodel.SlotPatrolReportLine
+					walkStart = idx
+				}
+			}
+			if authSlot != "" &&
+				!communitysvc.SlotAuthorized(s.db, e.CommunityID, authSlot, identity) {
 				result.Forbidden = append(result.Forbidden, id)
 				continue
 			}
 			// 人工环节：空名单自动跳过走链推进；链尾无非空名单人工环节则落 confirmed
 			if idx < len(flow) && flow[idx].Kind != sysmodel.FlowStepKindAI {
-				if w := communitysvc.WalkFlowWithVoters(s.db, e.CommunityID, flow, idx+1, "", false); !w.Finish {
+				if w := communitysvc.WalkFlowWithVoters(s.db, e.CommunityID, flow, walkStart, "", false); !w.Finish {
 					if err := tx.Model(&m).Updates(map[string]any{
 						"confirm_step": w.Step, "confirmed_by": identity.UserID, "confirmed_at": time.Now(),
 					}).Error; err != nil {

@@ -516,6 +516,8 @@ func (s *TaskService) CheckinList(c *gin.Context, q *dto.CheckinListQuery) (*res
 	}
 	list := make([]gin.H, 0, len(rows))
 	flows := map[string]types.FlowStepArray{} // community_id → 打卡审核链（当前环节名展示用）
+	slotUsers := map[string]types.IDArray{}   // project|slot → 环节名单（can_audit 判定缓存）
+	identity := middleware.CurrentIdentity(c)
 	for i := range rows {
 		r := &rows[i]
 		list = append(list, gin.H{
@@ -529,11 +531,66 @@ func (s *TaskService) CheckinList(c *gin.Context, q *dto.CheckinListQuery) (*res
 			"is_suspect": r.IsSuspect, "photo_count": RecordPhotoCount(s.db, r.ID),
 			"audit_status": r.AuditStatus, "audit_step": r.AuditStep,
 			"current_step_name": s.currentStepName(flows, r),
+			"can_audit":         s.checkinAuditable(flows, slotUsers, r, identity),
 			"ai_verdict":        r.AIVerdict, "ai_reason": r.AIReason,
 			"force_submit": r.ForceSubmit,
 		})
 	}
 	return &response.Page{List: list, Total: total, Page: q.Page, PageSize: q.PageSize}, nil
+}
+
+// checkinAuditable 当前用户是否可审核该待审记录（与 Pass 同口径：名单制授权；
+// 环节越界/AI 停放/当前环节空名单自愈均回落汇报线）。非待审记录恒 false。
+func (s *TaskService) checkinAuditable(flows map[string]types.FlowStepArray, slotUsers map[string]types.IDArray, r *model.CheckinRecord, idt *middleware.Identity) bool {
+	if r.AuditStatus != model.AuditPending || idt == nil {
+		return false
+	}
+	if idt.SuperAdmin {
+		return true
+	}
+	for _, code := range idt.RoleCodes {
+		if code == sysmodel.TenantAdminCode {
+			return true
+		}
+	}
+	// 快照优先（在途记录按提交时规则审）；无快照走小区级缓存的现配
+	flow := r.FlowSnapshot
+	if len(flow) == 0 {
+		var ok bool
+		flow, ok = flows[r.CommunityID]
+		if !ok {
+			flow = communitysvc.ResolveFlow(s.db, r.CommunityID, sysmodel.FlowCheckinReview)
+			flows[r.CommunityID] = flow
+		}
+	}
+	slot := sysmodel.SlotPatrolReportLine
+	if idx := int(r.AuditStep); idx < len(flow) {
+		step := flow[idx]
+		if step.Kind != sysmodel.FlowStepKindAI {
+			slot = step.Slot
+			// 在途自愈同口径：当前人工环节名单为空 → 授权回落汇报线
+			if len(cachedSlotUsers(s.db, slotUsers, r.CommunityID, slot)) == 0 {
+				slot = sysmodel.SlotPatrolReportLine
+			}
+		}
+	}
+	for _, uid := range cachedSlotUsers(s.db, slotUsers, r.CommunityID, slot) {
+		if uid == idt.UserID {
+			return true
+		}
+	}
+	return false
+}
+
+// cachedSlotUsers 环节名单查询缓存（project|slot → 名单）。
+func cachedSlotUsers(db *gorm.DB, cache map[string]types.IDArray, projectID, slot string) types.IDArray {
+	key := projectID + "|" + slot
+	users, ok := cache[key]
+	if !ok {
+		users = communitysvc.SlotUserIDs(db, projectID, slot)
+		cache[key] = users
+	}
+	return users
 }
 
 // currentStepName 待审核记录的当前审批环节名（pending 才有值；供列表"待审核（环节名）"展示）。

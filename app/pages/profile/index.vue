@@ -89,7 +89,7 @@
       :visible="switchDlgShow"
       kind="primary"
       title="切换账号"
-      content="将退出当前账号并返回登录页，已保存的账号可一键登录。"
+      content="将退出当前账号并进入账号选择页，已保存的账号可一键登录。"
       confirm-text="切换"
       cancel-text="取消"
       @update:visible="switchDlgShow = $event"
@@ -279,12 +279,12 @@ export default {
     goPassword() {
       uni.navigateTo({ url: '/pages/profile/password' })
     },
-    /** 切换账号：确认后退出当前账号回登录页（登录页可一键登录已保存账号） */
+    /** 切换账号：确认后退出当前账号，回落到账号选择页（已保存账号一键登录） */
     onSwitchAccount() {
       this.switchDlgShow = true
     },
     onSwitchConfirm() {
-      useAuthStore().logout()
+      useAuthStore().logout('/pages/login/switch')
     },
     /** 超管切换「当前公司」：拉租户列表 → 底部面板选择 → 写租户上下文（后续请求按所选租户隔离） */
     switchTenant() {

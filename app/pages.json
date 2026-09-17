@@ -58,6 +58,13 @@
       }
     },
     {
+      "path": "pages/login/switch",
+      "style": {
+        "navigationBarTitleText": "切换账号",
+        "navigationStyle": "custom"
+      }
+    },
+    {
       "path": "pages/reports/pending",
       "style": {
         "navigationBarTitleText": "月度报告",

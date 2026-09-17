@@ -5,25 +5,6 @@
       <image class="logo" src="/static/brand/anxuncloud-lockup.png" mode="aspectFit" />
     </view>
 
-    <!-- 已保存账号：点选一键登录（凭据存本机）；仅当有保存记录时显示 -->
-    <view v-if="savedAccounts.length > 0" class="saved">
-      <text class="saved-title" :style="{ color: colors.textSecondary }">选择账号登录</text>
-      <scroll-view class="saved-scroll" scroll-x enhanced :show-scrollbar="false">
-        <view class="saved-row">
-          <view v-for="(acc, idx) in savedAccounts" :key="acc.username + ':' + acc.tenant_code" class="saved-item" hover-class="hover-dim" @click="quickLogin(idx)">
-            <view class="saved-avatar" :style="{ backgroundColor: colors.primaryLight }">
-              <text class="saved-avatar-text" :style="{ color: colors.primary }">{{ accountAvatarText(acc) }}</text>
-              <view v-if="quickLoginUser == acc.username + ':' + acc.tenant_code" class="saved-loading" :style="{ backgroundColor: colors.mask }">
-                <text class="saved-loading-text" :style="{ color: colors.white }">…</text>
-              </view>
-              <text class="saved-del" :style="{ backgroundColor: colors.danger, color: colors.white }" @click.stop="onAccountDeleteTap(idx)">×</text>
-            </view>
-            <text class="saved-name" :style="{ color: colors.textRegular }">{{ acc.remark != '' ? acc.remark : acc.username }}</text>
-          </view>
-        </view>
-      </scroll-view>
-    </view>
-
     <!-- 登录表单 -->
     <view class="form">
       <view class="input-wrap" :style="{ backgroundColor: colors.bgCard, borderColor: colors.border }">
@@ -99,18 +80,6 @@
     >注册账号</text>
     <text class="helper" :style="{ color: colors.textSecondary }">忘记密码请联系管理员重置</text>
 
-    <!-- 删除已保存账号确认 -->
-    <AppDialog
-      :visible="delDlgShow"
-      kind="danger"
-      title="删除账号"
-      :content="delDlgContent"
-      confirm-text="删除"
-      cancel-text="取消"
-      @update:visible="delDlgShow = $event"
-      @confirm="onAccountDeleteConfirm"
-    />
-
     <!-- 注册弹层（底部弹层，遮罩 45% 黑） -->
     <view v-if="showRegister" class="mask" :style="{ backgroundColor: colors.mask }" @click="closeRegister">
       <view class="sheet" :style="{ backgroundColor: colors.bgCard }" @click.stop="noop">
@@ -159,13 +128,7 @@
 import { Colors, ColorTokens } from '@/utils/theme'
 import { apiRegisterConfig, apiRegister, apiRegisterTenants } from '@/services/api'
 import { useAuthStore } from '@/stores/auth'
-import {
-  SwitchAccount,
-  loadSwitchAccounts,
-  saveSwitchAccounts,
-  upsertSwitchAccount
-} from '@/utils/storage'
-import AppDialog from '@/components/AppDialog.vue'
+import { upsertSwitchAccount } from '@/utils/storage'
 
 type RegisterForm = {
   username: string
@@ -203,13 +166,6 @@ type LoginData = {
   regTenants: TenantOption[]
   /** 注册公司下拉选中下标（-1 = 未选） */
   regTenantIndex: number
-  /** 本机已保存账号（一键登录列表） */
-  savedAccounts: SwitchAccount[]
-  /** 正在一键登录的账号 key（username:tenant_code），空 = 无 */
-  quickLoginUser: string
-  /** 删除账号确认弹窗 */
-  delDlgShow: boolean
-  delIndex: number
 }
 
 export default {
@@ -237,23 +193,18 @@ export default {
         phone: ''
       } as RegisterForm,
       regTenants: [],
-      regTenantIndex: -1,
-      savedAccounts: [],
-      quickLoginUser: '',
-      delDlgShow: false,
-      delIndex: -1
+      regTenantIndex: -1
     }
   },
-  components: { AppDialog },
-  onShow() {
-    // 每次进入登录页刷新已保存账号列表（切换账号退出回来 / 冷启动）
-    this.savedAccounts = loadSwitchAccounts()
-    this.quickLoginUser = ''
-  },
-  onLoad() {
+  onLoad(query?: { username?: string; err?: string }) {
     const win = uni.getWindowInfo()
     if (win.statusBarHeight != null && win.statusBarHeight > 0) {
       this.statusBarH = win.statusBarHeight
+    }
+    // 账号选择页一键登录失败回落：回填账号并带出错误原因
+    if (query != null) {
+      if (query.username != null && query.username != '') this.username = decodeURIComponent(query.username)
+      if (query.err != null && query.err != '') this.errorMsg = decodeURIComponent(query.err)
     }
     // 注册入口开关（匿名可读；失败时静默隐藏入口）
     apiRegisterConfig()
@@ -284,12 +235,6 @@ export default {
     /** 注册公司下拉选项（picker range） */
     regTenantNames(): string[] {
       return this.regTenants.map((t: TenantOption) => t.name)
-    },
-    /** 删除账号确认文案 */
-    delDlgContent(): string {
-      const acc = this.savedAccounts[this.delIndex]
-      if (acc == null) return ''
-      return '确定删除「' + (acc.remark != '' ? acc.remark : acc.username) + '」吗？仅删除本机保存的登录凭据。'
     }
   },
   methods: {
@@ -351,48 +296,6 @@ export default {
     onWechatLogin() {
       // 占位：微信开放平台 AppID / 小程序一键登录均未接入
       uni.showToast({ title: '微信登录待接入（AppID 申请中）', icon: 'none' })
-    },
-    /** 已保存账号头像占位字（备注名/用户名首字） */
-    accountAvatarText(acc: SwitchAccount): string {
-      const label = acc.remark != '' ? acc.remark : acc.username
-      return label != '' ? label.substring(0, 1) : '?'
-    },
-    /** 点选已保存账号一键登录：直接用本机凭据调登录，成功直达首页 */
-    quickLogin(idx: number) {
-      if (this.loading || this.quickLoginUser != '') return
-      const acc = this.savedAccounts[idx]
-      if (acc == null) return
-      this.errorMsg = ''
-      this.quickLoginUser = acc.username + ':' + acc.tenant_code
-      useAuthStore().login(acc.username, acc.password, acc.tenant_code != '' ? acc.tenant_code : undefined)
-        .then(() => {
-          // 置顶为最近使用（姓名可能已变更，顺带刷新）
-          const u = useAuthStore().userInfo
-          upsertSwitchAccount({
-            username: acc.username,
-            password: acc.password,
-            tenant_code: acc.tenant_code,
-            remark: u != null && u.name != '' ? u.name : acc.remark
-          })
-          uni.reLaunch({ url: '/pages/tasks/today' })
-        })
-        .catch((e: Error) => {
-          this.quickLoginUser = ''
-          // 凭据失效（如密码已改）：提示并回填账号密码，便于手动重登
-          this.username = acc.username
-          this.password = acc.password
-          this.errorMsg = e.message
-        })
-    },
-    onAccountDeleteTap(idx: number) {
-      this.delIndex = idx
-      this.delDlgShow = true
-    },
-    onAccountDeleteConfirm() {
-      if (this.delIndex < 0) return
-      this.savedAccounts.splice(this.delIndex, 1)
-      saveSwitchAccounts(this.savedAccounts)
-      this.delIndex = -1
     },
     openRegister() {
       this.regError = ''
@@ -476,84 +379,6 @@ export default {
 
 .form {
   margin-bottom: 48rpx;
-}
-
-/* 已保存账号（一键登录）：横向滑动头像列表 */
-.saved {
-  margin-bottom: 40rpx;
-}
-
-.saved-title {
-  font-size: 26rpx;
-  margin-bottom: 20rpx;
-}
-
-.saved-scroll {
-  width: 100%;
-  white-space: nowrap;
-}
-
-.saved-row {
-  flex-direction: row;
-  align-items: flex-start;
-}
-
-.saved-item {
-  width: 128rpx;
-  align-items: center;
-  margin-right: 24rpx;
-}
-
-.saved-avatar {
-  width: 104rpx;
-  height: 104rpx;
-  border-radius: 52rpx;
-  align-items: center;
-  justify-content: center;
-  position: relative;
-}
-
-.saved-avatar-text {
-  font-size: 40rpx;
-  font-weight: 600;
-}
-
-/* 一键登录中的遮罩（圆形覆盖头像） */
-.saved-loading {
-  position: absolute;
-  left: 0;
-  top: 0;
-  width: 104rpx;
-  height: 104rpx;
-  border-radius: 52rpx;
-  align-items: center;
-  justify-content: center;
-}
-
-.saved-loading-text {
-  font-size: 32rpx;
-}
-
-/* 删除角标（头像右上角 ×） */
-.saved-del {
-  position: absolute;
-  right: -8rpx;
-  top: -8rpx;
-  width: 36rpx;
-  height: 36rpx;
-  border-radius: 18rpx;
-  font-size: 24rpx;
-  text-align: center;
-  line-height: 36rpx;
-}
-
-.saved-name {
-  font-size: 24rpx;
-  margin-top: 12rpx;
-  max-width: 128rpx;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 .input-wrap {

@@ -90,12 +90,12 @@ export const useAuthStore = defineStore('auth', {
       this.userInfo = u
       uni.setStorageSync(KEY_USER_INFO, JSON.stringify(u))
     },
-    /** 登出：先解绑推送设备（须在清 token 前），再调后端注销（失败也继续本地清理），最后清登录态回登录页 */
-    logout() {
+    /** 登出：先解绑推送设备（须在清 token 前），再调后端注销（失败也继续本地清理），最后清登录态回落到 redirectUrl（默认登录页，切换账号场景传账号选择页） */
+    logout(redirectUrl?: string) {
       unbindPushDevice().then(() => {
         apiLogout()
-          .then(() => { this.resetToLogin() })
-          .catch((_e: any) => { this.resetToLogin() })
+          .then(() => { this.resetToLogin(redirectUrl) })
+          .catch((_e: any) => { this.resetToLogin(redirectUrl) })
       })
     },
     /** 清空本地会话（登录态 + 会话数据 + 租户上下文 + 角标）；不跳转页面 */
@@ -109,9 +109,9 @@ export const useAuthStore = defineStore('auth', {
       // 登出清零图标角标（App 端生效，其他端静默跳过）
       setAppBadge(0)
     },
-    resetToLogin() {
+    resetToLogin(redirectUrl?: string) {
       this.clearLocalSession()
-      uni.reLaunch({ url: '/pages/login/index' })
+      uni.reLaunch({ url: redirectUrl != null && redirectUrl != '' ? redirectUrl : '/pages/login/index' })
     }
   }
 })

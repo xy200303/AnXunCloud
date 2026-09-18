@@ -88,7 +88,7 @@ func (s *ReportService) buildEquipmentStats(communityID string, start, end time.
 		Joins("JOIN checkin_record ON checkin_record.id = checkin_record_item.record_id").
 		Where("checkin_record.community_id = ? AND checkin_record.checkin_time >= ? AND checkin_record.checkin_time < ? AND checkin_record.superseded_by IS NULL", communityID, start, end).
 		Where("checkin_record_item.judge_type = ?", "equipment_date_spot").
-		Select("COUNT(*) AS triggered, COUNT(*) FILTER (WHERE checkin_record_item.pass = false) AS mismatch").
+		Select("COUNT(*) AS triggered, COUNT(*) FILTER (WHERE checkin_record_item.result = 'abnormal') AS mismatch").
 		Scan(&spotSum)
 	out["spotcheck"] = gin.H{"triggered": spotSum.Triggered, "mismatch": spotSum.Mismatch}
 

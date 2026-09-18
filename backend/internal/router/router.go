@@ -404,8 +404,10 @@ func New(cfg *config.Config, db *gorm.DB, rdb *redis.Client) (*gin.Engine, *insp
 			mpAuth.POST("/checkin/ai-item-jobs", mpCtl.SubmitAIItemJob)                          // 逐项 AI 识别：提交
 			mpAuth.GET("/checkin/ai-item-jobs", mpCtl.AIItemJobs)                                // 逐项 AI 识别：批量轮询结果
 			mpAuth.GET("/checkin/item-drafts", mpCtl.ItemDrafts)                                 // 逐项过程草稿（断点恢复）
+			mpAuth.DELETE("/checkin/item-drafts", mpCtl.DeleteItemDraft)                         // 撤销某项草稿（逃生选错回到待拍）
 			mpAuth.POST("/checkin/item-drafts/manual", mpCtl.SaveManualDraft)                    // 手动项选择落草稿
 			mpAuth.POST("/checkin/item-drafts/photo-abnormal", mpCtl.SavePhotoItemAbnormalDraft) // 拍照项异常逃生入口
+			mpAuth.POST("/checkin/point-cred", mpCtl.SavePointCredDraft)                         // 点位凭证核验落草稿（断点恢复）
 			mpAuth.GET("/checkins/:id", mpCtl.CheckinBrief)                                      // 本人打卡摘要（消息深链定位记录卡）
 			mpAuth.GET("/checkins/:id/items", mpCtl.CheckinItems)                                // 本人打卡逐项 AI 结论
 			mpAuth.POST("/upload/sts", mpCtl.STS)
@@ -448,8 +450,10 @@ func New(cfg *config.Config, db *gorm.DB, rdb *redis.Client) (*gin.Engine, *insp
 			appAuth.POST("/checkin/ai-item-jobs", mpCtl.SubmitAIItemJob)                          // 逐项 AI 识别：提交
 			appAuth.GET("/checkin/ai-item-jobs", mpCtl.AIItemJobs)                                // 逐项 AI 识别：批量轮询结果
 			appAuth.GET("/checkin/item-drafts", mpCtl.ItemDrafts)                                 // 逐项过程草稿（断点恢复）
+			appAuth.DELETE("/checkin/item-drafts", mpCtl.DeleteItemDraft)                         // 撤销某项草稿（逃生选错回到待拍）
 			appAuth.POST("/checkin/item-drafts/manual", mpCtl.SaveManualDraft)                    // 手动项选择落草稿
 			appAuth.POST("/checkin/item-drafts/photo-abnormal", mpCtl.SavePhotoItemAbnormalDraft) // 拍照项异常逃生入口
+			appAuth.POST("/checkin/point-cred", mpCtl.SavePointCredDraft)                         // 点位凭证核验落草稿（断点恢复）
 			appAuth.GET("/checkins/:id", mpCtl.CheckinBrief)                                      // 本人打卡摘要（消息深链定位记录卡）
 			appAuth.GET("/checkins/:id/items", mpCtl.CheckinItems)                                // 本人打卡逐项 AI 结论
 			appAuth.POST("/upload/sts", mpCtl.STS)

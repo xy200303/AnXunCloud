@@ -566,15 +566,16 @@ func (s *MPService) CheckinItems(inspectorID, checkinID string) ([]gin.H, *errs.
 	for i := range items {
 		it := &items[i]
 		out = append(out, gin.H{
-			"name": it.Name, "pass": it.Pass,
+			"name": it.Name, "result": it.Result,
 			"ai_verdict": strutil.StrVal(it.AIVerdict), "ai_reason": strutil.StrVal(it.AIReason),
 			"ai_reading":     strutil.StrVal(it.AIReading),
 			"note":           it.Note,
 			"exception_type": it.ExceptionType,
 			"tags":           it.Tags, "abnormal_tags": it.AbnormalTags,
-			"disposition": it.Disposition, "resolution_note": it.ResolutionNote,
-			"photo_urls":            inssvc.ItemPhotoURLs(s.db, it.Photos),
-			"resolution_photo_urls": inssvc.ItemPhotoURLs(s.db, it.ResolutionFileIDs),
+			"photo_urls": inssvc.ItemPhotoURLs(s.db, it.Photos),
+			// 照片时空信息与可疑标记（§14.3 防作弊：标记不拒收）
+			"shoot_lng": it.ShootLng, "shoot_lat": it.ShootLat, "shoot_at": timefmt.TP(it.ShootAt),
+			"suspicious": it.Suspicious, "suspicious_reason": it.SuspiciousReason,
 		})
 	}
 	return out, nil

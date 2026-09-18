@@ -52,7 +52,6 @@ type checkinMaintAction struct {
 // → 逐项同步 AI 核验 → 生成维保动作：
 // 可信（pass 且标签维修年月与当天年月差 ≤1 个月、钢印与台账一致）→ 项翻转正常 + confirmed 动作；
 // 存疑/读不出/AI 未启用/超时失败 → 项维持判定 + pending 动作（照常进 ConfirmList）。
-// 生成动作的项由服务端回填 disposition=maintenance_registered。
 func (s *CheckinService) resolveCheckinMaintenances(ctx context.Context, point *insmodel.InspectionPoint, items []insmodel.CheckinRecordItem) []checkinMaintAction {
 	var actions []checkinMaintAction
 	for i := range items {
@@ -105,11 +104,10 @@ func (s *CheckinService) resolveCheckinMaintenances(ctx context.Context, point *
 		walk := communitysvc.WalkFlow(action.flow, 0, action.outcome, false)
 		action.finish, action.reject = walk.Finish, walk.Reject
 		action.confirmStep, action.notifyIdx, action.fallback = walk.Step, walk.NotifyIdx, walk.Fallback
-		// 走到这里 = 生成维保流水（blocked 已 continue）；登记的项回填处置方式
-		it.Disposition = insmodel.DispositionMaintenanceReg
+		// 走到这里 = 生成维保流水（blocked 已 continue）
 		switch {
 		case action.finish:
-			it.Pass = true
+			it.Result = insmodel.ItemResultNormal
 			it.Note = strutil.Truncate(strutil.AppendNote(it.Note, "已拍新标签，系统核对通过，维保已生效"), 512)
 		case action.reject:
 			it.Note = strutil.Truncate(strutil.AppendNote(it.Note, "已拍新标签，系统审核不通过，请重新登记"), 512)

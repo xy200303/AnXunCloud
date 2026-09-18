@@ -11,29 +11,26 @@ type MPRefreshReq struct {
 }
 
 // CheckinItemReq 打卡逐项检查结果提交项。
+// result 显式三态（服务端只校验不折算）：normal 正常 / abnormal 异常 / escaped 无法检查
+// （逃生：exception_type 必填，device_missing/unable_to_capture/camera_broken；label_missing 仅抽查合成项）。
 type CheckinItemReq struct {
-	Name string `json:"name" binding:"required"`
-	Pass bool   `json:"pass"`
-	Note string `json:"note"`
-	// AbnormalTags 异常 tag 列表（须 ⊆ 该项模板 tags；非空服务端强制该项 pass=false）
+	Name   string `json:"name" binding:"required"`
+	Result string `json:"result" binding:"required,oneof=normal abnormal escaped"`
+	Note   string `json:"note"`
+	// AbnormalTags 异常 tag 列表（须 ⊆ 该项模板 tags；非空须 result=abnormal）
 	AbnormalTags []string `json:"abnormal_tags" binding:"omitempty,max=20"`
-	// Photos 该项照片 file_id（一项一图硬约束：最多 1 张；不合格项与模板 required 项强制恰好 1 张；
-	// 台账有效期合成项例外：允许携带 ≤3 张新标签照片，提交时触发服务端维保核验，pass 字段忽略）
+	// Photos 该项照片 file_id（一项一图硬约束：最多 1 张；abnormal 项与模板 required 项强制恰好 1 张；
+	// escaped 佐证分流：device_missing 须 ≥1 张，unable_to_capture/camera_broken 免佐证；
+	// 台账有效期合成项例外：允许携带 ≤3 张新标签照片，提交时触发服务端维保核验，result 字段忽略）
 	Photos []string `json:"photos" binding:"omitempty,max=3"`
 	// AIVerdict/AIReason/AIReading 逐项 AI 识别确认提交（ai_confirmed=true）时带回的结论（均可空）
 	AIVerdict     string `json:"ai_verdict"`
 	AIReason      string `json:"ai_reason"`
 	AIReading     string `json:"ai_reading"`
 	ExceptionType string `json:"exception_type"`
-	// Disposition 异常项处置方式（仅 !pass 项可填）：on_site_resolved=现场已处理（须带处置照片 ≥1 张）/
-	// maintenance_registered=登记维保 / report_pending=上报待处理（记录强制转人工审核并通知审核人）
-	Disposition string `json:"disposition"`
-	// ResolutionFileIDs 处置照片 file_id（归属校验同 photos 口径）
-	ResolutionFileIDs []string `json:"resolution_file_ids" binding:"omitempty,max=9"`
-	ResolutionNote    string   `json:"resolution_note"`
 	// 标签抽查合成项（judge_type=equipment_date_spot）：只交照片（+逃生 exception_type=label_missing）；
 	// 日期由服务端从该项 AI 读标签草稿的 ai_reading 解析（M{生产年月}|W{维修年月}），不与台账比对则以实物为准；
-	// 客户端 pass 被忽略，服务端按四规则与台账比对
+	// 客户端 result 被忽略，服务端按四规则与台账比对
 }
 
 // CheckinReq 打卡提交（离线补传单条结构相同）。
@@ -70,6 +67,10 @@ type AIItemJobReq struct {
 	PointID string   `json:"point_id" binding:"required"`
 	Name    string   `json:"name" binding:"required"` // 检查项名（须属于该点位模板项）
 	FileIDs []string `json:"file_ids" binding:"required,len=1"`
+	// ShootLng/ShootLat/ShootAt 拍照时空信息（可选，防作弊时空一致性判定；shoot_at 为 YYYY-MM-DD HH:mm:ss，解析失败存 NULL）
+	ShootLng *float64 `json:"shoot_lng"`
+	ShootLat *float64 `json:"shoot_lat"`
+	ShootAt  string   `json:"shoot_at"`
 }
 
 // ManualItemDraftReq 手动结论落云端草稿：选择即保存，断点恢复以服务端为准。
@@ -84,16 +85,36 @@ type ManualItemDraftReq struct {
 	FileIDs []string `json:"file_ids" binding:"omitempty,max=3"`
 	// AbnormalTags 异常观察点 tag（⊆ 模板项 tags）
 	AbnormalTags []string `json:"abnormal_tags" binding:"omitempty,max=20"`
+	// ShootLng/ShootLat/ShootAt 拍照时空信息（可选，防作弊时空一致性判定；shoot_at 为 YYYY-MM-DD HH:mm:ss，解析失败存 NULL）
+	ShootLng *float64 `json:"shoot_lng"`
+	ShootLat *float64 `json:"shoot_lat"`
+	ShootAt  string   `json:"shoot_at"`
 }
 
-// PhotoItemAbnormalDraftReq 拍照项异常逃生入口：设备不存在/无法拍摄时，拍照佐证后直接落异常草稿。
+// PhotoItemAbnormalDraftReq 拍照项异常逃生入口：设备不存在/无法拍摄/相机故障时落逃生草稿（draft_kind=escape）。
+// 佐证分流：device_missing 必带 1 张佐证照片；unable_to_capture/camera_broken 免佐证（无法拍摄还要照片是矛盾的）。
 type PhotoItemAbnormalDraftReq struct {
 	TaskID        string   `json:"task_id" binding:"required"`
 	PointID       string   `json:"point_id" binding:"required"`
 	Name          string   `json:"name" binding:"required"` // 检查项名（须为该点位模板的拍照项）
-	FileIDs       []string `json:"file_ids" binding:"required,len=1"`
+	FileIDs       []string `json:"file_ids" binding:"omitempty,max=1"`
 	Note          string   `json:"note"`
-	ExceptionType string   `json:"exception_type" binding:"required,oneof=device_missing unable_to_capture"`
+	ExceptionType string   `json:"exception_type" binding:"required,oneof=device_missing unable_to_capture camera_broken"`
+	// ShootLng/ShootLat/ShootAt 佐证照片拍摄时空信息（可选，防作弊时空一致性判定；shoot_at 为 YYYY-MM-DD HH:mm:ss，解析失败存 NULL）
+	ShootLng *float64 `json:"shoot_lng"`
+	ShootLat *float64 `json:"shoot_lat"`
+	ShootAt  string   `json:"shoot_at"`
+}
+
+// PointCredDraftReq 点位凭证核验草稿（§14.2：扫码/NFC/围栏核验通过即落库，断点恢复用）。
+type PointCredDraftReq struct {
+	TaskID      string `json:"task_id" binding:"required"`
+	PointID     string `json:"point_id" binding:"required"`
+	CheckinType string `json:"checkin_type" binding:"required,oneof=qrcode nfc fence"`
+	// CredNo 扫码码值/NFC 卡号（fence 为空）
+	CredNo string `json:"cred_no" binding:"omitempty,max=128"`
+	// FenceDistance 围栏核验时距点位距离（米，可空）
+	FenceDistance *float64 `json:"fence_distance"`
 }
 
 type OfflineSyncReq struct {

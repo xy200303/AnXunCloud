@@ -78,8 +78,7 @@ type LedgerRow struct {
 	Location        string   // 区域位置（点位名/楼栋位置）
 	Problem         string   // 问题说明（异常备注）
 	ProblemPhotoIDs []string // 故障问题照片 file_id（渲染取首张）
-	FixText         string   // 整改情况（处置方式/复核结论）
-	FixPhotoIDs     []string // 处理完结照片 file_id（渲染取首张）
+	FixText         string   // 整改情况（复核结论）
 	Inspector       string   // 检查人（打卡巡检员）
 }
 
@@ -908,7 +907,7 @@ func renderIssueLedger(p *gofpdf.Fpdf, d MonthlyReportData) {
 			}
 			xProb := margin + issueLedgerWidths[0] + issueLedgerWidths[1] + issueLedgerWidths[2]
 			drawIssueLedgerCell(p, d, row.Problem, row.ProblemPhotoIDs, fmt.Sprintf("issue-ledger-p-%d", idx), "故障问题照片", xProb, y0, issueLedgerWidths[3])
-			drawIssueLedgerCell(p, d, row.FixText, row.FixPhotoIDs, fmt.Sprintf("issue-ledger-f-%d", idx), "处理完结照片", xProb+issueLedgerWidths[3], y0, issueLedgerWidths[4])
+			drawIssueLedgerCell(p, d, row.FixText, nil, fmt.Sprintf("issue-ledger-f-%d", idx), "", xProb+issueLedgerWidths[3], y0, issueLedgerWidths[4])
 			p.SetY(y0 + issueLedgerRowH)
 		}
 		for empty := end - start; empty < 6; empty++ {

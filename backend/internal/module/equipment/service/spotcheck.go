@@ -71,14 +71,14 @@ func LastVerifiedMap(db *gorm.DB, equipmentIDs []string) map[string]time.Time {
 			out[r.EquipmentID] = t
 		}
 	}
-	// 抽查通过快照（判定期权在服务端，pass=true 的合成项即一次验证）
+	// 抽查通过快照（判定期权在服务端，result=normal 的合成项即一次验证）
 	var spotRows []struct {
 		EquipmentID string    `gorm:"column:equipment_id"`
 		LastAt      time.Time `gorm:"column:last_at"`
 	}
 	db.Model(&insmodel.CheckinRecordItem{}).
 		Select("judge_config->>'equipment_id' AS equipment_id, MAX(created_at) AS last_at").
-		Where("judge_type = ? AND pass = ?", "equipment_date_spot", true).
+		Where("judge_type = ? AND result = ?", "equipment_date_spot", insmodel.ItemResultNormal).
 		Where("judge_config->>'equipment_id' IN ?", equipmentIDs).
 		Group("equipment_id").Scan(&spotRows)
 	for _, r := range spotRows {

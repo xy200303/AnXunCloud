@@ -134,13 +134,17 @@ func (s *CheckinService) SubmitAIItemJob(ctx context.Context, inspectorID string
 	draft := insmodel.CheckinItemDraft{
 		TenantID: task.TenantID, TaskID: task.ID, PointID: req.PointID,
 		InspectorID: inspectorID, CommunityID: task.CommunityID,
-		ItemName: tplItem.Name, JobID: payload.JobID, FileIDs: fileIDs, AIStatus: insmodel.ItemDraftPending,
+		ItemName: tplItem.Name, DraftKind: insmodel.DraftKindAI,
+		JobID: payload.JobID, FileIDs: fileIDs, AIStatus: insmodel.ItemDraftPending,
+		ShootLng: req.ShootLng, ShootLat: req.ShootLat, ShootAt: parseShootAt(req.ShootAt),
 	}
 	if err := s.db.Clauses(clause.OnConflict{
 		Columns: []clause.Column{{Name: "task_id"}, {Name: "point_id"}, {Name: "item_name"}},
 		DoUpdates: clause.AssignmentColumns([]string{
-			"inspector_id", "community_id", "tenant_id", "job_id", "file_ids",
-			"exception_type", "ai_status", "ai_verdict", "ai_reason", "ai_reading", "abnormal_tags", "quality_pass", "quality_issue", "updated_at",
+			"inspector_id", "community_id", "tenant_id", "draft_kind", "job_id", "file_ids",
+			"exception_type", "ai_status", "ai_verdict", "ai_reason", "ai_reading", "abnormal_tags", "quality_pass", "quality_issue",
+			"manual_pass", "manual_note",
+			"shoot_lng", "shoot_lat", "shoot_at", "updated_at",
 		}),
 	}).Create(&draft).Error; err != nil {
 		return nil, errs.ErrInternal
@@ -400,7 +404,7 @@ func (s *CheckinService) ItemDrafts(ctx context.Context, inspectorID, taskID, po
 			}
 		}
 		items = append(items, gin.H{
-			"point_id": d.PointID, "item_name": d.ItemName, "job_id": d.JobID,
+			"point_id": d.PointID, "item_name": d.ItemName, "draft_kind": d.DraftKind, "job_id": d.JobID,
 			"file_ids": d.FileIDs, "photos": photos, "exception_type": d.ExceptionType,
 			"ai_status": d.AIStatus, "ai_verdict": d.AIVerdict, "ai_reason": d.AIReason,
 			"ai_reading": d.AIReading, "abnormal_tags": d.AbnormalTags, "quality_pass": d.QualityPass, "quality_issue": d.QualityIssue,
@@ -408,7 +412,82 @@ func (s *CheckinService) ItemDrafts(ctx context.Context, inspectorID, taskID, po
 			"updated_at": timefmt.T(d.UpdatedAt),
 		})
 	}
-	return gin.H{"items": items}, nil
+	out := gin.H{"items": items}
+	// 传了 point_id 时附带该点位的凭证核验草稿（§14.2 断点恢复：重进向导不再要求重新签到），无则 null
+	if pointID != "" {
+		out["credential"] = s.pointCredDraftView(taskID, pointID, inspectorID)
+	}
+	return out, nil
+}
+
+// pointCredDraftView 该点位本人凭证核验草稿视图（无草稿返回 nil）。
+func (s *CheckinService) pointCredDraftView(taskID, pointID, inspectorID string) any {
+	var d insmodel.CheckinPointCredDraft
+	if err := s.db.Where("task_id = ? AND point_id = ? AND inspector_id = ?", taskID, pointID, inspectorID).
+		First(&d).Error; err != nil {
+		return nil
+	}
+	return gin.H{
+		"checkin_type": d.CheckinType, "cred_no": d.CredNo,
+		"fence_distance": d.FenceDistance, "verified_at": timefmt.T(d.VerifiedAt),
+	}
+}
+
+// SavePointCredDraft 点位凭证核验落草稿（POST /checkin/point-cred，§14.2）：
+// 扫码/NFC/围栏核验通过即 upsert（verified_at=now()）；校验口径同逐项草稿（任务归属/点位在任务内/任务未完成）。
+// 草稿仅恢复 UI 状态，正式提交的凭证复核口径不变（checkMode 仍逐项比对）。
+func (s *CheckinService) SavePointCredDraft(ctx context.Context, inspectorID string, req *dto.PointCredDraftReq) (gin.H, *errs.Error) {
+	var task insmodel.InspectionTask
+	if err := s.db.First(&task, "id = ?", req.TaskID).Error; err != nil || task.InspectorID != inspectorID {
+		return nil, errs.ErrTaskNotOwned
+	}
+	if task.Status == insmodel.TaskDone {
+		return nil, errs.ErrDuplicateCheckin.WithMsg("任务已完成")
+	}
+	var plan insmodel.InspectionPlan
+	if err := s.db.First(&plan, "id = ?", task.PlanID).Error; err != nil {
+		return nil, errs.ErrTaskNotOwned
+	}
+	if !insmodel.TaskPointIDs(&task).Contains(req.PointID) {
+		return nil, errs.ErrTaskNotOwned.WithMsg("点位不属于该任务")
+	}
+	draft := insmodel.CheckinPointCredDraft{
+		TenantID: task.TenantID, CommunityID: task.CommunityID,
+		TaskID: task.ID, PointID: req.PointID, InspectorID: inspectorID,
+		CheckinType: req.CheckinType, CredNo: strutil.Truncate(strings.TrimSpace(req.CredNo), 128),
+		FenceDistance: req.FenceDistance, VerifiedAt: time.Now(),
+	}
+	if err := s.db.Clauses(clause.OnConflict{
+		Columns: []clause.Column{{Name: "task_id"}, {Name: "point_id"}, {Name: "inspector_id"}},
+		DoUpdates: clause.AssignmentColumns([]string{
+			"tenant_id", "community_id", "checkin_type", "cred_no", "fence_distance", "verified_at", "updated_at",
+		}),
+	}).Create(&draft).Error; err != nil {
+		return nil, errs.ErrInternal
+	}
+	return gin.H{"saved": true}, nil
+}
+
+// DeleteItemDraft 撤销某一项的过程草稿（DELETE /checkin/item-drafts?task_id&point_id&item_name）。
+// 用于逃生撤销（设备不存在/无法拍摄选错后回到待拍）：删除草稿行；进行中的 AI job 完成时
+// 按 (task, point, item) Updates 定位不到行自然不落库，不会复活草稿。
+func (s *CheckinService) DeleteItemDraft(ctx context.Context, inspectorID, taskID, pointID, itemName string) (gin.H, *errs.Error) {
+	var task insmodel.InspectionTask
+	if err := s.db.First(&task, "id = ?", taskID).Error; err != nil || task.InspectorID != inspectorID {
+		return nil, errs.ErrTaskNotOwned
+	}
+	if task.Status == insmodel.TaskDone {
+		return nil, errs.ErrDuplicateCheckin.WithMsg("任务已完成")
+	}
+	if pointID == "" || itemName == "" {
+		return nil, errs.ErrParam
+	}
+	res := s.db.Where("task_id = ? AND point_id = ? AND item_name = ? AND inspector_id = ?",
+		taskID, pointID, itemName, inspectorID).Delete(&insmodel.CheckinItemDraft{})
+	if res.Error != nil {
+		return nil, errs.ErrInternal
+	}
+	return gin.H{"deleted": res.RowsAffected}, nil
 }
 
 // SaveManualDraft 手动确认项选择落草稿（POST /checkin/item-drafts/manual）。
@@ -462,14 +541,18 @@ func (s *CheckinService) SaveManualDraft(ctx context.Context, inspectorID string
 	draft := insmodel.CheckinItemDraft{
 		TenantID: task.TenantID, TaskID: task.ID, PointID: req.PointID,
 		InspectorID: inspectorID, CommunityID: task.CommunityID,
-		ItemName: tplItem.Name, AIStatus: insmodel.ItemDraftDone,
+		ItemName: tplItem.Name, DraftKind: insmodel.DraftKindManual,
+		AIStatus:   insmodel.ItemDraftDone, // manual/escape 行无 AI 流程，ai_status 仅作"已定稿"标记（消费端按 draft_kind 分发）
 		ManualPass: &req.Pass, ManualNote: strutil.Truncate(strings.TrimSpace(req.Note), 512),
 		FileIDs: types.StringArray(fileIDs), AbnormalTags: abn,
+		ShootLng: req.ShootLng, ShootLat: req.ShootLat, ShootAt: parseShootAt(req.ShootAt),
 	}
 	if err := s.db.Clauses(clause.OnConflict{
 		Columns: []clause.Column{{Name: "task_id"}, {Name: "point_id"}, {Name: "item_name"}},
 		DoUpdates: clause.AssignmentColumns([]string{
-			"inspector_id", "community_id", "tenant_id", "ai_status", "manual_pass", "manual_note", "file_ids", "abnormal_tags", "updated_at",
+			"inspector_id", "community_id", "tenant_id", "draft_kind", "ai_status", "manual_pass", "manual_note", "file_ids", "abnormal_tags",
+			"job_id", "exception_type", "ai_verdict", "ai_reason", "ai_reading", "quality_pass", "quality_issue",
+			"shoot_lng", "shoot_lat", "shoot_at", "updated_at",
 		}),
 	}).Create(&draft).Error; err != nil {
 		return nil, errs.ErrInternal
@@ -477,7 +560,8 @@ func (s *CheckinService) SaveManualDraft(ctx context.Context, inspectorID string
 	return gin.H{"saved": true}, nil
 }
 
-// SavePhotoItemAbnormalDraft 拍照项异常逃生入口：设备不存在/无法拍摄时，拍照佐证后直接落异常草稿。
+// SavePhotoItemAbnormalDraft 拍照项异常逃生入口：设备不存在/无法拍摄/相机故障时落逃生草稿（draft_kind=escape）。
+// 佐证分流：device_missing 须恰好 1 张佐证照片；unable_to_capture/camera_broken 免佐证（file_ids 可为空，带 1 张也收）。
 func (s *CheckinService) SavePhotoItemAbnormalDraft(ctx context.Context, inspectorID string, req *dto.PhotoItemAbnormalDraftReq) (gin.H, *errs.Error) {
 	if !validItemExceptionType(req.ExceptionType) || req.ExceptionType == "label_missing" {
 		// label_missing 是标签抽查合成项的逃生类型，随正式提交直连 resolveSpotItem，不落模板项逃生草稿
@@ -512,36 +596,45 @@ func (s *CheckinService) SavePhotoItemAbnormalDraft(ctx context.Context, inspect
 	if ai.NormalizeJudgeType(tplItem.JudgeType) == ai.JudgeManual {
 		return nil, errs.ErrParam.WithMsg("手动确认项请直接选择正常/异常")
 	}
-	if len(req.FileIDs) != 1 {
-		return nil, errs.ErrParam.WithMsg("异常上报需要恰好 1 张佐证照片")
+	// 佐证分流：device_missing 须恰好 1 张佐证照片；unable_to_capture/camera_broken 免佐证（0 或 1 张均可）
+	fileIDs := make([]string, 0, len(req.FileIDs))
+	if req.ExceptionType == "device_missing" && len(req.FileIDs) != 1 {
+		return nil, errs.ErrParam.WithMsg("设备不存在须上传 1 张佐证照片")
 	}
-	ref := req.FileIDs[0]
-	f, err := uploadfile.ByID(s.db, ref)
-	if err != nil || f.UserID != inspectorID {
-		return nil, errs.ErrPhotoNotUploaded
+	for _, ref := range req.FileIDs {
+		f, err := uploadfile.ByID(s.db, ref)
+		if err != nil || f.UserID != inspectorID {
+			return nil, errs.ErrPhotoNotUploaded
+		}
+		fileIDs = append(fileIDs, f.ID)
 	}
 	note := strings.TrimSpace(req.Note)
 	if note == "" {
-		if req.ExceptionType == "device_missing" {
+		switch req.ExceptionType {
+		case "device_missing":
 			note = "设备确实不存在，已上报异常"
-		} else {
+		case "camera_broken":
+			note = "相机故障无法拍摄，已上报异常"
+		default:
 			note = "现场无法拍摄，已上报异常"
 		}
 	}
 	draft := insmodel.CheckinItemDraft{
 		TenantID: task.TenantID, TaskID: task.ID, PointID: req.PointID,
 		InspectorID: inspectorID, CommunityID: task.CommunityID,
-		ItemName: tplItem.Name, FileIDs: []string{f.ID}, AIStatus: insmodel.ItemDraftDone,
+		ItemName: tplItem.Name, DraftKind: insmodel.DraftKindEscape, FileIDs: fileIDs,
+		AIStatus:      insmodel.ItemDraftDone, // escape 行无 AI 流程，ai_status 仅作"已定稿"标记（消费端按 draft_kind 分发）
 		ExceptionType: req.ExceptionType,
-		AIVerdict:     strPtr(ai.VerdictAbnormal), AIReason: strPtr(note),
-		QualityPass:  boolPtr(true),
-		QualityIssue: "",
+		AIReason:      strPtr(note),
+		ShootLng:      req.ShootLng, ShootLat: req.ShootLat, ShootAt: parseShootAt(req.ShootAt),
 	}
 	if err := s.db.Clauses(clause.OnConflict{
 		Columns: []clause.Column{{Name: "task_id"}, {Name: "point_id"}, {Name: "item_name"}},
 		DoUpdates: clause.AssignmentColumns([]string{
-			"inspector_id", "community_id", "tenant_id", "file_ids",
-			"exception_type", "ai_status", "ai_verdict", "ai_reason", "ai_reading", "abnormal_tags", "quality_pass", "quality_issue", "updated_at",
+			"inspector_id", "community_id", "tenant_id", "draft_kind", "job_id", "file_ids",
+			"exception_type", "ai_status", "ai_verdict", "ai_reason", "ai_reading", "abnormal_tags", "quality_pass", "quality_issue",
+			"manual_pass", "manual_note",
+			"shoot_lng", "shoot_lat", "shoot_at", "updated_at",
 		}),
 	}).Create(&draft).Error; err != nil {
 		return nil, errs.ErrInternal
@@ -551,7 +644,14 @@ func (s *CheckinService) SavePhotoItemAbnormalDraft(ctx context.Context, inspect
 
 func strPtr(s string) *string { return &s }
 
-func boolPtr(v bool) *bool { return &v }
+// parseShootAt 拍照时间解析（YYYY-MM-DD HH:mm:ss；空串/解析失败返回 nil，落库存 NULL）。
+func parseShootAt(s string) *time.Time {
+	t, err := timefmt.Parse(strings.TrimSpace(s))
+	if err != nil {
+		return nil
+	}
+	return &t
+}
 
 // pointTemplateIDs 点位关联模板 ID 列表（point_template，sort 升序；无关联返回空）。
 func pointTemplateIDs(db *gorm.DB, pointID string) []string {
@@ -562,5 +662,6 @@ func pointTemplateIDs(db *gorm.DB, pointID string) []string {
 
 func validItemExceptionType(exceptionType string) bool {
 	// label_missing 仅标签抽查合成项可用（模板项逃生校验在 SavePhotoItemAbnormalDraft 拦截）
-	return exceptionType == "device_missing" || exceptionType == "unable_to_capture" || exceptionType == "label_missing"
+	return exceptionType == "device_missing" || exceptionType == "unable_to_capture" ||
+		exceptionType == "camera_broken" || exceptionType == "label_missing"
 }

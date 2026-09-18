@@ -100,9 +100,9 @@ func TestMonthlySamplePDF(t *testing.T) {
 			{TypeName: "应急照明灯", Items: []string{"灯具完好", "指示清晰", "通道畅通"}, Rows: lightRows},
 		},
 		Ledger: []LedgerRow{
-			{Category: "灭火器", Location: "2栋4层灭火器箱 MH-004", Problem: "压力表指针不在绿区", ProblemPhotoIDs: []string{"p1"}, FixText: "现场已处理", FixPhotoIDs: []string{"f1"}},
-			{Category: "消火栓", Location: "1栋大堂消火栓 XHS-002", Problem: "箱门玻璃破损", ProblemPhotoIDs: []string{"p2"}, FixText: "已登记维保", FixPhotoIDs: []string{"f2"}},
-			{Category: "应急照明灯", Location: "3栋疏散通道", Problem: "灯具不亮", ProblemPhotoIDs: []string{"p3"}, FixText: "上报待处理"},
+			{Category: "灭火器", Location: "2栋4层灭火器箱 MH-004", Problem: "压力表指针不在绿区", ProblemPhotoIDs: []string{"p1"}, FixText: "复核通过"},
+			{Category: "消火栓", Location: "1栋大堂消火栓 XHS-002", Problem: "箱门玻璃破损", ProblemPhotoIDs: []string{"p2"}, FixText: "复核通过"},
+			{Category: "应急照明灯", Location: "3栋疏散通道", Problem: "灯具不亮", ProblemPhotoIDs: []string{"p3"}, FixText: "待复核"},
 		},
 		ReviewSigns: []ReviewSignGroup{
 			{Name: "巡检", Signs: []SignInfo{{Name: "张伟", Time: "2026-09-30 10:00:00", SignatureFileID: "sign"}}},

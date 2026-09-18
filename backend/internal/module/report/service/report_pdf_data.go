@@ -217,9 +217,14 @@ func (s *ReportService) pdfData(r *model.InspectionReport) pdf.MonthlyReportData
 					if ci.Name != col.item {
 						continue
 					}
+					// 逃生态（没检成）统一标「—」，不计异常（异常只算 abnormal）
+					if ci.Result == insmodel.ItemResultEscaped {
+						marks[j] = "—"
+						continue
+					}
 					if col.tag == "" {
 						// 无 tag 传统项：按项结果判
-						if ci.Pass {
+						if ci.Result == insmodel.ItemResultNormal {
 							marks[j] = "√"
 						} else {
 							marks[j] = "×"
@@ -234,7 +239,7 @@ func (s *ReportService) pdfData(r *model.InspectionReport) pdf.MonthlyReportData
 							break
 						}
 					}
-					if abn || (!ci.Pass && len(ci.AbnormalTags) == 0) {
+					if abn || (ci.Result == insmodel.ItemResultAbnormal && len(ci.AbnormalTags) == 0) {
 						marks[j] = "×"
 					} else {
 						marks[j] = "√"
@@ -280,7 +285,7 @@ func (s *ReportService) pdfData(r *model.InspectionReport) pdf.MonthlyReportData
 	// ===== 5.问题清单及整改台账（新版模板列：类别/区域位置/问题说明+故障照片/整改情况+完结照片） =====
 	for i := range abnormalRecs {
 		rec := &abnormalRecs[i]
-		row := pdf.LedgerRow{Problem: checkinProblem(*rec)}
+		row := pdf.LedgerRow{Problem: checkinProblem(*rec, itemsByRec[rec.ID])}
 		if pt, ok := pointByID[rec.PointID]; ok {
 			row.Category = typeNames.label(pt.Type)
 			row.Location = pointLocation(pt)
@@ -293,16 +298,8 @@ func (s *ReportService) pdfData(r *model.InspectionReport) pdf.MonthlyReportData
 				}
 			}
 		}
-		// 处置照片：逐项处置留痕（file_id，渲染取首张）
-		for _, ci := range itemsByRec[rec.ID] {
-			for _, ref := range ci.ResolutionFileIDs {
-				if f, err := uploadfile.ByID(s.db, ref); err == nil {
-					row.FixPhotoIDs = append(row.FixPhotoIDs, f.ID)
-				}
-			}
-		}
-		// 处理情况列：优先汇总各项处置方式（真实闭环），无处置方式时回落复核结论
-		row.FixText = fixTextOf(itemsByRec[rec.ID], rec.AuditStatus)
+		// 处理情况列：复核结论（处置是甲方线下的事，系统不再记录处置方式）
+		row.FixText = auditStatusCN(rec.AuditStatus)
 		d.Ledger = append(d.Ledger, row)
 	}
 
@@ -434,12 +431,46 @@ func pointLocation(pt *insmodel.InspectionPoint) string {
 	return fmt.Sprintf("%s %s", pt.Name, code)
 }
 
-// checkinProblem 异常打卡问题描述：优先异常备注，空则兜底。
-func checkinProblem(rec insmodel.CheckinRecord) string {
+// checkinProblem 异常打卡问题描述：优先异常备注；空则逐项兜底——异常项取 note，
+// 逃生项「无法检查·类型」（escaped=没检成，与 abnormal 区分展示）。
+func checkinProblem(rec insmodel.CheckinRecord, items []insmodel.CheckinRecordItem) string {
 	if rec.Remark != "" {
 		return rec.Remark
 	}
-	return "打卡异常"
+	texts := make([]string, 0, len(items))
+	seen := map[string]bool{}
+	for _, it := range items {
+		var s string
+		switch {
+		case it.Result == insmodel.ItemResultEscaped:
+			s = "无法检查·" + exceptionTypeCN(it.ExceptionType)
+		case it.Result == insmodel.ItemResultAbnormal:
+			s = strings.TrimSpace(it.Note)
+		}
+		if s != "" && !seen[s] {
+			seen[s] = true
+			texts = append(texts, s)
+		}
+	}
+	if len(texts) == 0 {
+		return "打卡异常"
+	}
+	return strings.Join(texts, "；")
+}
+
+// exceptionTypeCN 逃生类型中文（逐项「无法检查」状态文案用）。
+func exceptionTypeCN(t string) string {
+	switch t {
+	case "device_missing":
+		return "设备不存在"
+	case "unable_to_capture":
+		return "无法拍摄"
+	case "camera_broken":
+		return "相机故障"
+	case "label_missing":
+		return "标签磨损无法辨认"
+	}
+	return t
 }
 
 // summaryOrderKeywords 汇总表行排序关键词（甲方模板顺序），命中首个关键词的下标，未命中置后。
@@ -467,37 +498,6 @@ func auditStatusCN(status string) string {
 		return "自动通过"
 	}
 	return status
-}
-
-// dispositionCN 逐项处置方式中文（台账「处理情况」列汇总用）。
-func dispositionCN(d string) string {
-	switch d {
-	case "on_site_resolved":
-		return "现场已处理"
-	case "maintenance_registered":
-		return "已登记维保"
-	case "report_pending":
-		return "上报待处理"
-	}
-	return d
-}
-
-// fixTextOf 台账「处理情况」列：汇总该记录各项非空处置方式（去重、顿号拼接）；
-// 全部为空（存量数据）则回落复核结论。
-func fixTextOf(items []insmodel.CheckinRecordItem, auditStatus string) string {
-	seen := map[string]bool{}
-	texts := make([]string, 0, len(items))
-	for _, it := range items {
-		if it.Disposition == "" || seen[it.Disposition] {
-			continue
-		}
-		seen[it.Disposition] = true
-		texts = append(texts, dispositionCN(it.Disposition))
-	}
-	if len(texts) == 0 {
-		return auditStatusCN(auditStatus)
-	}
-	return strings.Join(texts, "、")
 }
 
 // userNamesOf 批量反查用户姓名。

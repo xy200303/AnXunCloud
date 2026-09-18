@@ -174,6 +174,9 @@ func (s *CheckinService) doCheckinLocked(ctx context.Context, inspectorID string
 	if be != nil {
 		return nil, nil, be
 	}
+	// 照片时空信息带出与可疑判定（§14.3 防作弊：标记可疑不拒收）：逐项快照从过程草稿带出 shoot_*，
+	// 围栏外拍摄/拍照早于凭证核验的项打 suspicious（随逐项快照同事务落库）
+	s.applyShootMeta(point, req.TaskID, req.PointID, inspectorID, checkItems)
 	// 打卡 × 维保融合：带新标签照片的有效期合成项逐项同步 AI 核验（网络调用在打卡事务前，
 	// 超时/失败降级 pending 动作），可信项翻转正常；动作落库由 persistCheckinMaintenances 同事务完成
 	maintActions := s.resolveCheckinMaintenances(ctx, point, checkItems)
@@ -196,17 +199,10 @@ func (s *CheckinService) doCheckinLocked(ctx context.Context, inspectorID string
 	if be != nil {
 		return nil, nil, be
 	}
-	// 上报待处理（任一异常项 disposition=report_pending）：记录强制转人工审核（必通知审核人），
-	// AI 不得自动放行（异步闸门的放行分支按记录逐项排除，见 walkFlow/review 桶）
-	reportPending := hasReportPending(checkItems)
-	if reportPending {
-		rec.AuditStatus = insmodel.AuditPending
-	}
-
 	// ===== 通用审批引擎路由（打卡链 checkin_review）=====
 	// 空流程 = 默认通过；AI 环节 = 闸门（按结论三分支路由）；人工环节 = pending 待审。
-	// 强制人工（上报待处理/台账判异常/强制提交）按「存疑」桶路由；未识别记录停在 AI 环节由异步闸门接力。
-	walk, routeReason := s.routeCheckinReview(task, &rec, req.Force, reportPending, equipmentForced, equipmentNote)
+	// 强制人工（台账判异常/强制提交）按「存疑」桶路由；异常项是巡检产出不是审核理由，AI 结论按票仓正常路由。
+	walk, routeReason := s.routeCheckinReview(task, &rec, req.Force, equipmentForced, equipmentNote)
 
 	overwrite, supersededID, err := s.persistCheckin(task, req, &rec, checkItems, maintActions, inspectorID, now)
 	if err != nil {
@@ -290,21 +286,11 @@ func (s *CheckinService) loadCheckinTarget(req *dto.CheckinReq, inspectorID stri
 // 命中即记录级强制异常并转人工审核；note 取首个命中项的判定说明。
 func equipmentForcedVerdict(items []insmodel.CheckinRecordItem) (forced bool, note string) {
 	for i := range items {
-		if (items[i].JudgeType == ai.JudgeEquipmentValidity || items[i].JudgeType == ai.JudgeEquipmentDateSpot) && !items[i].Pass {
+		if (items[i].JudgeType == ai.JudgeEquipmentValidity || items[i].JudgeType == ai.JudgeEquipmentDateSpot) && items[i].Result != insmodel.ItemResultNormal {
 			return true, items[i].Note
 		}
 	}
 	return false, ""
-}
-
-// hasReportPending 任一异常项 disposition=report_pending（记录强制转人工审核）。
-func hasReportPending(items []insmodel.CheckinRecordItem) bool {
-	for i := range items {
-		if items[i].Disposition == insmodel.DispositionReportPending {
-			return true
-		}
-	}
-	return false
 }
 
 // buildCheckinRecord 组装打卡记录（落库前的纯装配，不含 AI/审批链结论）。
@@ -406,22 +392,21 @@ func (s *CheckinService) applyAIDecision(ctx context.Context, req *dto.CheckinRe
 
 // routeCheckinReview 通用审批引擎路由（打卡链 checkin_review）：流程快照固化，在途记录按提交时的规则审完，改流程只影响新单。
 // 返回走链结果与路由原因（通知/打回备注用）。
-func (s *CheckinService) routeCheckinReview(task *insmodel.InspectionTask, rec *insmodel.CheckinRecord, force, reportPending, equipmentForced bool, equipmentNote string) (communitysvc.WalkResult, string) {
+func (s *CheckinService) routeCheckinReview(task *insmodel.InspectionTask, rec *insmodel.CheckinRecord, force, equipmentForced bool, equipmentNote string) (communitysvc.WalkResult, string) {
 	flow := communitysvc.ResolveFlow(s.db, task.CommunityID, sysmodel.FlowCheckinReview)
 	rec.FlowSnapshot = flow
 	outcome := ""
-	if rec.AIVerdict != "" {
+	if rec.HasAIVerdict() {
 		outcome = gateBucketOf(rec.AIVerdict)
 	}
-	forcedHuman := reportPending || equipmentForced || force
+	forcedHuman := equipmentForced || force
 	if forcedHuman {
 		outcome = sysmodel.AIGateReview
 	}
 	routeReason := rec.AIReason
 	switch {
-	case reportPending:
-		routeReason = strutil.AppendNote("存在上报待处理异常项", routeReason)
 	case equipmentForced:
+		// 台账判异常的 note 更具体（equipmentForced 蕴含存在异常项），优先于通用异常项原因
 		routeReason = equipmentNote
 	case force:
 		routeReason = "强制提交"
@@ -487,9 +472,13 @@ func (s *CheckinService) persistCheckin(task *insmodel.InspectionTask, req *dto.
 		if err := s.persistCheckinMaintenances(tx, rec, maintActions, inspectorID); err != nil {
 			return err
 		}
-		// 最终落库：点位正式提交成功，逐项识别过程草稿同事务清除（草稿仅"进行中"有效）
+		// 最终落库：点位正式提交成功，逐项识别过程草稿与凭证核验草稿同事务清除（草稿仅"进行中"有效）
 		if err := tx.Where("task_id = ? AND point_id = ?", currentTask.ID, req.PointID).
 			Delete(&insmodel.CheckinItemDraft{}).Error; err != nil {
+			return err
+		}
+		if err := tx.Where("task_id = ? AND point_id = ?", currentTask.ID, req.PointID).
+			Delete(&insmodel.CheckinPointCredDraft{}).Error; err != nil {
 			return err
 		}
 		if overwrite {
@@ -613,6 +602,8 @@ func (s *CheckinService) applySyncResult(rec *insmodel.CheckinRecord, items []in
 // 结论取值优先级：服务端 DB 过程草稿（识别时实时落库，防客户端篡改/丢失）> 客户端带回（兜底）；
 // 记录级 ai_verdict 逐项汇总（任一 abnormal/review → review，全 pass → pass，皆无 → 空）；
 // abnormal 是巡检成果（记录自动通过）；仅 review 项（AI 存疑，记录有效性未确认）翻 audit_status=pending。
+// 草稿按 draft_kind 分发：escape=逃生（没检成，显式 escaped，不采纳 AI 结论）；
+// ai=逐项识别（done 且有结论才采纳）；manual=手动选择（结果以提交载荷为准，无 AI 结论可采纳）。
 func (s *CheckinService) applyConfirmedAI(rec *insmodel.CheckinRecord, items []insmodel.CheckinRecordItem, req *dto.CheckinReq) {
 	byName := make(map[string]dto.CheckinItemReq, len(req.CheckItems))
 	for _, ci := range req.CheckItems {
@@ -620,39 +611,46 @@ func (s *CheckinService) applyConfirmedAI(rec *insmodel.CheckinRecord, items []i
 	}
 	draftByName := make(map[string]insmodel.CheckinItemDraft)
 	var drafts []insmodel.CheckinItemDraft
-	s.db.Where("task_id = ? AND point_id = ? AND ai_status = ?", rec.TaskID, rec.PointID, insmodel.ItemDraftDone).Find(&drafts)
+	s.db.Where("task_id = ? AND point_id = ?", rec.TaskID, rec.PointID).Find(&drafts)
 	for _, d := range drafts {
 		draftByName[d.ItemName] = d
 	}
 	passCnt, issueCnt, reviewCnt, abnormalCnt := 0, 0, 0, 0
 	for i := range items {
 		var v, r, rd string
-		if d, ok := draftByName[items[i].Name]; ok && d.AIVerdict != nil {
-			items[i].ExceptionType = d.ExceptionType
-			v = *d.AIVerdict
-			if d.AIReason != nil {
-				r = *d.AIReason
-			}
-			if d.AIReading != nil {
-				rd = *d.AIReading
-			}
-			// AI 异常 tag 以服务端草稿为准与客户端提交取并集（草稿已按模板 tags 过滤）
-			if len(d.AbnormalTags) > 0 {
-				seen := map[string]bool{}
-				merged := make(types.StringArray, 0, len(items[i].AbnormalTags)+len(d.AbnormalTags))
-				for _, t := range items[i].AbnormalTags {
-					if !seen[t] {
-						seen[t] = true
-						merged = append(merged, t)
+		if d, ok := draftByName[items[i].Name]; ok {
+			switch d.DraftKind {
+			case insmodel.DraftKindEscape:
+				items[i].Result = insmodel.ItemResultEscaped
+				items[i].ExceptionType = d.ExceptionType
+			case insmodel.DraftKindAI:
+				if d.AIStatus == insmodel.ItemDraftDone && d.AIVerdict != nil {
+					v = *d.AIVerdict
+					if d.AIReason != nil {
+						r = *d.AIReason
+					}
+					if d.AIReading != nil {
+						rd = *d.AIReading
+					}
+					// AI 异常 tag 以服务端草稿为准与客户端提交取并集（草稿已按模板 tags 过滤）
+					if len(d.AbnormalTags) > 0 {
+						seen := map[string]bool{}
+						merged := make(types.StringArray, 0, len(items[i].AbnormalTags)+len(d.AbnormalTags))
+						for _, t := range items[i].AbnormalTags {
+							if !seen[t] {
+								seen[t] = true
+								merged = append(merged, t)
+							}
+						}
+						for _, t := range d.AbnormalTags {
+							if !seen[t] {
+								seen[t] = true
+								merged = append(merged, t)
+							}
+						}
+						items[i].AbnormalTags = merged
 					}
 				}
-				for _, t := range d.AbnormalTags {
-					if !seen[t] {
-						seen[t] = true
-						merged = append(merged, t)
-					}
-				}
-				items[i].AbnormalTags = merged
 			}
 		} else if ci, ok := byName[items[i].Name]; ok {
 			v = strings.TrimSpace(ci.AIVerdict)
@@ -668,8 +666,8 @@ func (s *CheckinService) applyConfirmedAI(rec *insmodel.CheckinRecord, items []i
 		if rd = strutil.Truncate(strings.TrimSpace(rd), 64); rd != "" {
 			items[i].AIReading = &rd
 		}
-		if len(items[i].AbnormalTags) > 0 {
-			items[i].Pass = false // 草稿并入的异常 tag 同样强制该项异常（与 resolveCheckItems 口径一致）
+		if len(items[i].AbnormalTags) > 0 && items[i].Result == insmodel.ItemResultNormal {
+			items[i].Result = insmodel.ItemResultAbnormal // 草稿并入的异常 tag 同样强制该项异常（与 resolveCheckItems 口径一致；escaped 不翻）
 		}
 		switch v {
 		case ai.VerdictPass:
@@ -697,9 +695,9 @@ func (s *CheckinService) applyConfirmedAI(rec *insmodel.CheckinRecord, items []i
 	}
 }
 
-// validateConfirmedAI 防止客户端伪造 ai_confirmed 结论：每个拍照项必须存在服务端识别草稿，
-// 且草稿照片与本次提交照片逐项一致、结论为受支持的 AI 值。异常逃生草稿同样以服务端记录为准。
-// AI 基础设施故障逃生：草稿存在但 ai_status 为 pending/failed（识别超时/失败）的项允许无 AI 结论提交
+// validateConfirmedAI 防止客户端伪造 ai_confirmed 结论：每个拍照项必须存在服务端过程草稿（按 draft_kind 分发），
+// ai 草稿须结论为受支持的 AI 值，escape 草稿须与提交的 escaped 状态/类型一致；草稿照片与本次提交逐项一致。
+// AI 基础设施故障逃生：ai 草稿存在但识别超时/失败（ai_status pending/failed）的项允许无 AI 结论提交
 // （巡检员手动确认），返回 unjudged=true 由调用方把记录转人工复核——故障不阻断巡检，也不静默放行。
 func (s *CheckinService) validateConfirmedAI(req *dto.CheckinReq, items []insmodel.CheckinRecordItem) (bool, *errs.Error) {
 	var drafts []insmodel.CheckinItemDraft
@@ -720,14 +718,25 @@ func (s *CheckinService) validateConfirmedAI(req *dto.CheckinReq, items []insmod
 		if !ok {
 			return false, errs.ErrParam.WithMsg("检查项「" + item.Name + "」尚未完成 AI 识别")
 		}
-		if draft.AIStatus != insmodel.ItemDraftDone || draft.AIVerdict == nil {
-			// 识别超时/失败逃生：草稿在（证明拍过照、建了任务），该项按人工结果记
-			unjudged = true
-		} else {
-			verdict := *draft.AIVerdict
-			if verdict != ai.VerdictPass && verdict != ai.VerdictReview && verdict != ai.VerdictAbnormal {
-				return false, errs.ErrParam.WithMsg("检查项「" + item.Name + "」识别结论无效，请重新识别")
+		switch draft.DraftKind {
+		case insmodel.DraftKindEscape:
+			// 逃生草稿以服务端记录为准：提交必须同为 escaped 且逃生类型一致
+			if item.Result != insmodel.ItemResultEscaped || item.ExceptionType != draft.ExceptionType {
+				return false, errs.ErrParam.WithMsg("检查项「" + item.Name + "」与逃生上报状态不一致，请重新提交")
 			}
+		case insmodel.DraftKindAI:
+			if draft.AIStatus != insmodel.ItemDraftDone || draft.AIVerdict == nil {
+				// 识别超时/失败逃生：草稿在（证明拍过照、建了任务），该项按人工结果记
+				unjudged = true
+			} else {
+				verdict := *draft.AIVerdict
+				if verdict != ai.VerdictPass && verdict != ai.VerdictReview && verdict != ai.VerdictAbnormal {
+					return false, errs.ErrParam.WithMsg("检查项「" + item.Name + "」识别结论无效，请重新识别")
+				}
+			}
+		default:
+			// manual 草稿（手动档向导的拍照项）：无 AI 结论，按未识别处理（转人工复核）
+			unjudged = true
 		}
 		if len(draft.FileIDs) > 0 {
 			if len(draft.FileIDs) != len(item.Photos) {
@@ -796,13 +805,13 @@ func nfcMatch(reqID, pointID string) bool {
 
 // resolveCheckItems 检查项模板校验并生成逐项快照行（v18 起写 checkin_record_item）：
 // 点位检查项 = 其全部模板（point_template）检查项并集；点位必须已绑定模板（v21 起强制）；每项都必须有提交结果（按 name 匹配）；
-// 逐项照片硬约束（一项一图）：每项最多 1 张；不合格项（pass=false）与 photo_required=required 的项须恰好 1 张。
+// result 显式三态只校验不折算（escaped ⇔ exception_type 非空；带异常 tag 须 abnormal）；
+// 逐项照片硬约束（一项一图）：每项最多 1 张；abnormal 项与模板 required 项须恰好 1 张；
+// escaped 佐证分流：device_missing/label_missing 须 ≥1 张佐证，unable_to_capture/camera_broken 免佐证。
 // file_id 逐一上传确认（43104/43106）；照片唯一归属逐项，无记录级照片。
-// 例外：disposition=on_site_resolved（现场已处理）的不合格项免该项照片——处置照片即凭证，避免重复拍照/存储。
 // 台账有效期合成项客户端可仅上送 name+photos（≤3 张新标签照片，归属校验；pass 忽略仍以服务端判定为准，
 // 提交时按 name 对应服务端合成项触发维保核验）；标签抽查合成项触发即必交
 // （必拍 1 张 + 生产日期/维修日期，服务端按四规则与台账比对，客户端 pass 被忽略）。
-// 异常项可携带处置方式（disposition）与处置照片（resolution_file_ids，on_site_resolved 必传 ≥1 张）。
 // 返回逐项快照行 + upload_file 索引（EXIF 判定/AI 输入/水印共用）；
 // name/requirement/ai_hint/photo_required 打卡当时从模板项复制。
 func (s *CheckinService) resolveCheckItems(req *dto.CheckinReq, task *insmodel.InspectionTask, point *insmodel.InspectionPoint, ownerID string) ([]insmodel.CheckinRecordItem, map[string]sysmodel.UploadFile, *errs.Error) {
@@ -859,7 +868,7 @@ func (s *CheckinService) resolveCheckItems(req *dto.CheckinReq, task *insmodel.I
 			}
 			if strings.HasPrefix(it.Name, "设备维保·") {
 				// 台账有效期合成项：仅接收 name+photos（≤3 张新标签照片，归属校验同逐项照片）；
-				// pass/disposition 忽略——判定以服务端重算为准，处置方式由服务端在生成维保流水后回填
+				// result 忽略——判定以服务端重算为准
 				if len(it.Photos) > 3 {
 					return nil, nil, errs.ErrParam.WithMsg("检查项「" + it.Name + "」新标签照片最多 3 张")
 				}
@@ -888,31 +897,37 @@ func (s *CheckinService) resolveCheckItems(req *dto.CheckinReq, task *insmodel.I
 		if len(it.Photos) > 1 {
 			return nil, nil, errs.ErrParam.WithMsg("检查项「" + it.Name + "」照片超出上限：一项一图，最多 1 张")
 		}
-		// tag 校验：提交 ⊆ 模板 tag 快照（trim/去重）；非空即该项判异常（服务端强制，客户端 pass 被忽略）
+		// tag 校验：提交 ⊆ 模板 tag 快照（trim/去重）；带异常 tag 的项必须标 abnormal（只校验不折算）
 		abnTags, tagErr := resolveAbnormalTags(it.AbnormalTags, ti.Tags)
 		if tagErr != "" {
 			return nil, nil, errs.ErrParam.WithMsg("检查项「" + it.Name + "」" + tagErr)
 		}
-		pass := it.Pass && len(abnTags) == 0
-		// 处置方式（disposition）白名单/照片约束校验（纯函数规则见 checkItemDisposition）
-		disposition := strings.TrimSpace(it.Disposition)
-		if msg := checkItemDisposition(disposition, pass, len(it.ResolutionFileIDs)); msg != "" {
-			return nil, nil, errs.ErrParam.WithMsg("检查项「" + it.Name + "」" + msg)
-		}
-		// 「现场已处理」异常项：处置照片即凭证（避免重复拍照/存储），该项照片与必拍约束免除
-		onSiteResolved := disposition == insmodel.DispositionOnSiteResolved
-		if !isEqValidity && !onSiteResolved && !pass && len(it.Photos) == 0 {
-			return nil, nil, errs.ErrPhotoMissing.WithMsg("检查项「" + it.Name + "」不合格，须至少上传 1 张该项照片")
+		if len(abnTags) > 0 && it.Result != insmodel.ItemResultAbnormal {
+			return nil, nil, errs.ErrParam.WithMsg("检查项「" + it.Name + "」勾选了异常观察点，结果必须为异常")
 		}
 		exceptionType := strings.TrimSpace(it.ExceptionType)
 		if exceptionType != "" && (!validItemExceptionType(exceptionType) || exceptionType == "label_missing") {
 			// label_missing 仅标签抽查合成项可用（resolveSpotItem 单独处理）
 			return nil, nil, errs.ErrParam.WithMsg("检查项「" + it.Name + "」异常类型无效")
 		}
-		if exceptionType != "" && pass {
-			return nil, nil, errs.ErrParam.WithMsg("检查项「" + it.Name + "」已上报项目异常，结果必须为异常")
+		// result 一致性（只校验不折算）：三态必填（嵌套 binding 无 dive，这里显式拦），exception_type 非空 ⇔ escaped（逃生，没检成）
+		result := it.Result
+		if result != insmodel.ItemResultNormal && result != insmodel.ItemResultAbnormal && result != insmodel.ItemResultEscaped {
+			return nil, nil, errs.ErrParam.WithMsg("检查项「" + it.Name + "」结果无效（normal/abnormal/escaped）")
 		}
-		if !isEqValidity && !onSiteResolved && ti.PhotoRequired == types.PhotoReqRequired && len(it.Photos) == 0 {
+		if (result == insmodel.ItemResultEscaped) != (exceptionType != "") {
+			return nil, nil, errs.ErrParam.WithMsg("检查项「" + it.Name + "」result 与 exception_type 不一致（escaped 须带逃生类型，非 escaped 不得携带）")
+		}
+		// 照片约束：abnormal 项须 ≥1 张该项照片；escaped 佐证分流——device_missing/label_missing 须 ≥1 张，
+		// unable_to_capture/camera_broken 免佐证（无法拍摄还要照片是矛盾的）
+		if !isEqValidity && result == insmodel.ItemResultAbnormal && len(it.Photos) == 0 {
+			return nil, nil, errs.ErrPhotoMissing.WithMsg("检查项「" + it.Name + "」不合格，须至少上传 1 张该项照片")
+		}
+		if !isEqValidity && result == insmodel.ItemResultEscaped && !escapePhotoExempt(exceptionType) && len(it.Photos) == 0 {
+			return nil, nil, errs.ErrPhotoMissing.WithMsg("检查项「" + it.Name + "」无法检查，须至少上传 1 张佐证照片")
+		}
+		if !isEqValidity && ti.PhotoRequired == types.PhotoReqRequired && len(it.Photos) == 0 &&
+			!(result == insmodel.ItemResultEscaped && escapePhotoExempt(exceptionType)) {
 			return nil, nil, errs.ErrPhotoMissing.WithMsg("检查项「" + it.Name + "」要求必拍，须至少上传 1 张该项照片")
 		}
 		photoIDs := make([]string, 0, len(it.Photos))
@@ -928,28 +943,12 @@ func (s *CheckinService) resolveCheckItems(req *dto.CheckinReq, task *insmodel.I
 			files[f.ID] = f
 			photoIDs = append(photoIDs, f.ID)
 		}
-		// 处置照片归属校验（与逐项照片同口径）
-		resIDs := make([]string, 0, len(it.ResolutionFileIDs))
-		for _, ref := range it.ResolutionFileIDs {
-			if _, ok := files[ref]; ok {
-				resIDs = append(resIDs, ref)
-				continue
-			}
-			f, err := uploadfile.ByID(s.db, ref)
-			if err != nil || f.UserID != ownerID {
-				return nil, nil, errs.ErrPhotoNotUploaded
-			}
-			files[f.ID] = f
-			resIDs = append(resIDs, f.ID)
-		}
 		row := insmodel.CheckinRecordItem{
-			Name: it.Name, Pass: pass, Note: it.Note, ExceptionType: exceptionType,
+			Name: it.Name, Result: result, Note: it.Note, ExceptionType: exceptionType,
 			Photos: types.StringArray(photoIDs), PhotoRequired: ti.PhotoRequired,
 			Requirement: ti.Requirement, AIHint: ti.AIHint,
 			JudgeType: ti.JudgeType, JudgeConfig: ti.JudgeConfig, Sort: i,
 			Tags: ti.Tags, AbnormalTags: abnTags,
-			Disposition: disposition, ResolutionFileIDs: types.StringArray(resIDs),
-			ResolutionNote: strings.TrimSpace(it.ResolutionNote),
 		}
 		items = append(items, row)
 	}
@@ -1003,6 +1002,12 @@ func resolveAbnormalTags(submitted []string, tags types.StringArray) (types.Stri
 	return out, ""
 }
 
+// escapePhotoExempt 逃生类型免佐证照片（无法拍摄/相机故障还要照片是矛盾的）；
+// device_missing（现场佐证）与 label_missing（最后一张标签照）仍须照片。
+func escapePhotoExempt(exceptionType string) bool {
+	return exceptionType == "unable_to_capture" || exceptionType == "camera_broken"
+}
+
 // hasAbnormalTags 任一项存在异常 tag（记录级结果一致性：强制打卡结果为异常）。
 func hasAbnormalTags(items []insmodel.CheckinRecordItem) bool {
 	for _, it := range items {
@@ -1011,25 +1016,6 @@ func hasAbnormalTags(items []insmodel.CheckinRecordItem) bool {
 		}
 	}
 	return false
-}
-
-// checkItemDisposition 异常项处置方式校验（纯函数）：白名单 ”/on_site_resolved/maintenance_registered/
-// report_pending；仅异常（!pass）项可填非空值；on_site_resolved 必须带 ≥1 张处置照片。返回错误原因（空串=通过）。
-func checkItemDisposition(disposition string, pass bool, resolutionPhotos int) string {
-	switch disposition {
-	case "":
-		return ""
-	case insmodel.DispositionOnSiteResolved, insmodel.DispositionMaintenanceReg, insmodel.DispositionReportPending:
-	default:
-		return "处置方式无效"
-	}
-	if pass {
-		return "正常项无须填写处置方式"
-	}
-	if disposition == insmodel.DispositionOnSiteResolved && resolutionPhotos == 0 {
-		return "现场已处理须至少上传 1 张处置照片"
-	}
-	return ""
 }
 
 // appendEquipmentItems 逐台追加台账有效期合成快照项（无关联设备不追加）。
@@ -1053,7 +1039,7 @@ func (s *CheckinService) appendEquipmentItems(items *[]insmodel.CheckinRecordIte
 	for _, j := range judges {
 		pass, note := eqsvc.DeviceJudgeSubmit(j, !reportedSet[j.EquipmentID], now)
 		*items = append(*items, insmodel.CheckinRecordItem{
-			Name: eqsvc.SyntheticItemName(j), Pass: pass, Note: note,
+			Name: eqsvc.SyntheticItemName(j), Result: insmodel.ItemResultOf("", pass), Note: note,
 			Photos: types.StringArray{}, PhotoRequired: types.PhotoReqNone,
 			JudgeType: ai.JudgeEquipmentValidity,
 			// 设备快照：逐台去重与后续抽查比对的键
@@ -1111,12 +1097,13 @@ func (s *CheckinService) equipmentSynthetics(task *insmodel.InspectionTask, poin
 }
 
 // resolveSpotItem 处理抽查合成项提交：必拍 1 张（归属本人），服务端按四规则与台账比对（只核对不写台账），
-// 客户端 pass 被忽略；exception_type=label_missing（标签磨损逃生）→ 强制异常进审核（等经理处置）。
+// 客户端 pass 被忽略；exception_type=label_missing（标签磨损逃生）→ escaped（没检成，转人工审核等经理处理）。
 // 日期来源：该项 AI 读标签草稿的 ai_reading（M{生产年月}|W{维修年月}，无=读不到），巡检员不手填日期。
 func (s *CheckinService) resolveSpotItem(taskID, pointID string, it dto.CheckinItemReq, j eqsvc.DeviceJudge, ownerID string) (insmodel.CheckinRecordItem, sysmodel.UploadFile, *errs.Error) {
 	row := insmodel.CheckinRecordItem{
 		Name: it.Name, PhotoRequired: types.PhotoReqRequired,
 		JudgeType: ai.JudgeEquipmentDateSpot,
+		Result:    insmodel.ItemResultNormal,
 	}
 	var file sysmodel.UploadFile
 	if len(it.Photos) != 1 {
@@ -1133,12 +1120,12 @@ func (s *CheckinService) resolveSpotItem(taskID, pointID string, it dto.CheckinI
 		return row, file, errs.ErrNotFound.WithMsg("抽查设备不存在")
 	}
 	rule := eqsvc.NewEquipmentService(s.db).TypeRules()[e.Type]
-	// 现场侧日期：服务端草稿的 AI 读数（防手填造假）；无草稿/未读出 → 按无法辨认转人工
+	// 现场侧日期：服务端 AI 草稿（draft_kind=ai）的读数（防手填造假）；无草稿/未读出 → 按无法辨认转人工
 	labelMissing := strings.TrimSpace(it.ExceptionType) == "label_missing"
 	var reading string
 	var draft insmodel.CheckinItemDraft
-	if err := s.db.Where("task_id = ? AND point_id = ? AND item_name = ? AND ai_status = ?",
-		taskID, pointID, it.Name, insmodel.ItemDraftDone).First(&draft).Error; err == nil && draft.AIReading != nil {
+	if err := s.db.Where("task_id = ? AND point_id = ? AND item_name = ? AND draft_kind = ? AND ai_status = ?",
+		taskID, pointID, it.Name, insmodel.DraftKindAI, insmodel.ItemDraftDone).First(&draft).Error; err == nil && draft.AIReading != nil {
 		reading = *draft.AIReading
 	}
 	labelMfg, labelMaint := parseSpotReading(reading)
@@ -1154,11 +1141,17 @@ func (s *CheckinService) resolveSpotItem(taskID, pointID string, it dto.CheckinI
 		CycleMonths:       rule.CycleMonths,
 		Now:               time.Now(),
 	})
-	row.Pass = res.Pass
-	if unread {
-		row.Pass = false
+	// result 三态显式赋值：label_missing=escaped（标签磨损逃生，没检成）；读不出/比对不符=abnormal；其余 normal
+	switch {
+	case labelMissing:
+		row.Result = insmodel.ItemResultEscaped
+		row.ExceptionType = "label_missing"
+		row.Note = strings.Join(res.Mismatches, "；")
+	case unread:
+		row.Result = insmodel.ItemResultAbnormal
 		row.Note = "AI 未能读出标签日期，转人工核对"
-	} else if !res.Pass {
+	case !res.Pass:
+		row.Result = insmodel.ItemResultAbnormal
 		row.Note = strings.Join(res.Mismatches, "；")
 	}
 	row.Photos = types.StringArray{file.ID}
@@ -1193,6 +1186,51 @@ func parseSpotReading(reading string) (mfg, maint *time.Time) {
 		}
 	}
 	return mfg, maint
+}
+
+// applyShootMeta 照片时空信息带出与可疑判定（《打卡向导交互重构设计方案》§14.3：标记可疑不拒收）：
+// 逐项快照从过程草稿带出 shoot_lng/lat/at（逃生佐证草稿同口径，按 item_name 匹配）；
+// 开围栏点位照片坐标超围栏半径、或拍照时间早于该点位凭证核验时间的项打 suspicious（多原因「；」连接）。
+func (s *CheckinService) applyShootMeta(point *insmodel.InspectionPoint, taskID, pointID, inspectorID string, items []insmodel.CheckinRecordItem) {
+	var drafts []insmodel.CheckinItemDraft
+	if err := s.db.Where("task_id = ? AND point_id = ?", taskID, pointID).Find(&drafts).Error; err != nil || len(drafts) == 0 {
+		return
+	}
+	draftByName := make(map[string]insmodel.CheckinItemDraft, len(drafts))
+	for _, d := range drafts {
+		draftByName[d.ItemName] = d
+	}
+	var verifiedAt *time.Time
+	var cred insmodel.CheckinPointCredDraft
+	if err := s.db.Where("task_id = ? AND point_id = ? AND inspector_id = ?", taskID, pointID, inspectorID).
+		First(&cred).Error; err == nil {
+		verifiedAt = &cred.VerifiedAt
+	}
+	pointGeoOK := point.Longitude != 0 || point.Latitude != 0
+	for i := range items {
+		d, ok := draftByName[items[i].Name]
+		if !ok {
+			continue
+		}
+		items[i].ShootLng = d.ShootLng
+		items[i].ShootLat = d.ShootLat
+		items[i].ShootAt = d.ShootAt
+		var reasons []string
+		// 围栏外拍摄：点位开围栏且照片带坐标（点位未录坐标时距离无意义，跳过）
+		if point.RequireFence && pointGeoOK && d.ShootLng != nil && d.ShootLat != nil {
+			if dist := geo.Haversine(*d.ShootLng, *d.ShootLat, point.Longitude, point.Latitude); dist > float64(point.FenceRadius) {
+				reasons = append(reasons, fmt.Sprintf("拍照位置超出围栏（%dm）", int(dist)))
+			}
+		}
+		// 先拍后签到：拍照时间早于凭证核验时间
+		if verifiedAt != nil && d.ShootAt != nil && d.ShootAt.Before(*verifiedAt) {
+			reasons = append(reasons, "拍照时间早于凭证核验")
+		}
+		if len(reasons) > 0 {
+			items[i].Suspicious = true
+			items[i].SuspiciousReason = strutil.Truncate(strings.Join(reasons, "；"), 255)
+		}
+	}
 }
 
 // 不含客户端时间偏差：手机时钟不准的误报多，且打卡时间以服务端为准、改客户端时间无伪造收益；
@@ -1314,11 +1352,7 @@ func (s *CheckinService) itemPhotoRefs(items []insmodel.CheckinRecordItem) []ai.
 		if it.JudgeType == ai.JudgeManual {
 			continue
 		}
-		// 现场已处理异常项无该项照片时：处置照片即凭证，交给 AI 按处理后状态判定
 		photos := it.Photos
-		if len(photos) == 0 && it.Disposition == insmodel.DispositionOnSiteResolved {
-			photos = it.ResolutionFileIDs
-		}
 		// 无逐项照片的项：仅当带判定元数据（判定类型/标准要求/识别要点）时才透出，
 		// 由 AI 按文字要求判定（无图可核对时模型应判存疑）
 		if len(photos) == 0 && !hasJudgeMeta(it) {
@@ -1347,14 +1381,6 @@ func hasJudgeMeta(it insmodel.CheckinRecordItem) bool {
 		return true
 	}
 	return strutil.StrVal(it.Requirement) != "" || strutil.StrVal(it.AIHint) != ""
-}
-
-// hasReportPendingItem 记录是否存在「上报待处理」异常项（存在则禁止 AI 自动放行，必转人工审核）。
-func (s *CheckinService) hasReportPendingItem(recID string) bool {
-	var cnt int64
-	s.db.Model(&insmodel.CheckinRecordItem{}).
-		Where("record_id = ? AND disposition = ?", recID, insmodel.DispositionReportPending).Count(&cnt)
-	return cnt > 0
 }
 
 // resultView 打卡响应视图。syncRes 为同步 AI 判定结果（非空时附带质量与逐项结论摘要，App 无需轮询）。

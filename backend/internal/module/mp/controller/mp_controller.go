@@ -214,6 +214,12 @@ func (ctl *MPController) ItemDrafts(c *gin.Context) {
 	write(c, data, be)
 }
 
+// DeleteItemDraft DELETE /checkin/item-drafts?task_id&point_id&item_name（撤销某项过程草稿：逃生选错回到待拍）
+func (ctl *MPController) DeleteItemDraft(c *gin.Context) {
+	data, be := ctl.checkin.DeleteItemDraft(c.Request.Context(), uid(c), c.Query("task_id"), c.Query("point_id"), c.Query("item_name"))
+	write(c, data, be)
+}
+
 // SaveManualDraft POST /checkin/item-drafts/manual（手动确认项选择落云端草稿）
 func (ctl *MPController) SaveManualDraft(c *gin.Context) {
 	var req dto.ManualItemDraftReq
@@ -233,6 +239,17 @@ func (ctl *MPController) SavePhotoItemAbnormalDraft(c *gin.Context) {
 		return
 	}
 	data, be := ctl.checkin.SavePhotoItemAbnormalDraft(c.Request.Context(), uid(c), &req)
+	write(c, data, be)
+}
+
+// SavePointCredDraft POST /checkin/point-cred（点位凭证核验通过落草稿，断点恢复用）
+func (ctl *MPController) SavePointCredDraft(c *gin.Context) {
+	var req dto.PointCredDraftReq
+	if be := bind.JSON(c, &req); be != nil {
+		response.Fail(c, be)
+		return
+	}
+	data, be := ctl.checkin.SavePointCredDraft(c.Request.Context(), uid(c), &req)
 	write(c, data, be)
 }
 

@@ -4,7 +4,7 @@ package service
 // 流程语义（approval_flow.steps，kind='ai' 环节）：
 //   - 空流程 = 默认通过；AI 环节按判定结果三分支路由（无异常/有异常/存疑），
 //     每个去向可配 finish（直接生效）/next（下一环节）/reject（直接打回）/goto:N（跳到第 N 环节）；
-//   - 强制人工（上报待处理/台账判异常/强制提交/AI 不可用）按「存疑」桶路由；
+//   - 强制人工（台账判异常/强制提交/AI 不可用）按「存疑」桶路由；异常项是巡检产出不是审核理由；
 //   - 走链逻辑 = communitysvc.WalkFlow（与维保链共用）；落定走条件更新
 //     （audit_status=pending AND audit_step=当前环节），人工已介入则闸门静默退出。
 
@@ -65,10 +65,7 @@ func (s *CheckinService) runAIGate(recID string) {
 	outcome := ""
 	forced := false
 	verdict := rec.AIVerdict
-	if s.hasReportPendingItem(recID) {
-		outcome = sysmodel.AIGateReview // 上报待处理强制人工
-		forced = true
-	} else if verdict != "" {
+	if rec.HasAIVerdict() {
 		outcome = gateBucketOf(verdict)
 	} else {
 		// 无结论：AI 可用则现判（异步上下文，不阻塞打卡请求），不可用按存疑转人工

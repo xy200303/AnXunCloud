@@ -195,7 +195,7 @@ func PendingMaintenanceSet(db *gorm.DB, equipmentIDs []string) map[string]bool {
 }
 
 // OverdueReportedSet 批量查「已产过逾期异常快照」的设备（逐台去重键控：
-// checkin_record_item 合成项 judge_config->>'equipment_id' 命中且 pass=false，记录未被覆盖）。
+// checkin_record_item 合成项 judge_config->>'equipment_id' 命中且 result=abnormal，记录未被覆盖）。
 func OverdueReportedSet(db *gorm.DB, equipmentIDs []string) map[string]bool {
 	out := map[string]bool{}
 	if len(equipmentIDs) == 0 {
@@ -205,7 +205,7 @@ func OverdueReportedSet(db *gorm.DB, equipmentIDs []string) map[string]bool {
 	db.Model(&insmodel.CheckinRecordItem{}).
 		Where("judge_type = ?", "equipment_validity").
 		Where("judge_config->>'equipment_id' IN ?", equipmentIDs).
-		Where("pass = ?", false).
+		Where("result = ?", insmodel.ItemResultAbnormal).
 		Where("record_id IN (SELECT id FROM checkin_record WHERE superseded_by IS NULL)").
 		Distinct().Pluck("judge_config->>'equipment_id'", &ids)
 	for _, id := range ids {

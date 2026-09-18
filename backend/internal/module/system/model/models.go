@@ -285,7 +285,7 @@ const (
 const (
 	AIGatePass     = "pass"     // 无异常
 	AIGateAbnormal = "abnormal" // 有异常（巡检成果）
-	AIGateReview   = "review"   // 存疑/识别失败/AI 不可用/强制人工（如上报待处理）
+	AIGateReview   = "review"   // 存疑/识别失败/AI 不可用/强制人工（如存在异常项）
 )
 
 // DutySlot 槽位定义（系统固定枚举，名称用于前端展示）。

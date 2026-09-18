@@ -13,7 +13,7 @@ func TestLedgerMonthlyRendersDynamicTablesAndContinuationPages(t *testing.T) {
 	}
 	ledger := make([]LedgerRow, 7)
 	for index := range ledger {
-		ledger[index] = LedgerRow{Category: "灭火器", Location: fmt.Sprintf("%d栋大厅", index+1), Problem: "压力表指针不在绿区", FixText: "现场已处理"}
+		ledger[index] = LedgerRow{Category: "灭火器", Location: fmt.Sprintf("%d栋大厅", index+1), Problem: "压力表指针不在绿区", FixText: "复核通过"}
 	}
 	data := MonthlyReportData{
 		CommunityName: "测试小区",

@@ -744,7 +744,7 @@ func (d *demoSeeder) seedFireMonthly(tid, cid string, tplIDs []string, bldIDs, a
 	}
 
 	// 逐项结果快照（消火栓箱+灭火器各 1 个整体项，观察点走 tags；有素材的项挂共享照片 key；
-	// 异常记录：异常 tag 落入对应整体项 abnormal_tags + pass=false + note）
+	// 异常记录：异常 tag 落入对应整体项 abnormal_tags + result=abnormal + note）
 	var items []insmodel.CheckinRecordItem
 	abCnt = 0
 	for i := range recs {
@@ -758,7 +758,7 @@ func (d *demoSeeder) seedFireMonthly(tid, cid string, tplIDs []string, bldIDs, a
 			row := insmodel.CheckinRecordItem{
 				RecordID: rec.ID, Name: it.name, Requirement: strptr(it.requirement),
 				JudgeType: "general", PhotoRequired: it.photoReq,
-				Pass: true, Sort: j + 1, CreatedAt: rec.CheckinTime,
+				Result: insmodel.ItemResultNormal, Sort: j + 1, CreatedAt: rec.CheckinTime,
 				Tags: types.StringArray(it.tags),
 			}
 			if it.aiHint != "" {
@@ -768,7 +768,7 @@ func (d *demoSeeder) seedFireMonthly(tid, cid string, tplIDs []string, bldIDs, a
 				row.Photos = types.StringArray{key}
 			}
 			if ab != nil && containsTag(it.tags, ab.item) {
-				row.Pass = false
+				row.Result = insmodel.ItemResultAbnormal
 				row.Note = ab.note
 				row.AbnormalTags = types.StringArray{ab.item}
 			}
@@ -1089,7 +1089,7 @@ func (d *demoSeeder) seedMonthWorkload(tid, cid string, o monthWorkload) (monthS
 		for j, it := range tpl.items {
 			row := insmodel.CheckinRecordItem{
 				RecordID: rec.ID, Name: it.name, Requirement: strptr(it.requirement),
-				PhotoRequired: it.photoReq, Pass: true, Sort: j + 1, CreatedAt: rec.CheckinTime,
+				PhotoRequired: it.photoReq, Result: insmodel.ItemResultNormal, Sort: j + 1, CreatedAt: rec.CheckinTime,
 			}
 			if it.photoReq == types.PhotoReqRequired {
 				key := d.photo(tid, rec.InspectorID, it.name)
@@ -1098,7 +1098,7 @@ func (d *demoSeeder) seedMonthWorkload(tid, cid string, o monthWorkload) (monthS
 				}
 			}
 			if rec.Result == insmodel.ResultAbnormal && j == 0 {
-				row.Pass = false
+				row.Result = insmodel.ItemResultAbnormal
 				row.Note = "现场发现异常"
 			}
 			items = append(items, row)

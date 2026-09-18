@@ -451,7 +451,7 @@ func briefItemViews(db *gorm.DB, recordID string) []gin.H {
 	out := make([]gin.H, 0, len(items))
 	for _, it := range items {
 		out = append(out, gin.H{
-			"name": it.Name, "pass": it.Pass, "note": it.Note,
+			"name": it.Name, "result": it.Result, "note": it.Note,
 			"photos": it.Photos, "requirement": it.Requirement, "exception_type": it.ExceptionType,
 		})
 	}
@@ -739,14 +739,15 @@ func (s *TaskService) CheckinDetail(c *gin.Context, id string) (gin.H, *errs.Err
 	checkItems := make([]gin.H, 0, len(recItems))
 	for _, ci := range recItems {
 		checkItems = append(checkItems, gin.H{
-			"name": ci.Name, "pass": ci.Pass, "note": ci.Note,
+			"name": ci.Name, "result": ci.Result, "note": ci.Note,
 			"photos": ci.Photos, "photo_urls": ItemPhotoURLs(s.db, ci.Photos),
 			"requirement": ci.Requirement, "ai_hint": ci.AIHint,
 			"judge_type": ci.JudgeType, "judge_config": ci.JudgeConfig,
 			"tags": ci.Tags, "abnormal_tags": ci.AbnormalTags,
 			"ai_verdict": ci.AIVerdict, "ai_reason": ci.AIReason, "ai_reading": ci.AIReading, "exception_type": ci.ExceptionType,
-			"disposition": ci.Disposition, "resolution_note": ci.ResolutionNote,
-			"resolution_photo_urls": ItemPhotoURLs(s.db, ci.ResolutionFileIDs),
+			// 照片时空信息与可疑标记（§14.3 防作弊：标记不拒收，审核页提示）
+			"shoot_lng": ci.ShootLng, "shoot_lat": ci.ShootLat, "shoot_at": timefmt.TP(ci.ShootAt),
+			"suspicious": ci.Suspicious, "suspicious_reason": ci.SuspiciousReason,
 		})
 	}
 	return gin.H{

@@ -531,6 +531,32 @@ type CheckinRecord struct {
 
 func (CheckinRecord) TableName() string { return "checkin_record" }
 
+// HasAIVerdict 记录是否已有 AI 结论。
+// ai_verdict 空串语义 = 未经 AI 识别/识别未完成（AI 未启用、离线补传、闸门未接力等）；
+// 非空取值 pass/review/abnormal/error。判别集中此处，禁止散落 `!= ""` 比较。
+func (r *CheckinRecord) HasAIVerdict() bool { return r.AIVerdict != "" }
+
+// 逐项检查结论三态（CheckinRecordItem.Result，result 列）。
+// exception_type 列保留，存逃生具体类型（device_missing/unable_to_capture/label_missing），仅 escaped 态有意义。
+const (
+	ItemResultNormal   = "normal"   // 正常（检了，没问题）
+	ItemResultAbnormal = "abnormal" // 异常（检了，有问题）
+	ItemResultEscaped  = "escaped"  // 无法检查（逃生：设备不存在/无法拍摄/标签磨损，根本没检成）
+)
+
+// ItemResultOf 提交口径（pass+exception_type）映射三态：exception_type 非空=escaped（逃生，没检成）；
+// 否则 pass=false=abnormal；其余 normal。pass 入参须已并入异常 tag 口径（带异常 tag 按 false 传）。
+func ItemResultOf(exceptionType string, pass bool) string {
+	switch {
+	case exceptionType != "":
+		return ItemResultEscaped
+	case !pass:
+		return ItemResultAbnormal
+	default:
+		return ItemResultNormal
+	}
+}
+
 // CheckinRecordItem 打卡逐项结果快照（v18 起独立表）。
 // 快照语义：name/requirement/photo_required 在打卡当时从模板项复制，历史记录内容绝不依赖 join 模板表；
 // record_id 不加 FK（checkin_record 为按月分区表，
@@ -549,8 +575,9 @@ type CheckinRecordItem struct {
 	Tags          types.StringArray `gorm:"type:jsonb;default:'[]'" json:"tags"`
 	AbnormalTags  types.StringArray `gorm:"type:jsonb;default:'[]'" json:"abnormal_tags"`
 	PhotoRequired string            `gorm:"size:16" json:"photo_required"` // none/optional/required
-	Pass          bool              `json:"pass"`
-	Note          string            `gorm:"size:512" json:"note"`
+	// Result 逐项结论三态（normal/abnormal/escaped，见 ItemResult* 常量）
+	Result string `gorm:"size:16;default:normal" json:"result"`
+	Note   string `gorm:"size:512" json:"note"`
 	// Photos 该项照片 file_id 数组（JSONB，不再拆表）
 	Photos types.StringArray `gorm:"type:jsonb" json:"photos"`
 	// AIVerdict/AIReason 逐项大模型结论（模型未返回逐项结论时为空）
@@ -558,31 +585,36 @@ type CheckinRecordItem struct {
 	AIReason  *string `gorm:"size:512" json:"ai_reason"`
 	// AIReading AI 读取的表计读数文本（metric 类检查项；NULL=无读数）
 	AIReading     *string `gorm:"size:64" json:"ai_reading"`
-	ExceptionType string  `gorm:"size:24;default:''" json:"exception_type"` // device_missing / unable_to_capture
-	// Disposition 异常项处置方式（仅 !pass 项可填）：''=未处置 / on_site_resolved=现场已处理 /
-	// maintenance_registered=登记维保（有效期项由服务端在生成维保流水后回填）/ report_pending=上报待处理（强制转人工审核）
-	Disposition string `gorm:"size:24;default:''" json:"disposition"`
-	// ResolutionFileIDs 处置照片 file_id 数组（on_site_resolved 必传 ≥1 张，归属校验同逐项照片）
-	ResolutionFileIDs types.StringArray `gorm:"type:jsonb" json:"resolution_file_ids"`
-	ResolutionNote    string            `gorm:"size:512" json:"resolution_note"`
-	Sort              int               `json:"sort"`
-	CreatedAt         time.Time         `json:"created_at"`
+	ExceptionType string  `gorm:"size:24;default:''" json:"exception_type"` // 逃生具体类型（仅 escaped 态有意义）：device_missing/unable_to_capture/label_missing
+	// ShootLng/ShootLat/ShootAt 照片拍摄时空信息（提交时从逐项过程草稿带出，可空=未上报）
+	ShootLng *float64   `json:"shoot_lng"`
+	ShootLat *float64   `json:"shoot_lat"`
+	ShootAt  *time.Time `json:"shoot_at"`
+	// Suspicious/SuspiciousReason 时空一致性可疑标记（§14.3 防作弊：标记不拒收；多原因「；」连接）
+	Suspicious       bool      `json:"suspicious"`
+	SuspiciousReason string    `gorm:"size:255" json:"suspicious_reason"`
+	Sort             int       `json:"sort"`
+	CreatedAt        time.Time `json:"created_at"`
 }
-
-// 异常项处置方式（CheckinRecordItem.Disposition）
-const (
-	DispositionOnSiteResolved = "on_site_resolved"       // 现场已处理（须附处置照片）
-	DispositionMaintenanceReg = "maintenance_registered" // 登记维保（服务端生成维保流水后回填）
-	DispositionReportPending  = "report_pending"         // 上报待处理（强制转人工审核并通知审核人）
-)
 
 func (CheckinRecordItem) TableName() string { return "checkin_record_item" }
 
-// 逐项识别草稿状态
+// Escaped 是否逃生态（无法检查，根本没检成）。
+func (i CheckinRecordItem) Escaped() bool { return i.Result == ItemResultEscaped }
+
+// 逐项识别草稿状态（仅 draft_kind=ai 行的 AI 链路语义；manual/escape 行无 AI 流程）
 const (
 	ItemDraftPending = "pending"
 	ItemDraftDone    = "done"
 	ItemDraftFailed  = "failed"
+)
+
+// 逐项过程草稿分类（CheckinItemDraft.DraftKind，draft_kind 列）：
+// 消费端一律按 draft_kind 分发，禁止 ai_verdict/manual_pass/exception_type 组合推导。
+const (
+	DraftKindAI     = "ai"     // 逐项 AI 识别（拍照项走识别队列）
+	DraftKindManual = "manual" // 手动确认项选择（manual_pass/manual_note）
+	DraftKindEscape = "escape" // 拍照项逃生佐证（exception_type 存具体类型）
 )
 
 // CheckinItemDraft 逐项 AI 识别过程草稿：拍完一项、识别完即落库（仅过程记录）。
@@ -596,7 +628,8 @@ type CheckinItemDraft struct {
 	InspectorID string            `gorm:"type:uuid" json:"inspector_id"`
 	CommunityID string            `gorm:"type:uuid" json:"community_id"`
 	ItemName    string            `gorm:"size:128" json:"item_name"`
-	JobID       string            `gorm:"size:64" json:"job_id"` // 识别队列 job（pending 恢复轮询用）
+	DraftKind   string            `gorm:"size:16;default:ai" json:"draft_kind"` // ai/manual/escape（见 DraftKind* 常量）
+	JobID       string            `gorm:"size:64" json:"job_id"`                // 识别队列 job（pending 恢复轮询用）
 	FileIDs     types.StringArray `gorm:"column:file_ids;type:jsonb" json:"file_ids"`
 	AIStatus    string            `gorm:"size:16" json:"ai_status"`
 	AIVerdict   *string           `gorm:"size:16" json:"ai_verdict"`
@@ -608,10 +641,36 @@ type CheckinItemDraft struct {
 	QualityPass   *bool             `json:"quality_pass"`
 	QualityIssue  string            `gorm:"size:255" json:"quality_issue"`
 	// ManualPass/ManualNote 手动确认项（感官项）的选择结果；NULL=非手动项/未选择
-	ManualPass *bool     `json:"manual_pass"`
-	ManualNote string    `gorm:"size:512" json:"manual_note"`
-	CreatedAt  time.Time `json:"created_at"`
-	UpdatedAt  time.Time `json:"updated_at"`
+	ManualPass *bool  `json:"manual_pass"`
+	ManualNote string `gorm:"size:512" json:"manual_note"`
+	// ShootLng/ShootLat/ShootAt 照片拍摄时空信息（拍照时上报的定位/时刻，可空；正式提交时带入 checkin_record_item）
+	ShootLng  *float64   `json:"shoot_lng"`
+	ShootLat  *float64   `json:"shoot_lat"`
+	ShootAt   *time.Time `json:"shoot_at"`
+	CreatedAt time.Time  `json:"created_at"`
+	UpdatedAt time.Time  `json:"updated_at"`
 }
 
 func (CheckinItemDraft) TableName() string { return "checkin_item_draft" }
+
+// CheckinPointCredDraft 点位凭证核验草稿（《打卡向导交互重构设计方案》§14.2）：
+// 扫码/NFC/围栏核验通过即落库，退出向导重进直接恢复，不再要求重新签到；
+// 点位正式提交成功（checkin_record 落库）后与逐项草稿同事务删除。
+type CheckinPointCredDraft struct {
+	types.UUIDModel
+	TenantID    *string `gorm:"type:uuid" json:"tenant_id"`
+	CommunityID string  `gorm:"type:uuid" json:"community_id"`
+	TaskID      string  `gorm:"type:uuid" json:"task_id"`
+	PointID     string  `gorm:"type:uuid" json:"point_id"`
+	InspectorID string  `gorm:"type:uuid" json:"inspector_id"`
+	// CheckinType 凭证方式（qrcode/nfc/fence）；CredNo 扫码码值/NFC 卡号（fence 为空）
+	CheckinType string `gorm:"size:16" json:"checkin_type"`
+	CredNo      string `gorm:"size:128" json:"cred_no"`
+	// FenceDistance 围栏核验时距点位距离（米；非围栏凭证为 NULL）
+	FenceDistance *float64  `json:"fence_distance"`
+	VerifiedAt    time.Time `json:"verified_at"`
+	CreatedAt     time.Time `json:"created_at"`
+	UpdatedAt     time.Time `json:"updated_at"`
+}
+
+func (CheckinPointCredDraft) TableName() string { return "checkin_point_cred_draft" }

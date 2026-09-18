@@ -200,43 +200,6 @@ export default {
   padding: 24rpx;
 }
 
-.skeleton {
-  padding-top: 8rpx;
-}
-
-.sk-block {
-  height: 192rpx;
-  border-radius: 24rpx;
-  margin-bottom: 24rpx;
-  opacity: 0.4;
-}
-
-.sk-short {
-  height: 96rpx;
-}
-
-.empty {
-  align-items: center;
-  padding-top: 160rpx;
-}
-
-.empty-title {
-  font-size: 34rpx;
-  margin-bottom: 16rpx;
-}
-
-.empty-sub {
-  font-size: 26rpx;
-  text-align: center;
-  padding-left: 48rpx;
-  padding-right: 48rpx;
-}
-
-.empty-retry {
-  font-size: 30rpx;
-  padding: 16rpx 32rpx;
-}
-
 .card {
   border-radius: 24rpx; /* Radius.card */
   padding: 32rpx;

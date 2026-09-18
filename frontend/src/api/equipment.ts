@@ -39,17 +39,6 @@ export interface EquipmentItem {
   created_at: string
 }
 
-export interface EquipmentDetail extends EquipmentItem {
-  updated_at: string
-  last_notified_at: string
-  type_rule?: {
-    first_months: number
-    cycle_months: number
-    remind: boolean
-    scrap_months: number
-  }
-}
-
 export interface EquipmentQuery {
   page?: number
   page_size?: number
@@ -87,10 +76,6 @@ export interface EquipmentSaveResult {
 
 export function listEquipment(params: EquipmentQuery) {
   return request<PageResult<EquipmentItem>>({ url: '/equipment/list', method: 'get', params })
-}
-
-export function getEquipment(id: string) {
-  return request<EquipmentDetail>({ url: `/equipment/${id}`, method: 'get' })
 }
 
 export function createEquipment(data: EquipmentForm) {

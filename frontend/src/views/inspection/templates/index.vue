@@ -41,13 +41,6 @@
         <el-table-column label="适用类型" width="140" align="center">
           <template #default="{ row }">{{ row.point_type ? pointTypeLabel(row.point_type) : '通用' }}</template>
         </el-table-column>
-        <el-table-column label="拍照模式" width="100" align="center">
-          <template #default="{ row }">
-            <el-tag :type="row.photo_mode === 'per_item' ? 'info' : 'success'" size="small">
-              {{ row.photo_mode === 'per_item' ? '逐项拍照' : '整组 1 张' }}
-            </el-tag>
-          </template>
-        </el-table-column>
         <el-table-column label="检查项数" width="110" align="right">
           <template #default="{ row }">
             <span :class="{ 'item-count-empty': !(row.items?.length) }">{{ row.items?.length || 0 }}</span>
@@ -99,13 +92,6 @@
             <el-option label="通用（所有类型）" value="" />
             <el-option v-for="d in pointTypeOptions" :key="d.value" :label="d.label" :value="d.value" />
           </el-select>
-        </el-form-item>
-        <el-form-item label="拍照模式">
-          <el-radio-group v-model="form.photo_mode">
-            <el-radio value="group">整组 1 张</el-radio>
-            <el-radio value="per_item">逐项拍照</el-radio>
-          </el-radio-group>
-          <div class="text-secondary">整组 1 张：点位拍一张整体照，AI 一次识别全部检查项（推荐）；逐项拍照：每个检查项单独拍照（旧模式）</div>
         </el-form-item>
         <el-form-item label="排序">
           <el-input-number v-model="form.sort" :min="0" :max="9999" controls-position="right" />
@@ -184,7 +170,6 @@ const form = reactive({
   id: '',
   name: '',
   point_type: '',
-  photo_mode: 'group' as 'group' | 'per_item',
   sort: 0,
   status: 1,
   remark: ''
@@ -201,14 +186,13 @@ function openForm(row?: TemplateItem) {
       id: row.id,
       name: row.name,
       point_type: row.point_type || '',
-      photo_mode: row.photo_mode || 'group',
       sort: row.sort,
       status: row.status,
       remark: row.remark || ''
     })
   } else {
     Object.assign(form, {
-      id: '', name: '', point_type: '', photo_mode: 'group', sort: 0, status: 1, remark: ''
+      id: '', name: '', point_type: '', sort: 0, status: 1, remark: ''
     })
   }
   formVisible.value = true
@@ -219,7 +203,6 @@ async function handleSubmit() {
   const payload = {
     name: form.name.trim(),
     point_type: form.point_type,
-    photo_mode: form.photo_mode,
     sort: form.sort,
     status: form.status,
     remark: form.remark

@@ -115,6 +115,17 @@
         <el-form-item v-if="form.judge_type === 'state' || form.judge_type === 'indicator'" label="期望状态">
           <el-input v-model="form.cfg_expected" placeholder="如：阀门处于开启状态 / 指示灯为绿色常亮" maxlength="64" />
         </el-form-item>
+        <el-form-item label="拍照引导语">
+          <el-input
+            v-model="form.guide"
+            type="textarea"
+            :rows="2"
+            placeholder="写给巡检员看的拍摄动作指引，如：拍消火栓箱整体照片，打开箱门让水带枪头都在画面里"
+            maxlength="200"
+            show-word-limit
+          />
+          <div class="text-secondary guide-hint">巡检员打卡时优先显示此引导语；留空则显示“拍「项名」照片”</div>
+        </el-form-item>
         <!-- 观察点标签：细分观察点随项保存（服务端 trim/去重/限 20 个每个≤30 字） -->
         <el-form-item label="观察点标签">
           <div class="tags-editor">
@@ -260,6 +271,7 @@ const form = reactive({
   cfg_max: null as number | null,
   cfg_expected: '',
   tags: [] as string[],
+  guide: '',
   // null 表示缺省：新增追加到末尾
   sort: null as number | null
 })
@@ -327,11 +339,12 @@ function openForm(row?: TemplateItemRow) {
       photo_required: row.photo_required || 'none',
       judge_type: row.judge_type || 'general',
       tags: [...(row.tags || [])],
+      guide: row.guide || '',
       sort: row.sort
     })
     fillJudgeConfig(row.judge_config ?? null)
   } else {
-    Object.assign(form, { id: '', name: '', requirement: '', required: true, photo_required: 'none', judge_type: 'general', tags: [], sort: null })
+    Object.assign(form, { id: '', name: '', requirement: '', required: true, photo_required: 'none', judge_type: 'general', tags: [], guide: '', sort: null })
     fillJudgeConfig(null)
   }
   formVisible.value = true
@@ -347,6 +360,7 @@ async function handleSubmit() {
     judge_type: form.judge_type,
     judge_config: buildJudgeConfig(),
     tags: form.tags,
+    guide: form.guide.trim(),
     ...(form.sort === null ? {} : { sort: form.sort })
   }
   submitting.value = true
@@ -407,6 +421,11 @@ async function handleDelete(row: TemplateItemRow) {
 }
 
 .judge-desc {
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.guide-hint {
   font-size: 12px;
   line-height: 1.4;
 }

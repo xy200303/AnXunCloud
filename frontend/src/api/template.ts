@@ -46,6 +46,7 @@ export interface TemplateItemRow {
   judge_type?: string
   judge_config?: JudgeConfig
   tags?: string[]
+  guide?: string | null
   sort: number
   created_at: string
 }
@@ -60,6 +61,8 @@ export interface TemplateItemForm {
   judge_config?: JudgeConfig
   // 观察点标签（服务端 trim/去重/限 20 个每个≤30 字）
   tags?: string[]
+  // 拍照引导语（服务端 trim 限 200 字）
+  guide?: string
   sort?: number
 }
 

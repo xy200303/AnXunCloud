@@ -81,13 +81,14 @@ export interface TemplateCheckItem {
   photo_required?: PhotoRequired
   // 观察点标签（细分观察点，如"水带在位"；服务端 trim/去重/限 20 个每个≤30 字）
   tags?: string[]
+  // 拍照引导语：巡检员打卡时优先显示；留空则显示"拍「项名」照片"（服务端 trim 限 200 字）
+  guide?: string | null
 }
 
 export interface TemplateItem {
   id: string
   name: string
   point_type: string // 空表示通用（所有类型）
-  photo_mode?: 'group' | 'per_item' // group=整组1张拍照一次AI识别多项；per_item=逐项拍照
   items: TemplateCheckItem[]
   sort: number
   status: number
@@ -98,7 +99,6 @@ export interface TemplateItem {
 export interface TemplateForm {
   name: string
   point_type: string
-  photo_mode?: 'group' | 'per_item'
   sort: number
   status: number
   remark: string

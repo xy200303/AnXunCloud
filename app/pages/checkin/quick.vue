@@ -324,10 +324,11 @@ function fmtDateTime(d: Date): string {
 }
 
 /** 由点位模板生成向导项初始状态（台账有效期项按服务端 auto_judge 预置结论，巡检员不可改） */
-function freshItem(name: string, requirement: string, judgeType: string, autoJudge: EquipmentAutoJudge | null, tags: string[]): WizardItemSnap {
+function freshItem(name: string, requirement: string, guide: string, judgeType: string, autoJudge: EquipmentAutoJudge | null, tags: string[]): WizardItemSnap {
   const it: WizardItemSnap = {
     name: name,
     requirement: requirement,
+    guide: guide,
     judge_type: judgeType,
     auto_judge: autoJudge,
     tags: tags,
@@ -379,7 +380,7 @@ function freshPoint(p: TaskPoint): WizardPointSnap {
     status: 'doing',
     scannedNo: '',
     nfcCardId: '',
-    items: (p.check_items || []).map((c) => freshItem(c.name, c.requirement, c.judge_type, c.auto_judge ?? null, c.tags ?? []))
+    items: (p.check_items || []).map((c) => freshItem(c.name, c.requirement, c.guide ?? '', c.judge_type, c.auto_judge ?? null, c.tags ?? []))
   }
 }
 
@@ -1747,11 +1748,6 @@ export default {
         return
       }
       this.doCheckin('normal', [])
-    },
-    retakeIssue(it: WizardItemSnap): string {
-      if (it.status == 'todo') return '还没拍'
-      if (it.status == 'failed') return it.quality_issue != '' ? it.quality_issue : '识别失败，请重拍'
-      return it.quality_issue != '' ? it.quality_issue : '照片不合格'
     },
     onAbnNoteChange(payload: { item: WizardItemSnap; value: string }) {
       payload.item.note = payload.value

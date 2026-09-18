@@ -915,12 +915,6 @@ function goPoints() {
   margin-right: $spacing-xs;
 }
 
-.switch-hint {
-  margin-left: $spacing-sm;
-  font-size: $font-size-aux;
-  color: $color-text-secondary;
-}
-
 .duty-tip {
   margin-bottom: $spacing-md;
 }

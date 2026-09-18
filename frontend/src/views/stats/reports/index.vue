@@ -786,34 +786,6 @@ async function submitGenerate() {
     display: flex;
     align-items: center;
     justify-content: space-between;
-
-    .inspector-name {
-      display: flex;
-      align-items: center;
-      gap: $spacing-sm;
-    }
-  }
-
-  .sign-line {
-    display: flex;
-    align-items: center;
-    gap: $spacing-sm;
-  }
-
-  // 手写签名图（小尺寸，点击放大预览）
-  .sign-img {
-    width: 72px;
-    height: 28px;
-    background: $color-white;
-    border: 1px solid var(--el-border-color-lighter);
-    border-radius: 4px;
-    cursor: pointer;
-    vertical-align: middle;
-  }
-
-  .sign-remark {
-    margin-top: 6px;
-    color: $color-text-secondary;
   }
 }
 
@@ -846,12 +818,5 @@ async function submitGenerate() {
   margin: -8px 0 $spacing-md 98px;
   font-size: $font-size-aux;
   line-height: 1.6;
-}
-
-// 候选人选项内的「未配置签名」警示
-.candidate-warn {
-  float: right;
-  color: var(--el-color-warning);
-  font-size: $font-size-aux;
 }
 </style>

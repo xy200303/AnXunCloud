@@ -76,25 +76,6 @@ export const Radius: RadiusTokens = {
   sheet: '32rpx'
 }
 
-/** 间距（8 的倍数，750 基准，单位 rpx） */
-export type SpacingTokens = {
-  s8: string
-  s16: string
-  s24: string
-  s32: string
-  s48: string
-  s64: string
-}
-
-export const Spacing: SpacingTokens = {
-  s8: '8rpx',
-  s16: '16rpx',
-  s24: '24rpx',
-  s32: '32rpx',
-  s48: '48rpx',
-  s64: '64rpx'
-}
-
 /** 关键尺寸（750 基准，单位 rpx） */
 export type SizeTokens = {
   /** 最小触控目标 */

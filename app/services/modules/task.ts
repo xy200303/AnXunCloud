@@ -93,6 +93,8 @@ export type EquipmentAutoJudge = {
 export type CheckItemTpl = {
   name: string
   requirement: string
+  /** 拍照引导语（巡检员视角的拍摄动作指引；空串=未配置；设备合成项无此字段） */
+  guide: string
   /** none/optional/required */
   photo_required: string
   /** 判定方式：manual=感官项（人工正常/异常），equipment_validity=台账有效期（合成项，服务端自动判定），其余=拍照 AI 识别项 */
@@ -101,7 +103,7 @@ export type CheckItemTpl = {
   judge_config?: Record<string, any> | null
   /** 台账有效期单台设备自动判定（judge_type=equipment_validity 时后端透出；其余项为空） */
   auto_judge?: EquipmentAutoJudge | null
-  /** 多模板并集来源模板 ID（整组拍照点位：检查项由点位组合的多模板并集而来） */
+  /** 多模板并集来源模板 ID（检查项由点位组合的多模板并集而来） */
   template_id?: string
   /** 来源模板名（与 template_id 对应，展示/排查用） */
   template_name?: string
@@ -124,8 +126,6 @@ export type TaskPoint = {
   longitude: number
   latitude: number
   fence_radius: number
-  /** 拍照模式：group=整组 1 张整体照 AI 一次识别（点位所有模板均为整组模式）；per_item=逐项拍照（缺省） */
-  photo_mode: 'group' | 'per_item'
   check_items: CheckItemTpl[]
   my_checkin: {
     id: string
@@ -241,8 +241,7 @@ type RawTaskDetail = {
     longitude?: number
     latitude?: number
     fence_radius?: number
-    photo_mode?: string
-    check_items?: Array<{ name?: string; requirement?: string; photo_required?: string; judge_type?: string; judge_config?: Record<string, any> | null; auto_judge?: EquipmentAutoJudge | null; template_id?: string | number; template_name?: string; tags?: string[] }>
+    check_items?: Array<{ name?: string; requirement?: string; guide?: string; photo_required?: string; judge_type?: string; judge_config?: Record<string, any> | null; auto_judge?: EquipmentAutoJudge | null; template_id?: string | number; template_name?: string; tags?: string[] }>
     my_checkin?: {
       id?: string | number
       checkin_time?: string
@@ -371,10 +370,10 @@ export function apiTaskDetail(id: string): Promise<TaskDetail> {
             longitude: p.longitude ?? 0,
             latitude: p.latitude ?? 0,
             fence_radius: p.fence_radius ?? 0,
-            photo_mode: p.photo_mode == 'group' ? 'group' : 'per_item',
             check_items: (p.check_items ?? []).map((c) => ({
               name: c.name ?? '',
               requirement: c.requirement ?? '',
+              guide: c.guide ?? '',
               photo_required: c.photo_required ?? '',
               judge_type: c.judge_type ?? '',
               judge_config: c.judge_config ?? null,

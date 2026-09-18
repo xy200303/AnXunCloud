@@ -172,12 +172,6 @@ export interface LoginLog {
   created_at: string
 }
 
-export interface Community {
-  id: string
-  name: string
-  status: number
-}
-
 export interface ImportResult {
   total: number
   success_count: number

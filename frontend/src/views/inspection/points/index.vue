@@ -987,17 +987,6 @@ function goEquipment(row: EquipmentItem) {
   margin-left: $spacing-md;
 }
 
-.photo-items {
-  width: 100%;
-
-  .photo-item {
-    display: flex;
-    align-items: center;
-    gap: $spacing-sm;
-    margin-bottom: $spacing-sm;
-  }
-}
-
 .import-steps {
   margin-bottom: $spacing-xl;
 }

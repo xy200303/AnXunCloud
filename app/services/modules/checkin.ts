@@ -1,5 +1,5 @@
 /**
- * 打卡域：打卡提交、AI 逐项/整组识别 job、逐项草稿、照片上传、离线补传、本人记录查询。
+ * 打卡域：打卡提交、AI 逐项识别 job、逐项草稿、照片上传、离线补传、本人记录查询。
  */
 
 import { httpGet, httpPost, refreshSession, getBaseUrl } from '@/services/request'
@@ -169,37 +169,6 @@ export type OfflineSyncResult = {
   failed: Array<{ point_id: string; code: number; message: string }>
 }
 
-/** AI 整组识别 job 创建请求（POST /mp/checkin/ai-group-jobs；整组拍照点位：1 张整体照一次识别全部检查项） */
-export type AiGroupJobCreateReq = {
-  task_id: string
-  point_id: string
-  /** 整体照 file_id（apiUploadLocal 上传后透出），恰好 1 张 */
-  file_ids: string[]
-}
-
-/** AI 整组识别逐项结论（GET /mp/checkin/ai-group-jobs/:id 响应 result.items 元素；name 与点位检查项名对齐） */
-export type AiGroupJobItem = {
-  name: string
-  /** normal / abnormal / unrecognized（unrecognized=读不出，默认正常不计异常） */
-  result: 'normal' | 'abnormal' | 'unrecognized' | string
-  /** abnormal 时的判定原因（回填该项异常说明） */
-  reason?: string
-  /** 识别值（如有效期读数），无则空串 */
-  value?: string
-  /** AI 判出的异常观察点 tag（abnormal 时有效） */
-  abnormal_tags?: string[]
-}
-
-/** AI 整组识别 job 状态（GET /mp/checkin/ai-group-jobs/:id） */
-export type AiGroupJob = {
-  id: string
-  /** pending / running / done / failed */
-  status: 'pending' | 'running' | 'done' | 'failed' | string
-  /** 照片中识别到的设备数量（done 时有效；与点位登记设备数比对用，-1 = 未返回） */
-  count: number
-  items: AiGroupJobItem[]
-}
-
 /** 逐项过程草稿（GET /checkin/item-drafts 元素）：云端保存的逐项进度（巡检进度的唯一事实来源） */
 export interface ItemDraft {
   point_id: string
@@ -335,47 +304,6 @@ export function apiAiItemJobs(ids: string[]): Promise<AiItemJob[]> {
             abnormal_tags: j.abnormal_tags ?? []
           }))
         )
-      })
-      .catch(reject)
-  })
-}
-
-/** 创建 AI 整组识别 job POST /mp/checkin/ai-group-jobs（整体照上传成功即调用，异步轮询结果） */
-export function apiAiGroupJobCreate(req: AiGroupJobCreateReq): Promise<{ id: string }> {
-  return new Promise<{ id: string }>((resolve, reject) => {
-    httpPost<{ job_id?: string | number }>('/mp/checkin/ai-group-jobs', req as unknown as Record<string, any>)
-      .then((d) => {
-        if (d == null || d.job_id == null) {
-          reject(new Error('识别任务响应异常'))
-          return
-        }
-        resolve({ id: toId(d.job_id) })
-      })
-      .catch(reject)
-  })
-}
-
-/** 查询 AI 整组识别 job GET /mp/checkin/ai-group-jobs/:id（2s 间隔轮询，done 后按 items 回填检查项） */
-export function apiAiGroupJob(id: string): Promise<AiGroupJob> {
-  return new Promise<AiGroupJob>((resolve, reject) => {
-    httpGet<{ job_id?: string | number; status?: string; result?: { count?: number; items?: Array<{ name?: string; result?: string; reason?: string; value?: string; abnormal_tags?: string[] }> } }>('/mp/checkin/ai-group-jobs/' + encodeURIComponent(id))
-      .then((d) => {
-        if (d == null) {
-          reject(new Error('识别结果响应异常'))
-          return
-        }
-        resolve({
-          id: toId(d.job_id),
-          status: d.status ?? '',
-          count: typeof d.result?.count == 'number' ? d.result.count : -1,
-          items: (d.result?.items ?? []).map((it) => ({
-            name: it.name ?? '',
-            result: it.result ?? '',
-            reason: it.reason ?? '',
-            value: it.value ?? '',
-            abnormal_tags: it.abnormal_tags ?? []
-          }))
-        })
       })
       .catch(reject)
   })

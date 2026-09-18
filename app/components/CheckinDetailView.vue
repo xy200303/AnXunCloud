@@ -126,6 +126,7 @@
 <script lang="ts">
 import { Colors, ColorTokens, ShadowCard } from '@/utils/theme'
 import { toAbsUrl } from '@/utils/url'
+import { checkinTypeTextOf } from '@/utils/format'
 
 /** 整单照片（对齐后端 photos 数组元素：优先水印图） */
 export type CheckinDetailPhoto = {
@@ -179,14 +180,6 @@ export type CheckinDetailRecord = {
 type ViewData = {
   colors: ColorTokens
   shadow: string
-}
-
-function checkinTypeTextOf(t: string): string {
-  if (t == 'qrcode') return '扫二维码'
-  if (t == 'nfc') return '刷 NFC 卡'
-  if (t == 'fence') return '到场确认'
-  if (t == 'offline') return '离线补传'
-  return t
 }
 
 function auditTextOf(s: string): string {

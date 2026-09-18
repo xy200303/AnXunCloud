@@ -10,6 +10,8 @@
 export type WizardItemSnap = {
   name: string
   requirement: string
+  /** 拍照引导语（任务详情模板项透出；空串=未配置，卡片兜底「拍「项名」照片」） */
+  guide: string
   /** manual=感官项；equipment_validity=台账有效期（服务端自动判定）；其余=拍照 AI 识别项 */
   judge_type: string
   /** 观察点 tag 数组（任务详情模板透出；空=无观察点） */

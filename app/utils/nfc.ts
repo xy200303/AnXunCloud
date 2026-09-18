@@ -293,43 +293,6 @@ export function toastNfcUnavailable() {
 }
 
 /**
- * 单次读取 NDEF 文本（保留能力；主流程已统一按卡片 UID，见 readCardOnce/readCardInfoOnce）。
- * cb(res, errMsg)：res.code 为 NDEF 文本（点位编号），res.cardId 为卡片 UID。
- * 用户取消/超时也会通过 cb(null, 原因) 回调。
- */
-export function readNdefOnce(cb: (res: NfcReadResult | null, errMsg?: string) => void) {
-  // #ifdef APP-PLUS
-  if (!isNfcSupported()) {
-    cb(null, '设备不支持 NFC 或未开启')
-    return
-  }
-  if (oneShot != null || writeReq != null) {
-    cb(null, 'NFC 操作中，请稍候')
-    return
-  }
-  ensureRegistered()
-  // 卡已贴着（未离开活动标签时间窗）：直接用快照，无需拿开再靠近
-  const snap = readActiveTagSnapshot()
-  if (snap != null && snap.code != null) {
-    cb(snap)
-    return
-  }
-  oneShot = { needCode: true, cb: cb }
-  try {
-    // Android 为空实现（前台监听本就在跑，事件会路由到 oneShot）；
-    // iOS 弹系统扫描面板；鸿蒙启动会话（无弹窗）。
-    HlNfc.startNFCSession('请贴近巡检点位 NFC 标签')
-  } catch (e: any) {
-    oneShot = null
-    cb(null, 'NFC 调用异常：' + (e && e.message ? e.message : ''))
-  }
-  // #endif
-  // #ifndef APP-PLUS
-  cb(null, '当前端不支持 NFC')
-  // #endif
-}
-
-/**
  * 单次读卡信息（点位管理「读取 NFC 卡号」）：返回卡片 UID + 卡内 NDEF 文本（点位编号），
  * 空白卡也能读（code 为 null）。用于展示「卡号 + 卡内编号」对应关系。
  */
@@ -365,7 +328,7 @@ export function readCardInfoOnce(cb: (res: NfcReadResult | null, errMsg?: string
 
 /**
  * 单次读卡号（点位管理「读取 NFC 卡号」）：只要卡片 UID（uidHex），不要求 NDEF 文本，
- * 空白卡/未写编号的卡也能读出卡号。回调签名与 readNdefOnce 的简化版对齐。
+ * 空白卡/未写编号的卡也能读出卡号。回调签名与 readCardInfoOnce 的简化版对齐。
  */
 export function readCardOnce(cb: (cardId: string | null, errMsg?: string) => void) {
   readCardInfoOnce((res, errMsg) => {
@@ -434,7 +397,6 @@ export function writePointCode(code: string, cb: (ok: boolean, errMsg?: string) 
 /**
  * Android/鸿蒙 全局前台识别：App 打开任何页面贴标签即 dispatch(卡片 UID)。
  * iOS 内部直接忽略（CoreNFC 不支持常驻监听，走按钮触发的单次读取）。
- * 插件无 off 接口，stopGlobalListener 仅摘除内部分发。
  */
 export function startGlobalListener(dispatch: (cardId: string) => void) {
   // #ifdef APP-PLUS
@@ -462,8 +424,4 @@ export function startGlobalListener(dispatch: (cardId: string) => void) {
     }
   } catch (_e) {}
   // #endif
-}
-
-export function stopGlobalListener() {
-  globalDispatch = null
 }

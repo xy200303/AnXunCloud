@@ -1,7 +1,15 @@
 <template>
   <view class="item-card" :style="{ backgroundColor: colors.bgCard, boxShadow: shadow }">
-    <text class="item-name" :style="{ color: colors.textPrimary }">{{ item.name }}</text>
-    <text class="item-hint" :style="{ color: colors.textSecondary }">{{ item.requirement != '' ? item.requirement : (isPhoto ? '拍一张该项的照片' : '这项正常吗？') }}</text>
+    <!-- 合成项（台账有效期/标签抽查）保持原标题+要求文案；拍照/感官项以引导语为主标题 -->
+    <template v-if="equipJudge != null || isSpot">
+      <text class="item-name" :style="{ color: colors.textPrimary }">{{ item.name }}</text>
+      <text class="item-hint" :style="{ color: colors.textSecondary }">{{ item.requirement != '' ? item.requirement : (isPhoto ? '拍一张该项的照片' : '这项正常吗？') }}</text>
+    </template>
+    <template v-else>
+      <text class="item-name" :style="{ color: colors.textPrimary }">{{ cardTitle }}</text>
+      <text class="item-sub" :style="{ color: colors.textSecondary }">{{ item.name }}</text>
+      <text v-if="item.requirement != ''" class="item-req" :style="{ color: colors.textSecondary }">{{ item.requirement }}</text>
+    </template>
 
     <template v-if="isPhoto">
       <!-- 待补传态：上传失败压缩图保留在项上，点橙色按钮重试补传（成功继续原 AI 链路）；本地图失效可重拍 -->
@@ -265,6 +273,11 @@ export default {
     }
   },
   computed: {
+    /** 卡片主标题：guide 非空用引导语；空兜底「拍「项名」照片」（感官项兜底「这项正常吗？」） */
+    cardTitle(): string {
+      if ((this.item.guide || '') != '') return this.item.guide
+      return this.isPhoto ? '拍「' + this.item.name + '」照片' : '这项正常吗？'
+    },
     /** 台账有效期项「拍新标签」入口：逾期/缺数据（或后端仍下发展示登记入口）时才出现 */
     canLabelPhoto(): boolean {
       const aj = this.equipJudge
@@ -315,6 +328,24 @@ export default {
   text-align: center;
   margin-top: 16rpx;
   line-height: 48rpx;
+}
+
+/* 项名降级为次要信息（与后台术语对齐用） */
+.item-sub {
+  font-size: 26rpx;
+  margin-top: 12rpx;
+  text-align: center;
+}
+
+/* 标准要求折叠为小字灰字单行省略 */
+.item-req {
+  width: 100%;
+  font-size: 24rpx;
+  margin-top: 8rpx;
+  text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .shot-empty {

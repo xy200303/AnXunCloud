@@ -8,6 +8,7 @@
       <text class="gate-summary-item" :style="{ color: colors.success }">✓已落定 {{ stats.done }}</text>
       <text class="gate-summary-item" :style="{ color: colors.primary }">⏳处理中 {{ stats.processing }}</text>
       <text class="gate-summary-item" :style="{ color: colors.danger }">⚠异常 {{ stats.abnormal }}</text>
+      <text v-if="stats.escaped > 0" class="gate-summary-item" :style="{ color: colors.warning }">⊘无法检查 {{ stats.escaped }}</text>
     </view>
 
     <!-- 逐项实时进度：落定一行勾掉一行 -->
@@ -42,7 +43,7 @@
 import type { ColorTokens } from '@/utils/theme'
 import type { WizardItemSnap } from '@/utils/checkinWizard'
 
-type GateStats = { done: number; processing: number; abnormal: number }
+type GateStats = { done: number; processing: number; abnormal: number; escaped: number }
 /** 逐项进度行：stage=上传中…/排队中…/识别中…/待补传；canSkip=可跳过识别（转人工复核）；pending=待补传可点重试 */
 type GateRow = { key: string; name: string; stage: string; canSkip: boolean; pending: boolean; item: WizardItemSnap }
 

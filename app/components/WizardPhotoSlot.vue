@@ -5,10 +5,13 @@
        待补传=大图+橙色状态条（可点立即重试）；已逃生=灰占位+异常类型文字（点导航条「?」改报）。
        variant=multi 为多图变体（仅台账新标签/手动档多图/处置佐证，至多 max 张）。 -->
   <view class="slot">
-    <!-- 已逃生 -->
+    <!-- 已逃生（可撤销：选错回到待拍） -->
     <view v-if="escaped" class="slot-escaped" :style="{ backgroundColor: colors.bgPage }">
       <text class="slot-escaped-text" :style="{ color: colors.textRegular }">{{ escapeText }}</text>
       <text class="slot-escaped-hint" :style="{ color: colors.textSecondary }">点导航条右上角 ? 可改报</text>
+      <view hover-class="hover-dim" class="slot-undo" :style="{ borderColor: colors.primary }" @click="$emit('escape-undo')">
+        <text class="slot-undo-text" :style="{ color: colors.primary }">撤销上报，重新拍照</text>
+      </view>
     </view>
 
     <template v-else>
@@ -129,7 +132,7 @@ export default {
     addText: { type: String, default: '再拍一张' },
     colors: { type: Object as () => ColorTokens, required: true }
   },
-  emits: ['take-photo', 'preview', 'retry-upload', 'image-error'],
+  emits: ['take-photo', 'preview', 'retry-upload', 'image-error', 'escape-undo'],
   methods: {
     onPreview(idx: number) {
       if (this.photos.length == 0 || this.imgError) return
@@ -293,6 +296,23 @@ export default {
 .slot-escaped-hint {
   font-size: 26rpx;
   margin-top: 16rpx;
+}
+
+/* 逃生撤销：描边文字按钮（选错回到待拍） */
+.slot-undo {
+  margin-top: 24rpx;
+  height: 80rpx;
+  padding: 0 40rpx;
+  border-width: 2rpx;
+  border-style: solid;
+  border-radius: 16rpx;
+  align-items: center;
+  justify-content: center;
+}
+
+.slot-undo-text {
+  font-size: 30rpx;
+  font-weight: 600;
 }
 
 /* 多图变体缩略图行 */

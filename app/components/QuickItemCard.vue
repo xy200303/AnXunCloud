@@ -55,6 +55,7 @@
         @preview="$emit('preview-photo')"
         @retry-upload="$emit('retry-upload')"
         @image-error="$emit('image-error')"
+        @escape-undo="$emit('escape-undo')"
       />
 
       <!-- 状态条（AI 档拍照项回退查看时的只读展示；无状态整行不占位） -->
@@ -67,8 +68,6 @@
         :quality-issue="item.quality_issue"
         :has-job="item.job_id != ''"
         :colors="colors"
-        @retake="$emit('result-retake')"
-        @skip="$emit('result-skip')"
       />
 
       <!-- 观察点下拉多选入口行（无 tag 不渲染） -->
@@ -123,8 +122,7 @@ export default {
     'retry-upload',
     'open-tags',
     'equip-label-photo',
-    'result-retake',
-    'result-skip'
+    'escape-undo'
   ],
   computed: {
     /** 卡片主标题：guide 非空用引导语；空兜底「拍「项名」照片」（无照片要求的项兜底「这项正常吗？」） */

@@ -43,20 +43,22 @@ export type WizardItemSnap = {
   img_error?: boolean
   /** 最终结论（manual 项由巡检员直接给出；拍照项由 AI 结论推导） */
   pass: boolean
+  /** true = 该项是人工确认的结论（手动档作答/跳过识别）：上送时 ai_verdict/ai_reason/ai_reading 一律置空，不冒用 AI 结论 */
+  manual_confirmed?: boolean
   /** 异常描述（AI 描述或巡检员手填，可编辑） */
   note: string
-  /** 异常项处置方式：'' 未选 / on_site_resolved 现场已处理 / report_pending 上报待处理（默认） */
-  disposition?: '' | 'on_site_resolved' | 'report_pending'
-  /** 处置照片展示地址（disposition=on_site_resolved 时必传 ≥1 张） */
-  res_photos?: string[]
-  /** 处置照片已上传的 upload_file.id（与 res_photos 一一对应） */
-  res_file_ids?: string[]
   /** 上传失败待补传的本地压缩照片路径（''/undefined = 无待补传；仅会话内有效，页面重进后该项按云端草稿回到待拍） */
   pending_local?: string
   /** 待补传链路：'ai' 拍照识别 / 'escape' 异常佐证 / 'manual' 手动档拍照（重试成功后继续原链路） */
   pending_mode?: '' | 'ai' | 'escape' | 'manual'
   /** escape 链路的异常类型（device_missing / unable_to_capture） */
   pending_exception_type?: string
+  /** 拍摄时刻 GCJ-02 经度（防作弊数据源；30s 缓存定位，失败为空 = 不送） */
+  shoot_lng?: number
+  /** 拍摄时刻 GCJ-02 纬度 */
+  shoot_lat?: number
+  /** 拍摄时刻 "YYYY-MM-DD HH:mm:ss"（拍照成功即同步写入，定位失败也有） */
+  shoot_at?: string
 }
 
 /** 向导内单点位状态 */
@@ -68,5 +70,11 @@ export type WizardPointSnap = {
   scannedNo: string
   /** 已核验的 NFC 卡号（空 = 未核验） */
   nfcCardId: string
+  /** 云端凭证草稿恢复的核验方式（qrcode/nfc/fence；空/undefined = 无草稿或会话内新核验） */
+  cred_type?: string
+  /** 云端凭证草稿恢复的核验时间 "YYYY-MM-DD HH:mm:ss"（凭证步展示「已于 HH:mm 核验」取 HH:mm） */
+  cred_verified_at?: string
+  /** 云端凭证草稿恢复的围栏核验距离（米；≥0 时围栏判定直接通过，无需等重新定位） */
+  fence_distance?: number
   items: WizardItemSnap[]
 }

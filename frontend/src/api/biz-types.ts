@@ -355,7 +355,8 @@ export interface CheckinItem {
 
 export interface CheckinCheckItem {
   name: string
-  pass: boolean
+  // 逐项结论三态：normal 正常 / abnormal 异常 / escaped 无法检查（逃生，根本没检成）
+  result: 'normal' | 'abnormal' | 'escaped'
   note: string
   // 打卡当时的检查标准快照（可选，后端 v18 起返回）
   requirement?: string
@@ -367,18 +368,21 @@ export interface CheckinCheckItem {
   ai_reason?: string
   // 表计读数类检查项的 AI 读数（其余类型为空）
   ai_reading?: string | null
-  /** 拍照项异常逃生入口的项目异常类型 */
-  exception_type?: 'device_missing' | 'unable_to_capture' | ''
+  /** 逃生具体类型（仅 escaped 态有意义）：设备不存在/无法拍摄/相机故障/标签磨损无法辨认 */
+  exception_type?: 'device_missing' | 'unable_to_capture' | 'camera_broken' | 'label_missing' | ''
   // 打卡当时的判定类型快照
   judge_type?: string
   judge_config?: Record<string, unknown> | null
   // 观察点标签快照及本次判定为异常的标签子集
   tags?: string[]
   abnormal_tags?: string[]
-  // 异常项处置方式（''=未处置；打卡巡检×设备维保融合）
-  disposition?: '' | 'on_site_resolved' | 'maintenance_registered' | 'report_pending'
-  // 处置照片 URL 列表（file_id 已转 url）
-  resolution_photo_urls?: string[]
+  // 照片拍摄时空信息（防作弊 §14.3，可空=未上报）
+  shoot_lng?: number | null
+  shoot_lat?: number | null
+  shoot_at?: string | null
+  // 时空一致性可疑标记（标记不拒收；suspicious_reason 多原因以「；」连接）
+  suspicious?: boolean
+  suspicious_reason?: string
 }
 
 export interface CheckinDetail extends CheckinItem {

@@ -47,7 +47,7 @@
     <view v-for="(it, i) in items" :key="i" class="card" :style="{ backgroundColor: colors.bgCard, boxShadow: shadow }">
       <view class="item-head">
         <text class="item-name" :style="{ color: colors.textPrimary }">{{ it.name }}</text>
-        <text class="item-result" :style="{ color: it.pass ? colors.success : colors.danger }">{{ it.pass ? '✓ 正常' : '⚠ 异常' }}</text>
+        <text class="item-result" :style="{ color: itemResultColor(it) }">{{ itemResultTextOf(it.result ?? '', it.exception_type) }}</text>
       </view>
       <!-- 观察点 tag 快照：异常 tag 红色高亮，正常 tag 灰色 -->
       <view v-if="it.tags != null && it.tags.length > 0" class="tag-row">
@@ -73,22 +73,6 @@
       <text v-else class="no-photo" :style="{ color: colors.textSecondary }">无照片</text>
       <text v-if="it.ai_reason != null && it.ai_reason != ''" class="item-ai" :style="{ color: colors.textSecondary }">AI：{{ it.ai_reason }}</text>
 
-      <!-- 异常项处置信息（仅异常且已处置时展示） -->
-      <block v-if="dispositionText(it) != ''">
-        <text class="item-disp" :style="{ color: it.disposition == 'report_pending' ? colors.warning : colors.success }">处置：{{ dispositionText(it) }}</text>
-        <text v-if="it.resolution_note != null && it.resolution_note != ''" class="item-note" :style="{ color: colors.textRegular }">处置说明：{{ it.resolution_note }}</text>
-        <view v-if="resolutionPhotoList(it).length > 0" class="photos">
-          <image
-            v-for="(u, pi) in resolutionPhotoList(it)"
-            :key="pi"
-            class="photo"
-            :src="u"
-            mode="aspectFill"
-            lazy-load
-            @click="preview(resolutionPhotoList(it), pi)"
-          />
-        </view>
-      </block>
     </view>
     <view v-if="items.length == 0" class="card" :style="{ backgroundColor: colors.bgCard, boxShadow: shadow }">
       <text class="no-photo" :style="{ color: colors.textSecondary }">这次是纯打卡，没有检查项</text>
@@ -126,7 +110,7 @@
 <script lang="ts">
 import { Colors, ColorTokens, ShadowCard } from '@/utils/theme'
 import { toAbsUrl } from '@/utils/url'
-import { checkinTypeTextOf } from '@/utils/format'
+import { checkinTypeTextOf, itemResultTextOf, itemResultColorKeyOf } from '@/utils/format'
 
 /** 整单照片（对齐后端 photos 数组元素：优先水印图） */
 export type CheckinDetailPhoto = {
@@ -137,15 +121,14 @@ export type CheckinDetailPhoto = {
 /** 检查项（对齐详情接口 check_items；调用处可多带字段，不影响渲染） */
 export type CheckinDetailItem = {
   name: string
-  pass: boolean
+  /** 三态结论：normal 正常 / abnormal 异常 / escaped 无法检查 */
+  result?: string
+  /** 无法检查原因（仅 escaped 态有意义：device_missing/unable_to_capture/camera_broken/label_missing） */
+  exception_type?: string
   note?: string
   photo_urls?: string[]
   ai_verdict?: string | null
   ai_reason?: string | null
-  /** ''=未处置 / on_site_resolved=现场已处理 / maintenance_registered=已登记维保 / report_pending=上报待处理 */
-  disposition?: string
-  resolution_note?: string
-  resolution_photo_urls?: string[]
   /** 观察点 tag 快照（空/缺省=无观察点） */
   tags?: string[]
   /** 异常观察点 tag 列表（红色高亮展示） */
@@ -234,20 +217,15 @@ export default {
     }
   },
   methods: {
+    itemResultTextOf: itemResultTextOf,
+    itemResultColor(it: CheckinDetailItem): string {
+      return this.colors[itemResultColorKeyOf(it.result ?? '')]
+    },
     isAbnTag(it: CheckinDetailItem, t: string): boolean {
       return it.abnormal_tags != null && it.abnormal_tags.indexOf(t) >= 0
     },
     itemPhotoList(it: CheckinDetailItem): string[] {
       return (it.photo_urls ?? []).map(toAbsUrl)
-    },
-    resolutionPhotoList(it: CheckinDetailItem): string[] {
-      return (it.resolution_photo_urls ?? []).map(toAbsUrl)
-    },
-    dispositionText(it: CheckinDetailItem): string {
-      if (it.disposition == 'on_site_resolved') return '现场已处理'
-      if (it.disposition == 'maintenance_registered') return '已登记维保'
-      if (it.disposition == 'report_pending') return '上报待处理'
-      return ''
     },
     preview(urls: string[], idx: number) {
       if (urls.length == 0) return
@@ -377,11 +355,6 @@ export default {
   font-size: 26rpx;
   margin-top: 16rpx;
   line-height: 1.6;
-}
-
-.item-disp {
-  font-size: 26rpx;
-  margin-top: 16rpx;
 }
 
 .photos {

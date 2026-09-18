@@ -79,36 +79,18 @@
                     size="small"
                   >{{ t }}</el-tag>
                 </div>
-                <el-tag v-if="item.exception_type === 'device_missing'" type="danger" size="small">项目异常：设备缺失</el-tag>
-                <el-tag v-else-if="item.exception_type === 'unable_to_capture'" type="warning" size="small">项目异常：无法拍摄</el-tag>
+                <!-- 时空一致性可疑标记（防作弊 §14.3：标记不拒收，悬浮查看原因） -->
+                <el-tooltip v-if="item.suspicious" :content="item.suspicious_reason || '照片时空信息可疑'" placement="top">
+                  <el-tag type="danger" size="small" effect="dark">可疑</el-tag>
+                </el-tooltip>
               </template>
             </el-table-column>
-            <el-table-column label="结果" width="80" align="center">
+            <!-- 逐项结论三态：正常-绿 / 异常-红 / 无法检查（逃生，没检成）-橙，文案带逃生类型 -->
+            <el-table-column label="结果" min-width="110" align="center">
               <template #default="{ row: item }">
-                <el-tag :type="item.pass ? 'success' : 'danger'" size="small">
-                  {{ item.pass ? '合格' : '不合格' }}
+                <el-tag :type="itemResultTag(item).type" size="small">
+                  {{ itemResultTag(item).label }}
                 </el-tag>
-              </template>
-            </el-table-column>
-            <!-- 异常项处置方式（打卡巡检×设备维保融合）；处置照片随处置方式展示 -->
-            <el-table-column label="处置方式" min-width="120">
-              <template #default="{ row: item }">
-                <el-tag v-if="item.disposition" :type="dispositionTag(item.disposition).type" size="small">
-                  {{ dispositionTag(item.disposition).label }}
-                </el-tag>
-                <span v-else class="text-secondary">--</span>
-                <div v-if="item.resolution_photo_urls?.length" class="item-photos">
-                  <el-image
-                    v-for="(url, i) in item.resolution_photo_urls"
-                    :key="i"
-                    :src="url"
-                    :preview-src-list="item.resolution_photo_urls"
-                    :initial-index="i"
-                    fit="cover"
-                    preview-teleported
-                    class="item-photo-thumb"
-                  />
-                </div>
               </template>
             </el-table-column>
             <!-- 逐项 AI 初判（辅助参考，最终以人工审核为准，不阻断操作） -->
@@ -182,7 +164,7 @@
 <script setup lang="ts">
 import PhotoViewer from '@/components/PhotoViewer.vue'
 import { checkinTypeLabel, checkinResultTag, auditStatusTag, aiVerdictTag } from '@/utils/labels'
-import type { CheckinItem, CheckinDetail } from '@/api/biz-types'
+import type { CheckinItem, CheckinDetail, CheckinCheckItem } from '@/api/biz-types'
 
 defineProps<{
   modelValue: boolean
@@ -195,15 +177,24 @@ const emit = defineEmits<{
   'update:modelValue': [value: boolean]
 }>()
 
-// 处置方式：on_site_resolved 现场已处理-绿 / maintenance_registered 已登记维保-蓝 / report_pending 上报待处理-橙
-function dispositionTag(d: string): { label: string; type: 'info' | 'warning' | 'success' | 'danger' | 'primary' } {
-  return (
-    {
-      on_site_resolved: { label: '现场已处理', type: 'success' },
-      maintenance_registered: { label: '已登记维保', type: 'primary' },
-      report_pending: { label: '上报待处理', type: 'warning' }
-    }[d] || { label: d, type: 'info' }
-  ) as { label: string; type: 'info' | 'warning' | 'success' | 'danger' | 'primary' }
+// 逃生类型中文（escaped 态「无法检查·类型」文案用）
+const exceptionTypeCN: Record<string, string> = {
+  device_missing: '设备不存在',
+  unable_to_capture: '无法拍摄',
+  camera_broken: '相机故障',
+  label_missing: '标签磨损无法辨认'
+}
+
+// 逐项结论三态：normal 正常-绿 / abnormal 异常-红 / escaped 无法检查（逃生，没检成）-橙
+function itemResultTag(item: CheckinCheckItem): { label: string; type: 'success' | 'danger' | 'warning' } {
+  if (item.result === 'escaped') {
+    const t = item.exception_type ? exceptionTypeCN[item.exception_type] || item.exception_type : ''
+    return { label: t ? `⊘ 无法检查·${t}` : '⊘ 无法检查', type: 'warning' }
+  }
+  if (item.result === 'abnormal') {
+    return { label: '⚠ 异常', type: 'danger' }
+  }
+  return { label: '✓ 正常', type: 'success' }
 }
 
 function photoMeta(d: CheckinDetail) {

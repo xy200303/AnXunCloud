@@ -1,5 +1,5 @@
 <template>
-  <!-- 打卡向导底部操作栏（fixed 置底）：主操作区通栏居中（双按钮并排均分），「‹ 上一项」为主按钮正下方居中灰字。
+  <!-- 打卡向导底部操作栏（文档流底部，随整页一起滚动，不固定）：主操作区通栏居中（双按钮并排均分），「‹ 上一项」为主按钮正下方居中灰字。
        状态-按钮对照见《打卡向导交互重构设计方案》第五节（唯一真相）；凭证步不渲染本栏（由页面控制 v-if）。 -->
   <view class="wbb" :style="{ backgroundColor: colors.bgCard, borderTopColor: colors.border }">
     <view class="wbb-main">
@@ -18,6 +18,10 @@
     <view v-if="prevVisible" hover-class="hover-dim" class="wbb-prev" @click="onPrev">
       <text class="wbb-prev-text" :style="{ color: colors.textSecondary }">‹ 上一项</text>
     </view>
+    <!-- 档位切换（逐项步显示）：AI 档="AI 不好使？改用人工填写"；手动档="改回 AI 自动识别"。双向可切，草稿在云端，互切不丢进度 -->
+    <view v-if="manualVisible" hover-class="hover-dim" class="wbb-prev" @click="$emit('manual')">
+      <text class="wbb-prev-text" :style="{ color: colors.textSecondary }">{{ manualText }}</text>
+    </view>
   </view>
 </template>
 
@@ -35,9 +39,12 @@ export default {
     secondaryText: { type: String, default: '' },
     secondaryKind: { type: String as () => BtnKind, default: 'danger' },
     prevVisible: { type: Boolean, default: false },
+    /** 逐项步底栏档位切换链 */
+    manualVisible: { type: Boolean, default: false },
+    manualText: { type: String, default: 'AI 不好使？改用人工填写' },
     colors: { type: Object as () => ColorTokens, required: true }
   },
-  emits: ['primary', 'secondary', 'prev'],
+  emits: ['primary', 'secondary', 'prev', 'manual'],
   methods: {
     btnBg(kind: BtnKind): string {
       if (kind == 'success') return this.colors.success
@@ -68,13 +75,10 @@ export default {
 
 <style scoped>
 .wbb {
-  position: fixed;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  z-index: 995;
+  width: 100%;
   border-top-width: 1rpx;
   border-top-style: solid;
+  margin-top: 24rpx;
   padding: 20rpx 24rpx calc(20rpx + env(safe-area-inset-bottom));
 }
 

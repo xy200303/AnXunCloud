@@ -16,7 +16,7 @@
       <!-- 二维码：内嵌扫码取景窗（扫到即点亮收起）；any 已被 NFC 先行核验时锁死不渲染 -->
       <template v-if="point != null && (point.credential == 'qrcode' || point.credential == 'any')">
         <view v-if="wizPoint != null && wizPoint.scannedNo != ''" class="cred-done-row">
-          <text class="cred-done-text" :style="{ color: colors.success }">✓ 已通过二维码核验</text>
+          <text class="cred-done-text" :style="{ color: colors.success }">{{ credType == 'qrcode' && verifiedHm != '' ? '✓ 已于 ' + verifiedHm + ' 核验' : '✓ 已通过二维码核验' }}</text>
         </view>
         <block v-else-if="!anyLockedByNfc">
           <view id="cred-scan-slot" class="scan-slot" :style="{ borderColor: colors.border, backgroundColor: colors.bgPage }">
@@ -34,7 +34,7 @@
       <!-- NFC：贴卡自动识别（Android 常驻监听）；any 已被扫码先行核验时锁死不渲染 -->
       <template v-if="point != null && (point.credential == 'nfc' || point.credential == 'any')">
         <view v-if="wizPoint != null && wizPoint.nfcCardId != ''" class="cred-done-row">
-          <text class="cred-done-text" :style="{ color: colors.success }">✓ 已通过 NFC 核验</text>
+          <text class="cred-done-text" :style="{ color: colors.success }">{{ credType == 'nfc' && verifiedHm != '' ? '✓ 已于 ' + verifiedHm + ' 核验' : '✓ 已通过 NFC 核验' }}</text>
         </view>
         <view v-else-if="!anyLockedByScan" hover-class="hover-dim" class="cred-row" @click="$emit('nfc-tap')">
           <text class="cred-row-name" :style="{ color: colors.textPrimary }">NFC</text>
@@ -47,6 +47,7 @@
         <text class="cred-row-name" :style="{ color: colors.textPrimary }">📍 位置</text>
         <text v-if="locating" class="cred-status" :style="{ color: colors.textSecondary }">定位中…</text>
         <text v-else-if="locFailed" class="cred-status" :style="{ color: colors.danger }">定位失败，点我重试</text>
+        <text v-else-if="credType == 'fence' && verifiedHm != '' && distance >= 0 && distance <= point.fence_radius" class="cred-status" :style="{ color: colors.success }">✓ 已于 {{ verifiedHm }} 核验（距点位 {{ distance }} 米）</text>
         <text v-else-if="distance >= 0 && distance <= point.fence_radius" class="cred-status" :style="{ color: colors.success }">距点位 {{ distance }} 米（围栏内 ✓）</text>
         <text v-else-if="distance >= 0" class="cred-status" :style="{ color: colors.danger }">超出围栏（当前 {{ distance }} 米）</text>
         <text v-else class="cred-status" :style="{ color: colors.textSecondary }">自动获取中…</text>
@@ -82,6 +83,16 @@ export default {
   },
   emits: ['scan-fallback', 'nfc-tap', 'retry-location', 'start'],
   computed: {
+    /** 云端凭证草稿恢复的核验方式（空 = 无草稿或会话内新核验） */
+    credType(): string {
+      return this.wizPoint != null && this.wizPoint.cred_type != null ? this.wizPoint.cred_type : ''
+    },
+    /** 云端凭证草稿恢复的核验时间 HH:mm（verified_at "YYYY-MM-DD HH:mm:ss" 截取；空 = 不显示） */
+    verifiedHm(): string {
+      const wp = this.wizPoint
+      const at = wp != null && wp.cred_verified_at != null ? wp.cred_verified_at : ''
+      return at.length >= 16 ? at.substring(11, 16) : ''
+    },
     /** any 同屏锁死：扫码已完成 → NFC 入口隐藏 */
     anyLockedByScan(): boolean {
       return this.point != null && this.point.credential == 'any' && this.wizPoint != null && this.wizPoint.scannedNo != ''

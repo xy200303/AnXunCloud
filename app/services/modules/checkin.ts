@@ -2,7 +2,7 @@
  * 打卡域：打卡提交、AI 逐项识别 job、逐项草稿、照片上传、离线补传、本人记录查询。
  */
 
-import { httpGet, httpPost, refreshSession, getBaseUrl } from '@/services/request'
+import { httpDelete, httpGet, httpPost, refreshSession, getBaseUrl } from '@/services/request'
 import { getAccessToken } from '@/utils/storage'
 import { toId, buildQuery } from './common'
 
@@ -18,22 +18,17 @@ export const CODE_CHECKIN_LOCKED = 43109
 /** 打卡逐项填报元素（ai_* 为 AI 预览结论透传落库，可选） */
 export type CheckinItemReqPayload = {
   name: string
-  pass: boolean
+  /** 三态结论：normal 正常 / abnormal 异常 / escaped 无法检查（逃生，没检成） */
+  result: 'normal' | 'abnormal' | 'escaped'
   note: string
   photos: string[]
   /** AI 逐项判定透传：pass/review/abnormal/'' */
   ai_verdict?: string
   ai_reason?: string
   ai_reading?: string
-  /** 异常逃生入口的项目异常类型；label_missing（标签磨损无法辨认）仅标签抽查合成项可用，由服务端草稿校验后写入正式记录 */
-  exception_type?: 'device_missing' | 'unable_to_capture' | 'label_missing' | ''
-  /** 异常项处置方式：'' / on_site_resolved 现场已处理 / maintenance_registered 已登记维保 / report_pending 上报待处理 */
-  disposition?: '' | 'on_site_resolved' | 'maintenance_registered' | 'report_pending'
-  /** 处置照片 upload_file.id（disposition=on_site_resolved 时必带） */
-  resolution_file_ids?: string[]
-  /** 处置说明 */
-  resolution_note?: string
-  /** 异常观察点 tag（须 ⊆ 该项 tags；非空服务端强制该项 pass=false、记录结果强制 abnormal） */
+  /** 逃生类型（仅 result=escaped 时携带）：device_missing 设备不存在 / unable_to_capture 无法拍摄 / camera_broken 相机故障 / label_missing 标签磨损（仅标签抽查合成项，由服务端草稿校验后写入正式记录） */
+  exception_type?: 'device_missing' | 'unable_to_capture' | 'camera_broken' | 'label_missing'
+  /** 异常观察点 tag（须 ⊆ 该项 tags；非空服务端强制该项 result=abnormal） */
   abnormal_tags?: string[]
 }
 
@@ -72,6 +67,30 @@ export type AiItemJobCreateReq = {
   name: string
   /** 该项照片 file_id（一项一图硬约束，恰好 1 张） */
   file_ids: string[]
+  /** 拍摄时空信息（防作弊数据源，可选）：GCJ-02 坐标与拍摄时刻 "YYYY-MM-DD HH:mm:ss" */
+  shoot_lng?: number
+  shoot_lat?: number
+  shoot_at?: string
+}
+
+/** 凭证核验草稿（POST /checkin/point-cred）：核验通过即 upsert，断点恢复用 */
+export type PointCredSaveReq = {
+  task_id: string
+  point_id: string
+  checkin_type: 'qrcode' | 'nfc' | 'fence'
+  /** qrcode/nfc 传对应编号；fence 传空串 */
+  cred_no: string
+  /** 核验时与点位距离（米；未知传 0） */
+  fence_distance: number
+}
+
+/** 凭证核验草稿（GET /checkin/item-drafts 响应顶层 credential；断点恢复用） */
+export type PointCredDraft = {
+  checkin_type: string
+  cred_no: string
+  fence_distance: number
+  /** "YYYY-MM-DD HH:mm:ss"（服务端 now()） */
+  verified_at: string
 }
 
 /** AI 逐项识别 job 状态（GET /checkin/ai-item-jobs?ids= 元素） */
@@ -132,18 +151,17 @@ export type CheckinResult = {
 /** 打卡逐项 AI 结论（GET /checkins/:id/items 元素；ai_verdict 空 = 模型未给该项结论） */
 export type CheckinItemAI = {
   name: string
-  pass: boolean
+  /** 三态结论：normal 正常 / abnormal 异常 / escaped 无法检查（escaped 时 exception_type 给出原因） */
+  result: string
   /** pass / review / error / '' */
   ai_verdict: string
   ai_reason: string
   /** 人工备注（异常项说明） */
   note?: string
+  /** 无法检查原因（仅 escaped 态有意义：device_missing/unable_to_capture/label_missing） */
+  exception_type?: string
   /** 逐项照片可访问 URL（优先水印图；记录卡展示用） */
   photo_urls?: string[]
-  /** 异常项处置方式（'' / on_site_resolved / maintenance_registered / report_pending） */
-  disposition?: string
-  /** 处置照片 URL（on_site_resolved 的凭证照片；记录卡展示用） */
-  resolution_photo_urls?: string[]
   /** 观察点 tag 快照（记录详情透出；空=无观察点） */
   tags?: string[]
   /** 异常观察点 tag 列表（⊆ tags；非空即该项异常） */
@@ -168,6 +186,8 @@ export type OfflineSyncResult = {
 export interface ItemDraft {
   point_id: string
   item_name: string
+  /** 草稿种类（恢复分发唯一依据）：ai 识别草稿 / manual 人工结论草稿 / escape 逃生草稿 */
+  draft_kind: 'ai' | 'manual' | 'escape'
   job_id: string
   file_ids: string[]
   photos: string[]
@@ -182,6 +202,10 @@ export interface ItemDraft {
   manual_note: string
   /** 异常观察点 tag（AI 判出或巡检员点选，断点恢复用） */
   abnormal_tags?: string[]
+  /** 拍摄时空信息（草稿带回，再次保存时坐标不丢） */
+  shoot_lng?: number
+  shoot_lat?: number
+  shoot_at?: string
 }
 
 type RawAiItemJob = {
@@ -304,16 +328,19 @@ export function apiAiItemJobs(ids: string[]): Promise<AiItemJob[]> {
   })
 }
 
-/** 查询逐项过程草稿 GET /checkin/item-drafts?task_id[&point_id]（pointId 空=整个任务；断点恢复用） */
-export function apiItemDrafts(taskId: string, pointId?: string): Promise<ItemDraft[]> {
-  return new Promise<ItemDraft[]>((resolve, reject) => {
+/** 查询逐项过程草稿 GET /checkin/item-drafts?task_id[&point_id]（pointId 空=整个任务；断点恢复用。
+ *  响应顶层 credential 为该点位的凭证核验草稿，仅按点位查询时有效（整任务查询为 null）） */
+export function apiItemDrafts(taskId: string, pointId?: string): Promise<{ items: ItemDraft[]; credential: PointCredDraft | null }> {
+  return new Promise((resolve, reject) => {
     const url = '/checkin/item-drafts' + buildQuery({ task_id: taskId, point_id: pointId })
-    httpGet<{ items?: any[] }>(url)
+    httpGet<{ items?: any[]; credential?: any }>(url)
       .then((d) => {
-        resolve(
-          (d?.items ?? []).map((it) => ({
+        const c = d?.credential
+        resolve({
+          items: (d?.items ?? []).map((it) => ({
             point_id: it.point_id ?? '',
             item_name: it.item_name ?? '',
+            draft_kind: it.draft_kind ?? 'ai',
             job_id: it.job_id ?? '',
             file_ids: it.file_ids ?? [],
             photos: it.photos ?? [],
@@ -326,16 +353,37 @@ export function apiItemDrafts(taskId: string, pointId?: string): Promise<ItemDra
             quality_issue: it.quality_issue ?? '',
             manual_pass: it.manual_pass ?? null,
             manual_note: it.manual_note ?? '',
-            abnormal_tags: it.abnormal_tags ?? []
-          }))
-        )
+            abnormal_tags: it.abnormal_tags ?? [],
+            shoot_lng: it.shoot_lng ?? undefined,
+            shoot_lat: it.shoot_lat ?? undefined,
+            shoot_at: it.shoot_at ?? undefined
+          })),
+          credential:
+            c == null
+              ? null
+              : {
+                  checkin_type: c.checkin_type ?? '',
+                  cred_no: c.cred_no ?? '',
+                  fence_distance: c.fence_distance ?? 0,
+                  verified_at: c.verified_at ?? ''
+                }
+        })
       })
       .catch(reject)
   })
 }
 
-/** 手动结论落云端草稿 POST /checkin/item-drafts/manual（感官项与手动档向导的拍照项通用；拍照项携 file_ids ≤3 与 abnormal_tags ⊆ 模板 tags） */
-export function apiItemDraftManual(req: { task_id: string; point_id: string; name: string; pass: boolean; note: string; file_ids?: string[]; abnormal_tags?: string[] }): Promise<void> {
+/** 凭证核验通过即落云端草稿 POST /checkin/point-cred（upsert；弱网失败忽略不阻塞——凭证仅断点恢复用，提交时服务端仍复核） */
+export function apiPointCredSave(req: PointCredSaveReq): Promise<void> {
+  return new Promise<void>((resolve) => {
+    httpPost('/checkin/point-cred', req as unknown as Record<string, any>)
+      .then(() => resolve())
+      .catch(() => resolve())
+  })
+}
+
+/** 手动结论落云端草稿 POST /checkin/item-drafts/manual（感官项与手动档向导的拍照项通用；拍照项携 file_ids ≤3 与 abnormal_tags ⊆ 模板 tags；shoot_* 拍摄时空信息可选） */
+export function apiItemDraftManual(req: { task_id: string; point_id: string; name: string; pass: boolean; note: string; file_ids?: string[]; abnormal_tags?: string[]; shoot_lng?: number; shoot_lat?: number; shoot_at?: string }): Promise<void> {
   return new Promise<void>((resolve, reject) => {
     httpPost('/checkin/item-drafts/manual', req as unknown as Record<string, any>)
       .then(() => resolve())
@@ -343,8 +391,21 @@ export function apiItemDraftManual(req: { task_id: string; point_id: string; nam
   })
 }
 
-/** 拍照项异常逃生入口 POST /checkin/item-drafts/photo-abnormal */
-export function apiItemDraftPhotoAbnormal(req: { task_id: string; point_id: string; name: string; file_ids: string[]; note: string; exception_type: 'device_missing' | 'unable_to_capture' }): Promise<void> {
+/** 撤销某项过程草稿 DELETE /checkin/item-drafts（逃生选错回到待拍；进行中的 job 落定不会复活草稿） */
+export function apiItemDraftDelete(req: { task_id: string; point_id: string; name: string }): Promise<void> {
+  return new Promise<void>((resolve, reject) => {
+    httpDelete(
+      '/checkin/item-drafts?task_id=' + encodeURIComponent(req.task_id) +
+        '&point_id=' + encodeURIComponent(req.point_id) + '&item_name=' + encodeURIComponent(req.name),
+      null
+    )
+      .then(() => resolve())
+      .catch(reject)
+  })
+}
+
+/** 拍照项逃生入口 POST /checkin/item-drafts/photo-abnormal（device_missing 携 1 张佐证；unable_to_capture/camera_broken 拍不了照，无 file_ids 直接上报；shoot_* 拍摄时空信息可选） */
+export function apiItemDraftPhotoAbnormal(req: { task_id: string; point_id: string; name: string; file_ids?: string[]; note: string; exception_type: 'device_missing' | 'unable_to_capture' | 'camera_broken'; shoot_lng?: number; shoot_lat?: number; shoot_at?: string }): Promise<void> {
   return new Promise<void>((resolve, reject) => {
     httpPost('/checkin/item-drafts/photo-abnormal', req as unknown as Record<string, any>)
       .then(() => resolve())
@@ -355,25 +416,27 @@ export function apiItemDraftPhotoAbnormal(req: { task_id: string; point_id: stri
 /** 打卡逐项 AI 结论 GET /checkins/:id/items（本人记录；AI 审核异步，提交后延迟轮询用） */
 export function apiCheckinItems(checkinId: string): Promise<CheckinItemAI[]> {
   return new Promise<CheckinItemAI[]>((resolve, reject) => {
-    httpGet<CheckinItemAI[]>('/checkins/' + checkinId + '/items')
+    httpGet<any[]>('/checkins/' + checkinId + '/items')
       .then((d) => {
         if (d == null) {
           reject(new Error('打卡逐项结论响应异常'))
           return
         }
         resolve(
-          d.map((it) => ({
-            name: it.name ?? '',
-            pass: it.pass ?? false,
-            ai_verdict: it.ai_verdict ?? '',
-            ai_reason: it.ai_reason ?? '',
-            note: it.note ?? '',
-            photo_urls: it.photo_urls ?? [],
-            disposition: it.disposition ?? '',
-            resolution_photo_urls: it.resolution_photo_urls ?? [],
-            tags: it.tags ?? [],
-            abnormal_tags: it.abnormal_tags ?? []
-          }))
+          d.map((it) => {
+            const res: string = it.result ?? ''
+            return {
+              name: it.name ?? '',
+              result: res,
+              ai_verdict: it.ai_verdict ?? '',
+              ai_reason: it.ai_reason ?? '',
+              note: it.note ?? '',
+              exception_type: it.exception_type ?? '',
+              photo_urls: it.photo_urls ?? [],
+              tags: it.tags ?? [],
+              abnormal_tags: it.abnormal_tags ?? []
+            }
+          })
         )
       })
       .catch(reject)

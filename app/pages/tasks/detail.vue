@@ -317,7 +317,7 @@ export default {
       }
       this.loading = !this.loaded
       // 云端逐项草稿：按点位进度分档标注（识别中/巡检中）+ 大按钮续巡进度；草稿失败不阻断任务详情
-      Promise.all([apiTaskDetail(this.taskId), apiItemDrafts(this.taskId).catch(() => [] as ItemDraft[])])
+      Promise.all([apiTaskDetail(this.taskId), apiItemDrafts(this.taskId).then((r) => r.items).catch(() => [] as ItemDraft[])])
         .then(([res, drafts]) => {
           this.loading = false
           this.loaded = true

@@ -55,6 +55,29 @@ export type Gcj02Location = {
   altitude: number
 }
 
+/** 定位缓存：30s 内复用上次结果（拍照时空信息等高频场景不重复拉起定位） */
+const LOC_CACHE_TTL = 30000
+let locCache: { loc: Gcj02Location; at: number } | null = null
+
+/**
+ * 带缓存取定位（GCJ-02）：30s 内复用上次结果；失败返回 null 不抛错。
+ * 用于拍照携带时空信息等辅助链路——拿不到坐标只缺数据，不阻塞主流程。
+ */
+export function getLocationCached(): Promise<Gcj02Location | null> {
+  if (locCache != null && Date.now() - locCache.at < LOC_CACHE_TTL) {
+    return Promise.resolve(locCache.loc)
+  }
+  return new Promise<Gcj02Location | null>((resolve) => {
+    getLocationGcj02(
+      (loc) => {
+        locCache = { loc: loc, at: Date.now() }
+        resolve(loc)
+      },
+      () => resolve(null)
+    )
+  })
+}
+
 /**
  * 统一取定位（GCJ-02）：优先直接要 gcj02（配了高德 SDK / 小程序端可用）；
  * 系统定位不支持 gcj02 时自动降级 wgs84 + 本地纠偏。

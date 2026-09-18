@@ -70,6 +70,15 @@
                 <div>{{ item.name }}</div>
                 <div v-if="item.requirement" class="item-requirement">{{ item.requirement }}</div>
                 <div v-if="item.ai_hint" class="item-ai-hint">AI 要点：{{ item.ai_hint }}</div>
+                <!-- 观察点标签快照：异常标签红色，其余灰色 -->
+                <div v-if="item.tags?.length" class="item-tags">
+                  <el-tag
+                    v-for="t in item.tags"
+                    :key="t"
+                    :type="item.abnormal_tags?.includes(t) ? 'danger' : 'info'"
+                    size="small"
+                  >{{ t }}</el-tag>
+                </div>
                 <el-tag v-if="item.exception_type === 'device_missing'" type="danger" size="small">项目异常：设备缺失</el-tag>
                 <el-tag v-else-if="item.exception_type === 'unable_to_capture'" type="warning" size="small">项目异常：无法拍摄</el-tag>
               </template>
@@ -264,6 +273,13 @@ function photoMeta(d: CheckinDetail) {
   font-size: 12px;
   line-height: 1.4;
   color: $color-text-secondary;
+}
+
+.item-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: $spacing-xs;
+  margin-top: 4px;
 }
 
 // AI 识别要点（内部提示，仅管理端可见）

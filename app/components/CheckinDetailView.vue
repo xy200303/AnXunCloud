@@ -49,6 +49,15 @@
         <text class="item-name" :style="{ color: colors.textPrimary }">{{ it.name }}</text>
         <text class="item-result" :style="{ color: it.pass ? colors.success : colors.danger }">{{ it.pass ? '✓ 正常' : '⚠ 异常' }}</text>
       </view>
+      <!-- 观察点 tag 快照：异常 tag 红色高亮，正常 tag 灰色 -->
+      <view v-if="it.tags != null && it.tags.length > 0" class="tag-row">
+        <text
+          v-for="(t, ti) in it.tags"
+          :key="ti"
+          class="tag-chip"
+          :style="isAbnTag(it, t) ? { color: colors.white, backgroundColor: colors.danger, borderColor: colors.danger } : { color: colors.textSecondary, borderColor: colors.border }"
+        >{{ t }}</text>
+      </view>
       <text v-if="it.note != null && it.note != ''" class="item-note" :style="{ color: colors.textRegular }">备注：{{ it.note }}</text>
       <view v-if="itemPhotoList(it).length > 0" class="photos">
         <image
@@ -136,6 +145,10 @@ export type CheckinDetailItem = {
   disposition?: string
   resolution_note?: string
   resolution_photo_urls?: string[]
+  /** 观察点 tag 快照（空/缺省=无观察点） */
+  tags?: string[]
+  /** 异常观察点 tag 列表（红色高亮展示） */
+  abnormal_tags?: string[]
 }
 
 /** 打卡详情视图数据（对齐 GET /inspection/checkins/:id 返回；审核列表记录在调用处补齐同名字段） */
@@ -228,6 +241,9 @@ export default {
     }
   },
   methods: {
+    isAbnTag(it: CheckinDetailItem, t: string): boolean {
+      return it.abnormal_tags != null && it.abnormal_tags.indexOf(t) >= 0
+    },
     itemPhotoList(it: CheckinDetailItem): string[] {
       return (it.photo_urls ?? []).map(toAbsUrl)
     },
@@ -340,6 +356,23 @@ export default {
 .item-result {
   font-size: 28rpx;
   font-weight: 600;
+}
+
+/* 观察点 tag 快照：异常红色实心，正常灰色描边 */
+.tag-row {
+  flex-direction: row;
+  flex-wrap: wrap;
+  margin-top: 16rpx;
+}
+
+.tag-chip {
+  font-size: 24rpx;
+  border-width: 2rpx;
+  border-style: solid;
+  border-radius: 999rpx;
+  padding: 6rpx 20rpx;
+  margin-right: 16rpx;
+  margin-bottom: 12rpx;
 }
 
 .item-note {

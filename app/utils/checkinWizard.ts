@@ -12,6 +12,10 @@ export type WizardItemSnap = {
   requirement: string
   /** manual=感官项；equipment_validity=台账有效期（服务端自动判定）；其余=拍照 AI 识别项 */
   judge_type: string
+  /** 观察点 tag 数组（任务详情模板透出；空=无观察点） */
+  tags: string[]
+  /** 巡检员点选/AI 预标记的异常观察点 tag（⊆ tags；非空即该项判异常） */
+  abnormal_tags: string[]
   /** 台账有效期自动判定（judge_type=equipment_validity 时由任务详情带出） */
   auto_judge?: import('@/services/api').EquipmentAutoJudge | null
   /** 标签抽查项（judge_type=equipment_date_spot）录入字段：生产日期/维修日期/无贴纸/标签缺失 */

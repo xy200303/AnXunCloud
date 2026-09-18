@@ -54,6 +54,17 @@
             <text class="shot-img-fallback-text">照片加载失败，可重新拍</text>
           </view>
         </view>
+        <!-- 观察点 tag：默认全部正常（绿描边），点选标记异常（红实心），再点恢复；AI 判出的异常 tag 已预标记 -->
+        <view v-if="item.tags.length > 0" class="tag-row">
+          <text
+            v-for="(t, ti) in item.tags"
+            :key="ti"
+            class="tag-chip"
+            :style="isAbnTag(t) ? { color: colors.white, backgroundColor: colors.danger, borderColor: colors.danger } : { color: colors.success, borderColor: colors.success }"
+            @click="$emit('toggle-tag', t)"
+          >{{ isAbnTag(t) ? '✕ ' + t : t }}</text>
+        </view>
+        <text v-if="item.tags.length > 0" class="tag-hint" :style="{ color: colors.textSecondary }">观察点默认正常，异常的点一下标红</text>
         <view hover-class="hover-dim" class="btn-big shot-next" :style="{ backgroundColor: colors.success }" @click="$emit('next')">
           <text class="btn-big-text" :style="{ color: colors.white }">下一项</text>
         </view>
@@ -170,6 +181,17 @@
     </template>
 
     <template v-else>
+      <!-- 观察点 tag（感官项）：默认全部正常，点选异常标红；有异常 tag 时该项按异常计 -->
+      <view v-if="item.tags.length > 0" class="tag-row">
+        <text
+          v-for="(t, ti) in item.tags"
+          :key="ti"
+          class="tag-chip"
+          :style="isAbnTag(t) ? { color: colors.white, backgroundColor: colors.danger, borderColor: colors.danger } : { color: colors.success, borderColor: colors.success }"
+          @click="$emit('toggle-tag', t)"
+        >{{ isAbnTag(t) ? '✕ ' + t : t }}</text>
+      </view>
+      <text v-if="item.tags.length > 0" class="tag-hint" :style="{ color: colors.textSecondary }">观察点默认正常，异常的点一下标红</text>
       <view hover-class="hover-dim" class="btn-big btn-normal" :style="{ backgroundColor: colors.success }" @click="$emit('manual-ok')">
         <text class="btn-big-text" :style="{ color: colors.white }">✓ 正常</text>
       </view>
@@ -234,8 +256,14 @@ export default {
     'spot-ai',
     'spot-field',
     'spot-confirm',
-    'retry-upload'
+    'retry-upload',
+    'toggle-tag'
   ],
+  methods: {
+    isAbnTag(t: string): boolean {
+      return this.item.abnormal_tags != null && this.item.abnormal_tags.indexOf(t) >= 0
+    }
+  },
   computed: {
     /** 台账有效期项「拍新标签」入口：逾期/缺数据（或后端仍下发展示登记入口）时才出现 */
     canLabelPhoto(): boolean {
@@ -545,5 +573,29 @@ export default {
 .equip-photo-hint {
   font-size: 24rpx;
   margin-top: 12rpx;
+}
+
+/* 观察点 tag chips（拍照项/感官项共用）：默认正常绿描边，点选异常红实心 */
+.tag-row {
+  width: 100%;
+  flex-direction: row;
+  flex-wrap: wrap;
+  justify-content: center;
+  margin-top: 24rpx;
+}
+
+.tag-chip {
+  font-size: 30rpx;
+  font-weight: 600;
+  border-width: 2rpx;
+  border-style: solid;
+  border-radius: 999rpx;
+  padding: 12rpx 28rpx;
+  margin: 8rpx;
+}
+
+.tag-hint {
+  font-size: 24rpx;
+  margin-top: 8rpx;
 }
 </style>

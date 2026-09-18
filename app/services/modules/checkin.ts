@@ -38,6 +38,8 @@ export type CheckinItemReqPayload = {
   spot_maintenance_date?: string
   spot_no_sticker?: boolean
   spot_label_missing?: boolean
+  /** 异常观察点 tag（须 ⊆ 该项 tags；非空服务端强制该项 pass=false、记录结果强制 abnormal） */
+  abnormal_tags?: string[]
 }
 
 /** 打卡提交请求体（对齐后端 dto.CheckinReq） */
@@ -90,6 +92,8 @@ export type AiItemJob = {
   /** 照片质量：false 时 quality_issue 为不达标原因，该项需补拍 */
   quality_pass: boolean
   quality_issue: string
+  /** AI 判出的异常观察点 tag（done 时有效；须 ⊆ 该项 tags，非空即该项异常） */
+  abnormal_tags?: string[]
 }
 
 /** AI 逐项判定（同步判定响应 ai_items 元素；reading 为仪表读数等识别值，无则空串） */
@@ -99,6 +103,8 @@ export type CheckinAiItem = {
   verdict: string
   reason: string
   reading: string
+  /** AI 判出的异常观察点 tag */
+  abnormal_tags?: string[]
 }
 
 /** 打卡响应（对齐后端 resultView） */
@@ -143,6 +149,10 @@ export type CheckinItemAI = {
   disposition?: string
   /** 处置照片 URL（on_site_resolved 的凭证照片；记录卡展示用） */
   resolution_photo_urls?: string[]
+  /** 观察点 tag 快照（记录详情透出；空=无观察点） */
+  tags?: string[]
+  /** 异常观察点 tag 列表（⊆ tags；非空即该项异常） */
+  abnormal_tags?: string[]
 }
 
 /** 照片元素（后端 types.PhotoItem，打卡/审核记录通用） */
@@ -176,6 +186,8 @@ export type AiGroupJobItem = {
   reason?: string
   /** 识别值（如有效期读数），无则空串 */
   value?: string
+  /** AI 判出的异常观察点 tag（abnormal 时有效） */
+  abnormal_tags?: string[]
 }
 
 /** AI 整组识别 job 状态（GET /mp/checkin/ai-group-jobs/:id） */
@@ -204,6 +216,8 @@ export interface ItemDraft {
   quality_issue: string
   manual_pass: boolean | null
   manual_note: string
+  /** 异常观察点 tag（AI 判出或巡检员点选，断点恢复用） */
+  abnormal_tags?: string[]
 }
 
 type RawAiItemJob = {
@@ -214,6 +228,7 @@ type RawAiItemJob = {
   reading?: string
   quality_pass?: boolean
   quality_issue?: string
+  abnormal_tags?: string[]
 }
 
 type RawCheckinResult = {
@@ -227,7 +242,7 @@ type RawCheckinResult = {
   ai_verdict?: string
   ai_reason?: string
   ai_quality?: { pass?: boolean; issue?: string }
-  ai_items?: Array<{ name?: string; verdict?: string; reason?: string; reading?: string }>
+  ai_items?: Array<{ name?: string; verdict?: string; reason?: string; reading?: string; abnormal_tags?: string[] }>
   audit_status?: string
   task_progress?: {
     total_points?: number
@@ -271,7 +286,8 @@ export function apiCheckin(req: CheckinReqPayload): Promise<CheckinResult> {
             name: it.name ?? '',
             verdict: it.verdict ?? '',
             reason: it.reason ?? '',
-            reading: it.reading ?? ''
+            reading: it.reading ?? '',
+            abnormal_tags: it.abnormal_tags ?? []
           })),
           audit_status: d.audit_status ?? '',
           task_progress: {
@@ -315,7 +331,8 @@ export function apiAiItemJobs(ids: string[]): Promise<AiItemJob[]> {
             reason: j.reason ?? '',
             reading: j.reading ?? '',
             quality_pass: j.quality_pass ?? true,
-            quality_issue: j.quality_issue ?? ''
+            quality_issue: j.quality_issue ?? '',
+            abnormal_tags: j.abnormal_tags ?? []
           }))
         )
       })
@@ -341,7 +358,7 @@ export function apiAiGroupJobCreate(req: AiGroupJobCreateReq): Promise<{ id: str
 /** 查询 AI 整组识别 job GET /mp/checkin/ai-group-jobs/:id（2s 间隔轮询，done 后按 items 回填检查项） */
 export function apiAiGroupJob(id: string): Promise<AiGroupJob> {
   return new Promise<AiGroupJob>((resolve, reject) => {
-    httpGet<{ job_id?: string | number; status?: string; result?: { count?: number; items?: Array<{ name?: string; result?: string; reason?: string; value?: string }> } }>('/mp/checkin/ai-group-jobs/' + encodeURIComponent(id))
+    httpGet<{ job_id?: string | number; status?: string; result?: { count?: number; items?: Array<{ name?: string; result?: string; reason?: string; value?: string; abnormal_tags?: string[] }> } }>('/mp/checkin/ai-group-jobs/' + encodeURIComponent(id))
       .then((d) => {
         if (d == null) {
           reject(new Error('识别结果响应异常'))
@@ -355,7 +372,8 @@ export function apiAiGroupJob(id: string): Promise<AiGroupJob> {
             name: it.name ?? '',
             result: it.result ?? '',
             reason: it.reason ?? '',
-            value: it.value ?? ''
+            value: it.value ?? '',
+            abnormal_tags: it.abnormal_tags ?? []
           }))
         })
       })
@@ -384,7 +402,8 @@ export function apiItemDrafts(taskId: string, pointId?: string): Promise<ItemDra
             quality_pass: it.quality_pass ?? true,
             quality_issue: it.quality_issue ?? '',
             manual_pass: it.manual_pass ?? null,
-            manual_note: it.manual_note ?? ''
+            manual_note: it.manual_note ?? '',
+            abnormal_tags: it.abnormal_tags ?? []
           }))
         )
       })
@@ -428,7 +447,9 @@ export function apiCheckinItems(checkinId: string): Promise<CheckinItemAI[]> {
             note: it.note ?? '',
             photo_urls: it.photo_urls ?? [],
             disposition: it.disposition ?? '',
-            resolution_photo_urls: it.resolution_photo_urls ?? []
+            resolution_photo_urls: it.resolution_photo_urls ?? [],
+            tags: it.tags ?? [],
+            abnormal_tags: it.abnormal_tags ?? []
           }))
         )
       })

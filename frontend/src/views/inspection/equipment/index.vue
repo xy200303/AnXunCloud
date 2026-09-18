@@ -519,8 +519,11 @@ function confirmStatusLabel(s: ConfirmStatus) {
   return { pending: '待确认', confirmed: '已确认', rejected: '已驳回' }[s] || s
 }
 
-function confirmStatusType(s: ConfirmStatus) {
-  return { pending: 'warning', confirmed: 'success', rejected: 'danger' }[s] as 'warning' | 'success' | 'danger'
+// 时间线节点/状态标签颜色：待确认 warning、已驳回 danger、已确认默认色（不传 type）
+function confirmStatusType(s: ConfirmStatus): 'warning' | 'danger' | undefined {
+  if (s === 'pending') return 'warning'
+  if (s === 'rejected') return 'danger'
+  return undefined
 }
 
 // ===== 新增/编辑 =====
@@ -818,7 +821,8 @@ async function fetchHistory() {
   historyLoading.value = true
   try {
     const d = await listMaintenanceHistory(historyTarget.value.id, historyQuery)
-    historyList.value = d.list
+    // 事件时间线按维保日期倒序
+    historyList.value = [...d.list].sort((a, b) => b.maintenance_date.localeCompare(a.maintenance_date))
     historyTotal.value = d.total
   } finally {
     historyLoading.value = false

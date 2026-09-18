@@ -30,6 +30,14 @@
             <el-tag :type="row.required ? 'success' : 'info'" size="small">{{ row.required ? '必检' : '选检' }}</el-tag>
           </template>
         </el-table-column>
+        <el-table-column label="观察点" min-width="160">
+          <template #default="{ row }">
+            <template v-if="row.tags?.length">
+              <el-tag v-for="t in row.tags" :key="t" size="small" class="tag-chip">{{ t }}</el-tag>
+            </template>
+            <span v-else class="text-secondary">—</span>
+          </template>
+        </el-table-column>
         <el-table-column label="拍照要求" width="100" align="center">
           <template #default="{ row }">
             <el-tag :type="photoTagType(row.photo_required)" size="small" effect="plain">{{ photoLabel(row.photo_required) }}</el-tag>
@@ -106,6 +114,33 @@
         <!-- state/indicator：期望状态 → judge_config {expected} -->
         <el-form-item v-if="form.judge_type === 'state' || form.judge_type === 'indicator'" label="期望状态">
           <el-input v-model="form.cfg_expected" placeholder="如：阀门处于开启状态 / 指示灯为绿色常亮" maxlength="64" />
+        </el-form-item>
+        <!-- 观察点标签：细分观察点随项保存（服务端 trim/去重/限 20 个每个≤30 字） -->
+        <el-form-item label="观察点标签">
+          <div class="tags-editor">
+            <template v-if="form.tags.length">
+              <el-tag
+                v-for="(t, i) in form.tags"
+                :key="t"
+                closable
+                size="small"
+                class="tag-chip"
+                @close="form.tags.splice(i, 1)"
+              >{{ t }}</el-tag>
+            </template>
+            <div class="tags-input-row">
+              <el-input
+                v-model="tagInput"
+                placeholder="如：水带在位"
+                maxlength="30"
+                clearable
+                style="width: 220px"
+                @keyup.enter.prevent="addTag"
+              />
+              <el-button :disabled="!tagInput.trim() || form.tags.length >= 20" @click="addTag">添加</el-button>
+            </div>
+            <div class="text-secondary tags-hint">细分观察点（可多个），每项仍只拍 1 张照片；最多 20 个，每个不超过 30 字</div>
+          </div>
         </el-form-item>
         <el-form-item label="排序号">
           <el-input-number v-model="form.sort" :min="0" :max="9999" controls-position="right" />
@@ -224,9 +259,32 @@ const form = reactive({
   cfg_min: null as number | null,
   cfg_max: null as number | null,
   cfg_expected: '',
+  tags: [] as string[],
   // null 表示缺省：新增追加到末尾
   sort: null as number | null
 })
+
+// 观察点标签输入（回车/按钮添加；前端预校验，服务端兜底 trim/去重/限量）
+const tagInput = ref('')
+
+function addTag() {
+  const t = tagInput.value.trim()
+  if (!t) return
+  if (t.length > 30) {
+    ElMessage.warning('单个标签不超过 30 字')
+    return
+  }
+  if (form.tags.includes(t)) {
+    ElMessage.warning('标签已存在')
+    return
+  }
+  if (form.tags.length >= 20) {
+    ElMessage.warning('最多 20 个标签')
+    return
+  }
+  form.tags.push(t)
+  tagInput.value = ''
+}
 
 // 组装 judge_config：metric → {metric,unit,min,max}；state/indicator → {expected}；其余置空
 function buildJudgeConfig(): JudgeConfig {
@@ -259,6 +317,7 @@ const formRules: FormRules = {
 
 function openForm(row?: TemplateItemRow) {
   formRef.value?.clearValidate()
+  tagInput.value = ''
   if (row) {
     Object.assign(form, {
       id: row.id,
@@ -267,11 +326,12 @@ function openForm(row?: TemplateItemRow) {
       required: row.required,
       photo_required: row.photo_required || 'none',
       judge_type: row.judge_type || 'general',
+      tags: [...(row.tags || [])],
       sort: row.sort
     })
     fillJudgeConfig(row.judge_config ?? null)
   } else {
-    Object.assign(form, { id: '', name: '', requirement: '', required: true, photo_required: 'none', judge_type: 'general', sort: null })
+    Object.assign(form, { id: '', name: '', requirement: '', required: true, photo_required: 'none', judge_type: 'general', tags: [], sort: null })
     fillJudgeConfig(null)
   }
   formVisible.value = true
@@ -286,6 +346,7 @@ async function handleSubmit() {
     photo_required: form.photo_required,
     judge_type: form.judge_type,
     judge_config: buildJudgeConfig(),
+    tags: form.tags,
     ...(form.sort === null ? {} : { sort: form.sort })
   }
   submitting.value = true
@@ -353,5 +414,28 @@ async function handleDelete(row: TemplateItemRow) {
 .range-sep {
   margin: 0 $spacing-sm;
   color: $color-text-secondary;
+}
+
+.tags-editor {
+  width: 100%;
+
+  .tag-chip {
+    margin-right: $spacing-sm;
+    margin-bottom: $spacing-xs;
+  }
+
+  .tags-input-row {
+    display: flex;
+    gap: $spacing-sm;
+  }
+
+  .tags-hint {
+    font-size: 12px;
+    line-height: 1.4;
+  }
+}
+
+.tag-chip {
+  margin-right: $spacing-xs;
 }
 </style>

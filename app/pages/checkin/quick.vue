@@ -89,6 +89,7 @@
           @spot-field="onSpotField"
           @spot-confirm="confirmSpot"
           @retry-upload="retryCurUpload"
+          @toggle-tag="toggleCurTag"
         />
       </block>
 
@@ -323,12 +324,14 @@ function fmtDateTime(d: Date): string {
 }
 
 /** 由点位模板生成向导项初始状态（台账有效期项按服务端 auto_judge 预置结论，巡检员不可改） */
-function freshItem(name: string, requirement: string, judgeType: string, autoJudge: EquipmentAutoJudge | null): WizardItemSnap {
+function freshItem(name: string, requirement: string, judgeType: string, autoJudge: EquipmentAutoJudge | null, tags: string[]): WizardItemSnap {
   const it: WizardItemSnap = {
     name: name,
     requirement: requirement,
     judge_type: judgeType,
     auto_judge: autoJudge,
+    tags: tags,
+    abnormal_tags: [],
     photos: [],
     file_ids: [],
     exception_type: '',
@@ -376,7 +379,7 @@ function freshPoint(p: TaskPoint): WizardPointSnap {
     status: 'doing',
     scannedNo: '',
     nfcCardId: '',
-    items: (p.check_items || []).map((c) => freshItem(c.name, c.requirement, c.judge_type, c.auto_judge ?? null))
+    items: (p.check_items || []).map((c) => freshItem(c.name, c.requirement, c.judge_type, c.auto_judge ?? null, c.tags ?? []))
   }
 }
 
@@ -523,7 +526,7 @@ export default {
       for (let i = 0; i < wp.items.length; i++) {
         const it = wp.items[i]
         if (it.status == 'recognizing') r.recognizing += 1
-        else if (it.verdict == 'abnormal') r.abnormal += 1
+        else if (it.verdict == 'abnormal' || it.abnormal_tags.length > 0) r.abnormal += 1
         else r.done += 1
       }
       return r
@@ -751,6 +754,7 @@ export default {
               if (it == null) return
               if (it.judge_type == 'manual') {
                 // 感官项：恢复手动选择结果（台账有效期合成项无草稿，每次按服务端最新判定重建）
+                it.abnormal_tags = (d.abnormal_tags ?? []).filter((t) => it.tags.indexOf(t) >= 0)
                 if (d.manual_pass == null) return
                 it.pass = d.manual_pass
                 it.note = d.manual_pass ? '' : d.manual_note
@@ -776,19 +780,21 @@ export default {
                 }
                 return
               }
-              // 拍照项：照片 + AI 识别结论
+              // 拍照项：照片 + AI 识别结论（异常观察点 tag 随草稿恢复）
               it.file_ids = d.file_ids.slice()
               it.exception_type = d.exception_type ?? ''
               it.photos = d.photos.slice()
               it.job_id = d.job_id
               it.img_error = false
+              it.abnormal_tags = (d.abnormal_tags ?? []).filter((t) => it.tags.indexOf(t) >= 0)
               if (d.ai_status == 'done') {
                 this.applyJob(it, {
                   verdict: d.ai_verdict,
                   reason: d.ai_reason,
                   reading: d.ai_reading,
                   quality_pass: d.quality_pass,
-                  quality_issue: d.quality_issue
+                  quality_issue: d.quality_issue,
+                  abnormal_tags: d.abnormal_tags ?? []
                 })
               } else if (d.ai_status == 'pending') {
                 it.status = 'recognizing'
@@ -1155,6 +1161,8 @@ export default {
       it.exception_type = mode == 'escape' ? exceptionType : ''
       it.file_id = fileId
       it.job_id = jobId
+      // 新照片 = 重新判定：异常观察点 tag 重置为全正常（AI 结果回来后按 abnormal_tags 再预标记）
+      it.abnormal_tags = []
       if (mode == 'escape') {
         it.status = 'done'
         it.verdict = 'abnormal'
@@ -1433,6 +1441,14 @@ export default {
         }
       })
     },
+    /** 观察点 tag 点选切换：默认全部正常，点选标红为异常（再点恢复）；非空即该项判异常 */
+    toggleCurTag(tag: string) {
+      const it = this.curItem
+      if (it == null || it.tags.indexOf(tag) < 0) return
+      const i = it.abnormal_tags.indexOf(tag)
+      if (i >= 0) it.abnormal_tags.splice(i, 1)
+      else it.abnormal_tags.push(tag)
+    },
     /** 感官项：正常一次过 */
     tapManualOk() {
       const it = this.curItem
@@ -1655,16 +1671,18 @@ export default {
         this.pollTimer = null
       }
     },
-    /** job 落定：写回识别结论；abnormal 预填描述 */
-    applyJob(it: WizardItemSnap, j: { verdict: string; reason: string; reading: string; quality_pass: boolean; quality_issue: string }) {
+    /** job 落定：写回识别结论；abnormal 预填描述；AI 判出的异常观察点 tag 预标记（用户可手动取消） */
+    applyJob(it: WizardItemSnap, j: { verdict: string; reason: string; reading: string; quality_pass: boolean; quality_issue: string; abnormal_tags?: string[] }) {
       it.status = 'done'
       it.verdict = j.verdict
       it.reason = j.reason
       it.reading = j.reading
       it.quality_pass = j.quality_pass
       it.quality_issue = j.quality_issue
-      it.pass = j.verdict != 'abnormal'
-      if (j.verdict == 'abnormal' && it.note == '') it.note = j.reason
+      it.abnormal_tags = (j.abnormal_tags ?? []).filter((t) => it.tags.indexOf(t) >= 0)
+      // 异常 tag 非空即该项判异常（与服务端强制口径一致）
+      it.pass = j.verdict != 'abnormal' && it.abnormal_tags.length == 0
+      if (!it.pass && it.note == '') it.note = j.reason
     },
     /** 该项回到待拍状态（job 过期/失败） */
     resetItem(it: WizardItemSnap) {
@@ -1678,6 +1696,7 @@ export default {
       it.quality_pass = true
       it.quality_issue = ''
       it.img_error = false
+      it.abnormal_tags = []
     },
     /** 汇总分流：补拍 > 异常确认 > 全过直接提交 */
     routePointResult() {
@@ -1698,15 +1717,18 @@ export default {
       wp.items.forEach((it, i) => {
         // 台账有效期/抽查合成项：服务端判定（逾期/不符记录级转人工），不参与向导的补拍/异常分流
         if (it.judge_type == 'equipment_validity' || it.judge_type == 'equipment_date_spot') return
+        // 异常观察点 tag 非空即该项判异常（服务端同口径强制）；无描述时以 tag 列表预填
+        const tagAbn = it.abnormal_tags.length > 0
+        if (tagAbn && it.note == '') it.note = '异常观察点：' + it.abnormal_tags.join('、')
         if (it.judge_type != 'manual') {
           // 拍照项：未拍 / 识别失败 / 质量不合格 → 补拍
           if (it.status == 'todo' || it.status == 'failed' || (it.status == 'done' && !it.quality_pass)) {
             retake.push(i)
             return
           }
-          if (it.status == 'done' && it.verdict == 'abnormal') abnormal.push(i)
-        } else if (!it.pass) {
-          // 感官项：巡检员手选异常
+          if (it.status == 'done' && (it.verdict == 'abnormal' || tagAbn)) abnormal.push(i)
+        } else if (!it.pass || tagAbn) {
+          // 感官项：巡检员手选异常或点选了异常观察点 tag
           abnormal.push(i)
         }
       })
@@ -1834,6 +1856,7 @@ export default {
           spot_maintenance_date: isSpot ? it.spot_maint : undefined,
           spot_no_sticker: isSpot ? it.spot_no_sticker : undefined,
           spot_label_missing: isSpot ? it.spot_label_missing : undefined,
+          abnormal_tags: it.abnormal_tags.length > 0 ? it.abnormal_tags.slice() : undefined,
           disposition: disp != '' ? disp : undefined,
           resolution_file_ids: disp == 'on_site_resolved' && it.res_file_ids != null ? it.res_file_ids.slice() : undefined,
           resolution_note: disp == 'on_site_resolved' && it.note != '' ? it.note : undefined
@@ -1919,6 +1942,8 @@ export default {
           wp.items.forEach((it) => {
             const found = items.find((x) => x.name == it.name)
             if (found == null) return
+            // 异常观察点 tag 随上次结论回填（修改模式重新拍照后会被重置，重新由 AI/人工标记）
+            it.abnormal_tags = (found.abnormal_tags ?? []).filter((t) => it.tags.indexOf(t) >= 0)
             if (it.judge_type == 'manual') {
               // 感官项可直接回填结论
               it.pass = found.pass

@@ -105,6 +105,8 @@ export type CheckItemTpl = {
   template_id?: string
   /** 来源模板名（与 template_id 对应，展示/排查用） */
   template_name?: string
+  /** 观察点 tag 数组（空=无观察点；提交时 abnormal_tags 须 ⊆ tags，非空即该项判异常） */
+  tags?: string[]
 }
 
 /** 任务明细点位（含我的打卡状态） */
@@ -240,7 +242,7 @@ type RawTaskDetail = {
     latitude?: number
     fence_radius?: number
     photo_mode?: string
-    check_items?: Array<{ name?: string; requirement?: string; photo_required?: string; judge_type?: string; judge_config?: Record<string, any> | null; auto_judge?: EquipmentAutoJudge | null; template_id?: string | number; template_name?: string }>
+    check_items?: Array<{ name?: string; requirement?: string; photo_required?: string; judge_type?: string; judge_config?: Record<string, any> | null; auto_judge?: EquipmentAutoJudge | null; template_id?: string | number; template_name?: string; tags?: string[] }>
     my_checkin?: {
       id?: string | number
       checkin_time?: string
@@ -378,7 +380,8 @@ export function apiTaskDetail(id: string): Promise<TaskDetail> {
               judge_config: c.judge_config ?? null,
               auto_judge: c.auto_judge ?? null,
               template_id: toId(c.template_id),
-              template_name: c.template_name ?? ''
+              template_name: c.template_name ?? '',
+              tags: c.tags ?? []
             })),
             my_checkin: p.my_checkin == null
               ? null

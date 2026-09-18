@@ -118,6 +118,17 @@
               >异常</text>
             </view>
           </view>
+          <!-- 观察点 tag：默认全部正常（绿描边），点选异常（红实心）；有异常 tag 自动判该项不合格 -->
+          <view v-if="it.tags.length > 0 && !isEquipAuto(it)" class="tag-row">
+            <text
+              v-for="(t, ti) in it.tags"
+              :key="ti"
+              class="tag-chip"
+              :style="it.abnormal_tags.indexOf(t) >= 0 ? { color: colors.white, backgroundColor: colors.danger, borderColor: colors.danger } : { color: colors.success, borderColor: colors.success }"
+              @click="toggleTag(it, t)"
+            >{{ it.abnormal_tags.indexOf(t) >= 0 ? '✕ ' + t : t }}</text>
+          </view>
+          <text v-if="it.tags.length > 0 && !isEquipAuto(it)" class="tag-hint" :style="{ color: colors.textSecondary }">观察点默认正常，异常的点一下标红</text>
           <!-- 标签抽查合成项（v1.7）：必拍 1 张 + 生产日期/维修日期（服务端四规则比对，结论由服务端给出） -->
           <view v-if="isEquipSpot(it)" class="spot-block" :style="{ borderColor: colors.border }">
             <!-- 命中抽检明示条：主题色浅底，提示补拍压力表/日期标签近照 -->
@@ -326,6 +337,10 @@ type ItemView = {
   photo_required: string
   pass: boolean
   note: string
+  /** 观察点 tag 数组（模板透出；空=无观察点） */
+  tags: string[]
+  /** 点选/AI 判出的异常观察点 tag（⊆ tags；非空即该项判异常） */
+  abnormal_tags: string[]
   /** 水印烧录后的本地路径，提交时上传换 file_id */
   photos: string[]
   /** 判定方式（equipment_validity=台账有效期：服务端自动判定，UI 只读展示） */
@@ -369,6 +384,8 @@ type FormDraftItem = {
   spot_maint: string
   spot_no_sticker: boolean
   spot_label_missing: boolean
+  /** 异常观察点 tag（草稿恢复勾选态用） */
+  abnormal_tags?: string[]
 }
 
 /** 草稿整体：逐项 + 整单备注 + 保存时间 */
@@ -381,6 +398,11 @@ type FormDraft = {
 /** 标签抽查合成项（v1.7：触发才出现；必拍+填日期，服务端四规则比对） */
 function isEquipSpot(it: ItemView): boolean {
   return it.judge_type == 'equipment_date_spot'
+}
+
+/** 异常观察点 tag 的默认异常说明（无描述时预填，可编辑） */
+function tagNote(it: ItemView): string {
+  return '异常观察点：' + it.abnormal_tags.join('、')
 }
 
 /** 台账有效期项「拍新标签」入口：逾期/缺数据（或后端仍下发展示登记入口）时才出现 */
@@ -410,6 +432,7 @@ function toCheckinPayload(it: ItemView, photoIds: string[], resIds: string[]): C
     spot_maintenance_date: spot ? it.spot_maint : undefined,
     spot_no_sticker: spot ? it.spot_no_sticker : undefined,
     spot_label_missing: spot ? it.spot_label_missing : undefined,
+    abnormal_tags: it.abnormal_tags.length > 0 ? it.abnormal_tags.slice() : undefined,
     disposition: disp != '' ? disp : undefined,
     resolution_file_ids: disp == 'on_site_resolved' && resIds.length > 0 ? resIds : undefined,
     resolution_note: disp == 'on_site_resolved' && it.note.trim() != '' ? it.note.trim() : undefined
@@ -663,6 +686,8 @@ export default {
               photo_required: c.photo_required,
               pass: true,
               note: '',
+              tags: c.tags ?? [],
+              abnormal_tags: [],
               photos: [],
               judge_type: c.judge_type,
               auto_judge: c.auto_judge ?? null,
@@ -747,7 +772,8 @@ export default {
           spot_mfg: it.spot_mfg,
           spot_maint: it.spot_maint,
           spot_no_sticker: it.spot_no_sticker,
-          spot_label_missing: it.spot_label_missing
+          spot_label_missing: it.spot_label_missing,
+          abnormal_tags: it.abnormal_tags.slice()
         }))
       }
       try {
@@ -792,6 +818,12 @@ export default {
         it.pass = d.pass !== false
         it.note = typeof d.note == 'string' ? d.note : ''
         it.disposition = d.disposition == 'on_site_resolved' || d.disposition == 'report_pending' ? d.disposition : ''
+        // 异常观察点 tag 勾选态恢复（⊆ 模板 tags）；非空强制该项不合格（与提交口径一致）
+        it.abnormal_tags = Array.isArray(d.abnormal_tags) ? d.abnormal_tags.filter((t) => it.tags.indexOf(t) >= 0) : []
+        if (it.abnormal_tags.length > 0) {
+          it.pass = false
+          if (it.disposition == '') it.disposition = 'report_pending'
+        }
         if (isEquipSpot(it)) {
           it.spot_mfg = typeof d.spot_mfg == 'string' ? d.spot_mfg : ''
           it.spot_maint = typeof d.spot_maint == 'string' ? d.spot_maint : ''
@@ -867,12 +899,28 @@ export default {
       it.pass = pass
       // 人工改判后「AI 未识别」标记失效
       it.ai_unrecognized = false
-      // 改回正常时清掉处置选择与处置照片，避免误带旧凭证
+      // 改回正常时清掉异常观察点 tag、处置选择与处置照片，避免误带旧凭证
       if (pass) {
+        it.abnormal_tags = []
         it.disposition = ''
         it.res_photos = []
       } else if (it.disposition == '') {
         it.disposition = 'report_pending'
+      }
+    },
+    /** 观察点 tag 点选切换：默认全部正常，点选标红为异常；有异常 tag 自动判不合格，取消全部恢复合格 */
+    toggleTag(it: ItemView, tag: string) {
+      if (isEquipAuto(it) || it.tags.indexOf(tag) < 0) return
+      const i = it.abnormal_tags.indexOf(tag)
+      if (i >= 0) it.abnormal_tags.splice(i, 1)
+      else it.abnormal_tags.push(tag)
+      const idx = this.items.indexOf(it)
+      if (idx < 0) return
+      if (it.abnormal_tags.length > 0) {
+        this.setPass(idx, false)
+        if (it.note.trim() == '') it.note = tagNote(it)
+      } else {
+        this.setPass(idx, true)
       }
     },
     /** 异常项处置方式切换：改回「上报待处理」时清掉已拍处置照片；选「现场已处理」时清掉该项照片（处置照片即凭证，避免重复存储） */
@@ -902,6 +950,7 @@ export default {
         it.disposition = ''
         it.res_photos = []
         it.ai_unrecognized = false
+        it.abnormal_tags = []
       })
       const needPhoto = !this.isGroupMode && this.items.some((it) => !isEquipAuto(it) && it.photo_required == 'required' && it.photos.length == 0)
       if (needPhoto) {
@@ -1090,7 +1139,10 @@ export default {
         if (isEquipSpot(it)) return // 抽检项结论由标签比对得出，整组识别不回填
         if (r.result == 'abnormal') {
           this.setPass(idx, false)
+          // AI 判出的异常观察点 tag 预标记（⊆ 模板 tags，用户可手动取消）
+          it.abnormal_tags = (r.abnormal_tags ?? []).filter((t) => it.tags.indexOf(t) >= 0)
           if ((r.reason || '') != '') it.note = r.reason || ''
+          else if (it.abnormal_tags.length > 0 && it.note.trim() == '') it.note = tagNote(it)
         } else if (r.result == 'unrecognized') {
           this.setPass(idx, true)
           it.ai_unrecognized = true
@@ -1532,6 +1584,29 @@ export default {
   padding: 10rpx 24rpx;
   border-radius: 12rpx;
   margin-left: 12rpx;
+}
+
+/* 观察点 tag chips：默认正常绿描边，点选异常红实心 */
+.tag-row {
+  flex-direction: row;
+  flex-wrap: wrap;
+  margin-top: 16rpx;
+}
+
+.tag-chip {
+  font-size: 26rpx;
+  font-weight: 600;
+  border-width: 2rpx;
+  border-style: solid;
+  border-radius: 999rpx;
+  padding: 10rpx 24rpx;
+  margin-right: 16rpx;
+  margin-bottom: 12rpx;
+}
+
+.tag-hint {
+  font-size: 22rpx;
+  margin-top: 4rpx;
 }
 
 /* 标签抽查项 */

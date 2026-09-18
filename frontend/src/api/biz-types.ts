@@ -79,6 +79,8 @@ export interface TemplateCheckItem {
   requirement?: string
   // 拍照要求：none 无需 / optional 选拍 / required 必拍（缺省 none）
   photo_required?: PhotoRequired
+  // 观察点标签（细分观察点，如"水带在位"；服务端 trim/去重/限 20 个每个≤30 字）
+  tags?: string[]
 }
 
 export interface TemplateItem {
@@ -370,6 +372,9 @@ export interface CheckinCheckItem {
   // 打卡当时的判定类型快照
   judge_type?: string
   judge_config?: Record<string, unknown> | null
+  // 观察点标签快照及本次判定为异常的标签子集
+  tags?: string[]
+  abnormal_tags?: string[]
   // 异常项处置方式（''=未处置；打卡巡检×设备维保融合）
   disposition?: '' | 'on_site_resolved' | 'maintenance_registered' | 'report_pending'
   // 处置照片 URL 列表（file_id 已转 url）

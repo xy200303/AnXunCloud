@@ -15,7 +15,6 @@ type TemplateListQuery struct {
 type TemplateSaveReq struct {
 	Name      string `json:"name" binding:"required"`
 	PointType string `json:"point_type"` // 空为通用模板
-	PhotoMode string `json:"photo_mode"` // group=整组 1 张拍照一次 AI 识别多项（缺省）/per_item=逐项拍照；非法值归一 group
 	Sort      int    `json:"sort"`
 	Status    *int   `json:"status"`
 	Remark    string `json:"remark"`
@@ -33,6 +32,8 @@ type TemplateItemSaveReq struct {
 	JudgeConfig map[string]any `json:"judge_config"`
 	// Tags 观察点 tag 数组（一项一张照片，tag 不带图；服务端 trim/去重/限量）
 	Tags []string `json:"tags"`
+	// Guide 拍照引导语（可空；巡检员视角拍摄指引，服务端 trim 限 200 字；不进打卡快照）
+	Guide string `json:"guide"`
 	// Sort 排序号；新增时缺省（nil）追加到末尾，修改时缺省保持不变
 	Sort *int `json:"sort"`
 }

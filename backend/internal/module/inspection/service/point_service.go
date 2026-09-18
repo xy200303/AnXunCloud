@@ -921,7 +921,7 @@ func (s *PointService) Import(c *gin.Context, r io.Reader) (*dto.PointImportResu
 		commText, buildingText, name := cell(0), cell(1), cell(2)
 		typeText, tplText, nfcID := cell(3), cell(4), cell(5)
 		lonText, latText, radiusText, modeText := cell(6), cell(7), cell(8), cell(9)
-		statusText, remark := cell(11), cell(12) // cell(10) 原为必拍项列（v21 起废除，必拍由模板项推导，忽略该列）
+		statusText, remark := cell(10), cell(11)
 
 		fail := func(reason string) {
 			result.FailDetails = append(result.FailDetails, dto.PointImportFail{Row: rowNums[i], Name: name, Reason: reason})

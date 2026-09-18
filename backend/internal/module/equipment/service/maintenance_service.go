@@ -112,7 +112,7 @@ func (s *MaintenanceService) Register(c *gin.Context, req *dto.MaintenanceRegist
 		return "", false, errs.ErrParam.WithMsg("maintenance_type 取值非法（repair/maintain/inspect/replace/ledger_fix）")
 	}
 	// 维保日期：缺省今天（巡检员可改为标签上的实际日期）
-	maintDate := truncateDay(time.Now())
+	maintDate := timefmt.Day(time.Now())
 	if strings.TrimSpace(req.MaintenanceDate) != "" {
 		d, be := parseDate(req.MaintenanceDate)
 		if be != nil {
@@ -597,7 +597,7 @@ func ApplyLedgerWriteback(tx *gorm.DB, m *model.EquipmentMaintenance, e *model.E
 			updates["manufacture_date"] = *manufacture
 			e.ManufactureDate = manufacture
 		}
-	} else if e.LastMaintenanceDate != nil && !truncateDay(*e.LastMaintenanceDate).Before(truncateDay(*lastMaint)) {
+	} else if e.LastMaintenanceDate != nil && !timefmt.Day(*e.LastMaintenanceDate).Before(timefmt.Day(*lastMaint)) {
 		return true, nil
 	}
 	updates["last_maintenance_date"] = *lastMaint
@@ -844,7 +844,7 @@ func (s *MaintenanceService) toMaintenanceItems(rows []model.EquipmentMaintenanc
 			"photos":         photos,
 			"confirm_status": m.ConfirmStatus, "reject_reason": m.RejectReason,
 			"label_missing": m.LabelMissing,
-			"ai_verdict": m.AIVerdict, "ai_reason": m.AIReason,
+			"ai_verdict":    m.AIVerdict, "ai_reason": m.AIReason,
 			"created_by": m.CreatedBy, "created_by_name": userNames[m.CreatedBy],
 			"created_at": timefmt.T(m.CreatedAt),
 		}
@@ -1014,7 +1014,7 @@ func (s *MaintenanceService) DueDevices(c *gin.Context) ([]gin.H, *errs.Error) {
 		return nil, be
 	}
 	globalWarn := cfgInt(s.db, "equipment.expire_warn_days", 30)
-	today := truncateDay(time.Now())
+	today := timefmt.Day(time.Now())
 	db := s.db.Model(&model.Equipment{}).
 		Where("status = ? AND label_missing = ?", model.StatusInService, false).
 		Where("(next_due_date IS NOT NULL AND next_due_date <= ?::date + COALESCE(warn_days, ?)) OR (scrap_date IS NOT NULL AND scrap_date <= ?)",
@@ -1042,7 +1042,7 @@ func (s *MaintenanceService) DueDevices(c *gin.Context) ([]gin.H, *errs.Error) {
 	items := NewEquipmentService(s.db).toItems(rows)
 	for i := range rows {
 		if rows[i].NextDueDate != nil {
-			items[i]["overdue_days"] = int(today.Sub(truncateDay(*rows[i].NextDueDate)).Hours() / 24)
+			items[i]["overdue_days"] = int(today.Sub(timefmt.Day(*rows[i].NextDueDate)).Hours() / 24)
 		}
 	}
 	return items, nil

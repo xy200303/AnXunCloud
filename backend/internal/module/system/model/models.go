@@ -226,7 +226,6 @@ func (Community) TableName() string { return "community" }
 const (
 	PostProjectManager = "project_manager" // 项目经理（每项目至多一人，保存时校验）
 	PostInspector      = "inspector"       // 巡检员
-	PostRepairman      = "repairman"       // 维修工
 )
 
 // 岗位业务线（post_dict.line，扁平结构 + 按业务线分组展示，不做 parent_id 树）
@@ -268,7 +267,7 @@ const (
 	FlowMaintReview   = "maint_review"   // 维保登记审核链（与打卡链同一引擎：AI 闸门 + 人工环节 + 空流程默认生效）
 )
 
-// 审批链环节类型（FlowStep.Kind；''=人工环节）
+// 审批链环节类型（FlowStep.Kind；”=人工环节）
 const (
 	FlowStepKindAI = "ai" // AI 闸门环节：按审核结果路由（OnPass/OnFail）
 )

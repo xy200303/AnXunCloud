@@ -277,20 +277,6 @@ func (s *SignAssetService) ActiveSignature(userID string) (fileID, assetID strin
 	return a.FileID, a.ID
 }
 
-// ActiveSealID 指定租户当前 active 公章 file_id（tenantID 为空或无 active 公章返回空串）。
-func (s *SignAssetService) ActiveSealID(tenantID *string) string {
-	if tenantID == nil || *tenantID == "" {
-		return ""
-	}
-	var a model.SignAsset
-	if err := s.db.Select("file_id").
-		Where("tenant_id = ? AND asset_type = ? AND status = ?", *tenantID, model.SignAssetTypeCompanySeal, model.SignAssetStatusActive).
-		First(&a).Error; err != nil {
-		return ""
-	}
-	return a.FileID
-}
-
 // sha256Of 计算文件内容 SHA-256（hex）；读取失败容错空串并告警。
 func (s *SignAssetService) sha256Of(fileKey string) string {
 	data, err := s.readFile(fileKey)

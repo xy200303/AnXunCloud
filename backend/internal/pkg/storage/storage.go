@@ -271,9 +271,3 @@ func (s *Storage) CallbackURL() string { return s.baseURL + "/api/mp/upload/call
 
 // BaseURL 对外访问基础地址。
 func (s *Storage) BaseURL() string { return s.baseURL }
-
-// OSSWatermarkProcess 生成 OSS 图片水印处理参数（oss 模式打卡照片用）。
-func (s *Storage) OSSWatermarkProcess(text string) string {
-	encoded := base64.URLEncoding.EncodeToString([]byte(text))
-	return fmt.Sprintf("image/watermark,text_%s,size_20,color_ffffff,shadow_50,t_70,g_se,x_16,y_16", encoded)
-}

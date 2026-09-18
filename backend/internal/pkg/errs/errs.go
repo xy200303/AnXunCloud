@@ -66,7 +66,6 @@ var (
 	ErrSelfOperation     = New(41006, http.StatusConflict, "不能停用/删除当前登录账号")
 	ErrBuiltin           = New(41007, http.StatusConflict, "内置角色/菜单不可删除")
 	ErrPhoneExists       = New(41008, http.StatusConflict, "手机号已存在")
-	ErrRoleNotExist      = New(41009, http.StatusBadRequest, "角色不存在")
 	ErrCommunityNotExist = New(41010, http.StatusBadRequest, "小区不存在")
 	ErrImportFileType    = New(41011, http.StatusBadRequest, "导入文件格式错误（仅支持 .xlsx）")
 	ErrImportEmpty       = New(41012, http.StatusBadRequest, "导入文件为空或无有效数据行")
@@ -84,7 +83,6 @@ var (
 
 // 43xxx 点位/计划/任务
 var (
-	ErrQRCodeExists     = New(43001, http.StatusConflict, "二维码编号已存在")
 	ErrPointReferenced  = New(43002, http.StatusConflict, "点位已被巡检计划引用，不可删除")
 	ErrPlanCycleInvalid = New(43003, http.StatusBadRequest, "计划周期配置非法")
 	ErrPlanDateInvalid  = New(43004, http.StatusBadRequest, "计划日期范围非法")
@@ -103,17 +101,10 @@ var (
 	ErrCheckinLocked    = New(43109, http.StatusConflict, "该点位已归档报告，不可修改")
 )
 
-// 45xxx 统计与导出
-var (
-	ErrExportNotFound = New(45001, http.StatusNotFound, "导出任务不存在")
-	ErrExportExpired  = New(45002, http.StatusGone, "导出文件已过期")
-)
-
 // 47xxx 月度报告
 var (
 	ErrReportStatusNotAllowed     = New(47001, http.StatusConflict, "报告当前状态不允许该操作")
 	ErrReportApproved             = New(47002, http.StatusConflict, "已终审归档的报告不可重算")
-	ErrReportNotInspector         = New(47003, http.StatusForbidden, "当前用户不在应确认巡检员名单内")
 	ErrReportAlreadySigned        = New(47004, http.StatusConflict, "当前用户已确认过该报告")
 	ErrReportRejectReasonRequired = New(47005, http.StatusBadRequest, "驳回必须填写驳回原因")
 	ErrReportNotSigner            = New(47007, http.StatusForbidden, "当前用户不在该级指定签字人名单内")
@@ -122,10 +113,9 @@ var (
 
 // 46xxx 上传与 OSS
 var (
-	ErrOSSCallbackAuth = New(46001, http.StatusUnauthorized, "OSS 回调验签失败")
-	ErrSTSFailed       = New(46002, http.StatusInternalServerError, "STS 凭证签发失败")
-	ErrUploadType      = New(46003, http.StatusBadRequest, "上传文件类型不支持（仅 jpg/jpeg/png/heic）")
-	ErrUploadTooLarge  = New(46004, http.StatusBadRequest, "文件大小超限（单张 ≤ 20MB）")
+	ErrSTSFailed      = New(46002, http.StatusInternalServerError, "STS 凭证签发失败")
+	ErrUploadType     = New(46003, http.StatusBadRequest, "上传文件类型不支持（仅 jpg/jpeg/png/heic）")
+	ErrUploadTooLarge = New(46004, http.StatusBadRequest, "文件大小超限（单张 ≤ 20MB）")
 )
 
 // 401xx 小程序补充

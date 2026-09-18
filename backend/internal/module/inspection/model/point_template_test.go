@@ -20,11 +20,11 @@ func newPointTemplateTestDB(t *testing.T) *gorm.DB {
 }
 
 // TestLoadPointTemplateSets 多模板并集组装：按关联 sort（组合顺序）+ 项 sort 展开，
-// 每项携模板名/拍照模式；聚合 photo_mode 全部 group 才为 group；无关联点位不出现。
+// 每项携模板名快照；无关联点位不出现。
 func TestLoadPointTemplateSets(t *testing.T) {
 	db := newPointTemplateTestDB(t)
-	t1 := CheckTemplate{Name: "整组模板", PhotoMode: PhotoModeGroup}
-	t2 := CheckTemplate{Name: "逐项模板", PhotoMode: PhotoModePerItem}
+	t1 := CheckTemplate{Name: "模板甲"}
+	t2 := CheckTemplate{Name: "模板乙"}
 	db.Create(&t1)
 	db.Create(&t2)
 	// t1 两项（逆序插入验证按 sort 排序），t2 一项
@@ -45,9 +45,6 @@ func TestLoadPointTemplateSets(t *testing.T) {
 	if len(s1.TemplateIDs) != 2 || s1.TemplateIDs[0] != t2.ID || s1.TemplateIDs[1] != t1.ID {
 		t.Fatalf("p1 TemplateIDs 顺序错误: %v", s1.TemplateIDs)
 	}
-	if s1.PhotoMode != PhotoModePerItem {
-		t.Fatalf("p1 含逐项模板，PhotoMode 应为 per_item，got %s", s1.PhotoMode)
-	}
 	wantNames := []string{"巡检记录表", "消火栓外观", "灭火器压力"}
 	if len(s1.Items) != len(wantNames) {
 		t.Fatalf("p1 并集项数错误: %d", len(s1.Items))
@@ -57,16 +54,16 @@ func TestLoadPointTemplateSets(t *testing.T) {
 			t.Fatalf("p1 项 %d 应为 %s，got %s", i, w, s1.Items[i].Name)
 		}
 	}
-	if s1.Items[0].TemplateName != "逐项模板" || s1.Items[0].PhotoMode != PhotoModePerItem {
+	if s1.Items[0].TemplateName != "模板乙" {
 		t.Fatalf("p1 首项模板快照错误: %+v", s1.Items[0])
 	}
-	if s1.Items[1].TemplateID != t1.ID || s1.Items[1].TemplateName != "整组模板" {
+	if s1.Items[1].TemplateID != t1.ID || s1.Items[1].TemplateName != "模板甲" {
 		t.Fatalf("p1 次项模板快照错误: %+v", s1.Items[1])
 	}
 
 	s2 := sets["p2"]
-	if s2 == nil || s2.PhotoMode != PhotoModeGroup {
-		t.Fatalf("p2 全部模板 group，PhotoMode 应为 group，got %+v", s2)
+	if s2 == nil {
+		t.Fatal("p2 应有模板组合")
 	}
 	if len(s2.Items) != 2 {
 		t.Fatalf("p2 并集项数错误: %d", len(s2.Items))
@@ -74,17 +71,5 @@ func TestLoadPointTemplateSets(t *testing.T) {
 
 	if _, ok := sets["p3"]; ok {
 		t.Fatal("p3 无关联模板，不应出现在结果中")
-	}
-}
-
-// TestNormalizePhotoMode 非法/空值归一 group。
-func TestNormalizePhotoMode(t *testing.T) {
-	if NormalizePhotoMode(PhotoModePerItem) != PhotoModePerItem {
-		t.Fatal("per_item 应原样保留")
-	}
-	for _, v := range []string{"", "group", "bad"} {
-		if NormalizePhotoMode(v) != PhotoModeGroup {
-			t.Fatalf("%q 应归一为 group", v)
-		}
 	}
 }

@@ -22,6 +22,12 @@ func TP(t *time.Time) string {
 	return t.Format(Layout)
 }
 
+// Day 按本地时区截断到日（到期判定/日期入库统一日粒度；收编自各 service 包内重复的 truncateDay）。
+func Day(t time.Time) time.Time {
+	y, m, d := t.In(time.Local).Date()
+	return time.Date(y, m, d, 0, 0, 0, 0, time.Local)
+}
+
 // Parse 解析 YYYY-MM-DD HH:mm:ss。
 func Parse(s string) (time.Time, error) {
 	return time.ParseInLocation(Layout, s, time.Local)

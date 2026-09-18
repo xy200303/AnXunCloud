@@ -276,20 +276,6 @@ func MD5Hex(data []byte) string {
 	return hex.EncodeToString(sum[:])
 }
 
-// FileMD5 计算本地文件 MD5。
-func FileMD5(path string) string {
-	f, err := os.Open(path)
-	if err != nil {
-		return ""
-	}
-	defer f.Close()
-	h := md5.New()
-	if _, err := io.Copy(h, f); err != nil {
-		return ""
-	}
-	return hex.EncodeToString(h.Sum(nil))
-}
-
 // newDriver 按模式装配驱动。
 func newDriver(up config.UploadConfig, oss config.OSSConfig, cos config.COSConfig, baseURL string) Driver {
 	switch up.Mode {

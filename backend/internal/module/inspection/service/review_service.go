@@ -455,12 +455,12 @@ func (s *ReviewService) spotcheckAI(c *gin.Context, req *dto.SpotcheckReq) (gin.
 		switch {
 		case err != nil:
 			updates["ai_verdict"] = model.AIVerdictError
-			updates["ai_reason"] = truncateRunes(err.Error(), 200)
+			updates["ai_reason"] = strutil.Truncate(err.Error(), 200)
 			failed++
 		default:
-			updates["ai_reason"] = truncateRunes(res.Reason, 500)
+			updates["ai_reason"] = strutil.Truncate(res.Reason, 500)
 			updates["ai_quality_pass"] = res.Quality.Pass
-			updates["ai_quality_issue"] = truncateRunes(res.Quality.Issue, 255)
+			updates["ai_quality_issue"] = strutil.Truncate(res.Quality.Issue, 255)
 			writeItemVerdicts(s.db, r.ID, res.Items)
 			if res.Verdict == model.AIVerdictPass {
 				updates["ai_verdict"] = model.AIVerdictPass
@@ -518,14 +518,6 @@ func (s *ReviewService) reviewInputOf(r *model.CheckinRecord) ai.ReviewInput {
 	}
 }
 
-func truncateRunes(s string, n int) string {
-	r := []rune(s)
-	if len(r) > n {
-		return string(r[:n])
-	}
-	return s
-}
-
 // writeItemVerdicts 逐项 AI 结论落库（按 record_id+name 匹配快照行；模型未返回逐项结论时为空不做事）。
 // abnormal_tags 按快照 tags 过滤（模型可能杜撰 tag 名，只认快照内的原名）。
 func writeItemVerdicts(db *gorm.DB, recID string, items []ai.ItemVerdict) {
@@ -540,9 +532,9 @@ func writeItemVerdicts(db *gorm.DB, recID string, items []ai.ItemVerdict) {
 		tagsByName[r.Name] = allow
 	}
 	for _, iv := range items {
-		v, r := iv.Verdict, truncateRunes(iv.Reason, 500)
+		v, r := iv.Verdict, strutil.Truncate(iv.Reason, 500)
 		updates := map[string]any{"ai_verdict": v, "ai_reason": r}
-		if rd := truncateRunes(strings.TrimSpace(iv.Reading), 64); rd != "" {
+		if rd := strutil.Truncate(strings.TrimSpace(iv.Reading), 64); rd != "" {
 			updates["ai_reading"] = rd
 		}
 		if allow, ok := tagsByName[iv.Name]; ok && len(allow) > 0 && len(iv.AbnormalTags) > 0 {

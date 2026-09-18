@@ -15,12 +15,6 @@ func NewID() string {
 	return uuid.Must(uuid.NewV7()).String()
 }
 
-// IsUUIDv7 校验字符串为合法 UUIDv7（客户端打卡幂等 ID 用）。
-func IsUUIDv7(s string) bool {
-	u, err := uuid.Parse(s)
-	return err == nil && u.Version() == 7
-}
-
 // UUIDModel 主键基座：嵌入即获得 uuid 主键 + 应用层 UUIDv7 赋值（BeforeCreate）。
 type UUIDModel struct {
 	ID string `gorm:"type:uuid;primaryKey" json:"id"`
@@ -142,14 +136,6 @@ func (m JSONMap) Ints(key string) []int {
 func (m JSONMap) Int(key string) int {
 	if f, ok := m[key].(float64); ok {
 		return int(f)
-	}
-	return 0
-}
-
-// Float 从 JSONMap 读取浮点字段。
-func (m JSONMap) Float(key string) float64 {
-	if f, ok := m[key].(float64); ok {
-		return f
 	}
 	return 0
 }
@@ -280,7 +266,7 @@ func toBytes(src any) ([]byte, error) {
 }
 
 // FlowStep 审批链环节（approval_flow.steps JSONB；slot 引用职责槽位 code，名单解析复用槽位体系）。
-// Kind：''=人工环节（默认，slot 必填）/ 'ai'=AI 闸门环节（无槽位，按审核结果三分支路由）。
+// Kind：”=人工环节（默认，slot 必填）/ 'ai'=AI 闸门环节（无槽位，按审核结果三分支路由）。
 // OnPass/OnAbnormal/OnReview 仅 AI 环节有效，取值：finish=直接生效 / next=进下一环节 /
 // reject=直接打回（OnPass 不允许）/ goto:N=跳到第 N 环节（1 起，仅可向后跳）。
 // 缺省值保持旧行为：OnPass=finish、OnAbnormal=finish（异常是巡检成果）、OnReview=next（存疑转人工）。

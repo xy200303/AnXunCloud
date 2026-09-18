@@ -35,16 +35,6 @@ func GetInt(db *gorm.DB, key string, def int) int {
 	return def
 }
 
-// GetFloat 读取浮点型系统参数（TrimSpace 后解析；缺失/非法回退默认值）。
-func GetFloat(db *gorm.DB, key string, def float64) float64 {
-	if v, ok := Lookup(db, key); ok {
-		if f, err := strconv.ParseFloat(strings.TrimSpace(v), 64); err == nil {
-			return f
-		}
-	}
-	return def
-}
-
 // GetBool 读取布尔型系统参数（"true"/"false"；缺失/非法回退默认值）。
 func GetBool(db *gorm.DB, key string, def bool) bool {
 	if v, ok := Lookup(db, key); ok {

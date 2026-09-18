@@ -12,11 +12,12 @@ import (
 	"github.com/xuri/excelize/v2"
 
 	"anxuncloud/internal/middleware"
-	insmodel "anxuncloud/internal/module/inspection/model"
 	"anxuncloud/internal/module/equipment/dto"
 	"anxuncloud/internal/module/equipment/model"
+	insmodel "anxuncloud/internal/module/inspection/model"
 	sysmodel "anxuncloud/internal/module/system/model"
 	"anxuncloud/internal/pkg/errs"
+	"anxuncloud/internal/pkg/timefmt"
 	"anxuncloud/internal/pkg/types"
 )
 
@@ -79,7 +80,7 @@ func ParseFlexibleDate(s string) *time.Time {
 	}
 	for _, layout := range layouts {
 		if t, err := time.ParseInLocation(layout, s, time.Local); err == nil {
-			d := truncateDay(t)
+			d := timefmt.Day(t)
 			return &d
 		}
 	}

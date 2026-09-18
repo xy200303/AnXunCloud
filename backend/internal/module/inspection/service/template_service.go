@@ -15,6 +15,7 @@ import (
 	"anxuncloud/internal/pkg/bind"
 	"anxuncloud/internal/pkg/errs"
 	"anxuncloud/internal/pkg/response"
+	"anxuncloud/internal/pkg/strutil"
 	"anxuncloud/internal/pkg/timefmt"
 	"anxuncloud/internal/pkg/types"
 )
@@ -91,8 +92,7 @@ func (s *TemplateService) loadItems(tplIDs []string) map[string][]model.CheckTem
 func templateItem(t *model.CheckTemplate, items []model.CheckTemplateItem) gin.H {
 	return gin.H{
 		"id": t.ID, "name": t.Name, "point_type": t.PointType, "items": templateItemViews(items),
-		"photo_mode": model.NormalizePhotoMode(t.PhotoMode),
-		"sort":       t.Sort, "status": sysmodel.StatusInt(t.Status), "remark": t.Remark,
+		"sort": t.Sort, "status": sysmodel.StatusInt(t.Status), "remark": t.Remark,
 		"created_at": timefmt.T(t.CreatedAt), "updated_at": timefmt.T(t.UpdatedAt),
 	}
 }
@@ -105,7 +105,7 @@ func templateItemViews(items []model.CheckTemplateItem) []gin.H {
 			"name": it.Name, "required": it.Required,
 			"photo_required": it.PhotoRequired, "requirement": it.Requirement,
 			"ai_hint": it.AIHint, "judge_type": it.JudgeType, "judge_config": it.JudgeConfig,
-			"tags": it.Tags,
+			"tags": it.Tags, "guide": it.Guide,
 		})
 	}
 	return out
@@ -120,7 +120,6 @@ func (s *TemplateService) Create(c *gin.Context, req *dto.TemplateSaveReq) (stri
 	t := model.CheckTemplate{
 		Name:      strings.TrimSpace(req.Name),
 		PointType: req.PointType,
-		PhotoMode: model.NormalizePhotoMode(req.PhotoMode),
 		Sort:      req.Sort,
 		Status:    sysmodel.StatusEnabled,
 		Remark:    req.Remark,
@@ -166,8 +165,7 @@ func (s *TemplateService) Update(c *gin.Context, id string, req *dto.TemplateSav
 	}
 	updates := map[string]any{
 		"name": strings.TrimSpace(req.Name), "point_type": req.PointType,
-		"photo_mode": model.NormalizePhotoMode(req.PhotoMode),
-		"sort":       req.Sort, "remark": req.Remark,
+		"sort": req.Sort, "remark": req.Remark,
 	}
 	if req.Status != nil {
 		updates["status"] = sysmodel.StatusStr(*req.Status)
@@ -255,7 +253,7 @@ func itemRowView(it *model.CheckTemplateItem) gin.H {
 	return gin.H{
 		"id": it.ID, "name": it.Name, "requirement": it.Requirement,
 		"ai_hint": it.AIHint, "judge_type": it.JudgeType, "judge_config": it.JudgeConfig,
-		"tags":     it.Tags,
+		"tags": it.Tags, "guide": it.Guide,
 		"required": it.Required, "photo_required": it.PhotoRequired,
 		"sort": it.Sort, "created_at": timefmt.T(it.CreatedAt),
 	}
@@ -316,6 +314,9 @@ func (s *TemplateService) AddItem(c *gin.Context, templateID string, req *dto.Te
 	if h := strings.TrimSpace(req.AIHint); h != "" {
 		row.AIHint = &h
 	}
+	if g := strutil.Truncate(strings.TrimSpace(req.Guide), 200); g != "" {
+		row.Guide = &g
+	}
 	if err := s.db.Create(&row).Error; err != nil {
 		return "", errs.ErrInternal
 	}
@@ -364,6 +365,11 @@ func (s *TemplateService) UpdateItem(c *gin.Context, templateID, itemID string, 
 		updates["requirement"] = r
 	} else {
 		updates["requirement"] = nil
+	}
+	if g := strutil.Truncate(strings.TrimSpace(req.Guide), 200); g != "" {
+		updates["guide"] = g
+	} else {
+		updates["guide"] = nil
 	}
 	if h := strings.TrimSpace(req.AIHint); h != "" {
 		updates["ai_hint"] = h

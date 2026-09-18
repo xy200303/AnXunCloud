@@ -12,6 +12,7 @@ import (
 	"anxuncloud/internal/pkg/configread"
 	"anxuncloud/internal/pkg/logger"
 	"anxuncloud/internal/pkg/notify"
+	"anxuncloud/internal/pkg/timefmt"
 
 	"go.uber.org/zap"
 )
@@ -75,7 +76,7 @@ func (s *ExpireService) ScanExpiring(now time.Time) (int, error) {
 	if len(remindTypes) == 0 {
 		return scrapNotified, nil
 	}
-	today := truncateDay(now)
+	today := timefmt.Day(now)
 	var rows []model.Equipment
 	if err := s.db.
 		// 标签缺失设备退出自动判定与提醒（走经理处置通道）
@@ -102,7 +103,7 @@ func (s *ExpireService) ScanExpiring(now time.Time) (int, error) {
 	notified := 0
 	for i := range rows {
 		e := &rows[i]
-		due := truncateDay(*e.NextDueDate)
+		due := timefmt.Day(*e.NextDueDate)
 		days := int(due.Sub(today).Hours() / 24) // >0 未到期；0 当天；<0 已逾期
 		warn := globalWarn
 		if e.WarnDays != nil && *e.WarnDays > 0 {
@@ -114,7 +115,7 @@ func (s *ExpireService) ScanExpiring(now time.Time) (int, error) {
 		case days >= 0 && days <= warn:
 			// 临期：本周期只提醒一次——周期起点 = 到期日 - warn 天，last_notified_at 早于起点才算未提醒过
 			cycleStart := due.AddDate(0, 0, -warn)
-			if e.LastNotifiedAt != nil && !truncateDay(*e.LastNotifiedAt).Before(cycleStart) {
+			if e.LastNotifiedAt != nil && !timefmt.Day(*e.LastNotifiedAt).Before(cycleStart) {
 				continue
 			}
 			title = "设备维保临期提醒"
@@ -162,7 +163,7 @@ func (s *ExpireService) ScanExpiring(now time.Time) (int, error) {
 // 节奏复用逾期链配置（equipment.overdue_remind_interval_days 间隔重复）；
 // 报废属违规使用风险，提醒同时升级 tenant_admin（督促口径）。标签缺失/非在用设备不参与。
 func (s *ExpireService) scanScrap(now time.Time, intervalDays int) (int, error) {
-	today := truncateDay(now)
+	today := timefmt.Day(now)
 	var rows []model.Equipment
 	if err := s.db.
 		Where("status = ? AND scrap_date IS NOT NULL AND scrap_date <= ? AND tenant_id IS NOT NULL AND label_missing = ?",

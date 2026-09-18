@@ -15,6 +15,7 @@ import (
 	"anxuncloud/internal/pkg/ai"
 	"anxuncloud/internal/pkg/logger"
 	"anxuncloud/internal/pkg/strutil"
+	"anxuncloud/internal/pkg/timefmt"
 	"anxuncloud/internal/pkg/types"
 
 	"go.uber.org/zap"
@@ -135,7 +136,7 @@ func (s *CheckinService) persistCheckinMaintenances(tx *gorm.DB, rec *insmodel.C
 		operatorName = u.Name
 	}
 	rules := eqsvc.NewEquipmentService(tx).TypeRules()
-	today := truncateDayLocal(time.Now())
+	today := timefmt.Day(time.Now())
 	for i := range actions {
 		a := &actions[i]
 		m := eqmodel.EquipmentMaintenance{
@@ -248,10 +249,4 @@ func (s *CheckinService) notifyPendingMaintenances(rec *insmodel.CheckinRecord, 
 			logger.L.Warn("打卡维保待确认通知发送失败", zap.String("maintenance_id", a.maintenanceID), zap.Error(err))
 		}
 	}
-}
-
-// truncateDayLocal 按本地时区截断到日（maintenance_date 入库日粒度，与 equipment 模块 truncateDay 同口径）。
-func truncateDayLocal(t time.Time) time.Time {
-	y, m, d := t.In(time.Local).Date()
-	return time.Date(y, m, d, 0, 0, 0, 0, time.Local)
 }

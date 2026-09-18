@@ -92,8 +92,8 @@ func (s *SiteService) BrandConfigMap() map[string]string {
 	return out
 }
 
-// ReleaseFileKey 发布物 file_id → 存储路径（统一文件 ID 口径；未登记返回 false）。
-func (s *SiteService) ReleaseFileKey(rel *model.AppRelease) (string, bool) {
+// ReleaseStorageKey 发布物 file_id → 存储键（统一文件 ID 口径；未登记返回 false）。
+func (s *SiteService) ReleaseStorageKey(rel *model.AppRelease) (string, bool) {
 	f, err := uploadfile.ByID(s.db, rel.FileID)
 	if err != nil {
 		return "", false

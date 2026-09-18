@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"anxuncloud/internal/pkg/storage"
+	"anxuncloud/internal/pkg/strutil"
 )
 
 // 大模型审核结论（与 checkin_record.ai_verdict 取值一致）。
@@ -52,7 +53,7 @@ const (
 	JudgeManual = "manual"
 	// JudgeEquipmentValidity 台账有效期（系统内置，服务端按设备台账 next_due_date 自动判定，不调 AI 不要求照片）
 	JudgeEquipmentValidity = "equipment_validity"
-	// JudgeEquipmentDateSpot 日期标签抽查（系统内置，二期预留，本期不实现逻辑）
+	// JudgeEquipmentDateSpot 日期标签抽查（系统内置合成项：标签抽查照片逐项 AI 核验，抽查触发/落库/回写全链路已实现）
 	JudgeEquipmentDateSpot = "equipment_date_spot"
 )
 
@@ -80,7 +81,7 @@ const builtinRules = `你是物业巡检打卡审核助手。请根据打卡上�
 第二层【内容判定】：
 1. 照片内容与打卡点位、点位类型、检查项是否匹配；
 2. 照片中是否存在明显的安全异常（设备损坏、漏水、明火、杂物阻塞消防通道等）；
-3. 若照片按检查项分组给出（带检查项名称与判定要求标注），逐项按标注的判定要求核对该项照片；判定要求涉及表计读数的项，将读出的数值填入 reading。
+3. 照片按检查项逐项给出（一项一图，每项照片前均有该项名称与判定要求标注），逐项按标注的判定要求核对该项照片；判定要求涉及表计读数的项，将读出的数值填入 reading。
 只输出 JSON：{"quality":{"pass":true|false,"issue":""},"verdict":"pass"|"review","reason":"简要中文理由","items":[{"name":"检查项名","verdict":"pass"|"review"|"abnormal","reason":"该项简要理由","reading":"","abnormal_tags":[]}]}，不要输出任何其他内容。
 items 为逐项结论（与给出的检查项一一对应）；无法逐项判断时 items 可省略或为空数组；reading 仅表计读数类检查项填写，其余留空。
 检查项带观察点标注时逐点核对，确认异常的观察点原名填入该项 abnormal_tags（无异常填空数组），存在异常观察点的该项 verdict 不得为 pass。
@@ -121,13 +122,11 @@ type QualityResult struct {
 }
 
 // ReviewResult 大模型审核结果：照片质量 + 整体结论 + 逐项结论（Items 可空，模型未返回时为空）。
-// Count 整组识别模式下的设备/设施数量（模型未返回时为 nil）。
 type ReviewResult struct {
 	Verdict string
 	Reason  string
 	Quality QualityResult
 	Items   []ItemVerdict
-	Count   *int
 }
 
 // ReviewInput 打卡审核上下文。
@@ -137,9 +136,6 @@ type ReviewInput struct {
 	CheckItems []string    // 检查项名称列表
 	Remark     string      // 异常描述（可空）
 	ItemPhotos []ItemPhoto // 逐项照片（一项一图；无记录级照片）
-	// GroupPhotos 整组识别照片（非空=整组模式：1 张整组照片供全部检查项共同核对，
-	// 此时 ItemPhotos 仅取各项的判定参数元数据，其 Photos 忽略）
-	GroupPhotos []PhotoRef
 }
 
 // Client 多协议视觉审核客户端。
@@ -250,76 +246,44 @@ type promptPart struct {
 	img  *resolvedImage
 }
 
-// buildParts 组装审核内容段：上下文文本 → 逐项标注+该项照片 → 全景/记录级照片。
+// buildParts 组装审核内容段：上下文文本 → 逐项标注+该项照片。
 // 各协议适配器共用；maxPhotos 为图片总预算。
-// 整组模式（GroupPhotos 非空）：逐项判定要求合并进上下文文本，整组照片只挂一次，全部检查项共同核对。
 func (c *Client) buildParts(input ReviewInput) []promptPart {
 	parts := []promptPart{{text: contextText(input)}}
 	budget := maxPhotos
-	if len(input.GroupPhotos) > 0 {
-		var sb strings.Builder
-		sb.WriteString("整组识别：以下检查项共用下面这张（组）现场照片，请逐项核对并给出 items 逐项结论：")
-		for _, ip := range input.ItemPhotos {
-			sb.WriteString("\n- 检查项「" + ip.Name + "」")
-			if strings.TrimSpace(ip.Requirement) != "" {
-				sb.WriteString("（标准要求：" + strings.TrimSpace(ip.Requirement) + "）")
-			}
-			if strings.TrimSpace(ip.AIHint) != "" {
-				sb.WriteString("（AI 识别要点：" + strings.TrimSpace(ip.AIHint) + "）")
-			}
-			if inst := judgeInstruction(ip.JudgeType, ip.JudgeConfig); inst != "" {
-				sb.WriteString("（判定要求：" + inst + "）")
-			}
-			if len(ip.Tags) > 0 {
-				sb.WriteString("（观察点：" + strings.Join(ip.Tags, "、") + "，逐点核对，异常点原名填入 abnormal_tags）")
-			}
+	// 逐项照片（一项一图）：每项一段文字标注后跟该项照片，让模型逐项核对
+	for _, ip := range input.ItemPhotos {
+		imgs := c.resolveImages(ip.Photos)
+		// 按项标注：项名 + 标准要求 + AI 识别要点（§3.3）+ 判定类型专项指令，让模型逐项对照识别
+		label := "以下是检查项「" + ip.Name + "」"
+		if strings.TrimSpace(ip.Requirement) != "" {
+			label += "（标准要求：" + strings.TrimSpace(ip.Requirement) + "）"
 		}
-		sb.WriteString("\n另请统计照片中识别到的目标设备/设施数量，以整数填入 count 字段（无法统计填 0）；无法逐项判断时该项 verdict 输出 review。")
-		parts = append(parts, promptPart{text: sb.String()})
-		for _, img := range c.resolveImages(input.GroupPhotos) {
+		if strings.TrimSpace(ip.AIHint) != "" {
+			label += "（AI 识别要点：" + strings.TrimSpace(ip.AIHint) + "）"
+		}
+		label += "的对应照片"
+		if inst := judgeInstruction(ip.JudgeType, ip.JudgeConfig); inst != "" {
+			label += "（判定要求：" + inst + "）"
+		}
+		if len(ip.Tags) > 0 {
+			label += "（观察点：" + strings.Join(ip.Tags, "、") + "，逐点核对，异常点原名填入 abnormal_tags）"
+		}
+		if len(imgs) == 0 {
+			// 该项无照片：仅发文字标注；无图可核对时要求模型判存疑，不凭空结论
+			parts = append(parts, promptPart{text: label + "：该项未提供照片，无法进行图像核对时请将该项判为存疑。"})
+			continue
+		}
+		if budget <= 0 {
+			continue
+		}
+		parts = append(parts, promptPart{text: label + "，请核对该项现场状态："})
+		for _, img := range imgs {
 			if budget <= 0 {
 				break
 			}
 			parts = append(parts, promptPart{img: &img})
 			budget--
-		}
-		return parts
-	}
-	if len(input.ItemPhotos) > 0 {
-		// 逐项照片：每项一段文字标注后跟该项照片，让模型逐项核对
-		for _, ip := range input.ItemPhotos {
-			imgs := c.resolveImages(ip.Photos)
-			// 按项标注：项名 + 标准要求 + AI 识别要点（§3.3）+ 判定类型专项指令，让模型逐项对照识别
-			label := "以下是检查项「" + ip.Name + "」"
-			if strings.TrimSpace(ip.Requirement) != "" {
-				label += "（标准要求：" + strings.TrimSpace(ip.Requirement) + "）"
-			}
-			if strings.TrimSpace(ip.AIHint) != "" {
-				label += "（AI 识别要点：" + strings.TrimSpace(ip.AIHint) + "）"
-			}
-			label += "的对应照片"
-			if inst := judgeInstruction(ip.JudgeType, ip.JudgeConfig); inst != "" {
-				label += "（判定要求：" + inst + "）"
-			}
-			if len(ip.Tags) > 0 {
-				label += "（观察点：" + strings.Join(ip.Tags, "、") + "，逐点核对，异常点原名填入 abnormal_tags）"
-			}
-			if len(imgs) == 0 {
-				// 该项无照片：仅发文字标注；无图可核对时要求模型判存疑，不凭空结论
-				parts = append(parts, promptPart{text: label + "：该项未提供照片，无法进行图像核对时请将该项判为存疑。"})
-				continue
-			}
-			if budget <= 0 {
-				continue
-			}
-			parts = append(parts, promptPart{text: label + "，请核对该项现场状态："})
-			for _, img := range imgs {
-				if budget <= 0 {
-					break
-				}
-				parts = append(parts, promptPart{img: &img})
-				budget--
-			}
 		}
 	}
 	return parts
@@ -399,7 +363,7 @@ var jsonRe = regexp.MustCompile(`\{[\s\S]*\}`)
 func parseReview(content string) (*ReviewResult, error) {
 	m := jsonRe.FindString(content)
 	if m == "" {
-		return nil, fmt.Errorf("输出中未找到 JSON: %s", truncate(content, 200))
+		return nil, fmt.Errorf("输出中未找到 JSON: %s", strutil.Truncate(content, 200))
 	}
 	var v struct {
 		Quality *struct {
@@ -408,7 +372,6 @@ func parseReview(content string) (*ReviewResult, error) {
 		} `json:"quality"`
 		Verdict string `json:"verdict"`
 		Reason  string `json:"reason"`
-		Count   *int   `json:"count"` // 整组识别模式：识别到的设备/设施数量（可空）
 		Items   []struct {
 			Name         string   `json:"name"`
 			Verdict      string   `json:"verdict"`
@@ -429,7 +392,7 @@ func parseReview(content string) (*ReviewResult, error) {
 	if len(v.Items) == 0 {
 		return nil, fmt.Errorf("缺少 items 逐项结论")
 	}
-	res := &ReviewResult{Verdict: v.Verdict, Reason: v.Reason, Quality: QualityResult{Pass: *v.Quality.Pass, Issue: v.Quality.Issue}, Count: v.Count}
+	res := &ReviewResult{Verdict: v.Verdict, Reason: v.Reason, Quality: QualityResult{Pass: *v.Quality.Pass, Issue: v.Quality.Issue}}
 	for _, it := range v.Items {
 		name := strings.TrimSpace(it.Name)
 		if name == "" || (it.Verdict != VerdictPass && it.Verdict != VerdictReview && it.Verdict != VerdictAbnormal) {
@@ -448,12 +411,4 @@ func parseReview(content string) (*ReviewResult, error) {
 		res.Items = append(res.Items, ItemVerdict{Name: name, Verdict: it.Verdict, Reason: it.Reason, Reading: strings.TrimSpace(it.Reading), AbnormalTags: abn})
 	}
 	return res, nil
-}
-
-func truncate(s string, n int) string {
-	r := []rune(s)
-	if len(r) > n {
-		return string(r[:n])
-	}
-	return s
 }

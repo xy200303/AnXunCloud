@@ -68,28 +68,12 @@ const (
 	AIVerdictError    = "error"
 )
 
-// 模板拍照模式（check_template.photo_mode）
-const (
-	PhotoModeGroup   = "group"    // 整组 1 张拍照一次 AI 识别多项（默认）
-	PhotoModePerItem = "per_item" // 逐项拍照
-)
-
-// NormalizePhotoMode 拍照模式归一化：非法/空值回 group（兜底，不报错）。
-func NormalizePhotoMode(v string) string {
-	if v == PhotoModePerItem {
-		return v
-	}
-	return PhotoModeGroup
-}
-
 // CheckTemplate 检查项模板（point_type 空为通用；检查项见 check_template_item 独立表）。
 type CheckTemplate struct {
 	types.UUIDModel
-	TenantID  *string `gorm:"type:uuid" json:"tenant_id"` // 冗余列（查询按点位/项目链路隔离）
-	Name      string  `gorm:"size:128" json:"name"`
-	PointType string  `gorm:"size:32" json:"point_type"`
-	// PhotoMode 拍照模式：group=整组 1 张拍照一次 AI 识别多项（默认）/per_item=逐项拍照
-	PhotoMode string         `gorm:"size:16;default:group" json:"photo_mode"`
+	TenantID  *string        `gorm:"type:uuid" json:"tenant_id"` // 冗余列（查询按点位/项目链路隔离）
+	Name      string         `gorm:"size:128" json:"name"`
+	PointType string         `gorm:"size:32" json:"point_type"`
 	Sort      int            `json:"sort"`
 	Status    string         `gorm:"size:16" json:"status"`
 	Remark    string         `gorm:"size:255" json:"remark"`
@@ -111,19 +95,16 @@ type PointTemplate struct {
 
 func (PointTemplate) TableName() string { return "point_template" }
 
-// UnionItem 点位检查项并集条目：模板项 + 所属模板快照（名称/拍照模式）。
+// UnionItem 点位检查项并集条目：模板项 + 所属模板名快照。
 type UnionItem struct {
 	CheckTemplateItem
 	TemplateName string
-	PhotoMode    string
 }
 
-// PointTemplateSet 点位模板组合视图：有序模板 ID、检查项并集（按模板组合顺序 + 项 sort 展开）、聚合拍照模式。
+// PointTemplateSet 点位模板组合视图：有序模板 ID、检查项并集（按模板组合顺序 + 项 sort 展开）。
 type PointTemplateSet struct {
 	TemplateIDs []string
 	Items       []UnionItem
-	// PhotoMode 聚合拍照模式：全部关联模板均 group 才为 group，否则 per_item
-	PhotoMode string
 }
 
 // LoadPointTemplateRefs 批量加载点位模板关联（point_id → 按 sort 升序的关联行；无关联的点位不出现）。
@@ -159,7 +140,7 @@ func LoadPointTemplateSets(db *gorm.DB, pointIDs []string) map[string]*PointTemp
 	}
 	tplByID := map[string]CheckTemplate{}
 	var tpls []CheckTemplate
-	db.Select("id", "name", "photo_mode").Where("id IN ?", tplIDs).Find(&tpls)
+	db.Select("id", "name").Where("id IN ?", tplIDs).Find(&tpls)
 	for _, t := range tpls {
 		tplByID[t.ID] = t
 	}
@@ -170,19 +151,15 @@ func LoadPointTemplateSets(db *gorm.DB, pointIDs []string) map[string]*PointTemp
 		itemsByTpl[it.TemplateID] = append(itemsByTpl[it.TemplateID], it)
 	}
 	for pid, links := range refs {
-		set := &PointTemplateSet{PhotoMode: PhotoModeGroup}
+		set := &PointTemplateSet{}
 		for _, l := range links {
 			t, ok := tplByID[l.TemplateID]
 			if !ok {
 				continue // 模板已删除：关联行视为失效，跳过
 			}
-			mode := NormalizePhotoMode(t.PhotoMode)
 			set.TemplateIDs = append(set.TemplateIDs, l.TemplateID)
-			if mode != PhotoModeGroup {
-				set.PhotoMode = PhotoModePerItem
-			}
 			for _, it := range itemsByTpl[l.TemplateID] {
-				set.Items = append(set.Items, UnionItem{CheckTemplateItem: it, TemplateName: t.Name, PhotoMode: mode})
+				set.Items = append(set.Items, UnionItem{CheckTemplateItem: it, TemplateName: t.Name})
 			}
 		}
 		out[pid] = set
@@ -199,6 +176,8 @@ type CheckTemplateItem struct {
 	Requirement *string `gorm:"type:text" json:"requirement"`
 	// AIHint AI 识别要点文本（可空；空=该项不带识别要点，§3.3）
 	AIHint *string `gorm:"type:text" json:"ai_hint"`
+	// Guide 拍照引导语（可空；向导显示给巡检员的拍摄动作指引，空=App 兜底「拍「项名」照片」；不进打卡快照）
+	Guide *string `gorm:"type:text" json:"guide"`
 	// JudgeType 判定类型（general/presence/damage/metric/state/label/passage/leak/indicator/tidiness/baseline）
 	JudgeType string `gorm:"size:24;default:general" json:"judge_type"`
 	// JudgeConfig 判定参数（metric: {metric,unit,min,max}；state/indicator: {expected}），NULL 按通用判定

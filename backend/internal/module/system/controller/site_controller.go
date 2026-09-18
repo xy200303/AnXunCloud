@@ -125,8 +125,8 @@ func (ctl *SiteController) Download(c *gin.Context) {
 		return
 	}
 	isImage := rel.Platform == "wechat_mp"
-	// file_id → 存储路径（统一文件 ID 口径）
-	key, ok := ctl.svc.ReleaseFileKey(rel)
+	// file_id → 存储键（统一文件 ID 口径）
+	key, ok := ctl.svc.ReleaseStorageKey(rel)
 	if !ok {
 		response.Fail(c, errs.ErrNotFound.WithMsg("文件不存在或已删除"))
 		return

@@ -9,6 +9,8 @@ import (
 	"net/http"
 	"strings"
 	"time"
+
+	"anxuncloud/internal/pkg/strutil"
 )
 
 // PingParams 连接测试参数（来自配置表单，显式传入而非读配置）。
@@ -56,7 +58,7 @@ func Ping(ctx context.Context, p PingParams) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return truncate(reply, 200), nil
+	return strutil.Truncate(reply, 200), nil
 }
 
 func pingOpenAIChat(ctx context.Context, httpc *http.Client, baseURL, apiKey, model string) (string, error) {

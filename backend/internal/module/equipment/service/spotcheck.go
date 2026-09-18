@@ -10,6 +10,7 @@ import (
 	"anxuncloud/internal/module/equipment/model"
 	insmodel "anxuncloud/internal/module/inspection/model"
 	"anxuncloud/internal/pkg/configread"
+	"anxuncloud/internal/pkg/timefmt"
 )
 
 // ========== 日期标签抽查（equipment_date_spot，v1.7 二期；落到逐台模型） ==========
@@ -81,7 +82,7 @@ func LastVerifiedMap(db *gorm.DB, equipmentIDs []string) map[string]time.Time {
 		Where("judge_config->>'equipment_id' IN ?", equipmentIDs).
 		Group("equipment_id").Scan(&spotRows)
 	for _, r := range spotRows {
-		t := truncateDay(r.LastAt)
+		t := timefmt.Day(r.LastAt)
 		if cur, ok := out[r.EquipmentID]; !ok || t.After(cur) {
 			out[r.EquipmentID] = t
 		}
@@ -178,13 +179,13 @@ func CompareSpot(in SpotCompareInput) SpotCompareResult {
 	}
 	var effective *time.Time
 	if in.LabelMaint != nil {
-		d := truncateDay(*in.LabelMaint).AddDate(0, cycle, 0)
+		d := timefmt.Day(*in.LabelMaint).AddDate(0, cycle, 0)
 		effective = &d
 	} else if in.LabelManufacture != nil {
-		d := truncateDay(*in.LabelManufacture).AddDate(0, first, 0)
+		d := timefmt.Day(*in.LabelManufacture).AddDate(0, first, 0)
 		effective = &d
 	}
-	if effective != nil && effective.Before(truncateDay(in.Now)) {
+	if effective != nil && effective.Before(timefmt.Day(in.Now)) {
 		mm = append(mm, fmt.Sprintf("按实物日期推算有效期至 %s，已超过今天（实物超期）", effective.Format("2006-01")))
 	}
 	return SpotCompareResult{Pass: len(mm) == 0, Mismatches: mm}

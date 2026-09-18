@@ -14,6 +14,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"anxuncloud/internal/pkg/strutil"
 )
 
 // resolvedImage 已解析照片：data 非空 = 本地已读字节（mime 有效）；否则为远程 URL。
@@ -137,7 +139,7 @@ func postJSON(ctx context.Context, httpc *http.Client, url string, headers map[s
 	defer resp.Body.Close()
 	respBody, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("大模型返回 %d: %s", resp.StatusCode, truncate(string(respBody), 200))
+		return nil, fmt.Errorf("大模型返回 %d: %s", resp.StatusCode, strutil.Truncate(string(respBody), 200))
 	}
 	return respBody, nil
 }

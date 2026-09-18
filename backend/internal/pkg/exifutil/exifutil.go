@@ -4,21 +4,10 @@ package exifutil
 import (
 	"bytes"
 	"io"
-	"os"
 	"time"
 
 	"github.com/rwcarlsen/goexif/exif"
 )
-
-// ReadShotTime 读取 JPEG 的拍摄时间（DateTimeOriginal 优先）；失败返回 nil（不阻塞主流程）。
-func ReadShotTime(path string) *time.Time {
-	f, err := os.Open(path)
-	if err != nil {
-		return nil
-	}
-	defer f.Close()
-	return readShotTime(f)
-}
 
 // ReadShotTimeBytes 从字节读取 JPEG 拍摄时间（云驱动下文件不落本地盘时用）。
 func ReadShotTimeBytes(data []byte) *time.Time {

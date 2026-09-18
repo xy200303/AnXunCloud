@@ -107,24 +107,6 @@ func TestCreateCompanySealPerTenant(t *testing.T) {
 	}
 }
 
-// TestActiveSealIDByTenant ActiveSealID 按租户取章（返回 file_id）；无章租户/空租户返回空串。
-func TestActiveSealIDByTenant(t *testing.T) {
-	svc := newSignAssetTestSvc(t)
-	if _, be := svc.Create(userA1, tenantA, &dto.SignAssetCreateReq{AssetType: model.SignAssetTypeCompanySeal, FileID: fileA}); be != nil {
-		t.Fatalf("租户A建章失败: %v", be)
-	}
-	ta, tb := tenantA, tenantB
-	if got := svc.ActiveSealID(&ta); got != fileA {
-		t.Fatalf("租户A应取到自己的章，实际 %q", got)
-	}
-	if got := svc.ActiveSealID(&tb); got != "" {
-		t.Fatalf("租户B无章应返回空串，实际 %q", got)
-	}
-	if got := svc.ActiveSealID(nil); got != "" {
-		t.Fatalf("空租户应返回空串，实际 %q", got)
-	}
-}
-
 // TestListTenantIsolation List 仅返回操作者租户资产。
 func TestListTenantIsolation(t *testing.T) {
 	svc := newSignAssetTestSvc(t)

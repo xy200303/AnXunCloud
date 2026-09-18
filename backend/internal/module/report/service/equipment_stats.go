@@ -9,6 +9,7 @@ import (
 	insmodel "anxuncloud/internal/module/inspection/model"
 
 	eqmodel "anxuncloud/internal/module/equipment/model"
+	"anxuncloud/internal/pkg/timefmt"
 )
 
 // 月报设备章节（v1.7）：
@@ -24,7 +25,7 @@ func (s *ReportService) buildEquipmentStats(communityID string, start, end time.
 		Where("community_id = ?", communityID).Find(&rows)
 	globalWarn := eqsvc.CfgInt(s.db, "equipment.expire_warn_days", 30)
 	now := time.Now()
-	today := truncateDayLocal(now)
+	today := timefmt.Day(now)
 	buckets := gin.H{"normal": 0, "warning": 0, "overdue": 0, "scrap": 0, "label_missing": 0}
 	byType := map[string]gin.H{}
 	for i := range rows {
@@ -36,7 +37,7 @@ func (s *ReportService) buildEquipmentStats(communityID string, start, end time.
 		switch {
 		case e.LabelMissing:
 			bucket = "label_missing"
-		case e.ScrapDate != nil && !truncateDayLocal(*e.ScrapDate).After(today):
+		case e.ScrapDate != nil && !timefmt.Day(*e.ScrapDate).After(today):
 			bucket = "scrap"
 		case e.NextDueDate == nil:
 			bucket = "normal" // 无到期日归正常（不参与判定）
@@ -45,7 +46,7 @@ func (s *ReportService) buildEquipmentStats(communityID string, start, end time.
 			if e.WarnDays != nil && *e.WarnDays > 0 {
 				warn = *e.WarnDays
 			}
-			days := int(truncateDayLocal(*e.NextDueDate).Sub(today).Hours() / 24)
+			days := int(timefmt.Day(*e.NextDueDate).Sub(today).Hours() / 24)
 			if days < 0 {
 				bucket = "overdue"
 			} else if days <= warn {
@@ -103,10 +104,4 @@ func (s *ReportService) buildEquipmentStats(communityID string, start, end time.
 		Scan(&srcSum)
 	out["judge_source"] = gin.H{"system": srcSum.System, "manual_ai": srcSum.ManualAI}
 	return out
-}
-
-// truncateDayLocal 按本地时区截断到日（报表分桶用，与 equipment 模块日粒度同口径）。
-func truncateDayLocal(t time.Time) time.Time {
-	y, m, d := t.In(time.Local).Date()
-	return time.Date(y, m, d, 0, 0, 0, 0, time.Local)
 }

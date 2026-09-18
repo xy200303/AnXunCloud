@@ -20,6 +20,7 @@ import (
 	"anxuncloud/internal/pkg/password"
 	"anxuncloud/internal/pkg/session"
 	"anxuncloud/internal/pkg/storage"
+	"anxuncloud/internal/pkg/strutil"
 	"anxuncloud/internal/pkg/uploadfile"
 )
 
@@ -514,7 +515,7 @@ func (s *AuthService) writeLoginLog(userID *string, tenantID *string, username, 
 		Username: username,
 		Channel:  channel,
 		IP:       ip,
-		UA:       truncate(ua, 500),
+		UA:       strutil.Truncate(ua, 500),
 		Status:   status,
 		Msg:      msg,
 	}
@@ -601,13 +602,6 @@ func (s *AuthService) defaultTenantID() (string, *errs.Error) {
 		return "", errs.ErrInternal
 	}
 	return id, nil
-}
-
-func truncate(s string, n int) string {
-	if len(s) > n {
-		return s[:n]
-	}
-	return s
 }
 
 func wrapErr(err error) *errs.Error {

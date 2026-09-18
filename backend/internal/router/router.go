@@ -403,8 +403,6 @@ func New(cfg *config.Config, db *gorm.DB, rdb *redis.Client) (*gin.Engine, *insp
 			mpAuth.POST("/checkin/offline-sync", mpCtl.OfflineSync)
 			mpAuth.POST("/checkin/ai-item-jobs", mpCtl.SubmitAIItemJob)                          // 逐项 AI 识别：提交
 			mpAuth.GET("/checkin/ai-item-jobs", mpCtl.AIItemJobs)                                // 逐项 AI 识别：批量轮询结果
-			mpAuth.POST("/checkin/ai-group-jobs", mpCtl.SubmitAIGroupJob)                        // 整组 AI 识别：提交（1 张整组照片一次识别多项）
-			mpAuth.GET("/checkin/ai-group-jobs/:id", mpCtl.AIGroupJob)                           // 整组 AI 识别：轮询状态与结果
 			mpAuth.GET("/checkin/item-drafts", mpCtl.ItemDrafts)                                 // 逐项过程草稿（断点恢复）
 			mpAuth.POST("/checkin/item-drafts/manual", mpCtl.SaveManualDraft)                    // 手动项选择落草稿
 			mpAuth.POST("/checkin/item-drafts/photo-abnormal", mpCtl.SavePhotoItemAbnormalDraft) // 拍照项异常逃生入口
@@ -449,8 +447,6 @@ func New(cfg *config.Config, db *gorm.DB, rdb *redis.Client) (*gin.Engine, *insp
 			appAuth.POST("/checkin/offline-sync", mpCtl.OfflineSync)
 			appAuth.POST("/checkin/ai-item-jobs", mpCtl.SubmitAIItemJob)                          // 逐项 AI 识别：提交
 			appAuth.GET("/checkin/ai-item-jobs", mpCtl.AIItemJobs)                                // 逐项 AI 识别：批量轮询结果
-			appAuth.POST("/checkin/ai-group-jobs", mpCtl.SubmitAIGroupJob)                        // 整组 AI 识别：提交（1 张整组照片一次识别多项）
-			appAuth.GET("/checkin/ai-group-jobs/:id", mpCtl.AIGroupJob)                           // 整组 AI 识别：轮询状态与结果
 			appAuth.GET("/checkin/item-drafts", mpCtl.ItemDrafts)                                 // 逐项过程草稿（断点恢复）
 			appAuth.POST("/checkin/item-drafts/manual", mpCtl.SaveManualDraft)                    // 手动项选择落草稿
 			appAuth.POST("/checkin/item-drafts/photo-abnormal", mpCtl.SavePhotoItemAbnormalDraft) // 拍照项异常逃生入口

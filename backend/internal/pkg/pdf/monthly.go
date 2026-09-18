@@ -85,7 +85,7 @@ type LedgerRow struct {
 
 // PhotoCell 现场照片单元（标注 + 图片 file_id）。
 type PhotoCell struct {
-	Label  string // 小标注：检查项名（逐项照片）或"全景"（记录级照片）
+	Label  string // 小标注：检查项名（逐项照片）
 	FileID string // 图片 file_id（经 ImageLoader 加载）
 }
 
@@ -105,18 +105,18 @@ type ContactInfo struct {
 
 // MonthlyReportData 月度巡检报告 PDF 数据。
 type MonthlyReportData struct {
-	ReportNo         string   // 封面报告编号（空则留白线）
-	CommunityName    string   // 项目名称（小区名）
-	CommunityAddress string   // 项目地址（小区地址，空则留白线）
-	Period           string   // YYYY-MM
-	TitleLine        string   // 封面大标题首行（空回落「物业设施月度」；由巡查类型推导）
-	CompanyName      string   // 落款单位（空则封面留白 / 台账页尾「物业服务中心」）
-	CompanyNameEn    string   // 落款单位英文名（空则封面不显示该行）
+	ReportNo         string      // 封面报告编号（空则留白线）
+	CommunityName    string      // 项目名称（小区名）
+	CommunityAddress string      // 项目地址（小区地址，空则留白线）
+	Period           string      // YYYY-MM
+	TitleLine        string      // 封面大标题首行（空回落「物业设施月度」；由巡查类型推导）
+	CompanyName      string      // 落款单位（空则封面留白 / 台账页尾「物业服务中心」）
+	CompanyNameEn    string      // 落款单位英文名（空则封面不显示该行）
 	Contact          ContactInfo // 封面页脚联系方式
-	Approved         bool     // 已终审（公章仅终审后加盖）
-	ApproveDate      string   // 终审日期 YYYY-MM-DD
-	SealFileID       string   // 公章图 file_id（仅 Approved 时嵌入）
-	TypeNames        []string // 设施类别（该小区有点位的类型中文名）
+	Approved         bool        // 已终审（公章仅终审后加盖）
+	ApproveDate      string      // 终审日期 YYYY-MM-DD
+	SealFileID       string      // 公章图 file_id（仅 Approved 时嵌入）
+	TypeNames        []string    // 设施类别（该小区有点位的类型中文名）
 	Summary          []SummaryRow
 	Details          []DetailTable
 	PhotoGroups      []PhotoGroup // 附件：分项检查照片（按设施类别分组）
@@ -639,7 +639,10 @@ func renderLedgerSignTable(p *gofpdf.Fpdf, d MonthlyReportData) {
 	p.CellFormat(contentW, 8, "2.签字审批栏", "", 1, "L", false, 0, "")
 	p.Ln(2)
 	count := len(d.ReviewSigns)
-	if count == 0 { p.SetY(p.GetY()+8); return }
+	if count == 0 {
+		p.SetY(p.GetY() + 8)
+		return
+	}
 	headerH, bodyH := 12.0, 62.0
 	cellW := contentW / float64(count)
 	x0, y0 := margin, p.GetY()
@@ -657,7 +660,9 @@ func renderLedgerSignTable(p *gofpdf.Fpdf, d MonthlyReportData) {
 		p.Rect(x, y0+headerH, cellW, bodyH, "D")
 		renderSignCell(p, d, idx, x, y0+headerH, cellW, bodyH-11, group.Signs)
 		date := signBarDate(group.Signs)
-		if date == "" { date = "      年    月    日" }
+		if date == "" {
+			date = "      年    月    日"
+		}
 		p.SetXY(x, y0+headerH+bodyH-8)
 		p.SetFont("noto", "", 9)
 		p.CellFormat(cellW, 5, date, "", 0, "C", false, 0, "")

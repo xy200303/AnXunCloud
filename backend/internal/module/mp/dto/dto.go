@@ -75,13 +75,6 @@ type AIItemJobReq struct {
 	FileIDs []string `json:"file_ids" binding:"required,len=1"`
 }
 
-// AIGroupJobReq 整组 AI 识别任务提交（photo_mode=group 点位：1 张整组照片一次识别全部检查项，异步识别后轮询取结果）。
-type AIGroupJobReq struct {
-	TaskID  string   `json:"task_id" binding:"required"`
-	PointID string   `json:"point_id" binding:"required"`
-	FileIDs []string `json:"file_ids" binding:"required,len=1"` // 整组照片（恰好 1 张）
-}
-
 // ManualItemDraftReq 手动确认项（感官项）选择落云端草稿：选择即保存，断点恢复以服务端为准。
 type ManualItemDraftReq struct {
 	TaskID  string `json:"task_id" binding:"required"`

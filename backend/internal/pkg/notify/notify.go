@@ -28,11 +28,6 @@ func New(db *gorm.DB, pushCli *push.Client) *Notifier {
 	return &Notifier{db: db, push: pushCli}
 }
 
-// WithDB 返回使用指定 DB 句柄（事务）的副本：事务内通知随事务提交/回滚。
-func (n *Notifier) WithDB(db *gorm.DB) *Notifier {
-	return &Notifier{db: db, push: n.push}
-}
-
 // Send 单发通知：写 sys_message（字段口径与原直写点一致）；推送开启时异步推送到该用户全部已绑设备。
 // 返回站内消息写入错误（推送错误不回传）。
 func (n *Notifier) Send(userID, msgType, title, content string, bizID *string) error {

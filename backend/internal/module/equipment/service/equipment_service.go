@@ -80,8 +80,8 @@ func DueStatus(nextDue *time.Time, warnDays int, now time.Time) string {
 	if nextDue == nil {
 		return DueNone
 	}
-	today := truncateDay(now)
-	due := truncateDay(*nextDue)
+	today := timefmt.Day(now)
+	due := timefmt.Day(*nextDue)
 	days := int(due.Sub(today).Hours() / 24)
 	switch {
 	case days < 0:
@@ -100,7 +100,7 @@ func CalcNextDueDate(manufacture, lastMaint *time.Time, firstMonths, cycleMonths
 		return nil
 	}
 	if lastMaint != nil {
-		d := truncateDay(*lastMaint).AddDate(0, cycleMonths, 0)
+		d := timefmt.Day(*lastMaint).AddDate(0, cycleMonths, 0)
 		return &d
 	}
 	if manufacture != nil {
@@ -108,7 +108,7 @@ func CalcNextDueDate(manufacture, lastMaint *time.Time, firstMonths, cycleMonths
 		if fm <= 0 {
 			fm = cycleMonths
 		}
-		d := truncateDay(*manufacture).AddDate(0, fm, 0)
+		d := timefmt.Day(*manufacture).AddDate(0, fm, 0)
 		return &d
 	}
 	return nil
@@ -119,14 +119,8 @@ func CalcScrapDate(manufacture *time.Time, scrapMonths int) *time.Time {
 	if manufacture == nil || scrapMonths <= 0 {
 		return nil
 	}
-	d := truncateDay(*manufacture).AddDate(0, scrapMonths, 0)
+	d := timefmt.Day(*manufacture).AddDate(0, scrapMonths, 0)
 	return &d
-}
-
-// truncateDay 按本地时区截断到日（到期判定/日期入库统一日粒度）。
-func truncateDay(t time.Time) time.Time {
-	y, m, d := t.In(time.Local).Date()
-	return time.Date(y, m, d, 0, 0, 0, 0, time.Local)
 }
 
 // parseDate 解析 YYYY-MM-DD（空串返回 nil；非法返回错误）。
@@ -233,7 +227,7 @@ func (s *EquipmentService) filtered(c *gin.Context, q *dto.ListQuery) *gorm.DB {
 	// scrap=报废日已过 / label_missing=标签缺失（两个 v1.7 特殊态优先于到期判定）
 	if q.DueState != "" {
 		globalWarn := cfgInt(s.db, "equipment.expire_warn_days", 30)
-		today := truncateDay(time.Now()).Format("2006-01-02")
+		today := timefmt.Day(time.Now()).Format("2006-01-02")
 		warnExpr := "COALESCE(warn_days, ?)"
 		switch q.DueState {
 		case DueLabelMissing:
@@ -266,7 +260,7 @@ func (s *EquipmentService) toItems(rows []model.Equipment) []gin.H {
 		dueState := DueStatus(e.NextDueDate, warn, now)
 		if e.LabelMissing {
 			dueState = DueLabelMissing
-		} else if e.ScrapDate != nil && !truncateDay(*e.ScrapDate).After(truncateDay(now)) && e.Status == model.StatusInService {
+		} else if e.ScrapDate != nil && !timefmt.Day(*e.ScrapDate).After(timefmt.Day(now)) && e.Status == model.StatusInService {
 			dueState = DueScrap
 		}
 		item := gin.H{

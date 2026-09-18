@@ -11,8 +11,8 @@ import (
 // 用户导入模板表头（列序与接口文档 §2.3.8 一致）。
 var importHeaders = []string{"姓名", "手机号", "角色", "所属小区", "初始密码", "状态", "备注"}
 
-// 点位导入模板表头（列序与 ParsePointImport 取值索引一致；「必拍项」列 v21 起废弃，导入时忽略）。
-var pointImportHeaders = []string{"小区", "楼栋", "点位名称", "点位类型", "检查项模板", "NFC卡号", "经度", "纬度", "围栏半径(米)", "打卡方式", "必拍项(废弃)", "状态", "备注"}
+// 点位导入模板表头（列序与 ParsePointImport 取值索引一致；必拍由模板项推导，不再单列）。
+var pointImportHeaders = []string{"小区", "楼栋", "点位名称", "点位类型", "检查项模板", "NFC卡号", "经度", "纬度", "围栏半径(米)", "打卡方式", "状态", "备注"}
 
 // UserExportRow 用户导出行。
 type UserExportRow struct {
@@ -156,7 +156,7 @@ func PointImportTemplate(commNames, typeLabels, tplNames []string) (*excelize.Fi
 	if len(tplNames) > 0 {
 		exampleTpl = tplNames[0]
 	}
-	example := []any{exampleComm, "1栋", "1栋3楼通道灭火器", exampleType, exampleTpl, "", "120.212001", "30.208112", "100", "扫码+围栏", "", "启用", "示例行，导入时自动跳过"}
+	example := []any{exampleComm, "1栋", "1栋3楼通道灭火器", exampleType, exampleTpl, "", "120.212001", "30.208112", "100", "扫码+围栏", "启用", "示例行，导入时自动跳过"}
 	for i, v := range example {
 		cell, _ := excelize.CoordinatesToCellName(i+1, 2)
 		if err := f.SetCellValue(sheet, cell, v); err != nil {
@@ -167,10 +167,10 @@ func PointImportTemplate(commNames, typeLabels, tplNames []string) (*excelize.Fi
 	if err != nil {
 		return nil, err
 	}
-	if err := f.SetCellStyle(sheet, "A1", "M1", style); err != nil {
+	if err := f.SetCellStyle(sheet, "A1", "L1", style); err != nil {
 		return nil, err
 	}
-	f.SetColWidth(sheet, "A", "M", 16)
+	f.SetColWidth(sheet, "A", "L", 16)
 
 	// 隐藏引用表：A=小区名称 B=点位类型标签 C=检查项模板名称（下拉数据源，列内引用避免内联 255 字符上限）
 	const refSheet = "_ref"
@@ -218,7 +218,7 @@ func PointImportTemplate(commNames, typeLabels, tplNames []string) (*excelize.Fi
 	addList("D3:D"+strconv.Itoa(lastRow), refList(2, len(typeLabels)), "点位类型须从列表选择")
 	addList("E3:E"+strconv.Itoa(lastRow), refList(3, len(tplNames)), "检查项模板须从列表选择")
 	addInline("J3:J"+strconv.Itoa(lastRow), []string{"扫码", "NFC", "任一", "围栏", "扫码+围栏", "NFC+围栏", "任一+围栏"}, "打卡方式须从列表选择")
-	addInline("L3:L"+strconv.Itoa(lastRow), []string{"启用", "停用"}, "状态须从列表选择")
+	addInline("K3:K"+strconv.Itoa(lastRow), []string{"启用", "停用"}, "状态须从列表选择")
 	// 围栏半径：10–2000 整数
 	{
 		dv := excelize.NewDataValidation(true)

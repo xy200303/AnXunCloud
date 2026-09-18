@@ -365,7 +365,7 @@ func (d *demoSeeder) seedTenantA() error {
 		}
 	}
 
-	// 检查项模板：原子模板（消火栓箱+灭火器，整组拍照模式），消防点位统一绑这两个
+	// 检查项模板：原子模板（消火栓箱+灭火器，单项+观察点 tag，一项一张照片），消防点位统一绑这两个
 	tplHydrantID, _, err := d.createTemplate(tid, "消火栓箱", hydrantBoxItems)
 	if err != nil {
 		return err
@@ -391,14 +391,14 @@ func (d *demoSeeder) seedTenantA() error {
 
 // hydrantBoxItems 「消火栓箱」模板项：单项+观察点 tag（一项一张照片，官方月报 4.2 明细列由 tags 展开）。
 var hydrantBoxItems = []demoTemplateItem{
-	{"消火栓箱整体检查", "整组拍 1 张照片，逐项核对观察点；异常观察点在 App 上勾选上报", types.PhotoReqNone,
+	{"消火栓箱整体检查", "拍 1 张现场照片，逐项核对观察点；异常观察点在 App 上勾选上报", types.PhotoReqNone,
 		"逐观察点核对，异常观察点原名填入 abnormal_tags",
 		[]string{"箱门完好无损", "水带齐全无破损", "枪头齐全在位", "接口完好", "水压正常", "周围无遮挡"}},
 }
 
 // extinguisherItems 「灭火器」模板项：单项+观察点 tag（官方月报 4.1 明细列由 tags 展开）。
 var extinguisherItems = []demoTemplateItem{
-	{"灭火器整体检查", "整组拍 1 张照片，逐项核对观察点；异常观察点在 App 上勾选上报", types.PhotoReqNone,
+	{"灭火器整体检查", "拍 1 张现场照片，逐项核对观察点；异常观察点在 App 上勾选上报", types.PhotoReqNone,
 		"逐观察点核对，异常观察点原名填入 abnormal_tags",
 		[]string{"压力正常", "瓶体完好", "喷管完好", "铅封完好", "在有效期内"}},
 }

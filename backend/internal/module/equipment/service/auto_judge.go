@@ -8,6 +8,7 @@ import (
 
 	"anxuncloud/internal/module/equipment/model"
 	insmodel "anxuncloud/internal/module/inspection/model"
+	"anxuncloud/internal/pkg/timefmt"
 )
 
 // 台账有效期（equipment_validity）逐台自动判定扩展状态（§3.5 v1.6：绑定即启用、逐台独立）
@@ -49,11 +50,11 @@ func JudgeDevice(e model.Equipment, pending bool, globalWarn int, now time.Time)
 		return j
 	}
 	// 报废日已过：视同逾期（show_register 无意义——报废设备该换不该维保）
-	if e.ScrapDate != nil && !truncateDay(*e.ScrapDate).After(truncateDay(now)) {
+	if e.ScrapDate != nil && !timefmt.Day(*e.ScrapDate).After(timefmt.Day(now)) {
 		j.ScrapDue = true
 		j.State = DueOverdue
-		if e.NextDueDate != nil && truncateDay(*e.NextDueDate).Before(truncateDay(now)) {
-			j.OverdueDays = int(truncateDay(now).Sub(truncateDay(*e.NextDueDate)).Hours() / 24)
+		if e.NextDueDate != nil && timefmt.Day(*e.NextDueDate).Before(timefmt.Day(now)) {
+			j.OverdueDays = int(timefmt.Day(now).Sub(timefmt.Day(*e.NextDueDate)).Hours() / 24)
 		}
 		return j
 	}
@@ -64,7 +65,7 @@ func JudgeDevice(e model.Equipment, pending bool, globalWarn int, now time.Time)
 	}
 	j.State = DueStatus(e.NextDueDate, warn, now)
 	if j.State == DueOverdue {
-		j.OverdueDays = int(truncateDay(now).Sub(truncateDay(*e.NextDueDate)).Hours() / 24)
+		j.OverdueDays = int(timefmt.Day(now).Sub(timefmt.Day(*e.NextDueDate)).Hours() / 24)
 	}
 	j.ShowRegister = j.State == DueWarning || j.State == DueOverdue
 	return j
@@ -114,7 +115,7 @@ func DeviceJudgeSubmit(j DeviceJudge, firstOverdue bool, now time.Time) (pass bo
 	case AutoNoData:
 		return true, "台账数据缺失待补录"
 	case DueWarning:
-		days := int(truncateDay(*j.NextDueDate).Sub(truncateDay(now)).Hours() / 24)
+		days := int(timefmt.Day(*j.NextDueDate).Sub(timefmt.Day(now)).Hours() / 24)
 		return true, fmt.Sprintf("将于 %d 天内到期（到期日 %s）", days, dateStr(j.NextDueDate))
 	default: // normal
 		return true, ""
@@ -175,15 +176,6 @@ func LoadPointEquipment(db *gorm.DB, pointIDs []string) (map[string][]model.Equi
 // GlobalWarnDays 全局临期阈值（sys_config equipment.expire_warn_days，默认 30）。
 func GlobalWarnDays(db *gorm.DB) int {
 	return cfgInt(db, "equipment.expire_warn_days", 30)
-}
-
-// HasPendingMaintenance 设备是否存在待确认维保登记。
-func HasPendingMaintenance(db *gorm.DB, equipmentID string) bool {
-	var count int64
-	db.Model(&model.EquipmentMaintenance{}).
-		Where("equipment_id = ? AND confirm_status = ?", equipmentID, model.ConfirmPending).
-		Count(&count)
-	return count > 0
 }
 
 // PendingMaintenanceSet 批量查待确认登记（设备 id → 是否有 pending 流水）。

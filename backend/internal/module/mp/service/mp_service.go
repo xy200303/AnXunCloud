@@ -412,24 +412,26 @@ func (s *MPService) TaskDetail(inspectorID, taskID string) (gin.H, *errs.Error) 
 	for idx := range points {
 		pid, _ := points[idx]["point_id"].(string)
 		set := tplSets[pid]
-		photoMode := insmodel.PhotoModePerItem // 无模板点位为 per_item
-		ci := []gin.H{}                        // 无模板（或模板无项）输出空数组而非 null
+		ci := []gin.H{} // 无模板（或模板无项）输出空数组而非 null
 		if set != nil {
-			photoMode = set.PhotoMode
 			for _, it := range set.Items {
 				requirement := ""
 				if it.Requirement != nil {
 					requirement = *it.Requirement
 				}
+				guide := ""
+				if it.Guide != nil {
+					guide = *it.Guide
+				}
 				ci = append(ci, gin.H{
 					"name": it.Name, "requirement": requirement, "photo_required": it.PhotoRequired,
+					"guide":       guide,        // 拍照引导语（空=前端兜底「拍「项名」照片」）
 					"judge_type":  it.JudgeType, // 判定类型透出（向导区分拍照项/感官项 manual）
 					"tags":        it.Tags,      // 观察点 tag 数组（向导反向勾选：默认正常，点选异常）
 					"template_id": it.TemplateID, "template_name": it.TemplateName,
 				})
 			}
 		}
-		points[idx]["photo_mode"] = photoMode
 		points[idx]["check_items"] = ci
 	}
 	// 台账有效期（equipment_validity）合成检查项：绑定即启用——按点位查在用设备，

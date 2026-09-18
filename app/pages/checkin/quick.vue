@@ -995,6 +995,8 @@ export default {
           it.exception_type = ''
           // 台账有效期合成项无草稿，每次按服务端最新判定重建
           if (d.manual_pass == null) return
+          // 必拍项的草稿没有照片 = 无效完成（老数据/异常残留），不恢复，保持待拍
+          if (it.judge_type != 'manual' && (it.photo_required ?? '') == 'required' && d.file_ids.length == 0) return
           it.pass = d.manual_pass
           it.note = d.manual_pass ? '' : d.manual_note
           it.verdict = d.manual_pass ? 'pass' : 'abnormal'

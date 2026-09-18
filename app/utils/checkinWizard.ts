@@ -12,7 +12,7 @@ export type WizardItemSnap = {
   requirement: string
   /** 拍照引导语（任务详情模板项透出；空串=未配置，卡片兜底「拍「项名」照片」） */
   guide: string
-  /** manual=感官项；equipment_validity=台账有效期（服务端自动判定）；其余=拍照 AI 识别项 */
+  /** manual=感官项；equipment_validity=台账有效期（服务端自动判定）；equipment_date_spot=标签抽查合成项（交互同普通拍照项，日期由服务端从 AI 读标签草稿解析）；其余=拍照 AI 识别项 */
   judge_type: string
   /** 观察点 tag 数组（任务详情模板透出；空=无观察点） */
   tags: string[]
@@ -20,13 +20,8 @@ export type WizardItemSnap = {
   abnormal_tags: string[]
   /** 台账有效期自动判定（judge_type=equipment_validity 时由任务详情带出） */
   auto_judge?: import('@/services/api').EquipmentAutoJudge | null
-  /** 标签抽查项（judge_type=equipment_date_spot）录入字段：生产日期/维修日期/无贴纸/标签缺失 */
-  spot_mfg?: string
-  spot_maint?: string
-  spot_no_sticker?: boolean
-  spot_label_missing?: boolean
-  /** 抽查 AI 读标签中标记 */
-  spot_ai_loading?: boolean
+  /** 拍照要求：none/optional/required（手动档向导据此决定先拍照还是可直接作答） */
+  photo_required?: string
   /** 照片展示地址（上传成功后的服务端 URL；本地临时路径仅即时预览，重启后可能失效） */
   photos: string[]
   /** 已上传的 upload_file.id（与 photos 一一对应） */
@@ -58,8 +53,8 @@ export type WizardItemSnap = {
   res_file_ids?: string[]
   /** 上传失败待补传的本地压缩照片路径（''/undefined = 无待补传；仅会话内有效，页面重进后该项按云端草稿回到待拍） */
   pending_local?: string
-  /** 待补传链路：'ai' 拍照识别 / 'escape' 异常佐证（重试成功后继续原链路） */
-  pending_mode?: '' | 'ai' | 'escape'
+  /** 待补传链路：'ai' 拍照识别 / 'escape' 异常佐证 / 'manual' 手动档拍照（重试成功后继续原链路） */
+  pending_mode?: '' | 'ai' | 'escape' | 'manual'
   /** escape 链路的异常类型（device_missing / unable_to_capture） */
   pending_exception_type?: string
 }

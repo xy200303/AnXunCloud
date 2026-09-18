@@ -130,12 +130,6 @@
       }
     },
     {
-      "path": "pages/checkin/form",
-      "style": {
-        "navigationBarTitleText": "巡检打卡"
-      }
-    },
-    {
       "path": "pages/checkin/quick",
       "style": {
         "navigationBarTitleText": "连续巡检",

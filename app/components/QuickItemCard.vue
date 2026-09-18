@@ -3,7 +3,7 @@
     <!-- 合成项（台账有效期/标签抽查）保持原标题+要求文案；拍照/感官项以引导语为主标题 -->
     <template v-if="equipJudge != null || isSpot">
       <text class="item-name" :style="{ color: colors.textPrimary }">{{ item.name }}</text>
-      <text class="item-hint" :style="{ color: colors.textSecondary }">{{ item.requirement != '' ? item.requirement : (isPhoto ? '拍一张该项的照片' : '这项正常吗？') }}</text>
+      <text class="item-hint" :style="{ color: colors.textSecondary }">{{ item.requirement != '' ? item.requirement : (isPhoto || manualMode ? '拍一张该项的照片' : '这项正常吗？') }}</text>
     </template>
     <template v-else>
       <text class="item-name" :style="{ color: colors.textPrimary }">{{ cardTitle }}</text>
@@ -11,7 +11,141 @@
       <text v-if="item.requirement != ''" class="item-req" :style="{ color: colors.textSecondary }">{{ item.requirement }}</text>
     </template>
 
-    <template v-if="isPhoto">
+    <!-- 台账有效期（equipment_validity）合成项：外观与普通项一致——一行小字状态 + （逾期/缺数据时）拍新标签登记维保 -->
+    <template v-if="equipJudge != null">
+      <text class="equip-status" :style="{ color: equipColor }">{{ equipStatusText }}</text>
+      <!-- 逾期/缺数据时：已维保的拍新维修标签（随打卡上送，服务端 AI 核对，可信自动回写台账，存疑转经理确认） -->
+      <block v-if="canLabelPhoto">
+        <view class="label-photo" :style="{ borderColor: item.file_ids.length > 0 ? colors.success : colors.primary }" @click="$emit('equip-label-photo')">
+          <image
+            v-if="item.photos.length > 0 && !item.img_error"
+            :src="item.photos[0]"
+            class="label-photo-img"
+            mode="aspectFill"
+            @click.stop="$emit('preview-photo')"
+            @error="$emit('image-error')"
+          />
+          <text v-else class="label-photo-text" :style="{ color: colors.primary }">已维保？点这里拍新标签</text>
+        </view>
+        <view v-if="item.photos.length > 1" class="equip-thumbs">
+          <image
+            v-for="(p, pi) in item.photos"
+            :key="pi"
+            :src="p"
+            class="equip-thumb"
+            mode="aspectFill"
+            @click="$emit('preview-photo')"
+            @error="$emit('image-error')"
+          />
+        </view>
+        <text v-if="item.file_ids.length > 0" class="equip-photo-hint" :style="{ color: colors.textSecondary }">
+          已拍 {{ item.file_ids.length }} 张新标签{{ item.file_ids.length < 3 ? '（点上方可补拍，至多 3 张）' : '' }}，提交时系统自动核对
+        </text>
+      </block>
+      <view hover-class="hover-dim" class="btn-big" :style="{ backgroundColor: colors.primary }" @click="$emit('next')">
+        <text class="btn-big-text" :style="{ color: colors.white }">下一项</text>
+      </view>
+    </template>
+
+    <!-- 手动档（mode=manual）：拍照项拍完照（photo_required=none 可直接作答）→「这项正常吗？」+ 观察点 tag，与感官项同一套交互 -->
+    <template v-else-if="manualMode">
+      <!-- 待补传态：上传失败压缩图保留在项上，点橙色按钮重试补传；本地图失效可重拍 -->
+      <block v-if="item.pending_local">
+        <view class="shot-preview" :style="{ backgroundColor: colors.bgPage }" @click="$emit('preview-photo')">
+          <image
+            v-if="item.photos.length > 0 && !item.img_error"
+            :src="item.photos[0]"
+            class="shot-img"
+            mode="aspectFill"
+            lazy-load
+            @error="$emit('image-error')"
+          />
+          <view v-else class="shot-img shot-img-fallback">
+            <text class="shot-img-fallback-text">照片已保留，待补传</text>
+          </view>
+        </view>
+        <view hover-class="hover-dim" class="btn-big shot-next" :style="{ backgroundColor: colors.warning }" @click="$emit('retry-upload')">
+          <text class="btn-big-text" :style="{ color: colors.white }">照片待补传，点击重试</text>
+        </view>
+        <view hover-class="hover-dim" class="btn-outline reshot" :style="{ borderColor: colors.primary }" @click="$emit('take-photo')">
+          <text class="btn-outline-text" :style="{ color: colors.primary }">重新拍</text>
+        </view>
+      </block>
+      <block v-else>
+        <!-- 照片区（photo_required=none 的项无照片要求，直接作答） -->
+        <block v-if="item.photo_required != 'none'">
+          <view
+            v-if="item.file_ids.length == 0"
+            hover-class="hover-dim"
+            class="shot-empty"
+            :style="{ borderColor: colors.primary }"
+            @click="$emit('take-photo')"
+          >
+            <view class="cam-icon" :style="{ borderColor: colors.primary }">
+              <view class="cam-lens" :style="{ borderColor: colors.primary }"></view>
+            </view>
+            <text class="shot-empty-text" :style="{ color: colors.primary }">点这里拍照</text>
+          </view>
+          <block v-else>
+            <view class="shot-preview" :style="{ backgroundColor: colors.bgPage }" @click="$emit('preview-photo')">
+              <image
+                v-if="item.photos.length > 0 && !item.img_error"
+                :src="item.photos[0]"
+                class="shot-img"
+                mode="aspectFill"
+                lazy-load
+                @error="$emit('image-error')"
+              />
+              <view v-else class="shot-img shot-img-fallback">
+                <text class="shot-img-fallback-text">照片加载失败，可重新拍</text>
+              </view>
+            </view>
+            <view v-if="item.file_ids.length < 3" hover-class="hover-dim" class="btn-outline reshot" :style="{ borderColor: colors.primary }" @click="$emit('take-photo')">
+              <text class="btn-outline-text" :style="{ color: colors.primary }">补拍（已拍 {{ item.file_ids.length }} 张）</text>
+            </view>
+          </block>
+        </block>
+        <!-- 观察点 tag：默认全部正常（绿描边），点选标记异常（红实心），再点恢复 -->
+        <view v-if="item.tags.length > 0" class="tag-row">
+          <text
+            v-for="(t, ti) in item.tags"
+            :key="ti"
+            class="tag-chip"
+            :style="isAbnTag(t) ? { color: colors.white, backgroundColor: colors.danger, borderColor: colors.danger } : { color: colors.success, borderColor: colors.success }"
+            @click="$emit('toggle-tag', t)"
+          >{{ isAbnTag(t) ? '✕ ' + t : t }}</text>
+        </view>
+        <text v-if="item.tags.length > 0" class="tag-hint" :style="{ color: colors.textSecondary }">观察点默认正常，异常的点一下标红</text>
+        <view hover-class="hover-dim" class="btn-big btn-normal" :style="{ backgroundColor: colors.success }" @click="$emit('manual-ok')">
+          <text class="btn-big-text" :style="{ color: colors.white }">✓ 正常</text>
+        </view>
+        <view hover-class="hover-dim" class="btn-big" :style="{ backgroundColor: colors.danger }" @click="$emit('manual-abnormal')">
+          <text class="btn-big-text" :style="{ color: colors.white }">⚠ 有异常</text>
+        </view>
+        <block v-if="manualAbnormalOpen">
+          <textarea
+            class="manual-note"
+            :value="manualNote"
+            :style="{ borderColor: colors.danger, color: colors.textPrimary, backgroundColor: colors.bgPage }"
+            placeholder="说说哪里不对劲（可不填）"
+            :maxlength="200"
+            @input="$emit('update:manual-note', $event.detail.value)"
+          />
+          <view hover-class="hover-dim" class="btn-big" :style="{ backgroundColor: colors.danger }" @click="$emit('confirm-manual-abnormal')">
+            <text class="btn-big-text" :style="{ color: colors.white }">确认异常，下一项</text>
+          </view>
+        </block>
+        <text
+          v-if="item.photo_required != 'none'"
+          hover-class="hover-dim"
+          class="escape-link"
+          :style="{ color: item.exception_type != '' ? colors.danger : colors.warning }"
+          @click="$emit('report-missing')"
+        >{{ exceptionLabel }}</text>
+      </block>
+    </template>
+
+    <template v-else-if="isPhoto">
       <!-- 待补传态：上传失败压缩图保留在项上，点橙色按钮重试补传（成功继续原 AI 链路）；本地图失效可重拍 -->
       <block v-if="item.pending_local">
         <view class="shot-preview" :style="{ backgroundColor: colors.bgPage }" @click="$emit('preview-photo')">
@@ -62,6 +196,8 @@
             <text class="shot-img-fallback-text">照片加载失败，可重新拍</text>
           </view>
         </view>
+        <!-- 抽查合成项：AI 读标签读数一行小字展示（不阻塞下一项；未读出转人工核对） -->
+        <text v-if="isSpot && spotReadingText != ''" class="reading-line" :style="{ color: colors.textSecondary }">{{ spotReadingText }}</text>
         <!-- 观察点 tag：默认全部正常（绿描边），点选标记异常（红实心），再点恢复；AI 判出的异常 tag 已预标记 -->
         <view v-if="item.tags.length > 0" class="tag-row">
           <text
@@ -88,104 +224,6 @@
         :style="{ color: item.exception_type != '' ? colors.danger : colors.warning }"
         @click="$emit('report-missing')"
       >{{ exceptionLabel }}</text>
-    </template>
-
-    <!-- 标签抽查（equipment_date_spot）合成项：必拍 1 张 + 生产日期/维修日期（服务端四规则比对） -->
-    <template v-else-if="isSpot">
-      <!-- 命中抽检明示条：主题色浅底，提示补拍压力表/日期标签近照 -->
-      <view class="spot-banner" :style="{ backgroundColor: colors.primaryLight }">
-        <text class="spot-banner-text" :style="{ color: colors.primary }">本次命中抽检，请对压力表和日期标签补拍 1 张近照</text>
-      </view>
-      <view class="spot-photo" :style="{ borderColor: item.file_ids.length > 0 ? colors.success : colors.primary }" @click="$emit('spot-photo')">
-        <image
-          v-if="item.photos.length > 0 && !item.img_error"
-          :src="item.photos[0]"
-          class="spot-img"
-          mode="aspectFill"
-          @error="$emit('image-error')"
-        />
-        <text v-else class="spot-photo-text" :style="{ color: colors.primary }">点这里拍标签/设备照片</text>
-      </view>
-      <view class="spot-row">
-        <text class="spot-label" :style="{ color: colors.textRegular }">生产日期</text>
-        <picker mode="date" :value="item.spot_mfg" :disabled="item.spot_label_missing" @change="$emit('spot-field', { field: 'spot_mfg', value: $event.detail.value })">
-          <view class="spot-picker" :style="{ borderColor: colors.border, color: (item.spot_mfg || '') != '' ? colors.textPrimary : colors.textSecondary }">
-            {{ (item.spot_mfg || '') != '' ? item.spot_mfg : '选择日期' }}
-          </view>
-        </picker>
-      </view>
-      <view class="spot-row">
-        <text class="spot-label" :style="{ color: colors.textRegular }">维修日期</text>
-        <picker v-if="!item.spot_no_sticker" mode="date" :value="item.spot_maint" :disabled="item.spot_label_missing" @change="$emit('spot-field', { field: 'spot_maint', value: $event.detail.value })">
-          <view class="spot-picker" :style="{ borderColor: colors.border, color: (item.spot_maint || '') != '' ? colors.textPrimary : colors.textSecondary }">
-            {{ (item.spot_maint || '') != '' ? item.spot_maint : '选择日期' }}
-          </view>
-        </picker>
-        <text
-          class="spot-check"
-          :style="{ color: item.spot_no_sticker ? colors.primary : colors.textSecondary }"
-          @click="$emit('spot-field', { field: 'spot_no_sticker', value: !item.spot_no_sticker })"
-        >{{ item.spot_no_sticker ? '✓ 无贴纸' : '无贴纸' }}</text>
-      </view>
-      <view class="spot-row">
-        <text
-          class="spot-check"
-          :style="{ color: item.spot_label_missing ? colors.danger : colors.textSecondary }"
-          @click="$emit('spot-field', { field: 'spot_label_missing', value: !item.spot_label_missing })"
-        >{{ item.spot_label_missing ? '✓ 标签缺失/无法辨认' : '标签缺失/无法辨认' }}</text>
-        <text
-          v-if="item.file_ids.length > 0 && !item.spot_label_missing"
-          class="spot-ai"
-          :style="{ color: colors.primary }"
-          @click="$emit('spot-ai')"
-        >{{ item.spot_ai_loading ? 'AI 识别中…' : 'AI 读标签' }}</text>
-      </view>
-      <text class="spot-hint" :style="{ color: colors.textSecondary }">抽查只核对不改台账；比对不符将转经理审核</text>
-      <view hover-class="hover-dim" class="btn-big spot-done" :style="{ backgroundColor: colors.primary }" @click="$emit('spot-confirm')">
-        <text class="btn-big-text" :style="{ color: colors.white }">完成，下一项</text>
-      </view>
-    </template>
-
-    <!-- 台账有效期（equipment_validity）合成项：服务端按该设备台账自动判定，只读展示，不可人工改判 -->
-    <template v-else-if="equipJudge != null">
-      <view class="equip-banner" :style="{ backgroundColor: colors.bgPage }">
-        <text class="equip-state" :style="{ color: equipColor }">{{ equipText }}</text>
-        <text class="equip-sub" :style="{ color: colors.textSecondary }">
-          {{ item.name }}
-        </text>
-        <text v-if="equipJudge.has_pending_register" class="equip-pending" :style="{ color: colors.primary }">已登记维保，待经理确认</text>
-      </view>
-      <!-- 逾期/缺数据时：已维保的拍新维修标签（随打卡上送，服务端 AI 核对，可信自动回写台账，存疑转经理确认） -->
-      <block v-if="canLabelPhoto">
-        <view class="spot-photo" :style="{ borderColor: item.file_ids.length > 0 ? colors.success : colors.primary }" @click="$emit('equip-label-photo')">
-          <image
-            v-if="item.photos.length > 0 && !item.img_error"
-            :src="item.photos[0]"
-            class="spot-img"
-            mode="aspectFill"
-            @click.stop="$emit('preview-photo')"
-            @error="$emit('image-error')"
-          />
-          <text v-else class="spot-photo-text" :style="{ color: colors.primary }">已维保？点这里拍新标签</text>
-        </view>
-        <view v-if="item.photos.length > 1" class="equip-thumbs">
-          <image
-            v-for="(p, pi) in item.photos"
-            :key="pi"
-            :src="p"
-            class="equip-thumb"
-            mode="aspectFill"
-            @click="$emit('preview-photo')"
-            @error="$emit('image-error')"
-          />
-        </view>
-        <text v-if="item.file_ids.length > 0" class="equip-photo-hint" :style="{ color: colors.textSecondary }">
-          已拍 {{ item.file_ids.length }} 张新标签{{ item.file_ids.length < 3 ? '（点上方可补拍，至多 3 张）' : '' }}，提交时系统自动核对
-        </text>
-      </block>
-      <view hover-class="hover-dim" class="btn-big" :style="{ backgroundColor: colors.primary }" @click="$emit('next')">
-        <text class="btn-big-text" :style="{ color: colors.white }">下一项</text>
-      </view>
     </template>
 
     <template v-else>
@@ -228,21 +266,16 @@ import type { ColorTokens } from '@/utils/theme'
 import type { WizardItemSnap } from '@/utils/checkinWizard'
 import type { EquipmentAutoJudge } from '@/services/api'
 
-/** 今日 0 点（本地时区），到期天数计算用 */
-function todayZero(): number {
-  const d = new Date()
-  d.setHours(0, 0, 0, 0)
-  return d.getTime()
-}
-
 export default {
   props: {
     item: { type: Object as () => WizardItemSnap, required: true },
     isPhoto: { type: Boolean, default: true },
     /** 台账有效期项的自动判定（judge_type=equipment_validity 时由父组件传入；null=非该类型） */
     equipJudge: { type: Object as () => EquipmentAutoJudge | null, default: null },
-    /** 是否标签抽查合成项（equipment_date_spot） */
+    /** 是否标签抽查合成项（equipment_date_spot；外观同普通拍照项，仅多读数一行小字与「标签磨损」逃生项） */
     isSpot: { type: Boolean, default: false },
+    /** 手动档（mode=manual）：不建 AI job，拍照后直接「这项正常吗？」 */
+    manualMode: { type: Boolean, default: false },
     manualAbnormalOpen: { type: Boolean, default: false },
     manualNote: { type: String, default: '' },
     exceptionLabel: { type: String, default: '设备不存在/无法检测，提交异常' },
@@ -260,10 +293,6 @@ export default {
     'update:manual-note',
     'confirm-manual-abnormal',
     'equip-label-photo',
-    'spot-photo',
-    'spot-ai',
-    'spot-field',
-    'spot-confirm',
     'retry-upload',
     'toggle-tag'
   ],
@@ -273,10 +302,22 @@ export default {
     }
   },
   computed: {
-    /** 卡片主标题：guide 非空用引导语；空兜底「拍「项名」照片」（感官项兜底「这项正常吗？」） */
+    /** 卡片主标题：guide 非空用引导语；空兜底「拍「项名」照片」（无照片要求的项兜底「这项正常吗？」） */
     cardTitle(): string {
       if ((this.item.guide || '') != '') return this.item.guide
-      return this.isPhoto ? '拍「' + this.item.name + '」照片' : '这项正常吗？'
+      const photoItem = this.isPhoto || (this.manualMode && (this.item.photo_required ?? '') != 'none')
+      return photoItem ? '拍「' + this.item.name + '」照片' : '这项正常吗？'
+    },
+    /** 抽查合成项读数行：AI 读标签结果 M{生产年月}|W{维修年月} 解析为一行小字；读不出转人工核对 */
+    spotReadingText(): string {
+      const it = this.item
+      if (it.status == 'recognizing') return 'AI 读标签中…'
+      if (it.status != 'done' || it.exception_type != '') return ''
+      const m = (it.reading || '').match(/M(\d{4}-\d{2}|无)\|W(\d{4}-\d{2}|无)/)
+      if (m == null) return '未读出，将转人工核对'
+      const mfg = m[1] == '无' ? '未读出' : m[1]
+      const maint = m[2] == '无' ? '未读出' : m[2]
+      return '识别到：生产 ' + mfg + ' / 维修 ' + maint
     },
     /** 台账有效期项「拍新标签」入口：逾期/缺数据（或后端仍下发展示登记入口）时才出现 */
     canLabelPhoto(): boolean {
@@ -284,26 +325,24 @@ export default {
       if (aj == null) return false
       return aj.show_register || aj.status == 'overdue' || aj.status == 'no_data'
     },
-    /** 台账有效期状态文案（逐台：equipJudge 即该设备自己的判定） */
-    equipText(): string {
+    /** 台账有效期一行小字状态（逐台：equipJudge 即该设备自己的判定） */
+    equipStatusText(): string {
       const aj = this.equipJudge
       if (aj == null) return ''
-      if (aj.status == 'no_data') return '台账数据缺失，请补录'
-      const due = aj.next_due_date
-      if (due == '') return ''
-      if (aj.status == 'overdue') return '已逾期 ' + aj.overdue_days + ' 天（到期日 ' + due + '）'
-      if (aj.status == 'warning') {
-        const days = Math.round((new Date(due.replace(/-/g, '/')).getTime() - todayZero()) / 86400000)
-        return '将于 ' + days + ' 天内到期（' + due + '）'
-      }
-      return '台账有效（至 ' + due + '）'
+      let t = '台账正常'
+      if (aj.status == 'overdue') t = '台账已逾期，拍照登记维保'
+      else if (aj.status == 'warning') t = '台账即将到期'
+      else if (aj.status == 'no_data') t = '台账数据缺失待补录'
+      else if (aj.status == 'label_missing') t = '标签缺失，拍照登记维保'
+      if (aj.has_pending_register) t += '（已登记维保待确认）'
+      return t
     },
     equipColor(): string {
       const aj = this.equipJudge
       if (aj == null) return this.colors.success
       if (aj.status == 'overdue') return this.colors.danger
       if (aj.status == 'warning') return this.colors.warning
-      if (aj.status == 'no_data') return this.colors.info
+      if (aj.status == 'no_data' || aj.status == 'label_missing') return this.colors.info
       return this.colors.success
     }
   }
@@ -457,6 +496,12 @@ export default {
   margin-bottom: 8rpx;
 }
 
+/* 抽查合成项 AI 读数行：小字灰字，不阻塞 */
+.reading-line {
+  font-size: 26rpx;
+  margin-top: 16rpx;
+}
+
 .manual-note {
   width: 100%;
   height: 192rpx;
@@ -481,23 +526,8 @@ export default {
   background-color: rgba(255, 150, 0, 0.1);
 }
 
-/* 标签抽查项 */
-.spot-banner {
-  width: 100%;
-  border-radius: 16rpx;
-  padding: 24rpx 28rpx;
-  margin-top: 32rpx;
-  align-items: center;
-}
-
-.spot-banner-text {
-  font-size: 34rpx;
-  font-weight: 700;
-  line-height: 48rpx;
-  text-align: center;
-}
-
-.spot-photo {
+/* 台账有效期项「拍新标签」照片框（手动档/有效期项共用） */
+.label-photo {
   width: 100%;
   height: 360rpx;
   border-width: 3rpx;
@@ -509,81 +539,21 @@ export default {
   overflow: hidden;
 }
 
-.spot-img {
+.label-photo-img {
   width: 100%;
   height: 360rpx;
 }
 
-.spot-photo-text {
+.label-photo-text {
   font-size: 36rpx;
   font-weight: 600;
 }
 
-.spot-row {
-  flex-direction: row;
-  align-items: center;
-  margin-top: 24rpx;
-  width: 100%;
-}
-
-.spot-label {
+/* 台账有效期项：一行小字状态 */
+.equip-status {
   font-size: 30rpx;
-  width: 160rpx;
-}
-
-.spot-picker {
-  height: 88rpx;
-  min-width: 280rpx;
-  border-width: 2rpx;
-  border-style: solid;
-  border-radius: 12rpx;
-  padding: 0 24rpx;
-  justify-content: center;
-  font-size: 30rpx;
-}
-
-.spot-check {
-  font-size: 28rpx;
-  margin-left: 24rpx;
-  padding: 12rpx 20rpx;
-}
-
-.spot-ai {
-  font-size: 28rpx;
-  padding: 12rpx 20rpx;
-}
-
-.spot-hint {
-  font-size: 24rpx;
-  margin-top: 16rpx;
-}
-
-.spot-done {
+  font-weight: 600;
   margin-top: 24rpx;
-}
-
-/* 台账有效期项：自动判定结果横幅 + 登记入口 */
-.equip-banner {
-  width: 100%;
-  border-radius: 20rpx;
-  margin-top: 40rpx;
-  padding: 32rpx;
-  align-items: center;
-}
-
-.equip-state {
-  font-size: 40rpx;
-  font-weight: 700;
-}
-
-.equip-sub {
-  font-size: 28rpx;
-  margin-top: 12rpx;
-}
-
-.equip-pending {
-  font-size: 26rpx;
-  margin-top: 8rpx;
 }
 
 /* 台账有效期项「拍新标签」缩略图行与提示 */
@@ -606,7 +576,7 @@ export default {
   margin-top: 12rpx;
 }
 
-/* 观察点 tag chips（拍照项/感官项共用）：默认正常绿描边，点选异常红实心 */
+/* 观察点 tag chips（拍照项/感官项/手动档共用）：默认正常绿描边，点选异常红实心 */
 .tag-row {
   width: 100%;
   flex-direction: row;

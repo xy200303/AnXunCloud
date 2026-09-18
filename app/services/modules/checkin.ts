@@ -25,19 +25,14 @@ export type CheckinItemReqPayload = {
   ai_verdict?: string
   ai_reason?: string
   ai_reading?: string
-  /** 异常逃生入口的项目异常类型；由服务端草稿校验后写入正式记录 */
-  exception_type?: 'device_missing' | 'unable_to_capture' | ''
+  /** 异常逃生入口的项目异常类型；label_missing（标签磨损无法辨认）仅标签抽查合成项可用，由服务端草稿校验后写入正式记录 */
+  exception_type?: 'device_missing' | 'unable_to_capture' | 'label_missing' | ''
   /** 异常项处置方式：'' / on_site_resolved 现场已处理 / maintenance_registered 已登记维保 / report_pending 上报待处理 */
   disposition?: '' | 'on_site_resolved' | 'maintenance_registered' | 'report_pending'
   /** 处置照片 upload_file.id（disposition=on_site_resolved 时必带） */
   resolution_file_ids?: string[]
   /** 处置说明 */
   resolution_note?: string
-  /** 标签抽查合成项（equipment_date_spot）：生产日期/维修日期/无贴纸/标签缺失（服务端四规则比对，pass 被忽略） */
-  spot_manufacture_date?: string
-  spot_maintenance_date?: string
-  spot_no_sticker?: boolean
-  spot_label_missing?: boolean
   /** 异常观察点 tag（须 ⊆ 该项 tags；非空服务端强制该项 pass=false、记录结果强制 abnormal） */
   abnormal_tags?: string[]
 }
@@ -339,8 +334,8 @@ export function apiItemDrafts(taskId: string, pointId?: string): Promise<ItemDra
   })
 }
 
-/** 手动确认项选择落云端草稿 POST /checkin/item-drafts/manual */
-export function apiItemDraftManual(req: { task_id: string; point_id: string; name: string; pass: boolean; note: string }): Promise<void> {
+/** 手动结论落云端草稿 POST /checkin/item-drafts/manual（感官项与手动档向导的拍照项通用；拍照项携 file_ids ≤3 与 abnormal_tags ⊆ 模板 tags） */
+export function apiItemDraftManual(req: { task_id: string; point_id: string; name: string; pass: boolean; note: string; file_ids?: string[]; abnormal_tags?: string[] }): Promise<void> {
   return new Promise<void>((resolve, reject) => {
     httpPost('/checkin/item-drafts/manual', req as unknown as Record<string, any>)
       .then(() => resolve())

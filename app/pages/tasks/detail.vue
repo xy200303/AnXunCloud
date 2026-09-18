@@ -299,14 +299,14 @@ export default {
         url: '/pages/checkin/quick?task_id=' + encodeURIComponent(this.taskId)
       })
     },
-    /** 手动模式（熟手后路 / AI 未启用）：跳第一个未打卡点位的打卡表单 */
+    /** 手动模式（熟手后路 / AI 未启用）：跳第一个未打卡点位的手动档向导 */
     goManual() {
       const next = this.sortedPoints.find((p) => !p.checked)
       if (next == null) return
       uni.navigateTo({
         url:
-          '/pages/checkin/form?task_id=' + encodeURIComponent(this.taskId) +
-          '&point_id=' + encodeURIComponent(next.point_id)
+          '/pages/checkin/quick?task_id=' + encodeURIComponent(this.taskId) +
+          '&point_id=' + encodeURIComponent(next.point_id) + '&mode=manual'
       })
     },
     load() {
@@ -376,11 +376,11 @@ export default {
           })
           return
         }
-        // AI 未启用：进该点位的手动打卡表单
+        // AI 未启用：进该点位的手动档向导
         uni.navigateTo({
           url:
-            '/pages/checkin/form?task_id=' + encodeURIComponent(this.taskId) +
-            '&point_id=' + encodeURIComponent(p.point_id)
+            '/pages/checkin/quick?task_id=' + encodeURIComponent(this.taskId) +
+            '&point_id=' + encodeURIComponent(p.point_id) + '&mode=manual'
         })
         return
       }

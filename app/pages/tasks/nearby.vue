@@ -130,7 +130,7 @@ export default {
         })
         return
       }
-      // 未打卡：AI 启用进连续巡检向导（从该点位开始），否则进手动表单
+      // 未打卡：AI 启用进连续巡检向导（从该点位开始），否则进手动档向导
       if (this.aiEnabled) {
         uni.navigateTo({
           url: '/pages/checkin/quick?task_id=' + encodeURIComponent(p.task_id) +
@@ -138,8 +138,8 @@ export default {
         })
       } else {
         uni.navigateTo({
-          url: '/pages/checkin/form?task_id=' + encodeURIComponent(p.task_id) +
-            '&point_id=' + encodeURIComponent(p.point_id)
+          url: '/pages/checkin/quick?task_id=' + encodeURIComponent(p.task_id) +
+            '&point_id=' + encodeURIComponent(p.point_id) + '&mode=manual'
         })
       }
     },

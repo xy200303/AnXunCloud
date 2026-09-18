@@ -180,9 +180,10 @@ async function syncOne(entry: OfflineEntry): Promise<void> {
     }
   }
   // 回填逐项 photos / resolution_file_ids（照片唯一归属逐项，无记录级照片；
-  // 「现场已处理」异常项该项照片可为空——处置照片即凭证，服务端同口径免除）
+  // 「现场已处理」异常项该项照片可为空——处置照片即凭证，服务端同口径免除）。
+  // 该项无本地照片待传时保留 req 内已有 file_id（向导模式照片在拍照时已上传，离线暂存仅暂存提交请求本身）
   req.check_items.forEach((ci) => {
-    ci.photos = keysByItem[ci.name] ?? []
+    if (keysByItem[ci.name] != null) ci.photos = keysByItem[ci.name]
     if (resKeysByItem[ci.name] != null) ci.resolution_file_ids = resKeysByItem[ci.name]
   })
   const res = await apiOfflineSync([req])

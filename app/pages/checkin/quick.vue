@@ -6,7 +6,7 @@
         <view  hover-class="hover-dim" class="navbar-side" @click="onBackTap">
           <text class="navbar-back" :style="{ color: colors.white }">‹</text>
         </view>
-        <text class="navbar-title" :style="{ color: colors.white }">连续巡检</text>
+        <text class="navbar-title" :style="{ color: colors.white }">{{ manualMode ? '手动巡检' : '连续巡检' }}</text>
         <view  hover-class="hover-dim" class="navbar-side navbar-right"></view>
       </view>
     </view>
@@ -69,6 +69,7 @@
           :is-photo="curItemIsPhoto"
           :is-spot="curItemIsSpot"
           :equip-judge="curEquipJudge"
+          :manual-mode="manualMode"
           :manual-abnormal-open="manualAbnormalOpen"
           :manual-note="manualNote"
           :exception-label="curItemExceptionText"
@@ -84,10 +85,6 @@
           @update:manual-note="manualNote = $event"
           @confirm-manual-abnormal="confirmManualAbnormal"
           @equip-label-photo="takeEquipLabelPhoto"
-          @spot-photo="takeSpotPhoto"
-          @spot-ai="aiReadSpotLabel"
-          @spot-field="onSpotField"
-          @spot-confirm="confirmSpot"
           @retry-upload="retryCurUpload"
           @toggle-tag="toggleCurTag"
         />
@@ -105,6 +102,7 @@
           @preview="previewPhoto"
           @image-error="$event.img_error = true"
           @retake="retakePhoto"
+          @manual-confirm="manualConfirmItem"
           @confirm="submitPoint"
         />
       </block>
@@ -161,10 +159,10 @@
       </view>
     </view>
 
-    <!-- 拍照项逃生入口：异常类型面板 + 佐证拍摄确认（自绘，替代原生 showActionSheet/showModal） -->
+    <!-- 拍照项逃生入口：异常类型面板 + 佐证拍摄确认（自绘，替代原生 showActionSheet/showModal）；抽查项多一个「标签磨损无法辨认」 -->
     <AppActionSheet
       :visible="escapeSheetShow"
-      :items="['设备确实不存在', '现场无法拍摄']"
+      :items="escapeSheetItems"
       @update:visible="escapeSheetShow = $event"
       @select="onEscapeSheetSelect"
     />
@@ -172,7 +170,7 @@
       :visible="escapeDlgShow"
       kind="warning"
       title="上报项目异常"
-      :content="'请拍摄现场佐证照片后提交“' + (escapeType == 'device_missing' ? '设备确实不存在' : '现场无法拍摄') + '”异常。'"
+      :content="'请拍摄现场佐证照片后提交“' + escapeTypeText(escapeType) + '”异常。'"
       confirm-text="拍摄佐证"
       cancel-text="取消"
       @update:visible="escapeDlgShow = $event"
@@ -205,12 +203,13 @@ import {
   apiItemDraftPhotoAbnormal,
   CODE_AI_DISABLED,
   CODE_CHECKIN_LOCKED,
+  CheckinReqPayload,
   EquipmentAutoJudge,
   ItemDraft,
   TaskPoint
 } from '@/services/api'
 import { isNfcSupported, readCardOnce, toastNfcUnavailable } from '@/utils/nfc'
-import { NETWORK_ERR_PREFIX } from '@/utils/offline'
+import { NETWORK_ERR_PREFIX, enqueueOfflineCheckin } from '@/utils/offline'
 import { extractPointCode, resolvePointCode } from '@/utils/scan'
 import { getLocationGcj02 } from '@/utils/geo'
 import { playVoice } from '@/utils/voice'
@@ -228,7 +227,8 @@ type Phase = 'cred' | 'items' | 'gate' | 'retake' | 'abnormal' | 'pointDone' | '
 
 /** AI 轮询节奏：pending 时 1.5s 间隔批量查，30s 超时按 failed 处理（契约 §2） */
 const POLL_INTERVAL = 1500
-const POLL_TIMEOUT = 30000
+/** 轮询总时长：须覆盖 队列等待 + 后端 AI 超时（默认 180s），留足余量；后端任务必然落定（done/failed），不单方面判死 */
+const POLL_TIMEOUT = 190000
 
 type QuickData = {
   colors: ColorTokens
@@ -239,6 +239,8 @@ type QuickData = {
   pointIdParam: string
   /** true = 单点位修改模式（覆盖提交） */
   modify: boolean
+  /** true = 手动档向导（mode=manual）：不建 AI job，拍照后「这项正常吗？」，提交 ai_confirmed=false 转人工复核 */
+  manualMode: boolean
   /** 扫码进入带来的已核验二维码编号 */
   preVerifiedNo: string
   loading: boolean
@@ -324,7 +326,7 @@ function fmtDateTime(d: Date): string {
 }
 
 /** 由点位模板生成向导项初始状态（台账有效期项按服务端 auto_judge 预置结论，巡检员不可改） */
-function freshItem(name: string, requirement: string, guide: string, judgeType: string, autoJudge: EquipmentAutoJudge | null, tags: string[]): WizardItemSnap {
+function freshItem(name: string, requirement: string, guide: string, judgeType: string, autoJudge: EquipmentAutoJudge | null, tags: string[], photoRequired: string): WizardItemSnap {
   const it: WizardItemSnap = {
     name: name,
     requirement: requirement,
@@ -333,6 +335,7 @@ function freshItem(name: string, requirement: string, guide: string, judgeType: 
     auto_judge: autoJudge,
     tags: tags,
     abnormal_tags: [],
+    photo_required: photoRequired,
     photos: [],
     file_ids: [],
     exception_type: '',
@@ -346,11 +349,6 @@ function freshItem(name: string, requirement: string, guide: string, judgeType: 
     quality_issue: '',
     pass: true,
     note: '',
-    spot_mfg: '',
-    spot_maint: '',
-    spot_no_sticker: false,
-    spot_label_missing: false,
-    spot_ai_loading: false,
     disposition: '',
     res_photos: [],
     res_file_ids: []
@@ -380,7 +378,7 @@ function freshPoint(p: TaskPoint): WizardPointSnap {
     status: 'doing',
     scannedNo: '',
     nfcCardId: '',
-    items: (p.check_items || []).map((c) => freshItem(c.name, c.requirement, c.guide ?? '', c.judge_type, c.auto_judge ?? null, c.tags ?? []))
+    items: (p.check_items || []).map((c) => freshItem(c.name, c.requirement, c.guide ?? '', c.judge_type, c.auto_judge ?? null, c.tags ?? [], c.photo_required ?? ''))
   }
 }
 
@@ -394,6 +392,7 @@ export default {
       taskId: '',
       pointIdParam: '',
       modify: false,
+      manualMode: false,
       preVerifiedNo: '',
       loading: true,
       loaded: false,
@@ -463,11 +462,11 @@ export default {
     curItemCount(): number {
       return this.curWizPoint != null ? this.curWizPoint.items.length : 0
     },
-    /** 当前项是否拍照项（manual 感官项与 equipment_validity 台账有效期项之外的类型；缺省按拍照项） */
+    /** 当前项是否拍照项（manual 感官项与 equipment_validity 台账有效期项之外的类型，含标签抽查合成项；缺省按拍照项） */
     curItemIsPhoto(): boolean {
-      return this.curItem != null && this.curItem.judge_type != 'manual' && this.curItem.judge_type != 'equipment_validity' && this.curItem.judge_type != 'equipment_date_spot'
+      return this.curItem != null && this.curItem.judge_type != 'manual' && this.curItem.judge_type != 'equipment_validity'
     },
-    /** 当前项是否标签抽查合成项（v1.7；必拍+填日期，服务端四规则比对） */
+    /** 当前项是否标签抽查合成项（交互同普通拍照项；仅逃生面板多「标签磨损无法辨认」与读数行展示用） */
     curItemIsSpot(): boolean {
       return this.curItem != null && this.curItem.judge_type == 'equipment_date_spot'
     },
@@ -479,6 +478,12 @@ export default {
     },
     curItemExceptionText(): string {
       return this.curItem == null ? '设备不存在/无法检测，提交异常' : this.exceptionText(this.curItem.exception_type)
+    },
+    /** 逃生面板选项：抽查项追加「标签磨损无法辨认」（exception_type=label_missing，仅抽查项可用） */
+    escapeSheetItems(): string[] {
+      const base = ['设备确实不存在', '现场无法拍摄']
+      if (this.curItemIsSpot) base.push('标签磨损无法辨认')
+      return base
     },
     /** 点位序号（任务全部点位中的位置，1 起） */
     pointOrdinal(): number {
@@ -553,9 +558,9 @@ export default {
       if (this.overlayMsg != '' || this.submitting || this.captureBusy) return false
       return this.phase == 'cred' || this.phase == 'items' || this.phase == 'gate'
     },
-    /** 手动模式入口：主推进阶段 + 非修改模式 + 有当前点位（修改模式点位已打卡，手动表单会拒） */
+    /** 手动模式入口：主推进阶段 + 非修改/手动档 + 有当前点位（修改模式点位已打卡；手动档已是手动） */
     showManualEntry(): boolean {
-      if (this.modify || this.overlayMsg != '' || this.submitting || this.captureBusy) return false
+      if (this.modify || this.manualMode || this.overlayMsg != '' || this.submitting || this.captureBusy) return false
       if (this.curPoint == null) return false
       return this.phase == 'cred' || this.phase == 'items' || this.phase == 'gate'
     },
@@ -570,6 +575,7 @@ export default {
     this.taskId = options && options.task_id ? String(options.task_id) : ''
     this.pointIdParam = options && options.point_id ? String(options.point_id) : ''
     this.modify = options != null && options.mode == 'modify'
+    this.manualMode = options != null && options.mode == 'manual'
     if (options && options.no) {
       this.preVerifiedNo = String(options.no).trim()
     }
@@ -753,9 +759,22 @@ export default {
             list.forEach((d) => {
               const it = wp.items.find((x) => x.name == d.item_name)
               if (it == null) return
-              if (it.judge_type == 'manual') {
-                // 感官项：恢复手动选择结果（台账有效期合成项无草稿，每次按服务端最新判定重建）
+              // 手动结论草稿：感官项 + 手动档向导的全部模板项（拍照项照片/结论/tag 都走 manual 草稿）
+              if (it.judge_type == 'manual' || (this.manualMode && it.judge_type != 'equipment_validity')) {
                 it.abnormal_tags = (d.abnormal_tags ?? []).filter((t) => it.tags.indexOf(t) >= 0)
+                it.file_ids = d.file_ids.slice()
+                it.photos = d.photos.slice()
+                it.exception_type = d.exception_type ?? ''
+                it.img_error = false
+                // 逃生草稿（设备不存在/无法拍摄）：manual_pass 为空但 exception_type 有值 → 恢复为已上报异常
+                if (it.exception_type != '') {
+                  it.pass = false
+                  it.verdict = 'abnormal'
+                  it.note = d.ai_reason != '' ? d.ai_reason : d.manual_note
+                  it.status = 'done'
+                  return
+                }
+                // 台账有效期合成项无草稿，每次按服务端最新判定重建
                 if (d.manual_pass == null) return
                 it.pass = d.manual_pass
                 it.note = d.manual_pass ? '' : d.manual_note
@@ -763,25 +782,7 @@ export default {
                 it.status = 'done'
                 return
               }
-              // 抽查合成项：恢复照片 + AI 读数预填日期（结论服务端比对，草稿仅过程数据）
-              if (it.judge_type == 'equipment_date_spot') {
-                it.file_ids = d.file_ids.slice()
-                it.photos = d.photos.slice()
-                it.img_error = false
-                if (it.file_ids.length > 0) {
-                  const m = (d.ai_reading || '').match(/M(\d{4}-\d{2}|无)\|W(\d{4}-\d{2}|无)/)
-                  if (m != null) {
-                    if (m[1] != '无' && (it.spot_mfg ?? '') == '') it.spot_mfg = m[1] + '-01'
-                    if (m[2] != '无' && (it.spot_maint ?? '') == '') {
-                      it.spot_maint = m[2] + '-01'
-                    } else if (m[2] == '无') {
-                      it.spot_no_sticker = true
-                    }
-                  }
-                }
-                return
-              }
-              // 拍照项：照片 + AI 识别结论（异常观察点 tag 随草稿恢复）
+              // 拍照项（含标签抽查合成项）：照片 + AI 识别结论（异常观察点 tag 随草稿恢复；抽查项日期由服务端从 ai_reading 解析，前端不展示录入）
               it.file_ids = d.file_ids.slice()
               it.exception_type = d.exception_type ?? ''
               it.photos = d.photos.slice()
@@ -1028,38 +1029,90 @@ export default {
       if (wp == null) return
       this.phase = wp.items.length > 0 ? 'items' : 'gate'
     },
-    /** 当前项拍照（仅相机）→ 上传原图 → 建识别 job → 立即推进下一项，不等结果（水印由服务端统一烧录） */
+    /** 当前项拍照（仅相机）→ 上传原图 → AI 档建识别 job 立即推进下一项不等结果；手动档不建 job，照片落项后由巡检员作答（水印由服务端统一烧录） */
     takePhoto() {
       const it = this.curItem
-      if (it == null || !this.curItemIsPhoto || it.status == 'recognizing') return
+      if (it == null || it.status == 'recognizing') return
+      if (this.manualMode && it.judge_type != 'equipment_validity') {
+        if (it.file_ids.length >= 3) {
+          uni.showToast({ title: '照片至多 3 张', icon: 'none' })
+          return
+        }
+        this.shootFor(it, false, 'manual')
+        return
+      }
+      if (!this.curItemIsPhoto) return
       this.shootFor(it, true, 'ai')
+    },
+    /** 逃生类型文案（佐证确认弹窗/已上报回显共用） */
+    escapeTypeText(exceptionType: string): string {
+      if (exceptionType == 'device_missing') return '设备确实不存在'
+      if (exceptionType == 'unable_to_capture') return '现场无法拍摄'
+      if (exceptionType == 'label_missing') return '标签磨损无法辨认'
+      return ''
     },
     exceptionText(exceptionType?: string) {
       if (exceptionType == 'device_missing') return '已上报：设备确实不存在（点击可重新上报）'
       if (exceptionType == 'unable_to_capture') return '已上报：现场无法拍摄（点击可重新上报）'
+      if (exceptionType == 'label_missing') return '已上报：标签磨损无法辨认（点击可重新上报）'
       return '设备不存在 / 无法拍摄？点击这里上报异常'
     },
-    /** 拍照项逃生入口：面板选择异常类型（设备不存在/现场无法拍摄），再确认拍摄佐证 */
+    /** 拍照项逃生入口：面板选择异常类型（设备不存在/现场无法拍摄，抽查项另有标签磨损），再确认拍摄佐证 */
     reportPhotoItemMissing() {
       const it = this.curItem
       if (it == null || !this.curItemIsPhoto || this.captureBusy || this.overlayMsg != '' || this.submitting) return
+      if (this.manualMode && it.photo_required == 'none') return
       this.escapeItem = it
       this.escapeSheetShow = true
     },
     onEscapeSheetSelect(idx: number) {
-      this.escapeType = idx == 0 ? 'device_missing' : 'unable_to_capture'
+      this.escapeType = idx == 0 ? 'device_missing' : idx == 1 ? 'unable_to_capture' : 'label_missing'
       this.escapeDlgShow = true
     },
     onEscapeDlgConfirm() {
       const it = this.escapeItem
       if (it != null) this.shootFor(it, true, 'escape', this.escapeType)
     },
+    /**
+     * 逃生佐证落草稿：device_missing/unable_to_capture 走 photo-abnormal 草稿；
+     * label_missing 仅抽查项可用（模板项草稿接口会拒），AI 档改走 AI 读标签 job 落照片草稿
+     * （服务端提交时从草稿 ai_reading 解析日期；label_missing 短路不读数），手动档不落草稿仅随提交上送。
+     */
+    saveEscapeDraft(it: WizardItemSnap, pointId: string, fileId: string, exceptionType: string): Promise<{ job_id: string }> {
+      if (exceptionType == 'label_missing') {
+        if (this.manualMode) return Promise.resolve({ job_id: '' })
+        return apiAiItemJobCreate({ task_id: this.taskId, point_id: pointId, name: it.name, file_ids: [fileId] })
+      }
+      return apiItemDraftPhotoAbnormal({
+        task_id: this.taskId,
+        point_id: pointId,
+        name: it.name,
+        file_ids: [fileId],
+        note: this.escapeTypeText(exceptionType) + '，已上报异常',
+        exception_type: exceptionType as 'device_missing' | 'unable_to_capture'
+      }).then(() => ({ job_id: '' }))
+    },
     /** 补拍步重拍：重拍 = 重新拍照上传重新建 job，停留在补拍列表 */
     retakePhoto(it: WizardItemSnap) {
       if (it.status == 'recognizing') return
       this.shootFor(it, false, 'ai')
     },
-    shootFor(it: WizardItemSnap, advance: boolean, mode: 'ai' | 'escape', exceptionType = '') {
+    /**
+     * 识别失败/超时逃生：AI 基础设施故障不阻断巡检——该项转人工确认（巡检员自行核对，异常用 tag 勾选表达）。
+     * 服务端 validateConfirmedAI 对 pending/failed 草稿放行并把记录转人工复核。
+     * 仅识别失败/超时可用；质量不合格（模糊/翻拍）仍须重拍。
+     */
+    manualConfirmItem(it: WizardItemSnap) {
+      if (it.status != 'failed') return
+      it.status = 'done'
+      it.quality_pass = true
+      it.quality_issue = ''
+      it.verdict = ''
+      it.reason = 'AI 未识别，巡检员现场确认'
+      it.pass = true
+      uni.showToast({ title: '已转人工确认，异常请勾选观察点', icon: 'none' })
+    },
+    shootFor(it: WizardItemSnap, advance: boolean, mode: 'ai' | 'escape' | 'manual', exceptionType = '') {
       const wp = this.curWizPoint
       if (wp == null || this.captureBusy || this.overlayMsg != '' || this.submitting) return
       const pointId = wp.point_id
@@ -1090,14 +1143,11 @@ export default {
                 fileId = r.file_id
                 fileUrl = r.url
                 if (mode == 'escape') {
-                  return apiItemDraftPhotoAbnormal({
-                    task_id: this.taskId,
-                    point_id: pointId,
-                    name: it.name,
-                    file_ids: [fileId],
-                    note: exceptionType == 'device_missing' ? '设备确实不存在，已上报异常' : '现场无法拍摄，已上报异常',
-                    exception_type: exceptionType
-                  }).then(() => ({ job_id: '' }))
+                  return this.saveEscapeDraft(it, pointId, fileId, exceptionType)
+                }
+                if (mode == 'manual') {
+                  // 手动档：照片只上传落项，不建 AI job；结论由巡检员作答后落 manual 草稿
+                  return { job_id: '' }
                 }
                 return apiAiItemJobCreate({
                   task_id: this.taskId,
@@ -1150,14 +1200,21 @@ export default {
     captureIsCurrent(token: number): boolean {
       return !this.destroyed && this.captureToken == token
     },
-    /** 上传+建 job 成功后的逐项落定（shootFor 与待补传重试共用）；escape=异常佐证直接落定异常 */
-    applyPhotoSuccess(it: WizardItemSnap, raw: string, fileId: string, fileUrl: string, jobId: string, mode: 'ai' | 'escape', exceptionType: string) {
+    /** 上传+建 job 成功后的逐项落定（shootFor 与待补传重试共用）；escape=异常佐证直接落定异常；manual=手动档照片归档待作答 */
+    applyPhotoSuccess(it: WizardItemSnap, raw: string, fileId: string, fileUrl: string, jobId: string, mode: 'ai' | 'escape' | 'manual', exceptionType: string) {
       it.pending_local = ''
       it.pending_mode = ''
       it.pending_exception_type = ''
       // 展示用服务端 URL（重启后仍可加载）；本地临时路径仅兜底
-      it.photos = [fileUrl != '' ? fileUrl : raw]
+      const url = fileUrl != '' ? fileUrl : raw
       it.img_error = false
+      if (mode == 'manual') {
+        // 手动档：照片累加（≤3，拍照入口已拦截），保持 todo 待巡检员作答「这项正常吗？」
+        it.photos.push(url)
+        it.file_ids.push(fileId)
+        return
+      }
+      it.photos = [url]
       it.file_ids = [fileId]
       it.exception_type = mode == 'escape' ? exceptionType : ''
       it.file_id = fileId
@@ -1167,7 +1224,7 @@ export default {
       if (mode == 'escape') {
         it.status = 'done'
         it.verdict = 'abnormal'
-        it.reason = exceptionType == 'device_missing' ? '设备确实不存在，已上报异常' : '现场无法拍摄，已上报异常'
+        it.reason = this.escapeTypeText(exceptionType) + '，已上报异常'
         it.reading = ''
         it.quality_pass = true
         it.quality_issue = ''
@@ -1186,7 +1243,7 @@ export default {
       }
     },
     /** 上传失败置待补传态：压缩图保留在项上（本地路径仅会话内有效），卡片显示「照片待补传，点击重试」 */
-    markPendingUpload(it: WizardItemSnap, raw: string, mode: 'ai' | 'escape', exceptionType: string) {
+    markPendingUpload(it: WizardItemSnap, raw: string, mode: 'ai' | 'escape' | 'manual', exceptionType: string) {
       it.pending_local = raw
       it.pending_mode = mode
       it.pending_exception_type = exceptionType
@@ -1202,7 +1259,7 @@ export default {
       const raw = it.pending_local
       if (raw == null || raw == '') return
       if (this.captureBusy || this.submitting || this.overlayMsg != '' || this.destroyed) return
-      const mode: 'ai' | 'escape' = it.pending_mode == 'escape' ? 'escape' : 'ai'
+      const mode: 'ai' | 'escape' | 'manual' = it.pending_mode == 'escape' ? 'escape' : it.pending_mode == 'manual' ? 'manual' : 'ai'
       const exceptionType = it.pending_exception_type ?? ''
       this.captureBusy = true
       this.overlayMsg = '照片补传中…'
@@ -1213,14 +1270,10 @@ export default {
           fileId = r.file_id
           fileUrl = r.url
           if (mode == 'escape') {
-            return apiItemDraftPhotoAbnormal({
-              task_id: this.taskId,
-              point_id: pointId,
-              name: it.name,
-              file_ids: [fileId],
-              note: exceptionType == 'device_missing' ? '设备确实不存在，已上报异常' : '现场无法拍摄，已上报异常',
-              exception_type: exceptionType
-            }).then(() => ({ job_id: '' }))
+            return this.saveEscapeDraft(it, pointId, fileId, exceptionType)
+          }
+          if (mode == 'manual') {
+            return { job_id: '' }
           }
           return apiAiItemJobCreate({
             task_id: this.taskId,
@@ -1293,122 +1346,6 @@ export default {
     onNetChange(res: { isConnected?: boolean }) {
       if (res != null && res.isConnected == true) this.retryPendingItems()
     },
-    /** 抽查项字段更新（QuickItemCard picker/勾选透传；标签缺失勾选后清空日期） */
-    onSpotField(payload: { field: string; value: any }) {
-      const it = this.curItem
-      if (it == null || !this.curItemIsSpot) return
-      ;(it as any)[payload.field] = payload.value
-      if (payload.field == 'spot_label_missing' && payload.value == true) {
-        it.spot_mfg = ''
-        it.spot_maint = ''
-      }
-    },
-    /** 抽查项拍照（仅相机，一项一图）：上传换 file_id 后即完成照片部分 */
-    takeSpotPhoto() {
-      const it = this.curItem
-      if (it == null || !this.curItemIsSpot || this.captureBusy || this.submitting) return
-      uni.chooseImage({
-        count: 1,
-        sourceType: ['camera'],
-        success: (res) => {
-          const path = (res.tempFilePaths || [])[0]
-          if (path == null) return
-          this.captureBusy = true
-          this.overlayMsg = '上传中…'
-          compressForUpload(path)
-            .then((p) => apiUploadLocal(p))
-            .then((up) => {
-              it.photos = [up.url]
-              it.file_ids = [up.file_id]
-              it.img_error = false
-            })
-            .catch((e: any) => {
-              uni.showToast({ title: (e && e.message) || '上传失败，请重试', icon: 'none' })
-            })
-            .finally(() => {
-              this.captureBusy = false
-              this.overlayMsg = ''
-            })
-        }
-      })
-    },
-    /** 抽查项 AI 读标签预填（需已拍照；失败/超时允许手填，不阻塞） */
-    aiReadSpotLabel() {
-      const it = this.curItem
-      if (it == null || !this.curItemIsSpot || it.spot_ai_loading || it.file_ids.length == 0) return
-      const wp = this.curWizPoint
-      if (wp == null) return
-      it.spot_ai_loading = true
-      apiAiItemJobCreate({ task_id: this.taskId, point_id: wp.point_id, name: it.name, file_ids: it.file_ids.slice() })
-        .then((j) => this.pollSpotLabelJob(it, j.job_id, 8))
-        .catch((e: any) => {
-          it.spot_ai_loading = false
-          uni.showToast({ title: (e && e.message) || 'AI 识别不可用，请手填日期', icon: 'none' })
-        })
-    },
-    /** 轮询读标签结果：M2020-05|W2025-03 紧凑格式解析预填（巡检员可改，提交以确认值为准） */
-    pollSpotLabelJob(it: WizardItemSnap, jobId: string, retries: number) {
-      setTimeout(() => {
-        if (this.destroyed) return
-        apiAiItemJobs([jobId])
-          .then((jobs) => {
-            const j = jobs[0]
-            if (j != null && j.status == 'done') {
-              const m = (j.reading || '').match(/M(\d{4}-\d{2}|无)\|W(\d{4}-\d{2}|无)/)
-              if (m != null) {
-                if (m[1] != '无') it.spot_mfg = m[1] + '-01'
-                if (m[2] != '无') {
-                  it.spot_maint = m[2] + '-01'
-                  it.spot_no_sticker = false
-                } else {
-                  it.spot_no_sticker = true
-                }
-                uni.showToast({ title: '已预填日期，请核对', icon: 'none' })
-              } else {
-                uni.showToast({ title: '未读到日期，请手填', icon: 'none' })
-              }
-              it.spot_ai_loading = false
-              return
-            }
-            if (j != null && j.status == 'failed') {
-              it.spot_ai_loading = false
-              uni.showToast({ title: 'AI 识别失败，请手填日期', icon: 'none' })
-              return
-            }
-            if (retries > 0) {
-              this.pollSpotLabelJob(it, jobId, retries - 1)
-            } else {
-              it.spot_ai_loading = false
-              uni.showToast({ title: 'AI 识别超时，请手填日期', icon: 'none' })
-            }
-          })
-          .catch(() => {
-            it.spot_ai_loading = false
-          })
-      }, 1500)
-    },
-    /** 抽查项完成：校验必拍+日期（标签缺失全免/无贴纸免维修日期）→ 落定进下一项；比对结论服务端给出 */
-    confirmSpot() {
-      const it = this.curItem
-      if (it == null || !this.curItemIsSpot || it.status == 'done') return
-      if (it.file_ids.length == 0) {
-        uni.showToast({ title: '请先拍 1 张标签/设备照片', icon: 'none' })
-        return
-      }
-      if (!it.spot_label_missing) {
-        if ((it.spot_mfg ?? '') == '') {
-          uni.showToast({ title: '请填写生产日期（读不到则勾选标签缺失）', icon: 'none' })
-          return
-        }
-        if (!it.spot_no_sticker && (it.spot_maint ?? '') == '') {
-          uni.showToast({ title: '请填写维修日期或选「无贴纸」', icon: 'none' })
-          return
-        }
-      }
-      it.status = 'done'
-      it.verdict = 'pass' // 展示用占位；结论以服务端四规则比对为准
-      this.nextStep()
-    },
     /** 台账有效期合成项「已维保？拍新标签」（仅相机，至多 3 张）：照片即登记凭证，提交时服务端 AI 核对 */
     takeEquipLabelPhoto() {
       const it = this.curItem
@@ -1450,37 +1387,50 @@ export default {
       if (i >= 0) it.abnormal_tags.splice(i, 1)
       else it.abnormal_tags.push(tag)
     },
-    /** 感官项：正常一次过 */
+    /** 该项可走「这项正常吗？」作答：感官项；或手动档的非台账项（必拍项须先拍照或逃生上报） */
+    curItemManualAnswerable(it: WizardItemSnap | null, toastWhy: boolean): boolean {
+      if (it == null || it.status == 'done') return false
+      if (it.judge_type == 'equipment_validity') return false
+      if (it.judge_type != 'manual' && !this.manualMode) return false
+      if (this.manualMode && it.judge_type != 'manual' && it.photo_required == 'required' && it.file_ids.length == 0 && (it.exception_type ?? '') == '') {
+        if (toastWhy) uni.showToast({ title: '请先拍 1 张该项照片', icon: 'none' })
+        return false
+      }
+      return true
+    },
+    /** 正常一次过（感官项 / 手动档拍照项同一套动作） */
     tapManualOk() {
       const it = this.curItem
-      if (it == null || this.curItemIsPhoto || it.status == 'done') return
-      it.pass = true
-      it.note = ''
-      it.verdict = 'pass'
-      it.status = 'done'
+      if (!this.curItemManualAnswerable(it, true)) return
+      const item = it as WizardItemSnap
+      item.pass = true
+      item.note = ''
+      item.verdict = 'pass'
+      item.status = 'done'
       this.manualAbnormalOpen = false
-      this.saveManualDraft(it)
+      this.saveManualDraft(item)
       this.nextStep()
     },
-    /** 感官项：有异常 → 展开描述输入（可跳过） */
+    /** 有异常 → 展开描述输入（可跳过） */
     tapManualAbnormal() {
       const it = this.curItem
-      if (it == null || this.curItemIsPhoto || it.status == 'done') return
-      this.manualNote = it.note
+      if (!this.curItemManualAnswerable(it, true)) return
+      this.manualNote = (it as WizardItemSnap).note
       this.manualAbnormalOpen = true
     },
     confirmManualAbnormal() {
       const it = this.curItem
-      if (it == null || this.curItemIsPhoto || it.status == 'done') return
-      it.pass = false
-      it.note = this.manualNote.trim()
-      it.verdict = 'abnormal'
-      it.status = 'done'
+      if (!this.curItemManualAnswerable(it, true)) return
+      const item = it as WizardItemSnap
+      item.pass = false
+      item.note = this.manualNote.trim()
+      item.verdict = 'abnormal'
+      item.status = 'done'
       this.manualAbnormalOpen = false
-      this.saveManualDraft(it)
+      this.saveManualDraft(item)
       this.nextStep()
     },
-    /** 手动项选择实时落云端草稿（失败仅提示不阻断；下次进入以服务端为准） */
+    /** 手动项选择实时落云端草稿（含手动档拍照项的照片 file_ids 与异常观察点 tag；失败仅提示不阻断，下次进入以服务端为准） */
     saveManualDraft(it: WizardItemSnap) {
       const wp = this.curWizPoint
       if (wp == null) return
@@ -1489,7 +1439,9 @@ export default {
         point_id: wp.point_id,
         name: it.name,
         pass: it.pass,
-        note: it.note
+        note: it.note,
+        file_ids: it.file_ids.length > 0 ? it.file_ids.slice() : undefined,
+        abnormal_tags: it.abnormal_tags.length > 0 ? it.abnormal_tags.slice() : undefined
       }).catch(() => {
         uni.showToast({ title: '网络异常，进度可能未保存', icon: 'none' })
       })
@@ -1526,15 +1478,15 @@ export default {
       if (!this.prevStep()) this.exitWizard()
     },
     /**
-     * 手动填写本点位：跳逐项填写表单（redirectTo 替换向导；向导进度在云端草稿，重进可续）。
-     * 已核验的扫码/NFC 凭证随 no 参数带过去，表单按编号匹配二维码/NFC 自动免核验。
+     * 手动填写本点位：切到手动档向导（redirectTo 替换当前向导；进度在云端草稿，重进可续）。
+     * 已核验的扫码/NFC 凭证随 no 参数带过去，按编号匹配二维码/NFC 自动免核验。
      */
     goManualPoint() {
       const pt = this.curPoint
       if (pt == null) return
       let url =
-        '/pages/checkin/form?task_id=' + encodeURIComponent(this.taskId) +
-        '&point_id=' + encodeURIComponent(pt.point_id)
+        '/pages/checkin/quick?task_id=' + encodeURIComponent(this.taskId) +
+        '&point_id=' + encodeURIComponent(pt.point_id) + '&mode=manual'
       const wp = this.curWizPoint
       const preNo = wp != null ? (wp.scannedNo != '' ? wp.scannedNo : wp.nfcCardId) : ''
       if (preNo != '') url += '&no=' + encodeURIComponent(preNo)
@@ -1601,7 +1553,7 @@ export default {
       }
       this.submitting = true
       this.gateSubmitError = ''
-      this.overlayMsg = 'AI 检查中…'
+      this.overlayMsg = this.manualMode ? '提交中…' : 'AI 检查中…'
       this.pollPointJobs()
         .then(() => {
           if (this.destroyed) return
@@ -1617,7 +1569,7 @@ export default {
           uni.showToast({ title: '网络异常，请重试', icon: 'none' })
         })
     },
-    /** 轮询当前点位 recognizing 的 job：1.5s 批量查，全部落定或 30s 超时（按 failed）后返回 */
+    /** 轮询当前点位 recognizing 的 job：1.5s 批量查，全部落定或 90s 超时（标 failed 可手动确认）后返回 */
     pollPointJobs(): Promise<void> {
       const wp = this.curWizPoint
       if (wp == null) return Promise.resolve()
@@ -1638,7 +1590,7 @@ export default {
           if (Date.now() - startedAt >= POLL_TIMEOUT) {
             pending.forEach((it) => {
               it.status = 'failed'
-              it.quality_issue = '识别超时'
+              it.quality_issue = '识别超时，可重拍或手动确认'
             })
             resolve()
             return
@@ -1705,24 +1657,31 @@ export default {
       if (wp == null) return
       const retake: number[] = []
       const abnormal: number[] = []
-      // 抽查合成项：未完成（未拍/未填日期）阻断提交并跳回该项
-      for (let i = 0; i < wp.items.length; i++) {
-        const si = wp.items[i]
-        if (si.judge_type == 'equipment_date_spot' && si.status != 'done') {
-          this.itemIdx = i
-          this.phase = 'items'
-          uni.showToast({ title: '「' + si.name + '」未完成：须拍照并填写日期', icon: 'none' })
-          return
+      // 手动档：未作答项（todo）阻断提交并跳回该项（无 AI 识别，无补拍步）
+      if (this.manualMode) {
+        for (let i = 0; i < wp.items.length; i++) {
+          const si = wp.items[i]
+          if (si.judge_type != 'equipment_validity' && si.status == 'todo') {
+            this.itemIdx = i
+            this.phase = 'items'
+            uni.showToast({ title: '「' + si.name + '」还未检查', icon: 'none' })
+            return
+          }
         }
       }
       wp.items.forEach((it, i) => {
-        // 台账有效期/抽查合成项：服务端判定（逾期/不符记录级转人工），不参与向导的补拍/异常分流
-        if (it.judge_type == 'equipment_validity' || it.judge_type == 'equipment_date_spot') return
+        // 台账有效期合成项：服务端判定（逾期记录级转人工），不参与向导的补拍/异常分流
+        if (it.judge_type == 'equipment_validity') return
         // 异常观察点 tag 非空即该项判异常（服务端同口径强制）；无描述时以 tag 列表预填
         const tagAbn = it.abnormal_tags.length > 0
         if (tagAbn && it.note == '') it.note = '异常观察点：' + it.abnormal_tags.join('、')
+        if (this.manualMode) {
+          // 手动档：无 AI 分流，巡检员手选异常或点选了异常观察点 tag → 异常确认
+          if (!it.pass || tagAbn) abnormal.push(i)
+          return
+        }
         if (it.judge_type != 'manual') {
-          // 拍照项：未拍 / 识别失败 / 质量不合格 → 补拍
+          // 拍照项（含标签抽查合成项）：未拍 / 识别失败 / 质量不合格 → 补拍
           if (it.status == 'todo' || it.status == 'failed' || (it.status == 'done' && !it.quality_pass)) {
             retake.push(i)
             return
@@ -1810,7 +1769,7 @@ export default {
       }
       this.doCheckin('abnormal', this.abnormalIdxs.slice())
     },
-    /** 真正提交打卡（ai_confirmed；已打卡未锁定点位重复提交 = 覆盖修改，服务端处理） */
+    /** 真正提交打卡（AI 档 ai_confirmed=true 采纳逐项 AI 结论；手动档 false 无草稿校验、记录标「未经 AI 识别」转人工复核；已打卡未锁定点位重复提交 = 覆盖修改，服务端处理） */
     doCheckin(result: 'normal' | 'abnormal', abnIdxs: number[]) {
       const wp = this.curWizPoint
       const pt = this.curPoint
@@ -1819,7 +1778,7 @@ export default {
       this.gateSubmitError = ''
       // 带新标签照片的提交后端会同步 AI 核对（最长约 15s）：遮罩文案说明在核对，避免误以为卡死
       const hasLabel = wp.items.some((it) => it.judge_type == 'equipment_validity' && it.file_ids.length > 0)
-      this.overlayMsg = hasLabel ? 'AI 核对新标签中…' : '提交中…'
+      this.overlayMsg = hasLabel && !this.manualMode ? 'AI 核对新标签中…' : '提交中…'
       const abnSet: Record<number, boolean> = {}
       abnIdxs.forEach((i) => {
         abnSet[i] = true
@@ -1836,6 +1795,7 @@ export default {
           return
         }
         const isAbn = abnSet[i] == true
+        // 抽查合成项：只交照片（+逃生 exception_type=label_missing），pass/日期由服务端四规则比对（日期从该项 AI 读标签草稿 ai_reading 解析）
         const isSpot = it.judge_type == 'equipment_date_spot'
         // 异常项处置方式：未选默认上报待处理；现场已处理必带处置照片（确认步已拦截校验）
         const disp = isAbn ? (it.disposition != null && it.disposition != '' ? it.disposition : 'report_pending') : ''
@@ -1845,13 +1805,9 @@ export default {
           note: isAbn ? it.note : '',
           photos: it.file_ids.slice(),
           exception_type: it.exception_type ?? '',
-          ai_verdict: isSpot ? '' : it.verdict,
-          ai_reason: isSpot ? '' : it.reason,
-          ai_reading: isSpot ? '' : it.reading,
-          spot_manufacture_date: isSpot ? it.spot_mfg : undefined,
-          spot_maintenance_date: isSpot ? it.spot_maint : undefined,
-          spot_no_sticker: isSpot ? it.spot_no_sticker : undefined,
-          spot_label_missing: isSpot ? it.spot_label_missing : undefined,
+          ai_verdict: isSpot || this.manualMode ? '' : it.verdict,
+          ai_reason: isSpot || this.manualMode ? '' : it.reason,
+          ai_reading: isSpot || this.manualMode ? '' : it.reading,
           abnormal_tags: it.abnormal_tags.length > 0 ? it.abnormal_tags.slice() : undefined,
           disposition: disp != '' ? disp : undefined,
           resolution_file_ids: disp == 'on_site_resolved' && it.res_file_ids != null ? it.res_file_ids.slice() : undefined,
@@ -1862,7 +1818,7 @@ export default {
         .filter((it, i) => abnSet[i] == true && it.note != '')
         .map((it) => it.name + '：' + it.note)
         .join('\n')
-      apiCheckin({
+      const req: CheckinReqPayload = {
         task_id: this.taskId,
         point_id: wp.point_id,
         checkin_type: pt.credential == 'nfc' ? 'nfc' : (wp.scannedNo != '' ? 'qrcode' : (wp.nfcCardId != '' ? 'nfc' : 'fence')),
@@ -1874,10 +1830,11 @@ export default {
         accuracy: this.myAcc > 0 ? this.myAcc : undefined,
         client_time: fmtDateTime(new Date()),
         result: result,
-        ai_confirmed: true,
+        ai_confirmed: !this.manualMode,
         remark: remark,
         check_items: checkItems
-      })
+      }
+      apiCheckin(req)
         .then(() => {
           if (this.destroyed) return
           this.submitting = false
@@ -1899,9 +1856,19 @@ export default {
             uni.showToast({ title: 'AI 未启用，请改用手动模式', icon: 'none' })
             return
           }
+          // 网络异常：照片在拍照时已上传（file_id 在 req 内），整单离线暂存，网络恢复后自动补传（幂等键防重）
+          const msg = (e && e.message) || ''
+          if (msg.indexOf(NETWORK_ERR_PREFIX) == 0) {
+            enqueueOfflineCheckin(req, [])
+            this.gateSubmitError = ''
+            this.doneLocal += 1
+            uni.showToast({ title: '网络异常，打卡已离线暂存，恢复后自动补传', icon: 'none' })
+            this.afterPointSubmitted()
+            return
+          }
           // 收尾步持久红色状态条：自动提交失败后不止 toast，留在 gate 卡上直到重试成功
-          this.gateSubmitError = (e && e.message) || '提交失败'
-          uni.showToast({ title: (e && e.message) || '提交失败，请重试', icon: 'none' })
+          this.gateSubmitError = msg || '提交失败'
+          uni.showToast({ title: msg || '提交失败，请重试', icon: 'none' })
           this.phase = 'gate'
         })
     },

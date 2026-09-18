@@ -26,13 +26,23 @@
           <text class="retake-name" :style="{ color: colors.textPrimary }">{{ item.name }}</text>
           <text class="retake-issue" :style="{ color: colors.danger }">{{ retakeIssue(item) }}</text>
         </view>
-        <view
-          hover-class="hover-dim"
-          class="retake-btn"
-          :style="{ backgroundColor: item.status == 'recognizing' ? colors.info : colors.primary }"
-          @click="$emit('retake', item)"
-        >
-          <text class="retake-btn-text" :style="{ color: colors.white }">{{ item.status == 'recognizing' ? '检查中' : '重拍' }}</text>
+        <view class="retake-actions">
+          <view
+            hover-class="hover-dim"
+            class="retake-btn"
+            :style="{ backgroundColor: item.status == 'recognizing' ? colors.info : colors.primary }"
+            @click="$emit('retake', item)"
+          >
+            <text class="retake-btn-text" :style="{ color: colors.white }">{{ item.status == 'recognizing' ? '检查中' : '重拍' }}</text>
+          </view>
+          <!-- 识别失败/超时（基础设施故障）才给手动确认逃生；质量不合格仍须重拍 -->
+          <text
+            v-if="item.status == 'failed'"
+            hover-class="hover-dim"
+            class="retake-manual"
+            :style="{ color: colors.primary }"
+            @click="$emit('manual-confirm', item)"
+          >跳过识别，手动确认</text>
         </view>
       </view>
     </template>
@@ -115,11 +125,11 @@ export default {
     colors: { type: Object as () => ColorTokens, required: true },
     shadow: { type: String, default: '' }
   },
-  emits: ['preview', 'image-error', 'retake', 'update-note', 'update-disposition', 'resolution-photo', 'confirm'],
+  emits: ['preview', 'image-error', 'retake', 'manual-confirm', 'update-note', 'update-disposition', 'resolution-photo', 'confirm'],
   methods: {
     retakeIssue(item: WizardItemSnap): string {
       if (item.status == 'todo') return '还没拍'
-      if (item.status == 'failed') return item.quality_issue != '' ? item.quality_issue : '识别失败，请重拍'
+      if (item.status == 'failed') return item.quality_issue != '' ? item.quality_issue : '识别失败，可重拍或手动确认'
       return item.quality_issue != '' ? item.quality_issue : '照片不合格'
     },
     onNoteInput(item: WizardItemSnap, event: any) {
@@ -270,6 +280,18 @@ export default {
 .res-hint {
   font-size: 24rpx;
   margin-top: 12rpx;
+}
+
+.retake-actions {
+  align-items: center;
+  margin-left: 24rpx;
+}
+
+.retake-manual {
+  font-size: 24rpx;
+  margin-top: 12rpx;
+  padding: 8rpx;
+  text-align: center;
 }
 
 .btn-big {

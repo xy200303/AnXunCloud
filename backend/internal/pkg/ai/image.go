@@ -118,7 +118,7 @@ func mimeFromExt(path string) string {
 	return "image/jpeg"
 }
 
-// postJSON 各协议共用的 JSON POST：非 200 带截断响应体报错，响应体限读 1MB。
+// postJSON 各协议共用的 JSON POST：非 200 带截断响应体报错（429 返回 *RateLimitError），响应体限读 1MB。
 func postJSON(ctx context.Context, httpc *http.Client, url string, headers map[string]string, payload any) ([]byte, error) {
 	body, err := json.Marshal(payload)
 	if err != nil {
@@ -139,7 +139,12 @@ func postJSON(ctx context.Context, httpc *http.Client, url string, headers map[s
 	defer resp.Body.Close()
 	respBody, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("大模型返回 %d: %s", resp.StatusCode, strutil.Truncate(string(respBody), 200))
+		body := strutil.Truncate(string(respBody), 200)
+		if resp.StatusCode == http.StatusTooManyRequests {
+			// 限流单独成类型：逐项识别 worker 据此指数退避重试，而非直接判失败
+			return nil, &RateLimitError{StatusCode: resp.StatusCode, Body: body}
+		}
+		return nil, fmt.Errorf("大模型返回 %d: %s", resp.StatusCode, body)
 	}
 	return respBody, nil
 }

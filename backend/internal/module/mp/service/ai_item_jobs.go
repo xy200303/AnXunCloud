@@ -1,6 +1,7 @@
 // 逐项 AI 识别队列：巡检员按检查项提交 1 张照片（一项一图硬约束），异步调大模型识别（质量+内容一次调用），
 // App 轮询 job 状态取回逐项结论，确认后随打卡提交（ai_confirmed=true）。
-// 队列：Redis list ai:item:queue（LPUSH 入队，N 个 worker BLPOP 消费，N=ai.worker_concurrency 默认 4）；
+// 队列：Redis list ai:item:queue（LPUSH 入队，N 个 worker BLPOP 消费，N=ai.worker_count 默认 8，兼容旧键 ai.worker_concurrency）；
+// 大模型限流（429）指数退避重试 2s/4s/8s 最多 3 次，仍失败按现有失败语义转 failed；
 // 结果：Redis hash ai:item:job:{id}（status/verdict/reason/reading/quality_pass/quality_issue，TTL 2 小时）。
 package service
 
@@ -32,11 +33,13 @@ import (
 )
 
 const (
-	aiItemQueueKey = "ai:item:queue"      // 逐项识别任务队列（list）
-	aiItemWorkKey  = "ai:item:processing" // worker 处理中任务（list）
-	aiItemJobPfx   = "ai:item:job:"       // 逐项识别结果 hash 前缀
-	aiItemJobTTL   = 2 * time.Hour        // 结果保留时长（过期按"任务已过期"处理）
-	aiItemMaxQuery = 20                   // 单次批量查询上限
+	aiItemQueueKey  = "ai:item:queue"      // 逐项识别任务队列（list）
+	aiItemWorkKey   = "ai:item:processing" // worker 处理中任务（list）
+	aiItemJobPfx    = "ai:item:job:"       // 逐项识别结果 hash 前缀
+	aiItemJobTTL    = 2 * time.Hour        // 结果保留时长（过期按"任务已过期"处理）
+	aiItemMaxQuery  = 20                   // 单次批量查询上限
+	aiItemRetryMax  = 3                    // 限流重试次数上限（指数退避 2s/4s/8s）
+	aiItemRetryBase = 2 * time.Second      // 限流重试退避基数
 )
 
 // aiItemJobPayload 队列任务载荷（point/item 上下文入队时快照，worker 不再查库）。
@@ -200,7 +203,7 @@ func (s *CheckinService) AIItemJobs(ctx context.Context, inspectorID, idsRaw str
 	return gin.H{"jobs": jobs}, nil
 }
 
-// StartAIItemWorkers 启动逐项识别队列消费 worker（N=ai.worker_concurrency，默认 4；服务启动时读取一次）。
+// StartAIItemWorkers 启动逐项识别队列消费 worker（N=ai.worker_count 默认 8，兼容旧键 ai.worker_concurrency；服务启动时读取一次）。
 func (s *CheckinService) StartAIItemWorkers() {
 	// 上次进程异常退出时，处理中列表里的任务尚未确认完成，先放回待处理队列。
 	for {
@@ -216,7 +219,7 @@ func (s *CheckinService) StartAIItemWorkers() {
 			break
 		}
 	}
-	n := s.cfgInt("ai.worker_concurrency", 4)
+	n := s.cfgInt("ai.worker_count", s.cfgInt("ai.worker_concurrency", 8))
 	for i := 0; i < n; i++ {
 		go s.aiItemWorker(i)
 	}
@@ -295,7 +298,7 @@ func (s *CheckinService) processAIItemJob(ctx context.Context, raw string) {
 			JudgeType: p.JudgeType, JudgeConfig: p.JudgeConfig, Tags: p.Tags, Photos: refs,
 		}},
 	}
-	res, err := s.aiCli.ReviewCheckin(ctx, input)
+	res, err := s.reviewItemWithRetry(ctx, p.JobID, input)
 	if err != nil {
 		logger.L.Warn("逐项 AI 识别调用失败", zap.String("job_id", p.JobID), zap.Error(err))
 		fail("AI 识别失败：" + err.Error())
@@ -351,6 +354,26 @@ func (s *CheckinService) processAIItemJob(ctx context.Context, raw string) {
 		"abnormal_tags": types.StringArray(abnTags),
 		"quality_pass":  res.Quality.Pass, "quality_issue": strutil.Truncate(res.Quality.Issue, 255),
 	})
+}
+
+// reviewItemWithRetry 调大模型识别：限流（429）时指数退避重试（2s/4s/8s，最多 3 次），
+// 其余错误直接返回。每次尝试独立计时 ai.timeout_seconds（默认 180s，Client 内部控制）。
+func (s *CheckinService) reviewItemWithRetry(ctx context.Context, jobID string, input ai.ReviewInput) (*ai.ReviewResult, error) {
+	backoff := aiItemRetryBase
+	for attempt := 0; ; attempt++ {
+		res, err := s.aiCli.ReviewCheckin(ctx, input)
+		if err == nil || !ai.IsRateLimited(err) || attempt >= aiItemRetryMax {
+			return res, err
+		}
+		logger.L.Warn("逐项 AI 识别限流，退避后重试",
+			zap.String("job_id", jobID), zap.Int("attempt", attempt+1), zap.Duration("backoff", backoff))
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-time.After(backoff):
+		}
+		backoff *= 2
+	}
 }
 
 // ItemDrafts 查询逐项识别/手动项过程草稿（GET /checkin/item-drafts?task_id[&point_id]）。

@@ -8,6 +8,7 @@ package ai
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"regexp"
@@ -90,6 +91,23 @@ quality.pass=false 时 verdict 仍照常给出；逐项确认存在明确异常�
 
 // outputFormatHint 自定义 prompt 时仍强制要求的输出格式说明。
 const outputFormatHint = "\n\n无论以上规则如何，你只输出 JSON（reason/issue 各不超过 30 字，不要输出思考过程）：{\"quality\":{\"pass\":true|false,\"issue\":\"\"},\"verdict\":\"pass\"|\"review\",\"reason\":\"简要中文理由\",\"items\":[{\"name\":\"检查项名\",\"verdict\":\"pass\"|\"review\"|\"abnormal\",\"reason\":\"该项简要理由\",\"reading\":\"\",\"abnormal_tags\":[]}]}，不要输出任何其他内容；items 逐项结论无法判断时可省略；检查项带观察点时异常观察点原名填入 abnormal_tags；拿不准一律 review。"
+
+// RateLimitError 大模型限流错误（HTTP 429）：逐项识别 worker 捕获后指数退避重试。
+// Error 文本与 postJSON 普通状态码错误保持一致（"大模型返回 %d: %s"），下游口径不变。
+type RateLimitError struct {
+	StatusCode int
+	Body       string
+}
+
+func (e *RateLimitError) Error() string {
+	return fmt.Sprintf("大模型返回 %d: %s", e.StatusCode, e.Body)
+}
+
+// IsRateLimited 判断错误是否为限流类（worker 侧据此退避重试，其余错误直接失败）。
+func IsRateLimited(err error) bool {
+	var rl *RateLimitError
+	return errors.As(err, &rl)
+}
 
 // PhotoRef 待审核照片引用。
 type PhotoRef struct {

@@ -514,7 +514,7 @@ func seedConfigs(tx *gorm.DB) error {
 		{Key: "ai.sync_timeout_seconds", Name: "同步判定超时秒数", Value: "15", ConfigGroup: "ai", Remark: "打卡同步 AI 判定的超时时间；超时按失败放行（ai_verdict=error 转人工复核）"},
 		{Key: "ai.max_photo_attempts", Name: "照片质量重拍放行次数", Value: "3", ConfigGroup: "ai", Remark: "照片质量不达标允许重拍的次数，达到上限后 App 端可强制提交（App 端读取）"},
 		{Key: "ai.result_editable", Name: "打卡结果允许覆盖修改", Value: "true", ConfigGroup: "ai", Remark: "关闭后已提交点位不可重拍覆盖（App 端读取）"},
-		{Key: "ai.worker_concurrency", Name: "逐项识别并发数", Value: "4", ConfigGroup: "ai", Remark: "逐项 AI 识别队列的消费 worker 数（服务启动时读取）"},
+		{Key: "ai.worker_count", Name: "逐项识别并发数", Value: "8", ConfigGroup: "ai", Remark: "逐项 AI 识别队列的消费 worker 数（服务启动时读取；旧键 ai.worker_concurrency 仍兼容生效）"},
 		{Key: "report.company_name", Name: "管理单位落款", Value: "", ConfigGroup: "report", Remark: "月报封面\"管理单位\"与页尾落款单位名称；空则留白"},
 		{Key: "report.company_name_en", Name: "落款单位英文名", Value: "", ConfigGroup: "report", Remark: "月报封面落款公司块英文名（公司名下一行）；空则不显示"},
 		{Key: "site.slogan", Name: "官网标语", Value: "二维码 / NFC / GPS 围栏三重到点校验，拍照留证、异常复核、月度报告电子签，巡检情况后台一目了然。", ConfigGroup: "site", Remark: "官网首页主标题下的一句话介绍"},

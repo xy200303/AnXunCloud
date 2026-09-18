@@ -1,6 +1,10 @@
 package ai
 
 import (
+	"context"
+	"errors"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 )
@@ -113,5 +117,41 @@ func TestBuildMessagesItemHints(t *testing.T) {
 	}
 	if strings.Contains(joined, "检查项「箱体与通道」（") {
 		t.Errorf("无标准要求/识别要点的项不应追加标注：%s", joined)
+	}
+}
+
+// TestPostJSONRateLimit 429 响应映射为 *RateLimitError（worker 侧指数退避重试依据），
+// 错误文本保持"大模型返回 429: ..."口径；普通状态码不误判为限流。
+func TestPostJSONRateLimit(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/limited", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusTooManyRequests)
+		_, _ = w.Write([]byte(`{"error":"rate limited"}`))
+	})
+	mux.HandleFunc("/broken", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write([]byte("boom"))
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	_, err := postJSON(context.Background(), srv.Client(), srv.URL+"/limited", nil, map[string]any{})
+	if !IsRateLimited(err) {
+		t.Fatalf("429 应识别为限流错误，got %v", err)
+	}
+	var rl *RateLimitError
+	if !errors.As(err, &rl) || rl.StatusCode != http.StatusTooManyRequests {
+		t.Fatalf("RateLimitError 状态码不符: %v", err)
+	}
+	if !strings.HasPrefix(err.Error(), "大模型返回 429") {
+		t.Errorf("错误文本口径变化: %v", err)
+	}
+
+	_, err = postJSON(context.Background(), srv.Client(), srv.URL+"/broken", nil, map[string]any{})
+	if err == nil || IsRateLimited(err) {
+		t.Fatalf("500 不应识别为限流错误，got %v", err)
+	}
+	if IsRateLimited(nil) {
+		t.Fatal("nil 不应识别为限流错误")
 	}
 }

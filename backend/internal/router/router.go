@@ -94,7 +94,7 @@ func New(cfg *config.Config, db *gorm.DB, rdb *redis.Client) (*gin.Engine, *insp
 	mpSvc := mpsvc.NewMPService(db, rdb, sess, jwtm, cfg.Wechat, messageSvc)
 	checkinSvc := mpsvc.NewCheckinService(db, rdb, store, configSvc.Get, notifier)
 	reviewSvc.BindCheckinAIGate(checkinSvc.RunAIGate) // 审批链推进到 AI 环节时触发打卡闸门
-	checkinSvc.StartAIItemWorkers()                   // 逐项 AI 识别队列消费 worker（ai.worker_concurrency，随 router 装配启动）
+	checkinSvc.StartAIItemWorkers()                   // 逐项 AI 识别队列消费 worker（ai.worker_count，随 router 装配启动）
 	uploadSvc := filesvc.NewUploadService(db, store, cfg.Upload, cfg.OSS)
 	scheduler := inspectionsvc.NewScheduler(db, planSvc, reportSvc, configSvc.Get)
 	// 设备台账：每日到期扫描提醒（临期/逾期/升级经理，时间取 equipment.expire_check_time）

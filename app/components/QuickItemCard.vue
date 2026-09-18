@@ -1,4 +1,6 @@
 <template>
+  <!-- 逐项卡片（方案 §三统一布局）：引导语大字号 + 项名小字灰 + PhotoSlot + ResultBar + 观察点行 + 类型差异区。
+       自身无推进/作答按钮——主操作全部在底部操作栏（WizardBottomBar）。 -->
   <view class="item-card" :style="{ backgroundColor: colors.bgCard, boxShadow: shadow }">
     <!-- 合成项（台账有效期/标签抽查）保持原标题+要求文案；拍照/感官项以引导语为主标题 -->
     <template v-if="equipJudge != null || isSpot">
@@ -11,252 +13,83 @@
       <text v-if="item.requirement != ''" class="item-req" :style="{ color: colors.textSecondary }">{{ item.requirement }}</text>
     </template>
 
-    <!-- 台账有效期（equipment_validity）合成项：外观与普通项一致——一行小字状态 + （逾期/缺数据时）拍新标签登记维保 -->
+    <!-- 台账有效期（equipment_validity）：一行小字状态 + （逾期/缺数据时）拍新标签多图槽（至多 3 张） -->
     <template v-if="equipJudge != null">
       <text class="equip-status" :style="{ color: equipColor }">{{ equipStatusText }}</text>
-      <!-- 逾期/缺数据时：已维保的拍新维修标签（随打卡上送，服务端 AI 核对，可信自动回写台账，存疑转经理确认） -->
       <block v-if="canLabelPhoto">
-        <view class="label-photo" :style="{ borderColor: item.file_ids.length > 0 ? colors.success : colors.primary }" @click="$emit('equip-label-photo')">
-          <image
-            v-if="item.photos.length > 0 && !item.img_error"
-            :src="item.photos[0]"
-            class="label-photo-img"
-            mode="aspectFill"
-            @click.stop="$emit('preview-photo')"
-            @error="$emit('image-error')"
-          />
-          <text v-else class="label-photo-text" :style="{ color: colors.primary }">已维保？点这里拍新标签</text>
-        </view>
-        <view v-if="item.photos.length > 1" class="equip-thumbs">
-          <image
-            v-for="(p, pi) in item.photos"
-            :key="pi"
-            :src="p"
-            class="equip-thumb"
-            mode="aspectFill"
-            @click="$emit('preview-photo')"
-            @error="$emit('image-error')"
-          />
-        </view>
+        <WizardPhotoSlot
+          variant="multi"
+          :max="3"
+          empty-add-text="拍新标签（至多 3 张）"
+          add-text="拍新标签"
+          :photos="item.photos"
+          :img-error="item.img_error == true"
+          status="done"
+          :required="false"
+          :colors="colors"
+          @take-photo="$emit('equip-label-photo')"
+          @preview="$emit('preview-photo')"
+          @image-error="$emit('image-error')"
+        />
         <text v-if="item.file_ids.length > 0" class="equip-photo-hint" :style="{ color: colors.textSecondary }">
-          已拍 {{ item.file_ids.length }} 张新标签{{ item.file_ids.length < 3 ? '（点上方可补拍，至多 3 张）' : '' }}，提交时系统自动核对
+          已拍 {{ item.file_ids.length }} 张新标签，提交时系统自动核对
         </text>
       </block>
-      <view hover-class="hover-dim" class="btn-big" :style="{ backgroundColor: colors.primary }" @click="$emit('next')">
-        <text class="btn-big-text" :style="{ color: colors.white }">下一项</text>
-      </view>
-    </template>
-
-    <!-- 手动档（mode=manual）：拍照项拍完照（photo_required=none 可直接作答）→「这项正常吗？」+ 观察点 tag，与感官项同一套交互 -->
-    <template v-else-if="manualMode">
-      <!-- 待补传态：上传失败压缩图保留在项上，点橙色按钮重试补传；本地图失效可重拍 -->
-      <block v-if="item.pending_local">
-        <view class="shot-preview" :style="{ backgroundColor: colors.bgPage }" @click="$emit('preview-photo')">
-          <image
-            v-if="item.photos.length > 0 && !item.img_error"
-            :src="item.photos[0]"
-            class="shot-img"
-            mode="aspectFill"
-            lazy-load
-            @error="$emit('image-error')"
-          />
-          <view v-else class="shot-img shot-img-fallback">
-            <text class="shot-img-fallback-text">照片已保留，待补传</text>
-          </view>
-        </view>
-        <view hover-class="hover-dim" class="btn-big shot-next" :style="{ backgroundColor: colors.warning }" @click="$emit('retry-upload')">
-          <text class="btn-big-text" :style="{ color: colors.white }">照片待补传，点击重试</text>
-        </view>
-        <view hover-class="hover-dim" class="btn-outline reshot" :style="{ borderColor: colors.primary }" @click="$emit('take-photo')">
-          <text class="btn-outline-text" :style="{ color: colors.primary }">重新拍</text>
-        </view>
-      </block>
-      <block v-else>
-        <!-- 照片区（photo_required=none 的项无照片要求，直接作答） -->
-        <block v-if="item.photo_required != 'none'">
-          <view
-            v-if="item.file_ids.length == 0"
-            hover-class="hover-dim"
-            class="shot-empty"
-            :style="{ borderColor: colors.primary }"
-            @click="$emit('take-photo')"
-          >
-            <view class="cam-icon" :style="{ borderColor: colors.primary }">
-              <view class="cam-lens" :style="{ borderColor: colors.primary }"></view>
-            </view>
-            <text class="shot-empty-text" :style="{ color: colors.primary }">点这里拍照</text>
-          </view>
-          <block v-else>
-            <view class="shot-preview" :style="{ backgroundColor: colors.bgPage }" @click="$emit('preview-photo')">
-              <image
-                v-if="item.photos.length > 0 && !item.img_error"
-                :src="item.photos[0]"
-                class="shot-img"
-                mode="aspectFill"
-                lazy-load
-                @error="$emit('image-error')"
-              />
-              <view v-else class="shot-img shot-img-fallback">
-                <text class="shot-img-fallback-text">照片加载失败，可重新拍</text>
-              </view>
-            </view>
-            <view v-if="item.file_ids.length < 3" hover-class="hover-dim" class="btn-outline reshot" :style="{ borderColor: colors.primary }" @click="$emit('take-photo')">
-              <text class="btn-outline-text" :style="{ color: colors.primary }">补拍（已拍 {{ item.file_ids.length }} 张）</text>
-            </view>
-          </block>
-        </block>
-        <!-- 观察点 tag：默认全部正常（绿描边），点选标记异常（红实心），再点恢复 -->
-        <view v-if="item.tags.length > 0" class="tag-row">
-          <text
-            v-for="(t, ti) in item.tags"
-            :key="ti"
-            class="tag-chip"
-            :style="isAbnTag(t) ? { color: colors.white, backgroundColor: colors.danger, borderColor: colors.danger } : { color: colors.success, borderColor: colors.success }"
-            @click="$emit('toggle-tag', t)"
-          >{{ isAbnTag(t) ? '✕ ' + t : t }}</text>
-        </view>
-        <text v-if="item.tags.length > 0" class="tag-hint" :style="{ color: colors.textSecondary }">观察点默认正常，异常的点一下标红</text>
-        <view hover-class="hover-dim" class="btn-big btn-normal" :style="{ backgroundColor: colors.success }" @click="$emit('manual-ok')">
-          <text class="btn-big-text" :style="{ color: colors.white }">✓ 正常</text>
-        </view>
-        <view hover-class="hover-dim" class="btn-big" :style="{ backgroundColor: colors.danger }" @click="$emit('manual-abnormal')">
-          <text class="btn-big-text" :style="{ color: colors.white }">⚠ 有异常</text>
-        </view>
-        <block v-if="manualAbnormalOpen">
-          <textarea
-            class="manual-note"
-            :value="manualNote"
-            :style="{ borderColor: colors.danger, color: colors.textPrimary, backgroundColor: colors.bgPage }"
-            placeholder="说说哪里不对劲（可不填）"
-            :maxlength="200"
-            @input="$emit('update:manual-note', $event.detail.value)"
-          />
-          <view hover-class="hover-dim" class="btn-big" :style="{ backgroundColor: colors.danger }" @click="$emit('confirm-manual-abnormal')">
-            <text class="btn-big-text" :style="{ color: colors.white }">确认异常，下一项</text>
-          </view>
-        </block>
-        <text
-          v-if="item.photo_required != 'none'"
-          hover-class="hover-dim"
-          class="escape-link"
-          :style="{ color: item.exception_type != '' ? colors.danger : colors.warning }"
-          @click="$emit('report-missing')"
-        >{{ exceptionLabel }}</text>
-      </block>
-    </template>
-
-    <template v-else-if="isPhoto">
-      <!-- 待补传态：上传失败压缩图保留在项上，点橙色按钮重试补传（成功继续原 AI 链路）；本地图失效可重拍 -->
-      <block v-if="item.pending_local">
-        <view class="shot-preview" :style="{ backgroundColor: colors.bgPage }" @click="$emit('preview-photo')">
-          <image
-            v-if="item.photos.length > 0 && !item.img_error"
-            :src="item.photos[0]"
-            class="shot-img"
-            mode="aspectFill"
-            lazy-load
-            @error="$emit('image-error')"
-          />
-          <view v-else class="shot-img shot-img-fallback">
-            <text class="shot-img-fallback-text">照片已保留，待补传</text>
-          </view>
-        </view>
-        <view hover-class="hover-dim" class="btn-big shot-next" :style="{ backgroundColor: colors.warning }" @click="$emit('retry-upload')">
-          <text class="btn-big-text" :style="{ color: colors.white }">照片待补传，点击重试</text>
-        </view>
-        <view hover-class="hover-dim" class="btn-outline reshot" :style="{ borderColor: colors.primary }" @click="$emit('take-photo')">
-          <text class="btn-outline-text" :style="{ color: colors.primary }">重新拍</text>
-        </view>
-      </block>
-      <view
-        v-else-if="item.status == 'todo' || item.status == 'failed'"
-        hover-class="hover-dim"
-        class="shot-empty"
-        :style="{ borderColor: item.status == 'failed' ? colors.danger : colors.primary }"
-        @click="$emit('take-photo')"
-      >
-        <view class="cam-icon" :style="{ borderColor: item.status == 'failed' ? colors.danger : colors.primary }">
-          <view class="cam-lens" :style="{ borderColor: item.status == 'failed' ? colors.danger : colors.primary }"></view>
-        </view>
-        <text class="shot-empty-text" :style="{ color: item.status == 'failed' ? colors.danger : colors.primary }">
-          {{ item.status == 'failed' ? '不合格，点这里重拍' : '点这里拍照' }}
-        </text>
-      </view>
-      <block v-else>
-        <view class="shot-preview" :style="{ backgroundColor: colors.bgPage }" @click="$emit('preview-photo')">
-          <image
-            v-if="item.photos.length > 0 && !item.img_error"
-            :src="item.photos[0]"
-            class="shot-img"
-            mode="aspectFill"
-            lazy-load
-            @error="$emit('image-error')"
-          />
-          <view v-else class="shot-img shot-img-fallback">
-            <text class="shot-img-fallback-text">照片加载失败，可重新拍</text>
-          </view>
-        </view>
-        <!-- 抽查合成项：AI 读标签读数一行小字展示（不阻塞下一项；未读出转人工核对） -->
-        <text v-if="isSpot && spotReadingText != ''" class="reading-line" :style="{ color: colors.textSecondary }">{{ spotReadingText }}</text>
-        <!-- 观察点 tag：默认全部正常（绿描边），点选标记异常（红实心），再点恢复；AI 判出的异常 tag 已预标记 -->
-        <view v-if="item.tags.length > 0" class="tag-row">
-          <text
-            v-for="(t, ti) in item.tags"
-            :key="ti"
-            class="tag-chip"
-            :style="isAbnTag(t) ? { color: colors.white, backgroundColor: colors.danger, borderColor: colors.danger } : { color: colors.success, borderColor: colors.success }"
-            @click="$emit('toggle-tag', t)"
-          >{{ isAbnTag(t) ? '✕ ' + t : t }}</text>
-        </view>
-        <text v-if="item.tags.length > 0" class="tag-hint" :style="{ color: colors.textSecondary }">观察点默认正常，异常的点一下标红</text>
-        <view hover-class="hover-dim" class="btn-big shot-next" :style="{ backgroundColor: colors.success }" @click="$emit('next')">
-          <text class="btn-big-text" :style="{ color: colors.white }">下一项</text>
-        </view>
-        <view v-if="item.status != 'recognizing'" hover-class="hover-dim" class="btn-outline reshot" :style="{ borderColor: colors.primary }" @click="$emit('take-photo')">
-          <text class="btn-outline-text" :style="{ color: colors.primary }">重新拍</text>
-        </view>
-        <text v-else class="recognizing-hint" :style="{ color: colors.textSecondary }">AI 检查中，完成后可重新拍</text>
-      </block>
-      <text
-        v-if="item.status != 'recognizing'"
-        hover-class="hover-dim"
-        class="escape-link"
-        :style="{ color: item.exception_type != '' ? colors.danger : colors.warning }"
-        @click="$emit('report-missing')"
-      >{{ exceptionLabel }}</text>
     </template>
 
     <template v-else>
-      <!-- 观察点 tag（感官项）：默认全部正常，点选异常标红；有异常 tag 时该项按异常计 -->
-      <view v-if="item.tags.length > 0" class="tag-row">
+      <!-- 照片槽（六态） -->
+      <WizardPhotoSlot
+        v-if="showSlot"
+        :variant="slotVariant"
+        :max="3"
+        :photos="item.photos"
+        :img-error="item.img_error == true"
+        :status="item.status"
+        :pending-local="item.pending_local ?? ''"
+        :escaped="escaped"
+        :escape-text="exceptionLabel"
+        :required="slotRequired"
+        :colors="colors"
+        @take-photo="$emit('take-photo')"
+        @preview="$emit('preview-photo')"
+        @retry-upload="$emit('retry-upload')"
+        @image-error="$emit('image-error')"
+      />
+
+      <!-- 状态条（AI 档拍照项回退查看时的只读展示；无状态整行不占位） -->
+      <WizardResultBar
+        v-if="showResult"
+        :status="item.status"
+        :verdict="item.verdict"
+        :reason="item.reason"
+        :quality-pass="item.quality_pass"
+        :quality-issue="item.quality_issue"
+        :has-job="item.job_id != ''"
+        :colors="colors"
+        @retake="$emit('result-retake')"
+        @skip="$emit('result-skip')"
+      />
+
+      <!-- 观察点下拉多选入口行（无 tag 不渲染） -->
+      <view v-if="item.tags.length > 0" hover-class="hover-dim" class="tag-entry" :style="{ borderColor: colors.border }" @click="$emit('open-tags')">
+        <text class="tag-entry-name" :style="{ color: colors.textPrimary }">观察点（{{ item.tags.length }}）</text>
+        <text class="tag-entry-val" :style="{ color: item.abnormal_tags.length == 0 ? colors.success : colors.danger }">
+          {{ item.abnormal_tags.length == 0 ? '全部正常 ✓' : item.abnormal_tags.length + ' 项异常' }} ›
+        </text>
+      </view>
+      <!-- 已勾选异常观察点红芯片回显（点入口行可改） -->
+      <view v-if="item.abnormal_tags.length > 0" class="tag-row">
         <text
-          v-for="(t, ti) in item.tags"
+          v-for="(t, ti) in item.abnormal_tags"
           :key="ti"
           class="tag-chip"
-          :style="isAbnTag(t) ? { color: colors.white, backgroundColor: colors.danger, borderColor: colors.danger } : { color: colors.success, borderColor: colors.success }"
-          @click="$emit('toggle-tag', t)"
-        >{{ isAbnTag(t) ? '✕ ' + t : t }}</text>
+          :style="{ color: colors.white, backgroundColor: colors.danger, borderColor: colors.danger }"
+        >✕ {{ t }}</text>
       </view>
-      <text v-if="item.tags.length > 0" class="tag-hint" :style="{ color: colors.textSecondary }">观察点默认正常，异常的点一下标红</text>
-      <view hover-class="hover-dim" class="btn-big btn-normal" :style="{ backgroundColor: colors.success }" @click="$emit('manual-ok')">
-        <text class="btn-big-text" :style="{ color: colors.white }">✓ 正常</text>
-      </view>
-      <view hover-class="hover-dim" class="btn-big" :style="{ backgroundColor: colors.danger }" @click="$emit('manual-abnormal')">
-        <text class="btn-big-text" :style="{ color: colors.white }">⚠ 有异常</text>
-      </view>
-      <block v-if="manualAbnormalOpen">
-        <textarea
-          class="manual-note"
-          :value="manualNote"
-          :style="{ borderColor: colors.danger, color: colors.textPrimary, backgroundColor: colors.bgPage }"
-          placeholder="说说哪里不对劲（可不填）"
-          :maxlength="200"
-          @input="$emit('update:manual-note', $event.detail.value)"
-        />
-        <view hover-class="hover-dim" class="btn-big" :style="{ backgroundColor: colors.danger }" @click="$emit('confirm-manual-abnormal')">
-          <text class="btn-big-text" :style="{ color: colors.white }">确认异常，下一项</text>
-        </view>
-      </block>
+
+      <!-- 差异区：抽查合成项 AI 读数一行小字 -->
+      <text v-if="isSpot && spotReadingText != ''" class="reading-line" :style="{ color: colors.textSecondary }">{{ spotReadingText }}</text>
     </template>
   </view>
 </template>
@@ -265,19 +98,20 @@
 import type { ColorTokens } from '@/utils/theme'
 import type { WizardItemSnap } from '@/utils/checkinWizard'
 import type { EquipmentAutoJudge } from '@/services/api'
+import WizardPhotoSlot from '@/components/WizardPhotoSlot.vue'
+import WizardResultBar from '@/components/WizardResultBar.vue'
 
 export default {
+  components: { WizardPhotoSlot, WizardResultBar },
   props: {
     item: { type: Object as () => WizardItemSnap, required: true },
     isPhoto: { type: Boolean, default: true },
     /** 台账有效期项的自动判定（judge_type=equipment_validity 时由父组件传入；null=非该类型） */
     equipJudge: { type: Object as () => EquipmentAutoJudge | null, default: null },
-    /** 是否标签抽查合成项（equipment_date_spot；外观同普通拍照项，仅多读数一行小字与「标签磨损」逃生项） */
+    /** 是否标签抽查合成项（equipment_date_spot；外观同普通拍照项，仅多读数一行小字） */
     isSpot: { type: Boolean, default: false },
-    /** 手动档（mode=manual）：不建 AI job，拍照后直接「这项正常吗？」 */
+    /** 手动档（mode=manual）：不建 AI job，拍照后停留作答「✓ 正常 / ⚠ 有异常」 */
     manualMode: { type: Boolean, default: false },
-    manualAbnormalOpen: { type: Boolean, default: false },
-    manualNote: { type: String, default: '' },
     exceptionLabel: { type: String, default: '设备不存在/无法检测，提交异常' },
     colors: { type: Object as () => ColorTokens, required: true },
     shadow: { type: String, default: '' }
@@ -286,21 +120,12 @@ export default {
     'take-photo',
     'preview-photo',
     'image-error',
-    'next',
-    'report-missing',
-    'manual-ok',
-    'manual-abnormal',
-    'update:manual-note',
-    'confirm-manual-abnormal',
-    'equip-label-photo',
     'retry-upload',
-    'toggle-tag'
+    'open-tags',
+    'equip-label-photo',
+    'result-retake',
+    'result-skip'
   ],
-  methods: {
-    isAbnTag(t: string): boolean {
-      return this.item.abnormal_tags != null && this.item.abnormal_tags.indexOf(t) >= 0
-    }
-  },
   computed: {
     /** 卡片主标题：guide 非空用引导语；空兜底「拍「项名」照片」（无照片要求的项兜底「这项正常吗？」） */
     cardTitle(): string {
@@ -344,6 +169,31 @@ export default {
       if (aj.status == 'warning') return this.colors.warning
       if (aj.status == 'no_data' || aj.status == 'label_missing') return this.colors.info
       return this.colors.success
+    },
+    escaped(): boolean {
+      return (this.item.exception_type ?? '') != ''
+    },
+    /** 照片槽是否渲染：手动档 photo_required=none 的项无照片要求，直接作答 */
+    showSlot(): boolean {
+      if (this.manualMode && (this.item.photo_required ?? '') == 'none') return false
+      return true
+    },
+    /** 必拍=灰占位不可点（拍照只走底栏大按钮）；选拍=列表行 */
+    slotRequired(): boolean {
+      if (this.item.judge_type == 'manual') return false // 感官项恒选拍
+      if (this.manualMode) return (this.item.photo_required ?? '') == 'required'
+      return true
+    },
+    /** 多图变体：手动档拍照项与感官项（至多 3 张）；AI 档拍照/抽查项一图一位 */
+    slotVariant(): 'single' | 'multi' {
+      if (!this.manualMode && this.isPhoto) return 'single'
+      return 'multi'
+    },
+    /** ResultBar：AI 档拍照项已拍/处理中且非逃生/待补传时展示 */
+    showResult(): boolean {
+      if (this.manualMode || !this.isPhoto || this.escaped) return false
+      if ((this.item.pending_local ?? '') != '') return false
+      return this.item.photos.length > 0 || this.item.status == 'recognizing'
     }
   }
 }
@@ -387,168 +237,6 @@ export default {
   text-overflow: ellipsis;
 }
 
-.shot-empty {
-  width: 100%;
-  height: 360rpx;
-  border-width: 3rpx;
-  border-style: dashed;
-  border-radius: 24rpx;
-  margin-top: 40rpx;
-  align-items: center;
-  justify-content: center;
-}
-
-.cam-icon {
-  width: 120rpx;
-  height: 96rpx;
-  border-width: 6rpx;
-  border-style: solid;
-  border-radius: 20rpx;
-  align-items: center;
-  justify-content: center;
-}
-
-.cam-lens {
-  width: 40rpx;
-  height: 40rpx;
-  border-width: 6rpx;
-  border-style: solid;
-  border-radius: 20rpx;
-}
-
-.shot-empty-text {
-  font-size: 40rpx;
-  font-weight: 700;
-  margin-top: 24rpx;
-}
-
-.shot-preview {
-  width: 100%;
-  height: 480rpx;
-  border-radius: 20rpx;
-  margin-top: 40rpx;
-  overflow: hidden;
-  align-items: center;
-  justify-content: center;
-}
-
-.shot-img {
-  width: 100%;
-  height: 480rpx;
-}
-
-.shot-img-fallback {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background-color: #f2f3f5;
-}
-
-.shot-img-fallback-text {
-  font-size: 26rpx;
-  color: #9ca3af;
-}
-
-.btn-big {
-  width: 100%;
-  height: 140rpx;
-  border-radius: 20rpx;
-  align-items: center;
-  justify-content: center;
-  margin-bottom: 24rpx;
-}
-
-.btn-big-text {
-  font-size: 44rpx;
-  font-weight: 700;
-}
-
-.btn-outline {
-  height: 112rpx;
-  border-width: 2rpx;
-  border-style: solid;
-  border-radius: 20rpx;
-  align-items: center;
-  justify-content: center;
-}
-
-.btn-outline-text {
-  font-size: 40rpx;
-  font-weight: 600;
-}
-
-.btn-normal {
-  margin-top: 32rpx;
-}
-
-.shot-next {
-  margin-top: 32rpx;
-}
-
-.reshot {
-  width: 100%;
-  margin-top: 8rpx;
-}
-
-.recognizing-hint {
-  font-size: 28rpx;
-  margin-top: 8rpx;
-  margin-bottom: 8rpx;
-}
-
-/* 抽查合成项 AI 读数行：小字灰字，不阻塞 */
-.reading-line {
-  font-size: 26rpx;
-  margin-top: 16rpx;
-}
-
-.manual-note {
-  width: 100%;
-  height: 192rpx;
-  border-width: 2rpx;
-  border-style: solid;
-  border-radius: 16rpx;
-  padding: 24rpx;
-  font-size: 34rpx;
-  margin-top: 8rpx;
-  margin-bottom: 24rpx;
-}
-
-.escape-link {
-  display: block;
-  font-size: 30rpx;
-  font-weight: 700;
-  margin: 30rpx 12rpx 8rpx;
-  padding: 22rpx 18rpx;
-  border: 2rpx solid currentColor;
-  border-radius: 14rpx;
-  text-align: center;
-  background-color: rgba(255, 150, 0, 0.1);
-}
-
-/* 台账有效期项「拍新标签」照片框（手动档/有效期项共用） */
-.label-photo {
-  width: 100%;
-  height: 360rpx;
-  border-width: 3rpx;
-  border-style: dashed;
-  border-radius: 24rpx;
-  margin-top: 40rpx;
-  align-items: center;
-  justify-content: center;
-  overflow: hidden;
-}
-
-.label-photo-img {
-  width: 100%;
-  height: 360rpx;
-}
-
-.label-photo-text {
-  font-size: 36rpx;
-  font-weight: 600;
-}
-
 /* 台账有效期项：一行小字状态 */
 .equip-status {
   font-size: 30rpx;
@@ -556,33 +244,42 @@ export default {
   margin-top: 24rpx;
 }
 
-/* 台账有效期项「拍新标签」缩略图行与提示 */
-.equip-thumbs {
-  flex-direction: row;
-  flex-wrap: wrap;
-  margin-top: 16rpx;
-  width: 100%;
-}
-
-.equip-thumb {
-  width: 120rpx;
-  height: 120rpx;
-  border-radius: 12rpx;
-  margin-right: 16rpx;
-}
-
 .equip-photo-hint {
   font-size: 24rpx;
   margin-top: 12rpx;
 }
 
-/* 观察点 tag chips（拍照项/感官项/手动档共用）：默认正常绿描边，点选异常红实心 */
+/* 观察点入口行（微信列表行：左文右 ›） */
+.tag-entry {
+  width: 100%;
+  min-height: 104rpx;
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  border-width: 1rpx;
+  border-style: solid;
+  border-radius: 20rpx;
+  padding: 0 28rpx;
+  margin-top: 24rpx;
+}
+
+.tag-entry-name {
+  font-size: 34rpx;
+  font-weight: 600;
+}
+
+.tag-entry-val {
+  font-size: 30rpx;
+  font-weight: 600;
+}
+
+/* 异常观察点红芯片回显 */
 .tag-row {
   width: 100%;
   flex-direction: row;
   flex-wrap: wrap;
   justify-content: center;
-  margin-top: 24rpx;
+  margin-top: 16rpx;
 }
 
 .tag-chip {
@@ -595,8 +292,9 @@ export default {
   margin: 8rpx;
 }
 
-.tag-hint {
-  font-size: 24rpx;
-  margin-top: 8rpx;
+/* 抽查合成项 AI 读数行：小字灰字，不阻塞 */
+.reading-line {
+  font-size: 26rpx;
+  margin-top: 16rpx;
 }
 </style>

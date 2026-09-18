@@ -1,8 +1,13 @@
 <template>
+  <!-- 清单页（补拍清算 / 异常处置共用）：统一去红横幅，普通标题 + 清单卡片；
+       主按钮在底部操作栏（retake=「重新提交本点位」；abnormal=「确认，去下一处」）。 -->
   <view>
-    <view class="banner" :style="{ backgroundColor: colors.danger }">
-      <text class="banner-text" :style="{ color: colors.white }">
-        {{ mode == 'retake' ? '⚠ 这几项要重新拍' : '⚠ 发现 ' + items.length + ' 项异常' }}
+    <view class="panel-head">
+      <text class="panel-title" :style="{ color: colors.textPrimary }">
+        {{ mode == 'retake' ? '这几项要重新拍' : '发现 ' + items.length + ' 项异常' }}
+      </text>
+      <text class="panel-sub" :style="{ color: colors.textSecondary }">
+        {{ mode == 'retake' ? '逐项重拍或跳过识别，处理完点底部按钮重新提交' : '逐项确认处置方式，完成后点底部按钮' }}
       </text>
     </view>
 
@@ -33,16 +38,18 @@
             :style="{ backgroundColor: item.status == 'recognizing' ? colors.info : colors.primary }"
             @click="$emit('retake', item)"
           >
-            <text class="retake-btn-text" :style="{ color: colors.white }">{{ item.status == 'recognizing' ? '检查中' : '重拍' }}</text>
+            <text class="retake-btn-text" :style="{ color: colors.white }">{{ item.status == 'recognizing' ? '处理中' : '重新拍照' }}</text>
           </view>
-          <!-- 识别失败/超时（基础设施故障）才给手动确认逃生；质量不合格仍须重拍 -->
-          <text
+          <!-- 识别失败/超时（基础设施故障）才给跳过识别逃生（转人工复核）；质量不合格仍须重拍 -->
+          <view
             v-if="item.status == 'failed'"
             hover-class="hover-dim"
-            class="retake-manual"
-            :style="{ color: colors.primary }"
+            class="retake-skip"
+            :style="{ borderColor: colors.primary }"
             @click="$emit('manual-confirm', item)"
-          >跳过识别，手动确认</text>
+          >
+            <text class="retake-skip-text" :style="{ color: colors.primary }">跳过识别</text>
+          </view>
         </view>
       </view>
     </template>
@@ -101,15 +108,6 @@
         </block>
       </view>
     </template>
-
-    <view
-      hover-class="hover-dim"
-      class="btn-big"
-      :style="{ backgroundColor: mode == 'retake' ? colors.success : colors.danger }"
-      @click="$emit('confirm')"
-    >
-      <text class="btn-big-text" :style="{ color: colors.white }">{{ mode == 'retake' ? '重新提交本点位' : '确认，去下一处' }}</text>
-    </view>
   </view>
 </template>
 
@@ -125,11 +123,11 @@ export default {
     colors: { type: Object as () => ColorTokens, required: true },
     shadow: { type: String, default: '' }
   },
-  emits: ['preview', 'image-error', 'retake', 'manual-confirm', 'update-note', 'update-disposition', 'resolution-photo', 'confirm'],
+  emits: ['preview', 'image-error', 'retake', 'manual-confirm', 'update-note', 'update-disposition', 'resolution-photo'],
   methods: {
     retakeIssue(item: WizardItemSnap): string {
       if (item.status == 'todo') return '还没拍'
-      if (item.status == 'failed') return item.quality_issue != '' ? item.quality_issue : '识别失败，可重拍或手动确认'
+      if (item.status == 'failed') return item.quality_issue != '' ? item.quality_issue : '识别失败，可重拍或跳过识别'
       return item.quality_issue != '' ? item.quality_issue : '照片不合格'
     },
     onNoteInput(item: WizardItemSnap, event: any) {
@@ -154,16 +152,22 @@ export default {
 </script>
 
 <style scoped>
-.banner {
-  border-radius: 24rpx;
-  padding: 32rpx;
-  margin-bottom: 24rpx;
+/* 清单页标题：去红横幅，普通深色标题 + 灰字说明 */
+.panel-head {
   align-items: center;
+  margin-bottom: 24rpx;
+  padding: 8rpx 16rpx;
 }
 
-.banner-text {
-  font-size: 48rpx;
+.panel-title {
+  font-size: 44rpx;
   font-weight: 700;
+}
+
+.panel-sub {
+  font-size: 26rpx;
+  margin-top: 12rpx;
+  text-align: center;
 }
 
 .card {
@@ -199,18 +203,39 @@ export default {
   margin-top: 8rpx;
 }
 
+.retake-actions {
+  align-items: center;
+  margin-left: 24rpx;
+}
+
 .retake-btn {
-  width: 160rpx;
+  width: 176rpx;
   height: 96rpx;
   border-radius: 20rpx;
   align-items: center;
   justify-content: center;
-  margin-left: 24rpx;
 }
 
 .retake-btn-text {
-  font-size: 36rpx;
+  font-size: 32rpx;
   font-weight: 700;
+}
+
+/* 「跳过识别」描边按钮（识别失败/超时的逃生入口） */
+.retake-skip {
+  width: 176rpx;
+  height: 80rpx;
+  border-width: 2rpx;
+  border-style: solid;
+  border-radius: 20rpx;
+  align-items: center;
+  justify-content: center;
+  margin-top: 16rpx;
+}
+
+.retake-skip-text {
+  font-size: 28rpx;
+  font-weight: 600;
 }
 
 .abn-name {
@@ -280,31 +305,5 @@ export default {
 .res-hint {
   font-size: 24rpx;
   margin-top: 12rpx;
-}
-
-.retake-actions {
-  align-items: center;
-  margin-left: 24rpx;
-}
-
-.retake-manual {
-  font-size: 24rpx;
-  margin-top: 12rpx;
-  padding: 8rpx;
-  text-align: center;
-}
-
-.btn-big {
-  width: 100%;
-  height: 140rpx;
-  border-radius: 20rpx;
-  align-items: center;
-  justify-content: center;
-  margin-bottom: 24rpx;
-}
-
-.btn-big-text {
-  font-size: 44rpx;
-  font-weight: 700;
 }
 </style>

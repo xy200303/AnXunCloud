@@ -1,13 +1,17 @@
 <template>
   <view class="page" :style="{ backgroundColor: colors.bgPage }">
-    <!-- 自定义导航栏：左返回（退出巡检）、中标题 -->
+    <!-- 自定义导航栏：左返回（返回=退出巡检）、中标题、右侧「?」=逃生（仅逐项步、非台账项显示） -->
     <view class="navbar" :style="{ backgroundColor: colors.primary, paddingTop: statusBarHeight + 'px' }">
       <view class="navbar-row">
-        <view  hover-class="hover-dim" class="navbar-side" @click="onBackTap">
+        <view hover-class="hover-dim" class="navbar-side" @click="onBackTap">
           <text class="navbar-back" :style="{ color: colors.white }">‹</text>
         </view>
         <text class="navbar-title" :style="{ color: colors.white }">{{ manualMode ? '手动巡检' : '连续巡检' }}</text>
-        <view  hover-class="hover-dim" class="navbar-side navbar-right"></view>
+        <view class="navbar-side navbar-right">
+          <view v-if="showEscapeEntry" hover-class="hover-dim" class="navbar-help" :style="{ borderColor: colors.white }" @click="onEscapeTap">
+            <text class="navbar-help-text" :style="{ color: colors.white }">?</text>
+          </view>
+        </view>
       </view>
     </view>
     <view class="navbar-space" :style="{ height: 'calc(88rpx + ' + statusBarHeight + 'px)' }"></view>
@@ -31,7 +35,7 @@
         <view class="head-row">
           <text class="head-progress" :style="{ color: colors.primary }">点位 {{ pointOrdinal }}/{{ totalPoints }}</text>
           <view v-if="phase == 'items'" class="head-item-pill" :style="{ backgroundColor: colors.primaryLight }">
-            <text class="head-item-pill-text" :style="{ color: colors.primary }">{{ curItem != null && curItem.status == 'recognizing' ? 'AI 检查中' : '第 ' + (itemIdx + 1) + '/' + curItemCount + ' 项' }}</text>
+            <text class="head-item-pill-text" :style="{ color: colors.primary }">第 {{ itemIdx + 1 }}/{{ curItemCount }} 项</text>
           </view>
         </view>
         <text class="head-point" :style="{ color: colors.textPrimary }">{{ curPoint != null ? curPoint.point_name : '' }}</text>
@@ -44,6 +48,7 @@
         </view>
       </view>
 
+      <!-- 凭证步（无感化：核验齐全自动进入第一项，无底部操作栏） -->
       <QuickCredentialCard
         v-if="phase == 'cred'"
         :point="curPoint"
@@ -54,11 +59,12 @@
         :locating="locating"
         :loc-failed="locFailed"
         :distance="distance"
+        :cred-flash="credFlash"
         :colors="colors"
         :shadow="shadow"
-        @scan="onScanRowTap"
-        @nfc="onNfcRowTap"
-        @location="onLocTap"
+        @scan-fallback="scanCredential"
+        @nfc-tap="onNfcRowTap"
+        @retry-location="onLocTap"
         @start="startItems"
       />
 
@@ -70,29 +76,34 @@
           :is-spot="curItemIsSpot"
           :equip-judge="curEquipJudge"
           :manual-mode="manualMode"
-          :manual-abnormal-open="manualAbnormalOpen"
-          :manual-note="manualNote"
           :exception-label="curItemExceptionText"
           :colors="colors"
           :shadow="shadow"
           @take-photo="takePhoto"
           @preview-photo="previewCurPhoto"
           @image-error="curItem.img_error = true"
-          @next="nextStep"
-          @report-missing="reportPhotoItemMissing"
-          @manual-ok="tapManualOk"
-          @manual-abnormal="tapManualAbnormal"
-          @update:manual-note="manualNote = $event"
-          @confirm-manual-abnormal="confirmManualAbnormal"
-          @equip-label-photo="takeEquipLabelPhoto"
           @retry-upload="retryCurUpload"
-          @toggle-tag="toggleCurTag"
+          @open-tags="tagPickerShow = true"
+          @equip-label-photo="takeEquipLabelPhoto"
+          @result-retake="takePhoto"
+          @result-skip="onResultSkip"
         />
       </block>
 
-      <QuickGateCard v-if="phase == 'gate'" :item-count="curItemCount" :stats="gateStats" :submit-error="gateSubmitError" :pending-names="pendingNames" :colors="colors" :shadow="shadow" @submit="submitPoint" />
+      <!-- 提交卡 gate：逐项实时进度 + 置灰等待（主按钮在底部操作栏） -->
+      <QuickGateCard
+        v-if="phase == 'gate'"
+        :item-count="curItemCount"
+        :stats="gateStats"
+        :rows="gateRows"
+        :submit-error="gateSubmitError"
+        :colors="colors"
+        :shadow="shadow"
+        @skip="onGateSkip"
+        @retry="onGateRetry"
+      />
 
-      <!-- 补拍步（质量不合格 / 识别失败） -->
+      <!-- 补拍清算（质量不合格 / 识别失败） -->
       <block v-if="phase == 'retake'">
         <QuickIssuePanel
           mode="retake"
@@ -103,11 +114,10 @@
           @image-error="$event.img_error = true"
           @retake="retakePhoto"
           @manual-confirm="manualConfirmItem"
-          @confirm="submitPoint"
         />
       </block>
 
-      <!-- 异常确认步（红屏） -->
+      <!-- 异常处置（上报待处理 / 现场已处理+处置照片） -->
       <block v-if="phase == 'abnormal'">
         <QuickIssuePanel
           mode="abnormal"
@@ -118,7 +128,6 @@
           @update-note="onAbnNoteChange"
           @update-disposition="onAbnDisposition"
           @resolution-photo="takeResolutionPhoto"
-          @confirm="confirmAbnormalSubmit"
         />
       </block>
 
@@ -132,25 +141,34 @@
       <view v-if="phase == 'taskDone'" class="done-pane" :style="{ backgroundColor: colors.success }">
         <text class="done-icon" :style="{ color: colors.white }">✓</text>
         <text class="done-title" :style="{ color: colors.white }">任务完成</text>
-        <view  hover-class="hover-dim" class="done-btn" :style="{ backgroundColor: colors.white }" @click="exitWizard">
-          <text  hover-class="hover-dim" class="done-btn-text" :style="{ color: colors.success }">返回</text>
+        <view hover-class="hover-dim" class="done-btn" :style="{ backgroundColor: colors.white }" @click="exitWizard">
+          <text hover-class="hover-dim" class="done-btn-text" :style="{ color: colors.success }">返回</text>
         </view>
       </view>
 
-      <!-- 上一项：主推进阶段且不在起点时显示（返回键=退出巡检，回退只走此按钮） -->
-      <view v-if="showPrev && !atWizardStart"  hover-class="hover-dim" class="prev-link" @click="onPrevTap">
-        <text  hover-class="hover-dim" class="prev-link-text" :style="{ color: colors.textSecondary }">‹ 上一项</text>
+      <!-- 手动档入口：仅凭证步（档位在进门时定）；切到手动档向导，进度在云端草稿，重进可续 -->
+      <view v-if="showManualEntry" hover-class="hover-dim" class="manual-link" @click="goManualPoint">
+        <text hover-class="hover-dim" class="manual-link-text" :style="{ color: colors.textSecondary }">AI 不好使？改用人工填写 ›</text>
       </view>
 
-      <!-- 手动模式入口：当前点位改用逐项填写表单（向导进度在云端草稿，切走重进可续） -->
-      <view v-if="showManualEntry"  hover-class="hover-dim" class="prev-link" @click="goManualPoint">
-        <text  hover-class="hover-dim" class="prev-link-text" :style="{ color: colors.textSecondary }">手动填写本点位</text>
-      </view>
-
-      <view class="bottom-space"></view>
+      <view class="bottom-space" :style="{ height: barCfg.visible ? '340rpx' : '64rpx' }"></view>
     </view>
 
-    <!-- 上传 / AI 检查 / 提交中弹窗 -->
+    <!-- 底部操作栏（fixed 置底；凭证步不显示）：状态-按钮对照见方案第五节 -->
+    <WizardBottomBar
+      v-if="barCfg.visible"
+      :colors="colors"
+      :primary-text="barCfg.primaryText"
+      :primary-kind="barCfg.primaryKind"
+      :secondary-text="barCfg.secondaryText"
+      :secondary-kind="barCfg.secondaryKind"
+      :prev-visible="barCfg.prevVisible"
+      @primary="onBarPrimary"
+      @secondary="onBarSecondary"
+      @prev="onPrevTap"
+    />
+
+    <!-- 上传 / 提交中弹窗 -->
     <view v-if="overlayMsg != ''" class="overlay" :style="{ backgroundColor: colors.mask }">
       <view class="overlay-dialog" :style="{ backgroundColor: colors.bgCard }">
         <view class="spinner" :style="{ borderTopColor: colors.primary }"></view>
@@ -159,7 +177,7 @@
       </view>
     </view>
 
-    <!-- 拍照项逃生入口：异常类型面板 + 佐证拍摄确认（自绘，替代原生 showActionSheet/showModal）；抽查项多一个「标签磨损无法辨认」 -->
+    <!-- 逃生「?」：异常类型面板 + 佐证拍摄确认（自绘，替代原生 showActionSheet/showModal）；抽查项多一个「标签磨损无法辨认」 -->
     <AppActionSheet
       :visible="escapeSheetShow"
       :items="escapeSheetItems"
@@ -185,6 +203,34 @@
       confirm-text="知道了"
       @update:visible="lockedDlgShow = $event"
       @confirm="exitWizard"
+    />
+
+    <!-- 观察点下拉多选半屏（勾选异常观察点） -->
+    <QuickTagPicker
+      :visible="tagPickerShow"
+      title="观察点"
+      :tags="pickerTags"
+      :selected="pickerSelected"
+      confirm-text="完成"
+      :colors="colors"
+      @update:visible="tagPickerShow = $event"
+      @toggle="toggleCurTag"
+      @confirm="tagPickerShow = false"
+    />
+    <!-- 「⚠ 有异常」底部半屏：观察点多选 + 备注 + 确认，确认后自动下一项 -->
+    <QuickTagPicker
+      :visible="abnSheetShow"
+      title="有异常"
+      :tags="pickerTags"
+      :selected="pickerSelected"
+      with-note
+      :note="manualNote"
+      confirm-text="确认异常，下一项"
+      :colors="colors"
+      @update:visible="abnSheetShow = $event"
+      @toggle="toggleCurTag"
+      @update:note="manualNote = $event"
+      @confirm="confirmManualAbnormal"
     />
   </view>
 </template>
@@ -219,16 +265,43 @@ import QuickItemCard from '@/components/QuickItemCard.vue'
 import QuickIssuePanel from '@/components/QuickIssuePanel.vue'
 import QuickCredentialCard from '@/components/QuickCredentialCard.vue'
 import QuickGateCard from '@/components/QuickGateCard.vue'
+import WizardBottomBar from '@/components/WizardBottomBar.vue'
+import QuickTagPicker from '@/components/QuickTagPicker.vue'
 import AppDialog from '@/components/AppDialog.vue'
 import AppActionSheet from '@/components/AppActionSheet.vue'
 
-/** 向导阶段：cred 凭证 / items 逐项 / gate 提交本点位 / retake 补拍 / abnormal 异常确认 / pointDone 点位完成 / taskDone 任务完成 */
+/** 向导阶段：cred 凭证 / items 逐项 / gate 提交本点位 / retake 补拍 / abnormal 异常处置 / pointDone 点位完成 / taskDone 任务完成 */
 type Phase = 'cred' | 'items' | 'gate' | 'retake' | 'abnormal' | 'pointDone' | 'taskDone'
 
-/** AI 轮询节奏：pending 时 1.5s 间隔批量查，30s 超时按 failed 处理（契约 §2） */
+/** gate 逐项进度行（与 QuickGateCard rows prop 结构一致） */
+type GateRow = { key: string; name: string; stage: string; canSkip: boolean; pending: boolean; item: WizardItemSnap }
+
+/** AI 轮询节奏：pending 时 1.5s 间隔批量查（契约 §2） */
 const POLL_INTERVAL = 1500
 /** 轮询总时长：须覆盖 队列等待 + 后端 AI 超时（默认 180s），留足余量；后端任务必然落定（done/failed），不单方面判死 */
 const POLL_TIMEOUT = 190000
+
+/** 后台任务（拍照异步化：压缩→上传→建 job 离主流程，串行执行弱网防雪崩） */
+type BgJob = {
+  it: WizardItemSnap
+  pointId: string
+  /** 本地照片路径（槽位已即时展示；上传成功后才换成服务端 URL） */
+  raw: string
+  mode: 'ai' | 'escape' | 'manual'
+  exceptionType: string
+}
+
+/** 底部操作栏配置（状态-按钮对照表，方案 §五） */
+type BarCfg = {
+  visible: boolean
+  primaryText: string
+  primaryKind: 'primary' | 'success' | 'danger' | 'disabled'
+  primaryAction: '' | 'take-photo' | 'next' | 'manual-ok' | 'submit' | 'abn-confirm'
+  secondaryText: string
+  secondaryKind: 'primary' | 'success' | 'danger' | 'disabled'
+  secondaryAction: '' | 'manual-abnormal'
+  prevVisible: boolean
+}
 
 type QuickData = {
   colors: ColorTokens
@@ -260,14 +333,17 @@ type QuickData = {
   pointIdx: number
   itemIdx: number
   phase: Phase
-  /** 感官项「有异常」展开输入 */
-  manualAbnormalOpen: boolean
+  /** 「有异常」半屏 / 观察点多选半屏 */
+  abnSheetShow: boolean
+  tagPickerShow: boolean
   manualNote: string
-  /** 补拍 / 异常确认列表（当前点位 items 下标） */
+  /** 补拍 / 异常处置列表（当前点位 items 下标） */
   retakeIdxs: number[]
   abnormalIdxs: number[]
   locating: boolean
   locFailed: boolean
+  /** 凭证步定位失败已自动重试过一次（方案 §13.2：失败自动重试一次，仍失败给「点我重试」） */
+  locRetried: boolean
   hasLoc: boolean
   myLng: number
   myLat: number
@@ -281,24 +357,36 @@ type QuickData = {
   submitting: boolean
   /** 收尾步上次提交失败原因（空 = 无；gate 卡红色状态条，重试成功后清除） */
   gateSubmitError: string
-  /** 轮询定时器 */
-  pollTimer: any
+  /** 后台任务队列与轮询（拍照全异步：上传/建job/轮询全部离主流程） */
+  bgQueue: BgJob[]
+  bgRunning: boolean
+  /** 后台轮询活跃标记（防并行多条轮询链） */
+  bgPolling: boolean
+  bgPollTimer: any
+  /** job_id → 开始轮询时间（190s 超时判 failed） */
+  jobStartTimes: Record<string, number>
+  /** 已「跳过识别」的 job（轮询落定不再回写，保持人工确认结论） */
+  skippedJobs: Record<string, boolean>
   /** 页面已卸载（停止轮询回调写状态） */
   destroyed: boolean
   /** 遮罩看门狗定时器 */
   overlayWatchdog: any
-  /** 相机/上传链路锁，避免连续点击创建多个照片任务 */
+  /** 相机链路锁，避免连续点击拉起多个相机 */
   captureBusy: boolean
   captureToken: number
   /** 手动退出放行标记（exitWizard 时 onBackPress 不拦截） */
   forceExit: boolean
-  /** 拍照项逃生入口：异常类型面板 / 佐证确认弹窗状态 */
+  /** 逃生入口：异常类型面板 / 佐证确认弹窗状态 */
   escapeSheetShow: boolean
   escapeDlgShow: boolean
   lockedDlgShow: boolean
   /** 面板选择确认期间暂存的当前项与异常类型 */
   escapeItem: WizardItemSnap | null
   escapeType: string
+  /** 凭证步：核验通过绿色过渡态 / 自动进入防重 / 内嵌扫码窗 */
+  credFlash: boolean
+  credAutoStarted: boolean
+  scanView: any
 }
 
 /** haversine 距离（米） */
@@ -383,7 +471,7 @@ function freshPoint(p: TaskPoint): WizardPointSnap {
 }
 
 export default {
-  components: { QuickItemCard, QuickIssuePanel, QuickCredentialCard, QuickGateCard, AppDialog, AppActionSheet },
+  components: { QuickItemCard, QuickIssuePanel, QuickCredentialCard, QuickGateCard, WizardBottomBar, QuickTagPicker, AppDialog, AppActionSheet },
   data(): QuickData {
     return {
       colors: Colors,
@@ -406,12 +494,14 @@ export default {
       pointIdx: 0,
       itemIdx: 0,
       phase: 'cred',
-      manualAbnormalOpen: false,
+      abnSheetShow: false,
+      tagPickerShow: false,
       manualNote: '',
       retakeIdxs: [] as number[],
       abnormalIdxs: [] as number[],
       locating: false,
       locFailed: false,
+      locRetried: false,
       hasLoc: false,
       myLng: 0,
       myLat: 0,
@@ -421,9 +511,13 @@ export default {
       overlayMsg: '',
       submitting: false,
       gateSubmitError: '',
-      pollTimer: null,
+      bgQueue: [] as BgJob[],
+      bgRunning: false,
+      bgPolling: false,
+      bgPollTimer: null,
+      jobStartTimes: {} as Record<string, number>,
+      skippedJobs: {} as Record<string, boolean>,
       destroyed: false,
-      /** 遮罩看门狗定时器 */
       overlayWatchdog: null,
       captureBusy: false,
       captureToken: 0,
@@ -433,7 +527,10 @@ export default {
       /** 记录已归档提示弹窗（确认后退出向导） */
       lockedDlgShow: false,
       escapeItem: null,
-      escapeType: ''
+      escapeType: '',
+      credFlash: false,
+      credAutoStarted: false,
+      scanView: null
     }
   },
   computed: {
@@ -477,7 +574,7 @@ export default {
       return it.auto_judge ?? null
     },
     curItemExceptionText(): string {
-      return this.curItem == null ? '设备不存在/无法检测，提交异常' : this.exceptionText(this.curItem.exception_type)
+      return this.curItem == null ? '' : this.exceptionText(this.curItem.exception_type)
     },
     /** 逃生面板选项：抽查项追加「标签磨损无法辨认」（exception_type=label_missing，仅抽查项可用） */
     escapeSheetItems(): string[] {
@@ -524,14 +621,38 @@ export default {
       if (wp == null) return []
       return this.retakeIdxs.map((i) => wp.items[i]).filter((it) => it != null)
     },
-    /** 收尾步统计：已完成（含已拍待识别）/ AI 检查中 / 异常（感官项已标记异常） */
-    gateStats(): { done: number; recognizing: number; abnormal: number } {
+    /** gate 逐项实时进度行：待补传 / 上传中 / 排队中 / 识别中（落定即从列表勾掉） */
+    gateRows(): GateRow[] {
       const wp = this.curWizPoint
-      const r = { done: 0, recognizing: 0, abnormal: 0 }
+      if (wp == null) return []
+      const rows: GateRow[] = []
+      wp.items.forEach((it, i) => {
+        if ((it.pending_local ?? '') != '') {
+          rows.push({ key: it.name + ':' + i, name: it.name, stage: '待补传', canSkip: false, pending: true, item: it })
+          return
+        }
+        if (it.status == 'recognizing') {
+          const stage = it.file_ids.length == 0 ? '上传中…' : it.job_id == '' ? '排队中…' : '识别中…'
+          rows.push({ key: it.name + ':' + i, name: it.name, stage: stage, canSkip: it.job_id != '', pending: false, item: it })
+        }
+      })
+      return rows
+    },
+    /** gate 未落定项数（>0 时提交按钮置灰「等待处理（还剩 N 项）」） */
+    gateRemain(): number {
+      return this.gateRows.length
+    },
+    gateSettled(): boolean {
+      return this.gateRemain == 0
+    },
+    /** 收尾步统计：已落定 / 处理中 / 异常 */
+    gateStats(): { done: number; processing: number; abnormal: number } {
+      const wp = this.curWizPoint
+      const r = { done: 0, processing: 0, abnormal: 0 }
       if (wp == null) return r
       for (let i = 0; i < wp.items.length; i++) {
         const it = wp.items[i]
-        if (it.status == 'recognizing') r.recognizing += 1
+        if ((it.pending_local ?? '') != '' || it.status == 'recognizing') r.processing += 1
         else if (it.verdict == 'abnormal' || it.abnormal_tags.length > 0) r.abnormal += 1
         else r.done += 1
       }
@@ -547,28 +668,85 @@ export default {
       if (wp == null) return []
       return this.abnormalIdxs.map((i) => wp.items[i]).filter((it) => it != null)
     },
-    /** 当前点位待补传项名称（上传失败照片保留待重试；收尾步橙色警示条与提交闸门用） */
-    pendingNames(): string[] {
-      const wp = this.curWizPoint
-      if (wp == null) return []
-      return wp.items.filter((it) => (it.pending_local ?? '') != '').map((it) => it.name)
+    /** 观察点半屏数据源（当前项；无当前项时空数组） */
+    pickerTags(): string[] {
+      return this.curItem != null ? this.curItem.tags : []
     },
-    /** 底部「上一项」：主推进阶段且遮盖层未开启时显示 */
-    showPrev(): boolean {
-      if (this.overlayMsg != '' || this.submitting || this.captureBusy) return false
-      return this.phase == 'cred' || this.phase == 'items' || this.phase == 'gate'
+    pickerSelected(): string[] {
+      return this.curItem != null ? this.curItem.abnormal_tags : []
+    },
+    /** 导航条右侧逃生「?」：仅逐项步显示（台账项所在步不显示） */
+    showEscapeEntry(): boolean {
+      if (this.phase != 'items' || this.curItem == null) return false
+      if (this.overlayMsg != '' || this.submitting) return false
+      if (this.curItem.judge_type == 'equipment_validity') return false
+      if (this.curItemIsPhoto) return true
+      return this.manualMode && (this.curItem.photo_required ?? '') != 'none'
     },
     /** 手动模式入口：主推进阶段 + 非修改/手动档 + 有当前点位（修改模式点位已打卡；手动档已是手动） */
     showManualEntry(): boolean {
       if (this.modify || this.manualMode || this.overlayMsg != '' || this.submitting || this.captureBusy) return false
       if (this.curPoint == null) return false
-      return this.phase == 'cred' || this.phase == 'items' || this.phase == 'gate'
+      // 档位在进门时定：仅凭证步提供切手动档入口（方案 §13.4）
+      return this.phase == 'cred'
     },
-    /** 是否在本点位第一步（无上一项可回退，底部「上一项」按钮隐藏；退出走返回键）。
+    /** 是否在本点位第一步（无上一项可回退，底部「上一项」隐藏；退出走返回键）。
      *  与 pointIdx 无关：中途进入（扫码/NFC/点位清单）的第一个点位就是进入者的第一页 */
     atWizardStart(): boolean {
       if (this.phase == 'cred') return true
       return this.phase == 'items' && this.itemIdx == 0 && !this.needsCred
+    },
+    /**
+     * 底部操作栏状态-按钮对照（方案 §五唯一真相）：
+     * 逐项 必拍未拍=[📷 拍照片]；选拍/免拍未拍与手动档已拍=[✓ 正常][⚠ 有异常]；
+     * AI 档已拍（回退查看）/台账抽查就绪/逃生已上报=[下一项 ›]；
+     * gate 全部落定=[提交本点位]，未落定=[等待处理（还剩 N 项）]置灰；
+     * 补拍=[重新提交本点位]；异常处置=[确认，去下一处]；凭证步不显示操作栏。
+     */
+    barCfg(): BarCfg {
+      const none: BarCfg = { visible: false, primaryText: '', primaryKind: 'primary', primaryAction: '', secondaryText: '', secondaryKind: 'danger', secondaryAction: '', prevVisible: false }
+      if (!this.loaded || this.loading) return none
+      const ph = this.phase
+      const prevOk = (ph == 'items' || ph == 'gate') && !this.atWizardStart && this.overlayMsg == '' && !this.submitting
+      const single = (text: string, kind: BarCfg['primaryKind'], action: BarCfg['primaryAction'], prev: boolean): BarCfg => ({
+        visible: true, primaryText: text, primaryKind: kind, primaryAction: action, secondaryText: '', secondaryKind: 'danger', secondaryAction: '', prevVisible: prev
+      })
+      const dual = (prev: boolean): BarCfg => ({
+        visible: true, primaryText: '✓ 正常', primaryKind: 'success', primaryAction: 'manual-ok', secondaryText: '⚠ 有异常', secondaryKind: 'danger', secondaryAction: 'manual-abnormal', prevVisible: prev
+      })
+      if (ph == 'items') {
+        const it = this.curItem
+        if (it == null) return none
+        const escaped = (it.exception_type ?? '') != ''
+        if (this.curEquipJudge != null) return single('下一项 ›', 'primary', 'next', prevOk)
+        if (escaped) return single('下一项 ›', 'primary', 'next', prevOk)
+        if (this.manualMode) {
+          // 手动档必拍项未拍：唯一拍照入口是底栏大按钮；已拍/选拍/免拍：作答双按钮
+          if (it.judge_type != 'manual' && (it.photo_required ?? '') == 'required' && it.file_ids.length == 0 && it.photos.length == 0) {
+            return single('📷 拍照片', 'primary', 'take-photo', prevOk)
+          }
+          if (it.status == 'done') return single('下一项 ›', 'primary', 'next', prevOk)
+          return dual(prevOk)
+        }
+        if (it.judge_type == 'manual') {
+          // 感官项：作答双按钮；已作答（回退查看）：下一项
+          if (it.status == 'done') return single('下一项 ›', 'primary', 'next', prevOk)
+          return dual(prevOk)
+        }
+        // AI 档拍照/抽查项：未拍=拍照大按钮；已拍无停留态（拍完自动跳走），回退查看=下一项
+        if (it.status == 'todo' || it.status == 'failed') return single('📷 拍照片', 'primary', 'take-photo', prevOk)
+        return single('下一项 ›', 'primary', 'next', prevOk)
+      }
+      if (ph == 'gate') {
+        if (!this.gateSettled) return single('等待处理（还剩 ' + this.gateRemain + ' 项）', 'disabled', '', prevOk)
+        return single('提交本点位', 'success', 'submit', prevOk)
+      }
+      if (ph == 'retake') {
+        if (!this.gateSettled) return single('等待处理（还剩 ' + this.gateRemain + ' 项）', 'disabled', '', false)
+        return single('重新提交本点位', 'success', 'submit', false)
+      }
+      if (ph == 'abnormal') return single('确认，去下一处', 'danger', 'abn-confirm', false)
+      return none
     }
   },
   onLoad(options: any) {
@@ -587,13 +765,22 @@ export default {
   onShow() {
     // 回到页面（如接电话切回）：自动补传待补传照片（无网/处理中自动跳过）
     this.retryPendingItems()
+    this.ensureBgPoll()
+    // 回到凭证步：重开内嵌扫码窗（onHide 已关闭，避免原生视图遮盖其他页面）
+    if (this.loaded && this.phase == 'cred') this.openCredScan()
+  },
+  onHide() {
+    // 内嵌扫码窗是原生视图、盖在 webview 上层：页面不可见时关闭
+    this.closeCredScan()
   },
   onUnload() {
     this.destroyed = true
     this.captureToken += 1
     this.captureBusy = false
+    this.bgQueue = []
     uni.offNetworkStatusChange(this.onNetChange)
-    this.stopPoll()
+    this.stopBgPoll()
+    this.closeCredScan()
     if (this.overlayWatchdog != null) {
       clearTimeout(this.overlayWatchdog)
       this.overlayWatchdog = null
@@ -602,7 +789,7 @@ export default {
   onBackPress(): boolean {
     // 手动退出（exitWizard 的 navigateBack 在 App 端同样触发 onBackPress）：放行
     if (this.forceExit) return false
-    // 遮盖层（上传/AI 检查/提交中）：拦截返回并提示，避免用户误以为卡死
+    // 遮盖层（上传/提交中）：拦截返回并提示，避免用户误以为卡死
     if (this.overlayMsg != '' || this.submitting || this.captureBusy) {
       uni.showToast({ title: '处理中，请稍候…', icon: 'none' })
       return true
@@ -625,9 +812,13 @@ export default {
         this.submitting = false
         this.captureToken += 1
         this.captureBusy = false
-        this.stopPoll()
         uni.showToast({ title: '网络较慢，请检查后重试', icon: 'none' })
       }, 75000)
+    },
+    /** 内嵌扫码窗生命周期收进 phase 状态机：进凭证步开，离开凭证步必须 close */
+    phase(v: Phase) {
+      if (v == 'cred') this.openCredScan()
+      else this.closeCredScan()
     }
   },
   methods: {
@@ -720,7 +911,7 @@ export default {
       this.restoreDrafts().then(() => {
         if (this.destroyed) return
         if (!this.modify) this.positionAtFirstIncomplete()
-        // 识别中的项凭 job_id 批量查一次：仍 pending 留待收尾轮询；failed/过期回退待拍
+        // 识别中的项凭 job_id 批量查一次：仍 pending 转入后台轮询；failed/过期回退待拍
         this.reconcileJobs()
         this.loading = false
         this.loaded = true
@@ -811,7 +1002,7 @@ export default {
           // 草稿拉取失败按全新巡检处理（不阻断主链路）
         })
     },
-    /** 恢复快照时对识别中的 job 批量查一次状态 */
+    /** 恢复快照时对识别中的 job 批量查一次状态；仍 pending 的转入后台轮询 */
     reconcileJobs() {
       const targets: Array<{ it: WizardItemSnap; jobId: string }> = []
       this.wizPoints.forEach((wp) => {
@@ -829,6 +1020,7 @@ export default {
           jobs.forEach((j) => {
             map[j.job_id] = j
           })
+          let hasPending = false
           targets.forEach((t) => {
             const j = map[t.jobId]
             if (j == null || j.status == 'failed') {
@@ -836,20 +1028,36 @@ export default {
               this.resetItem(t.it)
               return
             }
-            if (j.status == 'done') this.applyJob(t.it, j)
+            if (j.status == 'done') {
+              this.applyJob(t.it, j)
+              return
+            }
+            // 仍 pending：转入后台轮询（重新计时）
+            this.jobStartTimes[t.jobId] = Date.now()
+            hasPending = true
           })
+          if (hasPending) this.ensureBgPoll()
+          this.maybeGateSettled()
         })
         .catch(() => {
-          // 查询失败不阻断：保持 recognizing，收尾时再轮询
+          // 查询失败不阻断：保持 recognizing，转后台轮询继续等
+          targets.forEach((t) => {
+            this.jobStartTimes[t.jobId] = Date.now()
+          })
+          this.ensureBgPoll()
         })
     },
     /** 进入当前点位：定位 + 决定首屏（凭证步 / 逐项 / 收尾） */
     enterPoint(resume: boolean) {
       this.clampIndices()
       const wp = this.curWizPoint
-      this.manualAbnormalOpen = false
+      this.abnSheetShow = false
+      this.tagPickerShow = false
       this.retakeIdxs = []
       this.abnormalIdxs = []
+      this.credFlash = false
+      this.credAutoStarted = false
+      this.locRetried = false
       this.locate()
       if (wp == null) return
       // itemIdx 溢出（= items.length）表示已过完所有项，停在收尾
@@ -864,6 +1072,9 @@ export default {
       }
       // 断点恢复正好停在收尾步（全部项已落定）：同样走方案 B 自动提交
       if (this.phase == 'gate') this.autoSubmitGate()
+      // 内嵌扫码窗：phase 未变化时 watcher 不触发（如同相位连续进点位），这里显式开/关
+      if (this.phase == 'cred') this.openCredScan()
+      else this.closeCredScan()
     },
     locate() {
       if (this.locating) return
@@ -883,63 +1094,55 @@ export default {
             )
           }
           this.locating = false
+          // 凭证步：定位回来围栏刚满足条件，核验齐全则自动进入第一项（方案 §13.2 自动获取一次）
+          if (this.phase == 'cred') this.maybeAutoStartCred()
           // 定位回来时正停在收尾步：围栏刚满足条件，补一次自动提交触发
           if (this.phase == 'gate') this.autoSubmitGate()
         },
         () => {
-          this.locFailed = true
           this.locating = false
+          // 凭证步定位失败自动重试一次，仍失败给「点我重试」（方案 §13.2）
+          if (this.phase == 'cred' && !this.locRetried) {
+            this.locRetried = true
+            this.locate()
+            return
+          }
+          this.locFailed = true
         }
       )
     },
     onLocTap() {
       // 非定位中即可点击重新定位（走近后主动刷新围栏距离，不必等失败）
-      if (!this.locating) this.locate()
+      if (!this.locating) {
+        this.locRetried = true // 手动重试后不再自动重试
+        this.locate()
+      }
     },
-    /** 核验清单-扫码行：已通过再点不重复扫 */
-    onScanRowTap() {
-      if (this.curWizPoint != null && this.curWizPoint.scannedNo != '') return
-      this.scanCredential()
+    /**
+     * 凭证步核验齐全 → 「✓ 核验通过」绿色过渡 0.6s → 自动进入第一项（方案 §十三：取消「开始检查」按钮）。
+     * 触发点：扫码成功 / NFC 贴卡命中 / 定位回来。
+     */
+    maybeAutoStartCred() {
+      if (this.destroyed || this.phase != 'cred' || this.credAutoStarted) return
+      if (!this.needsCred) return
+      if (!this.credOk || !this.fenceOk) return
+      this.credAutoStarted = true
+      this.credFlash = true
+      this.closeCredScan()
+      uni.vibrateShort({})
+      setTimeout(() => {
+        if (this.destroyed) return
+        this.credFlash = false
+        if (this.phase != 'cred') return
+        this.startItems()
+      }, 600)
     },
-    /** 核验清单-读卡行：已通过再点不重复读 */
-    onNfcRowTap() {
-      if (this.curWizPoint != null && this.curWizPoint.nfcCardId != '') return
-      this.nfcTap()
-    },
-    /** 当前项照片大图预览 */
-    previewCurPhoto() {
-      const it = this.curItem
-      if (it == null || it.photos.length == 0 || it.img_error) return
-      uni.previewImage({ urls: it.photos })
-    },
-    /** 指定项照片大图预览（补拍列表缩略图） */
-    previewPhoto(it: WizardItemSnap) {
-      if (it.photos.length == 0 || it.img_error) return
-      uni.previewImage({ urls: it.photos })
-    },
+    /** 凭证步全屏扫码（内嵌扫码窗故障时的备用入口，uni.scanCode） */
     scanCredential() {
       uni.scanCode({
         onlyFromCamera: true, // 禁相册选图防代扫
         success: (res) => {
-          const code = extractPointCode(res.result)
-          if (code == '') {
-            uni.showToast({ title: '请扫描新版点位二维码', icon: 'none' })
-            return
-          }
-          if (this.curPoint != null && this.curPoint.qrcode_no != '' && code != this.curPoint.qrcode_no) {
-            uni.showToast({ title: '二维码与本点位不匹配', icon: 'none' })
-            return
-          }
-          if (this.curWizPoint != null) {
-            this.curWizPoint.scannedNo = code
-          }
-          // 扫码成功且围栏已过 → 直达检查（与 NFC 贴卡同口径）；围栏不过则提示并留在凭证步
-          if (this.fenceOk) {
-            uni.showToast({ title: '点位确认成功', icon: 'success' })
-            this.startItems()
-          } else {
-            uni.showToast({ title: this.fenceTip(), icon: 'none' })
-          }
+          this.onCredScanResult(res.result)
         },
         fail: (err) => {
           const msg = err && err.errMsg ? err.errMsg : ''
@@ -948,6 +1151,101 @@ export default {
           }
         }
       })
+    },
+    /** 扫码结果统一处理（内嵌扫码窗 onmarked / 全屏扫码 success 共用） */
+    onCredScanResult(raw: string) {
+      const code = extractPointCode(raw)
+      if (code == '') {
+        uni.showToast({ title: '请扫描新版点位二维码', icon: 'none' })
+        this.reopenCredScan()
+        return
+      }
+      if (this.curPoint != null && this.curPoint.qrcode_no != '' && code != this.curPoint.qrcode_no) {
+        uni.showToast({ title: '二维码与本点位不匹配', icon: 'none' })
+        this.reopenCredScan()
+        return
+      }
+      this.closeCredScan()
+      if (this.curWizPoint != null) {
+        this.curWizPoint.scannedNo = code
+      }
+      uni.vibrateShort({})
+      // 围栏不过则提示并留在凭证步（缺哪项哪行红字说明）
+      if (!this.fenceOk) {
+        uni.showToast({ title: this.fenceTip(), icon: 'none' })
+        return
+      }
+      this.maybeAutoStartCred()
+    },
+    /** 扫码结果无效：内嵌窗重开持续识别 */
+    reopenCredScan() {
+      setTimeout(() => {
+        if (!this.destroyed && this.phase == 'cred') this.openCredScan()
+      }, 300)
+    },
+    /**
+     * 内嵌摄像头扫码（方案 §13.3）：plus.barcode 在凭证卡上部开固定高度原生扫码视图，
+     * 持续识别，扫到即震动+点亮+自动关闭。原生视图盖在 webview 上层不随滚动（凭证步内容短不滚动，正好成立）；
+     * 离开凭证步必须 close（生命周期收进 phase watcher / onHide / onUnload）。
+     */
+    openCredScan() {
+      // #ifdef APP-PLUS
+      if (this.scanView != null || this.destroyed) return
+      const pt = this.curPoint
+      if (pt == null || (pt.credential != 'qrcode' && pt.credential != 'any')) return
+      const wp = this.curWizPoint
+      if (wp == null || wp.scannedNo != '') return
+      // any 同屏锁死：NFC 已核验则扫码窗不再开启
+      if (pt.credential == 'any' && wp.nfcCardId != '') return
+      setTimeout(() => {
+        if (this.destroyed || this.phase != 'cred' || this.scanView != null) return
+        uni.createSelectorQuery()
+          .in(this)
+          .select('#cred-scan-slot')
+          .boundingClientRect((rect: any) => {
+            if (this.destroyed || this.phase != 'cred' || this.scanView != null) return
+            if (rect == null || rect.width == 0) return // 占位未渲染：保留全屏扫码备用入口
+            try {
+              const bc: any = (plus as any).barcode
+              const view = bc.create('credScanView', [bc.QR], {
+                top: Math.round(rect.top) + 'px',
+                left: Math.round(rect.left) + 'px',
+                width: Math.round(rect.width) + 'px',
+                height: Math.round(rect.height) + 'px'
+              })
+              view.onmarked = (_type: number, result: string) => {
+                this.onCredScanResult(result)
+              }
+              view.start()
+              this.scanView = view
+            } catch (_e) {
+              // 创建失败：回退全屏扫码入口（卡上常驻「点这里全屏扫码」）
+            }
+          })
+          .exec()
+      }, 400)
+      // #endif
+    },
+    closeCredScan() {
+      // #ifdef APP-PLUS
+      if (this.scanView != null) {
+        try {
+          this.scanView.close()
+        } catch (_e) {}
+        this.scanView = null
+      }
+      // #endif
+    },
+    /** 核验清单-NFC 行点按（iOS 手动触发；Android 常驻监听贴卡即亮，点按同样可用） */
+    onNfcRowTap() {
+      const wp = this.curWizPoint
+      if (wp != null && wp.nfcCardId != '') return
+      // any 同屏锁死：扫码已核验则 NFC 入口失效
+      if (this.curPoint != null && this.curPoint.credential == 'any' && wp != null && wp.scannedNo != '') {
+        uni.showToast({ title: '已通过二维码核验', icon: 'none' })
+        return
+      }
+      this.nfcTap()
     },
     nfcTap() {
       if (!isNfcSupported()) {
@@ -961,19 +1259,29 @@ export default {
           uni.showToast({ title: errMsg || 'NFC 读取失败', icon: 'none' })
           return
         }
-        if (this.curPoint != null && this.curPoint.nfc_id != '' && cardId != this.curPoint.nfc_id) {
-          uni.showToast({ title: 'NFC 标签与本点位不匹配', icon: 'none' })
-          return
-        }
-        if (this.curWizPoint != null) {
-          this.curWizPoint.nfcCardId = cardId
-        }
-        uni.showToast({ title: '点位确认成功', icon: 'success' })
+        this.applyNfcCard(cardId)
       })
+    },
+    /** NFC 卡号命中核验（凭证步按钮读取与全局贴卡接管共用） */
+    applyNfcCard(cardId: string) {
+      if (this.curPoint != null && this.curPoint.nfc_id != '' && cardId != this.curPoint.nfc_id) {
+        uni.showToast({ title: '这不是本点位的卡', icon: 'none' })
+        return
+      }
+      if (this.curWizPoint != null) {
+        this.curWizPoint.nfcCardId = cardId
+      }
+      uni.vibrateShort({})
+      if (!this.fenceOk) {
+        uni.showToast({ title: this.fenceTip(), icon: 'none' })
+        return
+      }
+      this.maybeAutoStartCred()
     },
     /**
      * 向导页内全局 NFC 贴卡（App.vue 转发，不用先点按钮）：
-     * - 当前点位核验步且卡匹配 → 就地完成读卡确认，不重载页面
+     * - 凭证步接管：贴卡 UID 命中当前点位 → 直接点亮 NFC ✓，不跳页；不命中 → toast「这不是本点位的卡」；
+     *   离开凭证步/离开向导归还全局路由（App.vue 每次事件按当前页分发，天然归还）
      * - 其他未打卡点位 → 跳到该点位并预核验（等价扫码进入）
      * - 已提交完成的点位 → 直接进入（修改模式；已归档由向导初始化拦截提示）
      * - 不属于本任务 → 回退全局任务定位（可能是今天其他任务的点位）
@@ -988,6 +1296,27 @@ export default {
         uni.showToast({ title: '处理中，请稍候…', icon: 'none' })
         return
       }
+      // 凭证步接管：贴卡只为当前点位核验服务
+      if (this.phase == 'cred') {
+        if (this.curPoint != null && pt.point_id == this.curPoint.point_id) {
+          const cred = this.curPoint.credential
+          if (cred != 'nfc' && cred != 'any') {
+            uni.showToast({ title: '本点位请扫码核验', icon: 'none' })
+            return
+          }
+          const wp = this.curWizPoint
+          if (wp != null && wp.nfcCardId != '') return
+          // any 同屏锁死：扫码已核验则 NFC 入口失效
+          if (cred == 'any' && wp != null && wp.scannedNo != '') {
+            uni.showToast({ title: '已通过二维码核验', icon: 'none' })
+            return
+          }
+          this.applyNfcCard(cardId)
+          return
+        }
+        uni.showToast({ title: '这不是本点位的卡', icon: 'none' })
+        return
+      }
       if (pt.my_checkin != null) {
         // 已提交完成的点位：进记录卡（先看后改；可改性由记录卡按锁定/任务状态判定）
         uni.redirectTo({
@@ -995,12 +1324,6 @@ export default {
             '/pages/checkin/record?task_id=' + encodeURIComponent(this.taskId) +
             '&point_id=' + encodeURIComponent(pt.point_id)
         })
-        return
-      }
-      if (this.phase == 'cred' && this.curPoint != null && this.curPoint.point_id == pt.point_id) {
-        if (this.curWizPoint != null) this.curWizPoint.nfcCardId = cardId
-        // 贴卡即完成签到并直达检查（不再要求手点「开始检查」；围栏不通过时 startItems 会提示并留在凭证步）
-        this.startItems()
         return
       }
       uni.redirectTo({
@@ -1015,7 +1338,7 @@ export default {
       if (pt == null) return '超出围栏范围，走近一点再试'
       return '需在 ' + pt.fence_radius + ' 米内，当前 ' + (this.distance >= 0 ? this.distance + ' 米' : '距离未知')
     },
-    /** 凭证步「开始检查」：凭证不通过不让开始该点位 */
+    /** 进入逐项步（凭证齐全时由自动核验/回退继续入口触发） */
     startItems() {
       if (!this.credOk) {
         uni.showToast({ title: '请先完成点位核验', icon: 'none' })
@@ -1029,12 +1352,21 @@ export default {
       if (wp == null) return
       this.phase = wp.items.length > 0 ? 'items' : 'gate'
     },
-    /** 当前项拍照（仅相机）→ 上传原图 → AI 档建识别 job 立即推进下一项不等结果；手动档不建 job，照片落项后由巡检员作答（水印由服务端统一烧录） */
+    /**
+     * 当前项拍照（仅相机）。AI 档拍完即走：本地照片立即进槽、立即推进下一项，
+     * 压缩→上传→建 job→识别轮询全部进后台队列；手动档/感官项拍完停留作答（✓正常/⚠有异常）。
+     * （水印由服务端统一烧录）
+     */
     takePhoto() {
       const it = this.curItem
       if (it == null || it.status == 'recognizing') return
-      if (this.manualMode && it.judge_type != 'equipment_validity') {
-        if (it.file_ids.length >= 3) {
+      if (it.judge_type == 'equipment_validity') {
+        this.takeEquipLabelPhoto()
+        return
+      }
+      if (this.manualMode || it.judge_type == 'manual') {
+        // 手动档/感官项：照片累加（≤3），上传同步完成（作答草稿需 file_id），不自动跳
+        if (it.photos.length >= 3) {
           uni.showToast({ title: '照片至多 3 张', icon: 'none' })
           return
         }
@@ -1052,15 +1384,16 @@ export default {
       return ''
     },
     exceptionText(exceptionType?: string) {
-      if (exceptionType == 'device_missing') return '已上报：设备确实不存在（点击可重新上报）'
-      if (exceptionType == 'unable_to_capture') return '已上报：现场无法拍摄（点击可重新上报）'
-      if (exceptionType == 'label_missing') return '已上报：标签磨损无法辨认（点击可重新上报）'
-      return '设备不存在 / 无法拍摄？点击这里上报异常'
+      if (exceptionType == 'device_missing') return '已上报：设备确实不存在'
+      if (exceptionType == 'unable_to_capture') return '已上报：现场无法拍摄'
+      if (exceptionType == 'label_missing') return '已上报：标签磨损无法辨认'
+      return ''
     },
-    /** 拍照项逃生入口：面板选择异常类型（设备不存在/现场无法拍摄，抽查项另有标签磨损），再确认拍摄佐证 */
-    reportPhotoItemMissing() {
+    /** 导航条右侧逃生「?」：面板选择异常类型（设备不存在/现场无法拍摄，抽查项另有标签磨损），再确认拍摄佐证 */
+    onEscapeTap() {
       const it = this.curItem
-      if (it == null || !this.curItemIsPhoto || this.captureBusy || this.overlayMsg != '' || this.submitting) return
+      if (it == null || this.captureBusy || this.overlayMsg != '' || this.submitting) return
+      if (!this.curItemIsPhoto && !(this.manualMode && (it.photo_required ?? '') != 'none')) return
       if (this.manualMode && it.photo_required == 'none') return
       this.escapeItem = it
       this.escapeSheetShow = true
@@ -1092,18 +1425,20 @@ export default {
         exception_type: exceptionType as 'device_missing' | 'unable_to_capture'
       }).then(() => ({ job_id: '' }))
     },
-    /** 补拍步重拍：重拍 = 重新拍照上传重新建 job，停留在补拍列表 */
+    /** 补拍步重拍：重拍 = 重新拍照上传重新建 job（后台队列），停留在补拍列表 */
     retakePhoto(it: WizardItemSnap) {
       if (it.status == 'recognizing') return
       this.shootFor(it, false, 'ai')
     },
     /**
-     * 识别失败/超时逃生：AI 基础设施故障不阻断巡检——该项转人工确认（巡检员自行核对，异常用 tag 勾选表达）。
+     * 识别失败/超时逃生 + gate 逐项「跳过识别」（方案 §六，转人工复核，不让巡检员死等）：
+     * AI 基础设施故障不阻断巡检——该项转人工确认（巡检员自行核对，异常用观察点勾选表达）。
      * 服务端 validateConfirmedAI 对 pending/failed 草稿放行并把记录转人工复核。
-     * 仅识别失败/超时可用；质量不合格（模糊/翻拍）仍须重拍。
+     * 质量不合格（模糊/翻拍）仍须重拍。
      */
     manualConfirmItem(it: WizardItemSnap) {
-      if (it.status != 'failed') return
+      if (it.status != 'failed' && it.status != 'recognizing') return
+      if (it.job_id != '') this.skippedJobs[it.job_id] = true // 轮询落定不再回写，保持人工确认结论
       it.status = 'done'
       it.quality_pass = true
       it.quality_issue = ''
@@ -1111,7 +1446,24 @@ export default {
       it.reason = 'AI 未识别，巡检员现场确认'
       it.pass = true
       uni.showToast({ title: '已转人工确认，异常请勾选观察点', icon: 'none' })
+      this.maybeGateSettled()
     },
+    onResultSkip() {
+      const it = this.curItem
+      if (it != null) this.manualConfirmItem(it)
+    },
+    onGateSkip(it: WizardItemSnap) {
+      this.manualConfirmItem(it)
+    },
+    onGateRetry(it: WizardItemSnap) {
+      const wp = this.curWizPoint
+      if (wp == null) return
+      this.retryPendingUpload(it, wp.point_id)
+    },
+    /**
+     * 拍照统一入口。AI/escape 档「拍完即走」（方案 §4.1）：本地照片立即进槽、立即推进，
+     * 压缩→上传→建 job 进后台队列串行执行；manual 档（手动档/感官项）上传同步完成（作答草稿需 file_id）。
+     */
     shootFor(it: WizardItemSnap, advance: boolean, mode: 'ai' | 'escape' | 'manual', exceptionType = '') {
       const wp = this.curWizPoint
       if (wp == null || this.captureBusy || this.overlayMsg != '' || this.submitting) return
@@ -1129,68 +1481,61 @@ export default {
             this.captureBusy = false
             return
           }
-          this.overlayMsg = '照片处理中…'
-          // 定标压缩（1920px/q80：仍在 AI 编码分辨率之上，不损识别；体积约为原图 1/4）。
-          // 只传原图：AI 识别无水印干扰；水印由服务端在打卡后统一烧录（点位/时间/坐标/巡检员）
-          compressForUpload(paths[0]).then((raw) => {
-            if (!this.captureIsCurrent(captureToken)) return null
+          const localPath = paths[0]
+          if (mode == 'manual') {
+            // 手动档/感官项：照片立即本地显示，上传同步（遮罩）完成后换服务端 URL 并记 file_id；停留作答不自动跳
+            it.photos.push(localPath)
+            it.img_error = false
+            this.captureBusy = false
             this.overlayMsg = '照片上传中…'
-            let fileId = ''
-            let fileUrl = ''
-            apiUploadLocal(raw)
+            compressForUpload(localPath)
+              .then((raw) => apiUploadLocal(raw))
               .then((r) => {
-                if (!this.captureIsCurrent(captureToken)) return null
-                fileId = r.file_id
-                fileUrl = r.url
-                if (mode == 'escape') {
-                  return this.saveEscapeDraft(it, pointId, fileId, exceptionType)
-                }
-                if (mode == 'manual') {
-                  // 手动档：照片只上传落项，不建 AI job；结论由巡检员作答后落 manual 草稿
-                  return { job_id: '' }
-                }
-                return apiAiItemJobCreate({
-                  task_id: this.taskId,
-                  point_id: pointId,
-                  name: it.name,
-                  file_ids: [fileId]
-                })
-              })
-              .then((j) => {
-                if (j == null || !this.captureIsCurrent(captureToken)) return
+                if (this.destroyed) return
                 this.overlayMsg = ''
-                this.applyPhotoSuccess(it, raw, fileId, fileUrl, j.job_id, mode, exceptionType)
-                this.captureBusy = false
-                // 拍照项：立即推进下一项，不等识别结果
-                if (advance) this.nextStep()
+                const i = it.photos.indexOf(localPath)
+                if (i >= 0) it.photos.splice(i, 1, r.url)
+                it.file_ids.push(r.file_id)
               })
               .catch((e: any) => {
-                if (!this.captureIsCurrent(captureToken)) return
+                if (this.destroyed) return
                 this.overlayMsg = ''
-                this.captureBusy = false
-                const code = e != null && typeof e.code == 'number' ? e.code : 0
-                if (code == CODE_AI_DISABLED) {
-                  uni.showToast({ title: 'AI 未启用，请改用手动模式', icon: 'none' })
-                  return
-                }
                 const msg = (e && e.message) || ''
-                // 网络异常（上传/建 job）：压缩图保留在项上置待补传态，联网/回页后点该项或自动重试
+                // 网络异常：压缩图保留在项上置待补传态，联网/回页后自动重试
                 if (msg.indexOf(NETWORK_ERR_PREFIX) == 0) {
-                  this.markPendingUpload(it, raw, mode, exceptionType)
-                  uni.showToast({ title: '网络异常，照片已保留，联网后点该项重试', icon: 'none' })
+                  compressForUpload(localPath)
+                    .then((raw) => this.markPendingUpload(it, raw, 'manual', ''))
+                    .catch(() => this.markPendingUpload(it, localPath, 'manual', ''))
+                  uni.showToast({ title: '网络异常，照片已保留，联网后自动补传', icon: 'none' })
                   return
                 }
-                uni.showToast({ title: msg || '拍照失败，请重试', icon: 'none' })
+                const i = it.photos.indexOf(localPath)
+                if (i >= 0) it.photos.splice(i, 1)
+                uni.showToast({ title: msg || '上传失败，请重试', icon: 'none' })
               })
-              .then(() => {
-                if (this.captureToken == captureToken) this.captureBusy = false
-              })
-          }).catch((e: any) => {
-            if (!this.captureIsCurrent(captureToken)) return
-            this.overlayMsg = ''
-            this.captureBusy = false
-            uni.showToast({ title: (e && e.message) || '照片处理失败，请重试', icon: 'none' })
-          })
+            return
+          }
+          // AI / escape：拍完即走——本地照片立即进槽，后台队列依次完成 压缩→上传→建 job→并发识别→轮询落定
+          it.photos = [localPath] // 一图一位：重拍=替换
+          it.img_error = false
+          it.file_ids = []
+          it.job_id = ''
+          // 新照片 = 重新判定：异常观察点 tag 重置为全正常（AI 结果回来后按 abnormal_tags 再预标记）
+          it.abnormal_tags = []
+          it.exception_type = mode == 'escape' ? exceptionType : ''
+          it.status = 'recognizing'
+          it.verdict = ''
+          it.reason = ''
+          it.reading = ''
+          it.quality_pass = true
+          it.quality_issue = ''
+          it.pending_local = ''
+          it.pending_mode = ''
+          it.pending_exception_type = ''
+          this.captureBusy = false
+          this.enqueueBg(it, pointId, localPath, mode, exceptionType)
+          // 拍照项：立即推进下一项，不等上传、不等识别结果
+          if (advance) this.nextStep()
         },
         fail: () => {
           if (this.captureToken == captureToken) this.captureBusy = false
@@ -1200,7 +1545,80 @@ export default {
     captureIsCurrent(token: number): boolean {
       return !this.destroyed && this.captureToken == token
     },
-    /** 上传+建 job 成功后的逐项落定（shootFor 与待补传重试共用）；escape=异常佐证直接落定异常；manual=手动档照片归档待作答 */
+    /** 后台任务入队并启动泵（串行执行，弱网防雪崩） */
+    enqueueBg(it: WizardItemSnap, pointId: string, raw: string, mode: 'ai' | 'escape' | 'manual', exceptionType: string) {
+      this.bgQueue.push({ it: it, pointId: pointId, raw: raw, mode: mode, exceptionType: exceptionType })
+      this.pumpBgQueue()
+    },
+    /** 后台队列泵：取下一个任务执行（压缩→上传→建 job/落草稿），完成后递归取下一个 */
+    pumpBgQueue() {
+      if (this.bgRunning || this.destroyed) return
+      const job = this.bgQueue.shift()
+      if (job == null) {
+        this.maybeGateSettled()
+        return
+      }
+      this.bgRunning = true
+      const it = job.it
+      let compressed = job.raw
+      compressForUpload(job.raw)
+        .then((raw) => {
+          compressed = raw
+          return apiUploadLocal(raw)
+        })
+        .then((r) => {
+          if (this.destroyed) return null
+          // 槽位照片已不是这张（用户重拍/替换过）：本次结果过期丢弃，不覆盖新照片
+          if (it.photos.length == 0 || it.photos[0] != job.raw) return null
+          if (job.mode == 'escape') {
+            return this.saveEscapeDraft(it, job.pointId, r.file_id, job.exceptionType).then((j) => ({ fileId: r.file_id, url: r.url, jobId: j.job_id }))
+          }
+          return apiAiItemJobCreate({
+            task_id: this.taskId,
+            point_id: job.pointId,
+            name: it.name,
+            file_ids: [r.file_id]
+          }).then((j) => ({ fileId: r.file_id, url: r.url, jobId: j.job_id }))
+        })
+        .then((res) => {
+          if (this.destroyed) return
+          this.bgRunning = false
+          if (res != null) {
+            this.applyPhotoSuccess(it, compressed, res.fileId, res.url, res.jobId, job.mode, job.exceptionType)
+            if (res.jobId != '') {
+              this.jobStartTimes[res.jobId] = Date.now()
+              this.ensureBgPoll()
+            }
+          }
+          this.pumpBgQueue()
+          this.maybeGateSettled()
+        })
+        .catch((e: any) => {
+          if (this.destroyed) return
+          this.bgRunning = false
+          // 槽位仍是这张本地照片才处理失败态（重拍过则丢弃本次失败）
+          if (it.photos.length > 0 && it.photos[0] == job.raw) {
+            const code = e != null && typeof e.code == 'number' ? e.code : 0
+            if (code == CODE_AI_DISABLED) {
+              uni.showToast({ title: 'AI 未启用，请改用手动模式', icon: 'none' })
+              this.resetItem(it)
+            } else {
+              const msg = (e && e.message) || ''
+              // 网络异常（上传/建 job）：压缩图保留在项上置待补传态，联网/回页后自动补传
+              if (msg.indexOf(NETWORK_ERR_PREFIX) == 0) {
+                this.markPendingUpload(it, compressed, job.mode, job.exceptionType)
+                uni.showToast({ title: '网络异常，照片已保留，联网自动补传', icon: 'none' })
+              } else {
+                uni.showToast({ title: msg || '照片上传失败，请重新拍', icon: 'none' })
+                this.resetItem(it)
+              }
+            }
+          }
+          this.pumpBgQueue()
+          this.maybeGateSettled()
+        })
+    },
+    /** 上传+建 job 成功后的逐项落定（后台队列与待补传重试共用）；escape=异常佐证直接落定异常 */
     applyPhotoSuccess(it: WizardItemSnap, raw: string, fileId: string, fileUrl: string, jobId: string, mode: 'ai' | 'escape' | 'manual', exceptionType: string) {
       it.pending_local = ''
       it.pending_mode = ''
@@ -1208,19 +1626,11 @@ export default {
       // 展示用服务端 URL（重启后仍可加载）；本地临时路径仅兜底
       const url = fileUrl != '' ? fileUrl : raw
       it.img_error = false
-      if (mode == 'manual') {
-        // 手动档：照片累加（≤3，拍照入口已拦截），保持 todo 待巡检员作答「这项正常吗？」
-        it.photos.push(url)
-        it.file_ids.push(fileId)
-        return
-      }
       it.photos = [url]
       it.file_ids = [fileId]
       it.exception_type = mode == 'escape' ? exceptionType : ''
       it.file_id = fileId
       it.job_id = jobId
-      // 新照片 = 重新判定：异常观察点 tag 重置为全正常（AI 结果回来后按 abnormal_tags 再预标记）
-      it.abnormal_tags = []
       if (mode == 'escape') {
         it.status = 'done'
         it.verdict = 'abnormal'
@@ -1242,7 +1652,7 @@ export default {
         it.note = ''
       }
     },
-    /** 上传失败置待补传态：压缩图保留在项上（本地路径仅会话内有效），卡片显示「照片待补传，点击重试」 */
+    /** 上传失败置待补传态：压缩图保留在项上（本地路径仅会话内有效），槽位显示橙色状态条「照片还没传上去」 */
     markPendingUpload(it: WizardItemSnap, raw: string, mode: 'ai' | 'escape' | 'manual', exceptionType: string) {
       it.pending_local = raw
       it.pending_mode = mode
@@ -1286,10 +1696,27 @@ export default {
           if (this.destroyed) return
           this.overlayMsg = ''
           this.captureBusy = false
-          this.applyPhotoSuccess(it, raw, fileId, fileUrl, j.job_id, mode, exceptionType)
+          if (mode == 'manual') {
+            // 手动档：照片只上传落项，不建 AI job
+            it.pending_local = ''
+            it.pending_mode = ''
+            it.pending_exception_type = ''
+            it.status = 'todo'
+            it.quality_issue = ''
+            it.photos = [fileUrl != '' ? fileUrl : raw]
+            it.file_ids = [fileId]
+            it.img_error = false
+          } else {
+            this.applyPhotoSuccess(it, raw, fileId, fileUrl, j.job_id, mode, exceptionType)
+            if (j.job_id != '') {
+              this.jobStartTimes[j.job_id] = Date.now()
+              this.ensureBgPoll()
+            }
+          }
           if (mode != 'escape') uni.showToast({ title: '照片补传成功', icon: 'success' })
           // 继续补传其余待补传项（逐项串行，弱网防雪崩）
           this.retryNextPending()
+          this.maybeGateSettled()
         })
         .catch((e: any) => {
           if (this.destroyed) return
@@ -1300,7 +1727,7 @@ export default {
             uni.showToast({ title: 'AI 未启用，请改用手动模式', icon: 'none' })
             return
           }
-          // 仍是网络异常：照片继续保留待补传；业务错误原样提示（本地图失效可在卡片上点「重新拍」）
+          // 仍是网络异常：照片继续保留待补传；业务错误原样提示（本地图失效可在卡片上点「重新拍照」）
           const msg = (e && e.message) || ''
           if (msg.indexOf(NETWORK_ERR_PREFIX) == 0) {
             uni.showToast({ title: '仍无法上传，照片已保留，联网后自动重试', icon: 'none' })
@@ -1335,7 +1762,7 @@ export default {
         fail: () => {}
       })
     },
-    /** 卡片「照片待补传，点击重试」点击：补传当前项 */
+    /** 卡片待补传橙色状态条点击：补传当前项 */
     retryCurUpload() {
       const it = this.curItem
       const wp = this.curWizPoint
@@ -1379,7 +1806,7 @@ export default {
         }
       })
     },
-    /** 观察点 tag 点选切换：默认全部正常，点选标红为异常（再点恢复）；非空即该项判异常 */
+    /** 观察点勾选切换（观察点半屏/有异常半屏共用）：默认全部正常，勾选为异常（再勾恢复）；非空即该项判异常 */
     toggleCurTag(tag: string) {
       const it = this.curItem
       if (it == null || it.tags.indexOf(tag) < 0) return
@@ -1407,16 +1834,16 @@ export default {
       item.note = ''
       item.verdict = 'pass'
       item.status = 'done'
-      this.manualAbnormalOpen = false
+      this.abnSheetShow = false
       this.saveManualDraft(item)
       this.nextStep()
     },
-    /** 有异常 → 展开描述输入（可跳过） */
+    /** 有异常 → 底部半屏（观察点多选+备注+确认），确认后自动下一项 */
     tapManualAbnormal() {
       const it = this.curItem
       if (!this.curItemManualAnswerable(it, true)) return
       this.manualNote = (it as WizardItemSnap).note
-      this.manualAbnormalOpen = true
+      this.abnSheetShow = true
     },
     confirmManualAbnormal() {
       const it = this.curItem
@@ -1426,7 +1853,7 @@ export default {
       item.note = this.manualNote.trim()
       item.verdict = 'abnormal'
       item.status = 'done'
-      this.manualAbnormalOpen = false
+      this.abnSheetShow = false
       this.saveManualDraft(item)
       this.nextStep()
     },
@@ -1450,7 +1877,8 @@ export default {
     nextStep() {
       const wp = this.curWizPoint
       if (wp == null) return
-      this.manualAbnormalOpen = false
+      this.abnSheetShow = false
+      this.tagPickerShow = false
       if (this.itemIdx < wp.items.length - 1) {
         this.itemIdx += 1
       } else {
@@ -1461,17 +1889,25 @@ export default {
       }
     },
     /**
-     * 方案 B 自动提交：到达收尾步时，凭证/围栏已过 + 有模板项 → 自动走提交链路
-     * （轮询未落定识别 → 汇总分流：全 pass 直接落库；补拍/异常确认停住交给人）。
+     * 方案 B 自动提交：到达收尾步且全部落定（后台上传/识别都已结束）时，凭证/围栏已过 + 有模板项 → 自动走提交链路
+     * （汇总分流：全 pass 直接落库；补拍/异常处置停住交给人）。未落定时停在 gate 阻塞等待（逐项实时进度）。
      * 修改模式、无模板点位（纯拍照打卡）保持手动提交。
      */
     autoSubmitGate() {
       const wp = this.curWizPoint
       if (wp == null || this.modify || this.submitting) return
       if (this.phase != 'gate' || wp.items.length == 0) return
+      if (!this.gateSettled) return
       if (!this.credOk) return
       if (this.curPoint != null && this.curPoint.require_fence && !this.fenceOk) return
       this.submitPoint()
+    },
+    /** 后台任务/轮询落定后回调：gate 步全部落定即触发自动提交（按钮同步亮起） */
+    maybeGateSettled() {
+      if (this.destroyed) return
+      if (this.phase != 'gate') return
+      if (!this.gateSettled) return
+      this.autoSubmitGate()
     },
     /** 底部「上一项」点击：回退一项（不跨点位）；兜底到本点位第一步时直接退出（正常不会到这，起点按钮已隐藏） */
     onPrevTap() {
@@ -1508,7 +1944,8 @@ export default {
       if (wp == null) {
         return false
       }
-      this.manualAbnormalOpen = false
+      this.abnSheetShow = false
+      this.tagPickerShow = false
       if (this.phase == 'gate') {
         if (wp.items.length > 0) {
           this.itemIdx = wp.items.length - 1
@@ -1531,16 +1968,15 @@ export default {
       // 本点位第一步（cred 或无凭证点位的第一项）：没有上一项
       return false
     },
-    /** 提交本点位：轮询未完成的识别 job → 汇总分流（全过 / 补拍 / 异常确认） */
+    /**
+     * 提交本点位：gate 是全流程唯一的等待点——未落定项（上传中/识别中/待补传）在这里阻塞，
+     * 落定后按钮亮起，点击直接汇总分流（全过 / 补拍 / 异常处置）。识别等待由后台轮询承担，不再有遮罩轮询。
+     */
     submitPoint() {
       const wp = this.curWizPoint
-      if (wp == null || this.submitting || this.captureBusy) return
-      // 提交闸门：有待补传照片阻止提交并明示哪几项（联网后点该项重试 / 自动补传）
-      if (this.pendingNames.length > 0) {
-        uni.showToast({
-          title: '照片待补传：' + this.pendingNames.join('、') + '，联网后点该项重试',
-          icon: 'none'
-        })
+      if (wp == null || this.submitting) return
+      if (!this.gateSettled) {
+        uni.showToast({ title: '还有 ' + this.gateRemain + ' 项在处理中…', icon: 'none' })
         return
       }
       if (!this.credOk) {
@@ -1551,78 +1987,84 @@ export default {
         uni.showToast({ title: this.fenceTip(), icon: 'none' })
         return
       }
-      this.submitting = true
-      this.gateSubmitError = ''
-      this.overlayMsg = this.manualMode ? '提交中…' : 'AI 检查中…'
-      this.pollPointJobs()
-        .then(() => {
+      this.routePointResult()
+    },
+    /** 后台 AI 轮询：有未落定 job 时 1.5s 批量查，落定写回；190s 超时按 failed 处理（可重拍或跳过识别） */
+    ensureBgPoll() {
+      if (this.destroyed || this.bgPolling) return
+      this.bgPolling = true
+      this.bgTick()
+    },
+    bgTick() {
+      if (this.destroyed) {
+        this.bgPolling = false
+        return
+      }
+      const targets: Array<{ it: WizardItemSnap; jobId: string }> = []
+      this.wizPoints.forEach((wp) => {
+        wp.items.forEach((it) => {
+          if (it.status == 'recognizing' && it.job_id != '' && this.skippedJobs[it.job_id] != true) {
+            targets.push({ it: it, jobId: it.job_id })
+          }
+        })
+      })
+      if (targets.length == 0) {
+        this.bgPolling = false
+        this.maybeGateSettled()
+        return
+      }
+      apiAiItemJobs(targets.map((t) => t.jobId))
+        .then((jobs) => {
           if (this.destroyed) return
-          this.submitting = false
-          this.overlayMsg = ''
-          this.routePointResult()
+          const map: Record<string, (typeof jobs)[0]> = {}
+          jobs.forEach((j) => {
+            map[j.job_id] = j
+          })
+          const now = Date.now()
+          targets.forEach((t) => {
+            if (this.skippedJobs[t.jobId] == true) return
+            const j = map[t.jobId]
+            const started = this.jobStartTimes[t.jobId] != null ? this.jobStartTimes[t.jobId] : now
+            if (j == null) {
+              // job 过期查不到：按超时判失败
+              if (now - started >= POLL_TIMEOUT) {
+                t.it.status = 'failed'
+                t.it.quality_issue = '识别超时，可重拍或跳过识别'
+              }
+              return
+            }
+            if (j.status == 'done') {
+              this.applyJob(t.it, j)
+              return
+            }
+            if (j.status == 'failed') {
+              t.it.status = 'failed'
+              return
+            }
+            if (now - started >= POLL_TIMEOUT) {
+              t.it.status = 'failed'
+              t.it.quality_issue = '识别超时，可重拍或跳过识别'
+            }
+          })
         })
         .catch(() => {
-          if (this.destroyed) return
-          this.submitting = false
-          this.overlayMsg = ''
-          this.gateSubmitError = '网络异常'
-          uni.showToast({ title: '网络异常，请重试', icon: 'none' })
+          // 查询失败下轮再试（不阻断）
+        })
+        .finally(() => {
+          if (this.destroyed) {
+            this.bgPolling = false
+            return
+          }
+          this.bgPollTimer = setTimeout(() => this.bgTick(), POLL_INTERVAL)
+          this.maybeGateSettled()
         })
     },
-    /** 轮询当前点位 recognizing 的 job：1.5s 批量查，全部落定或 90s 超时（标 failed 可手动确认）后返回 */
-    pollPointJobs(): Promise<void> {
-      const wp = this.curWizPoint
-      if (wp == null) return Promise.resolve()
-      const items = wp.items.filter((it) => it.status == 'recognizing' && it.job_id != '')
-      if (items.length == 0) return Promise.resolve()
-      const startedAt = Date.now()
-      return new Promise<void>((resolve, reject) => {
-        const tick = () => {
-          if (this.destroyed) {
-            resolve()
-            return
-          }
-          const pending = items.filter((it) => it.status == 'recognizing')
-          if (pending.length == 0) {
-            resolve()
-            return
-          }
-          if (Date.now() - startedAt >= POLL_TIMEOUT) {
-            pending.forEach((it) => {
-              it.status = 'failed'
-              it.quality_issue = '识别超时，可重拍或手动确认'
-            })
-            resolve()
-            return
-          }
-          apiAiItemJobs(pending.map((it) => it.job_id))
-            .then((jobs) => {
-              if (this.destroyed) {
-                resolve()
-                return
-              }
-              const map: Record<string, (typeof jobs)[0]> = {}
-              jobs.forEach((j) => {
-                map[j.job_id] = j
-              })
-              pending.forEach((it) => {
-                const j = map[it.job_id]
-                if (j == null) return
-                if (j.status == 'done') this.applyJob(it, j)
-                if (j.status == 'failed') it.status = 'failed'
-              })
-              this.pollTimer = setTimeout(tick, POLL_INTERVAL)
-            })
-            .catch(reject)
-        }
-        tick()
-      })
-    },
-    stopPoll() {
-      if (this.pollTimer != null) {
-        clearTimeout(this.pollTimer)
-        this.pollTimer = null
+    stopBgPoll() {
+      if (this.bgPollTimer != null) {
+        clearTimeout(this.bgPollTimer)
+        this.bgPollTimer = null
       }
+      this.bgPolling = false
     },
     /** job 落定：写回识别结论；abnormal 预填描述；AI 判出的异常观察点 tag 预标记（用户可手动取消） */
     applyJob(it: WizardItemSnap, j: { verdict: string; reason: string; reading: string; quality_pass: boolean; quality_issue: string; abnormal_tags?: string[] }) {
@@ -1651,7 +2093,7 @@ export default {
       it.img_error = false
       it.abnormal_tags = []
     },
-    /** 汇总分流：补拍 > 异常确认 > 全过直接提交 */
+    /** 汇总分流：补拍 > 异常处置 > 全过直接提交 */
     routePointResult() {
       const wp = this.curWizPoint
       if (wp == null) return
@@ -1676,7 +2118,7 @@ export default {
         const tagAbn = it.abnormal_tags.length > 0
         if (tagAbn && it.note == '') it.note = '异常观察点：' + it.abnormal_tags.join('、')
         if (this.manualMode) {
-          // 手动档：无 AI 分流，巡检员手选异常或点选了异常观察点 tag → 异常确认
+          // 手动档：无 AI 分流，巡检员手选异常或点选了异常观察点 tag → 异常处置
           if (!it.pass || tagAbn) abnormal.push(i)
           return
         }
@@ -1755,7 +2197,7 @@ export default {
         }
       })
     },
-    /** 异常确认：确认后真正 POST /checkin → 下一处（「现场已处理」项必拍处置照片，未拍拦截） */
+    /** 异常处置：确认后真正 POST /checkin → 下一处（「现场已处理」项必拍处置照片，未拍拦截） */
     confirmAbnormalSubmit() {
       const wp = this.curWizPoint
       if (wp == null) return
@@ -1922,6 +2364,29 @@ export default {
           // 预填失败按全新巡检处理
         })
     },
+    /** 底部操作栏主按钮分发（动作由 barCfg 状态表给出） */
+    onBarPrimary() {
+      const a = this.barCfg.primaryAction
+      if (a == 'take-photo') this.takePhoto()
+      else if (a == 'next') this.nextStep()
+      else if (a == 'manual-ok') this.tapManualOk()
+      else if (a == 'submit') this.submitPoint()
+      else if (a == 'abn-confirm') this.confirmAbnormalSubmit()
+    },
+    onBarSecondary() {
+      if (this.barCfg.secondaryAction == 'manual-abnormal') this.tapManualAbnormal()
+    },
+    /** 当前项照片大图预览 */
+    previewCurPhoto() {
+      const it = this.curItem
+      if (it == null || it.photos.length == 0 || it.img_error) return
+      uni.previewImage({ urls: it.photos })
+    },
+    /** 指定项照片大图预览（补拍列表缩略图） */
+    previewPhoto(it: WizardItemSnap) {
+      if (it.photos.length == 0 || it.img_error) return
+      uni.previewImage({ urls: it.photos })
+    },
     exitWizard() {
       // App 端 navigateBack 会触发 onBackPress，先置放行标记避免被退出确认拦截
       this.forceExit = true
@@ -2000,7 +2465,7 @@ export default {
 .navbar-right {
   justify-content: flex-end;
   padding-left: 0;
-  padding-right: 32rpx;
+  padding-right: 24rpx;
 }
 
 .navbar-back {
@@ -2012,6 +2477,23 @@ export default {
 .navbar-title {
   font-size: 36rpx;
   font-weight: 600;
+}
+
+/* 导航条右侧逃生「?」（仅逐项步、非台账项显示） */
+.navbar-help {
+  width: 56rpx;
+  height: 56rpx;
+  border-radius: 28rpx;
+  border-width: 3rpx;
+  border-style: solid;
+  align-items: center;
+  justify-content: center;
+}
+
+.navbar-help-text {
+  font-size: 36rpx;
+  font-weight: 700;
+  line-height: 48rpx;
 }
 
 .navbar-space {
@@ -2130,15 +2612,15 @@ export default {
   height: 64rpx;
 }
 
-/* 底部「上一项」（返回键=退出巡检，回退只走这个按钮） */
-.prev-link {
+/* 手动模式入口（灰字小链接，在内容流内，底部操作栏上方） */
+.manual-link {
   display: flex;
   flex-direction: row;
   justify-content: center;
-  padding: 28rpx 0 12rpx;
+  padding: 12rpx 0 24rpx;
 }
 
-.prev-link-text {
+.manual-link-text {
   font-size: 30rpx;
   padding: 12rpx 48rpx;
 }

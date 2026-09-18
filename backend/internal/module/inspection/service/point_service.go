@@ -720,7 +720,7 @@ func (s *PointService) BatchCreate(c *gin.Context, req *dto.PointBatchReq) (*dto
 					p := model.InspectionPoint{
 						TenantID: tenantID, CommunityID: req.CommunityID, BuildingID: b.id,
 						Name: name, Type: req.Type, QRCodeNo: no,
-						Longitude:  req.Longitude, Latitude: req.Latitude,
+						Longitude: req.Longitude, Latitude: req.Latitude,
 						FenceRadius: s.fenceRadius(0),
 						Credential:  credentialOrDefault(req.Credential),
 						Status:      sysmodel.StatusEnabled,

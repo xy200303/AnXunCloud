@@ -202,11 +202,13 @@ type CheckTemplateItem struct {
 	// JudgeType 判定类型（general/presence/damage/metric/state/label/passage/leak/indicator/tidiness/baseline）
 	JudgeType string `gorm:"size:24;default:general" json:"judge_type"`
 	// JudgeConfig 判定参数（metric: {metric,unit,min,max}；state/indicator: {expected}），NULL 按通用判定
-	JudgeConfig   types.JSONMap `gorm:"type:jsonb" json:"judge_config"`
-	Required      bool          `json:"required"`
-	PhotoRequired string        `gorm:"size:16" json:"photo_required"` // none/optional/required
-	Sort          int           `json:"sort"`
-	CreatedAt     time.Time     `json:"created_at"`
+	JudgeConfig types.JSONMap `gorm:"type:jsonb" json:"judge_config"`
+	// Tags 观察点 tag 数组（一项一张照片，tag 不带图；空=无 tag 的传统项）
+	Tags          types.StringArray `gorm:"type:jsonb;default:'[]'" json:"tags"`
+	Required      bool              `json:"required"`
+	PhotoRequired string            `gorm:"size:16" json:"photo_required"` // none/optional/required
+	Sort          int               `json:"sort"`
+	CreatedAt     time.Time         `json:"created_at"`
 }
 
 func (CheckTemplateItem) TableName() string { return "check_template_item" }
@@ -343,11 +345,11 @@ type InspectionPlan struct {
 	PlanKind string `gorm:"size:16;default:patrol" json:"plan_kind"`
 	// SpotcheckConfig 抽查配置（仅 plan_kind=spotcheck 有意义），解析走 SpotConfigOf（全字段带默认值）
 	SpotcheckConfig types.JSONMap  `gorm:"type:jsonb" json:"spotcheck_config"`
-	Status          string        `gorm:"size:16" json:"status"`
-	Remark     string         `gorm:"size:255" json:"remark"`
-	CreatedAt  time.Time      `json:"created_at"`
-	UpdatedAt  time.Time      `json:"updated_at"`
-	DeletedAt  gorm.DeletedAt `json:"-"`
+	Status          string         `gorm:"size:16" json:"status"`
+	Remark          string         `gorm:"size:255" json:"remark"`
+	CreatedAt       time.Time      `json:"created_at"`
+	UpdatedAt       time.Time      `json:"updated_at"`
+	DeletedAt       gorm.DeletedAt `json:"-"`
 }
 
 func (InspectionPlan) TableName() string { return "inspection_plan" }
@@ -520,22 +522,22 @@ type CheckinRecord struct {
 	Latitude        *float64   `gorm:"type:numeric(10,7)" json:"latitude"`
 	DistanceToPoint *float64   `gorm:"type:numeric(10,2)" json:"distance_to_point"`
 	// Altitude/Accuracy 定位辅助信息（米，可空）：仅作参考展示——消费级 GPS 海拔误差 ±20~50m，不参与任何校验/判定
-	Altitude      *float64   `gorm:"type:numeric(10,2)" json:"altitude"`
-	Accuracy      *float64   `gorm:"type:numeric(10,2)" json:"accuracy"`
-	CheckinType   string     `gorm:"size:16" json:"checkin_type"` // qrcode/fence/nfc/offline（offline=离线补传，唯一事实来源）
-	Result        string     `gorm:"size:16" json:"result"`
-	Remark        string     `gorm:"size:512" json:"remark"`
-	IsSuspect     bool       `json:"is_suspect"`
-	SuspectReason string     `gorm:"size:255" json:"suspect_reason"`
-	AuditStatus   string     `gorm:"size:16" json:"audit_status"`
-	AuditStep     int16      `json:"audit_step"` // 审批链当前进度：已通过环节数（0=待第 1 环节，扩展方案 §3）
+	Altitude      *float64 `gorm:"type:numeric(10,2)" json:"altitude"`
+	Accuracy      *float64 `gorm:"type:numeric(10,2)" json:"accuracy"`
+	CheckinType   string   `gorm:"size:16" json:"checkin_type"` // qrcode/fence/nfc/offline（offline=离线补传，唯一事实来源）
+	Result        string   `gorm:"size:16" json:"result"`
+	Remark        string   `gorm:"size:512" json:"remark"`
+	IsSuspect     bool     `json:"is_suspect"`
+	SuspectReason string   `gorm:"size:255" json:"suspect_reason"`
+	AuditStatus   string   `gorm:"size:16" json:"audit_status"`
+	AuditStep     int16    `json:"audit_step"` // 审批链当前进度：已通过环节数（0=待第 1 环节，扩展方案 §3）
 	// FlowSnapshot 提交时命中的审核链快照（FlowStepArray JSON；NULL=存量/空流程，审核时回落现配）
-	FlowSnapshot  types.FlowStepArray `gorm:"type:jsonb" json:"flow_snapshot"`
-	AuditBy       *string    `gorm:"type:uuid" json:"audit_by"`
-	AuditAt       *time.Time `json:"audit_at"`
-	AuditRemark   string     `gorm:"size:512" json:"audit_remark"`
-	AIVerdict     string     `gorm:"size:16" json:"ai_verdict"`
-	AIReason      string     `gorm:"size:512" json:"ai_reason"`
+	FlowSnapshot types.FlowStepArray `gorm:"type:jsonb" json:"flow_snapshot"`
+	AuditBy      *string             `gorm:"type:uuid" json:"audit_by"`
+	AuditAt      *time.Time          `json:"audit_at"`
+	AuditRemark  string              `gorm:"size:512" json:"audit_remark"`
+	AIVerdict    string              `gorm:"size:16" json:"ai_verdict"`
+	AIReason     string              `gorm:"size:512" json:"ai_reason"`
 	// ForceSubmit 重拍次数用尽后强制提交（跳过同步 AI 判定，转人工复核）
 	ForceSubmit bool `json:"force_submit"`
 	// AIQualityPass/AIQualityIssue AI 照片质量判定（第一层）；AIQualityPass 为 NULL=未做质量判定
@@ -562,19 +564,22 @@ type CheckinRecordItem struct {
 	// AIHint AI 识别要点快照（打卡当时从模板项复制，与 name/requirement 同机制）
 	AIHint *string `gorm:"type:text" json:"ai_hint"`
 	// JudgeType/JudgeConfig 判定类型与参数快照（打卡当时从模板项复制）
-	JudgeType     string        `gorm:"size:24;default:general" json:"judge_type"`
-	JudgeConfig   types.JSONMap `gorm:"type:jsonb" json:"judge_config"`
-	PhotoRequired string        `gorm:"size:16" json:"photo_required"` // none/optional/required
-	Pass          bool          `json:"pass"`
-	Note          string        `gorm:"size:512" json:"note"`
+	JudgeType   string        `gorm:"size:24;default:general" json:"judge_type"`
+	JudgeConfig types.JSONMap `gorm:"type:jsonb" json:"judge_config"`
+	// Tags tag 快照（打卡当时从模板项复制）；AbnormalTags 异常 tag 列表（⊆ Tags，非空=该项异常）
+	Tags          types.StringArray `gorm:"type:jsonb;default:'[]'" json:"tags"`
+	AbnormalTags  types.StringArray `gorm:"type:jsonb;default:'[]'" json:"abnormal_tags"`
+	PhotoRequired string            `gorm:"size:16" json:"photo_required"` // none/optional/required
+	Pass          bool              `json:"pass"`
+	Note          string            `gorm:"size:512" json:"note"`
 	// Photos 该项照片 file_id 数组（JSONB，不再拆表）
 	Photos types.StringArray `gorm:"type:jsonb" json:"photos"`
 	// AIVerdict/AIReason 逐项大模型结论（模型未返回逐项结论时为空）
 	AIVerdict *string `gorm:"size:16" json:"ai_verdict"`
 	AIReason  *string `gorm:"size:512" json:"ai_reason"`
 	// AIReading AI 读取的表计读数文本（metric 类检查项；NULL=无读数）
-	AIReading     *string   `gorm:"size:64" json:"ai_reading"`
-	ExceptionType string    `gorm:"size:24;default:''" json:"exception_type"` // device_missing / unable_to_capture
+	AIReading     *string `gorm:"size:64" json:"ai_reading"`
+	ExceptionType string  `gorm:"size:24;default:''" json:"exception_type"` // device_missing / unable_to_capture
 	// Disposition 异常项处置方式（仅 !pass 项可填）：''=未处置 / on_site_resolved=现场已处理 /
 	// maintenance_registered=登记维保（有效期项由服务端在生成维保流水后回填）/ report_pending=上报待处理（强制转人工审核）
 	Disposition string `gorm:"size:24;default:''" json:"disposition"`
@@ -606,18 +611,20 @@ const (
 // 用途：断点恢复（换设备/清缓存也能拉回逐项进度）、后台查看正式提交前的识别过程。
 type CheckinItemDraft struct {
 	types.UUIDModel
-	TenantID      *string           `gorm:"type:uuid" json:"tenant_id"`
-	TaskID        string            `gorm:"type:uuid" json:"task_id"`
-	PointID       string            `gorm:"type:uuid" json:"point_id"`
-	InspectorID   string            `gorm:"type:uuid" json:"inspector_id"`
-	CommunityID   string            `gorm:"type:uuid" json:"community_id"`
-	ItemName      string            `gorm:"size:128" json:"item_name"`
-	JobID         string            `gorm:"size:64" json:"job_id"` // 识别队列 job（pending 恢复轮询用）
-	FileIDs       types.StringArray `gorm:"column:file_ids;type:jsonb" json:"file_ids"`
-	AIStatus      string            `gorm:"size:16" json:"ai_status"`
-	AIVerdict     *string           `gorm:"size:16" json:"ai_verdict"`
-	AIReason      *string           `gorm:"size:512" json:"ai_reason"`
-	AIReading     *string           `gorm:"size:64" json:"ai_reading"`
+	TenantID    *string           `gorm:"type:uuid" json:"tenant_id"`
+	TaskID      string            `gorm:"type:uuid" json:"task_id"`
+	PointID     string            `gorm:"type:uuid" json:"point_id"`
+	InspectorID string            `gorm:"type:uuid" json:"inspector_id"`
+	CommunityID string            `gorm:"type:uuid" json:"community_id"`
+	ItemName    string            `gorm:"size:128" json:"item_name"`
+	JobID       string            `gorm:"size:64" json:"job_id"` // 识别队列 job（pending 恢复轮询用）
+	FileIDs     types.StringArray `gorm:"column:file_ids;type:jsonb" json:"file_ids"`
+	AIStatus    string            `gorm:"size:16" json:"ai_status"`
+	AIVerdict   *string           `gorm:"size:16" json:"ai_verdict"`
+	AIReason    *string           `gorm:"size:512" json:"ai_reason"`
+	AIReading   *string           `gorm:"size:64" json:"ai_reading"`
+	// AbnormalTags 逐项 AI 识别的异常 tag（断点恢复/过程查看；正式提交时转入 checkin_record_item）
+	AbnormalTags  types.StringArray `gorm:"type:jsonb;default:'[]'" json:"abnormal_tags"`
 	ExceptionType string            `gorm:"size:24;default:''" json:"exception_type"`
 	QualityPass   *bool             `json:"quality_pass"`
 	QualityIssue  string            `gorm:"size:255" json:"quality_issue"`

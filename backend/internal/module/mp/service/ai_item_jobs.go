@@ -23,6 +23,7 @@ import (
 	"anxuncloud/internal/pkg/logger"
 	"anxuncloud/internal/pkg/strutil"
 	"anxuncloud/internal/pkg/timefmt"
+	"anxuncloud/internal/pkg/types"
 	"anxuncloud/internal/pkg/uploadfile"
 
 	"go.uber.org/zap"
@@ -54,6 +55,7 @@ type aiItemJobPayload struct {
 	AIHint      string         `json:"ai_hint,omitempty"`
 	JudgeType   string         `json:"judge_type,omitempty"`
 	JudgeConfig map[string]any `json:"judge_config,omitempty"`
+	Tags        []string       `json:"tags,omitempty"` // 观察点 tag（模型逐点核对，异常点回 abnormal_tags）
 	FileIDs     []string       `json:"file_ids"`
 }
 
@@ -121,7 +123,7 @@ func (s *CheckinService) SubmitAIItemJob(ctx context.Context, inspectorID string
 		TaskID: task.ID, PointID: req.PointID, CommunityID: task.CommunityID, TenantID: task.TenantID,
 		PointName: point.Name, PointType: point.Type,
 		Name: tplItem.Name, Requirement: strutil.StrVal(tplItem.Requirement), AIHint: strutil.StrVal(tplItem.AIHint),
-		JudgeType: tplItem.JudgeType, JudgeConfig: tplItem.JudgeConfig,
+		JudgeType: tplItem.JudgeType, JudgeConfig: tplItem.JudgeConfig, Tags: tplItem.Tags,
 		FileIDs: fileIDs,
 	}
 	// 过程草稿实时落库：提交即记 pending（重新识别时重置旧结论），worker 识别完回写 done/failed。
@@ -135,7 +137,7 @@ func (s *CheckinService) SubmitAIItemJob(ctx context.Context, inspectorID string
 		Columns: []clause.Column{{Name: "task_id"}, {Name: "point_id"}, {Name: "item_name"}},
 		DoUpdates: clause.AssignmentColumns([]string{
 			"inspector_id", "community_id", "tenant_id", "job_id", "file_ids",
-			"exception_type", "ai_status", "ai_verdict", "ai_reason", "ai_reading", "quality_pass", "quality_issue", "updated_at",
+			"exception_type", "ai_status", "ai_verdict", "ai_reason", "ai_reading", "abnormal_tags", "quality_pass", "quality_issue", "updated_at",
 		}),
 	}).Create(&draft).Error; err != nil {
 		return nil, errs.ErrInternal
@@ -185,6 +187,13 @@ func (s *CheckinService) AIItemJobs(ctx context.Context, inspectorID, idsRaw str
 		}
 		if v, ok := m["quality_pass"]; ok && v != "" {
 			job["quality_pass"] = v == "true"
+		}
+		// 异常 tag（JSON 数组串，识别完成时写入）
+		if v := m["abnormal_tags"]; v != "" {
+			var abn []string
+			if json.Unmarshal([]byte(v), &abn) == nil {
+				job["abnormal_tags"] = abn
+			}
 		}
 		jobs = append(jobs, job)
 	}
@@ -283,7 +292,7 @@ func (s *CheckinService) processAIItemJob(ctx context.Context, raw string) {
 		PointName: p.PointName, PointType: p.PointType, CheckItems: []string{p.Name},
 		ItemPhotos: []ai.ItemPhoto{{
 			Name: p.Name, Requirement: p.Requirement, AIHint: p.AIHint,
-			JudgeType: p.JudgeType, JudgeConfig: p.JudgeConfig, Photos: refs,
+			JudgeType: p.JudgeType, JudgeConfig: p.JudgeConfig, Tags: p.Tags, Photos: refs,
 		}},
 	}
 	res, err := s.aiCli.ReviewCheckin(ctx, input)
@@ -294,17 +303,40 @@ func (s *CheckinService) processAIItemJob(ctx context.Context, raw string) {
 	}
 	// 单项结果映射：ReviewResult.Items 找同名项，找不到用整体 Verdict；质量结论一并记录
 	verdict, reason, reading := res.Verdict, res.Reason, ""
+	var abnTags []string
 	for _, iv := range res.Items {
 		if iv.Name == p.Name {
 			verdict, reason, reading = iv.Verdict, iv.Reason, iv.Reading
+			abnTags = iv.AbnormalTags
 			break
 		}
+	}
+	// 异常 tag 过滤到该项模板 tags（模型可能杜撰原名）
+	if len(abnTags) > 0 && len(p.Tags) > 0 {
+		allow := map[string]bool{}
+		for _, t := range p.Tags {
+			allow[t] = true
+		}
+		filtered := abnTags[:0]
+		for _, t := range abnTags {
+			if allow[t] {
+				filtered = append(filtered, t)
+			}
+		}
+		abnTags = filtered
+	} else {
+		abnTags = nil
+	}
+	abnJSON, _ := json.Marshal(abnTags)
+	if len(abnTags) > 0 && verdict == ai.VerdictPass {
+		verdict = ai.VerdictReview // 有异常 tag 的项结论至少存疑（与打卡提交口径一致）
 	}
 	s.rdb.HSet(ctx, key,
 		"status", "done",
 		"verdict", verdict,
 		"reason", strutil.Truncate(reason, 500),
 		"reading", strutil.Truncate(strings.TrimSpace(reading), 64),
+		"abnormal_tags", string(abnJSON),
 		"quality_pass", strconv.FormatBool(res.Quality.Pass),
 		"quality_issue", strutil.Truncate(res.Quality.Issue, 255),
 	)
@@ -316,7 +348,8 @@ func (s *CheckinService) processAIItemJob(ctx context.Context, raw string) {
 	writeDraft(map[string]any{
 		"ai_status": insmodel.ItemDraftDone, "ai_verdict": verdict,
 		"ai_reason": strutil.Truncate(reason, 500), "ai_reading": readingPtr,
-		"quality_pass": res.Quality.Pass, "quality_issue": strutil.Truncate(res.Quality.Issue, 255),
+		"abnormal_tags": types.StringArray(abnTags),
+		"quality_pass":  res.Quality.Pass, "quality_issue": strutil.Truncate(res.Quality.Issue, 255),
 	})
 }
 
@@ -347,7 +380,7 @@ func (s *CheckinService) ItemDrafts(ctx context.Context, inspectorID, taskID, po
 			"point_id": d.PointID, "item_name": d.ItemName, "job_id": d.JobID,
 			"file_ids": d.FileIDs, "photos": photos, "exception_type": d.ExceptionType,
 			"ai_status": d.AIStatus, "ai_verdict": d.AIVerdict, "ai_reason": d.AIReason,
-			"ai_reading": d.AIReading, "quality_pass": d.QualityPass, "quality_issue": d.QualityIssue,
+			"ai_reading": d.AIReading, "abnormal_tags": d.AbnormalTags, "quality_pass": d.QualityPass, "quality_issue": d.QualityIssue,
 			"manual_pass": d.ManualPass, "manual_note": d.ManualNote,
 			"updated_at": timefmt.T(d.UpdatedAt),
 		})
@@ -467,7 +500,7 @@ func (s *CheckinService) SavePhotoItemAbnormalDraft(ctx context.Context, inspect
 		Columns: []clause.Column{{Name: "task_id"}, {Name: "point_id"}, {Name: "item_name"}},
 		DoUpdates: clause.AssignmentColumns([]string{
 			"inspector_id", "community_id", "tenant_id", "file_ids",
-			"exception_type", "ai_status", "ai_verdict", "ai_reason", "ai_reading", "quality_pass", "quality_issue", "updated_at",
+			"exception_type", "ai_status", "ai_verdict", "ai_reason", "ai_reading", "abnormal_tags", "quality_pass", "quality_issue", "updated_at",
 		}),
 	}).Create(&draft).Error; err != nil {
 		return nil, errs.ErrInternal

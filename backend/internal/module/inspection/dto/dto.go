@@ -23,14 +23,16 @@ type TemplateSaveReq struct {
 
 // TemplateItemSaveReq 项级粒度新增/修改单个检查项。
 type TemplateItemSaveReq struct {
-	Name         string `json:"name" binding:"required"`
-	Required     bool   `json:"required"`
-	Requirement  string `json:"requirement"`
-	AIHint       string `json:"ai_hint"` // AI 识别要点（可空；空=该项不带识别要点）
+	Name          string `json:"name" binding:"required"`
+	Required      bool   `json:"required"`
+	Requirement   string `json:"requirement"`
+	AIHint        string `json:"ai_hint"` // AI 识别要点（可空；空=该项不带识别要点）
 	PhotoRequired string `json:"photo_required"`
 	// JudgeType 判定类型（非法值服务端归一为 general）；JudgeConfig 判定参数（metric 需 metric/unit/min/max）
 	JudgeType   string         `json:"judge_type"`
 	JudgeConfig map[string]any `json:"judge_config"`
+	// Tags 观察点 tag 数组（一项一张照片，tag 不带图；服务端 trim/去重/限量）
+	Tags []string `json:"tags"`
 	// Sort 排序号；新增时缺省（nil）追加到末尾，修改时缺省保持不变
 	Sort *int `json:"sort"`
 }
@@ -49,22 +51,22 @@ type PointListQuery struct {
 }
 
 type PointSaveReq struct {
-	CommunityID        string   `json:"community_id" binding:"required"`
-	BuildingID         *string  `json:"building_id"`
-	UnitNo             *int     `json:"unit_no"`     // 单元号（nil=不分单元/非楼栋点位）
-	Floor              *int     `json:"floor"`       // 楼层（负数=地下层；nil=非楼栋点位）
-	Name               string   `json:"name" binding:"required"`
-	Type               string   `json:"type" binding:"required"`
-	Longitude          float64  `json:"longitude"` // 坐标可选（0,0=未录）；开围栏校验时必填，规则在 service validate
-	Latitude           float64  `json:"latitude"`
-	FenceRadius        int      `json:"fence_radius"`
-	Credential         string   `json:"credential"`
-	RequireFence       bool     `json:"require_fence"`
-	TemplateIDs        []string `json:"template_ids"` // 检查项模板组合（≥1 个，顺序即展示/展开顺序）
-	NfcID              string   `json:"nfc_id"`
-	Sort               int      `json:"sort"`
-	Status             *int     `json:"status"`
-	Remark             string   `json:"remark"`
+	CommunityID  string   `json:"community_id" binding:"required"`
+	BuildingID   *string  `json:"building_id"`
+	UnitNo       *int     `json:"unit_no"` // 单元号（nil=不分单元/非楼栋点位）
+	Floor        *int     `json:"floor"`   // 楼层（负数=地下层；nil=非楼栋点位）
+	Name         string   `json:"name" binding:"required"`
+	Type         string   `json:"type" binding:"required"`
+	Longitude    float64  `json:"longitude"` // 坐标可选（0,0=未录）；开围栏校验时必填，规则在 service validate
+	Latitude     float64  `json:"latitude"`
+	FenceRadius  int      `json:"fence_radius"`
+	Credential   string   `json:"credential"`
+	RequireFence bool     `json:"require_fence"`
+	TemplateIDs  []string `json:"template_ids"` // 检查项模板组合（≥1 个，顺序即展示/展开顺序）
+	NfcID        string   `json:"nfc_id"`
+	Sort         int      `json:"sort"`
+	Status       *int     `json:"status"`
+	Remark       string   `json:"remark"`
 }
 
 type QRCodeBatchReq struct {
@@ -76,16 +78,16 @@ type QRCodeBatchReq struct {
 type PointBatchReq struct {
 	CommunityID string   `json:"community_id" binding:"required"`
 	BuildingIDs []string `json:"building_ids"`
-	UnitFrom    int      `json:"unit_from"`  // 单元起（缺省 1；UnitTo 缺省同 UnitFrom，即单单元）
+	UnitFrom    int      `json:"unit_from"` // 单元起（缺省 1；UnitTo 缺省同 UnitFrom，即单单元）
 	UnitTo      int      `json:"unit_to"`
 	FloorFrom   int      `json:"floor_from"` // 支持负数（地下层，-1 渲染为 B1）
 	FloorTo     int      `json:"floor_to"`
-	PerFloor    int      `json:"per_floor"`    // 每层数量，缺省 1
+	PerFloor    int      `json:"per_floor"`                       // 每层数量，缺省 1
 	NamePattern string   `json:"name_pattern" binding:"required"` // 占位符：{building} {unit} {floor} {seq}
 	Type        string   `json:"type" binding:"required"`         // 字典 point_type 启用项
 	Credential  string   `json:"credential"`
 	TemplateIDs []string `json:"template_ids"` // 检查项模板组合（≥1 个，应用到全部新点位）
-	Longitude   float64  `json:"longitude"` // 小区无坐标字段，缺省 0（扫码凭证不依赖围栏）
+	Longitude   float64  `json:"longitude"`    // 小区无坐标字段，缺省 0（扫码凭证不依赖围栏）
 	Latitude    float64  `json:"latitude"`
 }
 
@@ -184,16 +186,15 @@ type CheckinListQuery struct {
 	Result      string `form:"result"`
 	// ExceptionType 逐项异常类型过滤（device_missing=设备缺失 / unable_to_capture=无法拍摄；EXISTS 逐项匹配）
 	ExceptionType string `form:"exception_type"`
-	CheckinType string `form:"checkin_type"`
-	IsSuspect   string `form:"is_suspect"`
-	AuditStatus string `form:"audit_status"`
-	ForceSubmit string `form:"force_submit"`
-	AIVerdict   string `form:"ai_verdict"` // 支持逗号多值（如 review,error 查"AI 存疑"合集）
-	Keyword     string `form:"keyword"`    // 点位名/备注模糊匹配
-	StartTime   string `form:"start_time"`
-	EndTime     string `form:"end_time"`
+	CheckinType   string `form:"checkin_type"`
+	IsSuspect     string `form:"is_suspect"`
+	AuditStatus   string `form:"audit_status"`
+	ForceSubmit   string `form:"force_submit"`
+	AIVerdict     string `form:"ai_verdict"` // 支持逗号多值（如 review,error 查"AI 存疑"合集）
+	Keyword       string `form:"keyword"`    // 点位名/备注模糊匹配
+	StartTime     string `form:"start_time"`
+	EndTime       string `form:"end_time"`
 }
-
 
 // ========== 记录审核 ==========
 

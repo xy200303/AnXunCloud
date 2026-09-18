@@ -15,6 +15,8 @@ type CheckinItemReq struct {
 	Name string `json:"name" binding:"required"`
 	Pass bool   `json:"pass"`
 	Note string `json:"note"`
+	// AbnormalTags 异常 tag 列表（须 ⊆ 该项模板 tags；非空服务端强制该项 pass=false）
+	AbnormalTags []string `json:"abnormal_tags" binding:"omitempty,max=20"`
 	// Photos 该项照片 file_id（一项一图硬约束：最多 1 张；不合格项与模板 required 项强制恰好 1 张；
 	// 台账有效期合成项例外：允许携带 ≤3 张新标签照片，提交时触发服务端维保核验，pass 字段忽略）
 	Photos []string `json:"photos" binding:"omitempty,max=3"`

@@ -92,7 +92,7 @@ func templateItem(t *model.CheckTemplate, items []model.CheckTemplateItem) gin.H
 	return gin.H{
 		"id": t.ID, "name": t.Name, "point_type": t.PointType, "items": templateItemViews(items),
 		"photo_mode": model.NormalizePhotoMode(t.PhotoMode),
-		"sort": t.Sort, "status": sysmodel.StatusInt(t.Status), "remark": t.Remark,
+		"sort":       t.Sort, "status": sysmodel.StatusInt(t.Status), "remark": t.Remark,
 		"created_at": timefmt.T(t.CreatedAt), "updated_at": timefmt.T(t.UpdatedAt),
 	}
 }
@@ -105,6 +105,7 @@ func templateItemViews(items []model.CheckTemplateItem) []gin.H {
 			"name": it.Name, "required": it.Required,
 			"photo_required": it.PhotoRequired, "requirement": it.Requirement,
 			"ai_hint": it.AIHint, "judge_type": it.JudgeType, "judge_config": it.JudgeConfig,
+			"tags": it.Tags,
 		})
 	}
 	return out
@@ -166,7 +167,7 @@ func (s *TemplateService) Update(c *gin.Context, id string, req *dto.TemplateSav
 	updates := map[string]any{
 		"name": strings.TrimSpace(req.Name), "point_type": req.PointType,
 		"photo_mode": model.NormalizePhotoMode(req.PhotoMode),
-		"sort": req.Sort, "remark": req.Remark,
+		"sort":       req.Sort, "remark": req.Remark,
 	}
 	if req.Status != nil {
 		updates["status"] = sysmodel.StatusStr(*req.Status)
@@ -231,11 +232,30 @@ func rejectBuiltinJudgeType(judgeType string) *errs.Error {
 
 // ========== 项级粒度接口 ==========
 
+// normalizeTags tag 数组归一：trim、去空、去重、限量（≤20 个、每个 ≤30 字）。
+func normalizeTags(tags []string) types.StringArray {
+	out := make(types.StringArray, 0, len(tags))
+	seen := map[string]bool{}
+	for _, t := range tags {
+		t = strings.TrimSpace(t)
+		if t == "" || len([]rune(t)) > 30 || seen[t] {
+			continue
+		}
+		seen[t] = true
+		out = append(out, t)
+		if len(out) >= 20 {
+			break
+		}
+	}
+	return out
+}
+
 // itemRowView 项级接口视图：含 id/sort/created_at（区别于模板内嵌 items 快照视图）。
 func itemRowView(it *model.CheckTemplateItem) gin.H {
 	return gin.H{
 		"id": it.ID, "name": it.Name, "requirement": it.Requirement,
 		"ai_hint": it.AIHint, "judge_type": it.JudgeType, "judge_config": it.JudgeConfig,
+		"tags":     it.Tags,
 		"required": it.Required, "photo_required": it.PhotoRequired,
 		"sort": it.Sort, "created_at": timefmt.T(it.CreatedAt),
 	}
@@ -282,6 +302,7 @@ func (s *TemplateService) AddItem(c *gin.Context, templateID string, req *dto.Te
 		Required: req.Required, PhotoRequired: req.PhotoRequired, Sort: sort,
 		// 判定类型非法值归一 general（不报错，容错旧客户端）
 		JudgeType: ai.NormalizeJudgeType(req.JudgeType),
+		Tags:      normalizeTags(req.Tags),
 	}
 	if len(req.JudgeConfig) > 0 {
 		row.JudgeConfig = types.JSONMap(req.JudgeConfig)
@@ -332,6 +353,7 @@ func (s *TemplateService) UpdateItem(c *gin.Context, templateID, itemID string, 
 	updates := map[string]any{
 		"name": strings.TrimSpace(req.Name), "required": req.Required, "photo_required": pr,
 		"judge_type": ai.NormalizeJudgeType(req.JudgeType),
+		"tags":       normalizeTags(req.Tags),
 	}
 	if len(req.JudgeConfig) > 0 {
 		updates["judge_config"] = types.JSONMap(req.JudgeConfig)

@@ -24,6 +24,7 @@ import (
 	"anxuncloud/internal/pkg/errs"
 	"anxuncloud/internal/pkg/logger"
 	"anxuncloud/internal/pkg/strutil"
+	"anxuncloud/internal/pkg/types"
 	"anxuncloud/internal/pkg/uploadfile"
 )
 
@@ -43,6 +44,8 @@ type aiGroupResultItem struct {
 	Result string `json:"result"` // normal/abnormal/unrecognized
 	Reason string `json:"reason"`
 	Value  string `json:"value,omitempty"` // 识别到的日期/数值（可空）
+	// AbnormalTags 异常观察点 tag（已过滤到模板 tags；可空）
+	AbnormalTags []string `json:"abnormal_tags,omitempty"`
 }
 
 // aiGroupResult 整组识别结果（存 Redis hash result 字段，JSON）。
@@ -100,7 +103,7 @@ func (s *CheckinService) SubmitAIGroupJob(ctx context.Context, inspectorID strin
 		}
 		items = append(items, ai.ItemPhoto{
 			Name: it.Name, Requirement: strutil.StrVal(it.Requirement), AIHint: strutil.StrVal(it.AIHint),
-			JudgeType: it.JudgeType, JudgeConfig: it.JudgeConfig,
+			JudgeType: it.JudgeType, JudgeConfig: it.JudgeConfig, Tags: it.Tags,
 		})
 	}
 	if len(items) == 0 {
@@ -132,7 +135,7 @@ func (s *CheckinService) SubmitAIGroupJob(ctx context.Context, inspectorID strin
 			Columns: []clause.Column{{Name: "task_id"}, {Name: "point_id"}, {Name: "item_name"}},
 			DoUpdates: clause.AssignmentColumns([]string{
 				"inspector_id", "community_id", "tenant_id", "job_id", "file_ids",
-				"exception_type", "ai_status", "ai_verdict", "ai_reason", "ai_reading", "quality_pass", "quality_issue", "updated_at",
+				"exception_type", "ai_status", "ai_verdict", "ai_reason", "ai_reading", "abnormal_tags", "quality_pass", "quality_issue", "updated_at",
 			}),
 		}).Create(&draft).Error; err != nil {
 			return nil, errs.ErrInternal
@@ -249,6 +252,22 @@ func (s *CheckinService) processAIGroupJob(p aiGroupJobPayload) {
 			}
 			reading = strings.TrimSpace(iv.Reading)
 			out.Value = reading
+			// 异常 tag 过滤到该项模板 tags（模型可能杜撰原名）
+			if len(iv.AbnormalTags) > 0 && len(it.Tags) > 0 {
+				allow := map[string]bool{}
+				for _, t := range it.Tags {
+					allow[t] = true
+				}
+				for _, t := range iv.AbnormalTags {
+					if allow[t] {
+						out.AbnormalTags = append(out.AbnormalTags, t)
+					}
+				}
+			}
+			if len(out.AbnormalTags) > 0 && out.Result == groupResultNormal {
+				out.Result = groupResultUnrecognized // 有异常 tag 的项至少存疑（与打卡提交口径一致）
+				verdict = ai.VerdictReview
+			}
 		}
 		result.Items = append(result.Items, out)
 		var readingPtr *string
@@ -258,7 +277,8 @@ func (s *CheckinService) processAIGroupJob(p aiGroupJobPayload) {
 		writeDraft(it.Name, map[string]any{
 			"ai_status": insmodel.ItemDraftDone, "ai_verdict": verdict,
 			"ai_reason": strutil.Truncate(out.Reason, 500), "ai_reading": readingPtr,
-			"quality_pass": res.Quality.Pass, "quality_issue": strutil.Truncate(res.Quality.Issue, 255),
+			"abnormal_tags": types.StringArray(out.AbnormalTags),
+			"quality_pass":  res.Quality.Pass, "quality_issue": strutil.Truncate(res.Quality.Issue, 255),
 		})
 	}
 	raw, err := json.Marshal(result)

@@ -81,34 +81,37 @@ const builtinRules = `你是物业巡检打卡审核助手。请根据打卡上�
 1. 照片内容与打卡点位、点位类型、检查项是否匹配；
 2. 照片中是否存在明显的安全异常（设备损坏、漏水、明火、杂物阻塞消防通道等）；
 3. 若照片按检查项分组给出（带检查项名称与判定要求标注），逐项按标注的判定要求核对该项照片；判定要求涉及表计读数的项，将读出的数值填入 reading。
-只输出 JSON：{"quality":{"pass":true|false,"issue":""},"verdict":"pass"|"review","reason":"简要中文理由","items":[{"name":"检查项名","verdict":"pass"|"review"|"abnormal","reason":"该项简要理由","reading":""}]}，不要输出任何其他内容。
+只输出 JSON：{"quality":{"pass":true|false,"issue":""},"verdict":"pass"|"review","reason":"简要中文理由","items":[{"name":"检查项名","verdict":"pass"|"review"|"abnormal","reason":"该项简要理由","reading":"","abnormal_tags":[]}]}，不要输出任何其他内容。
 items 为逐项结论（与给出的检查项一一对应）；无法逐项判断时 items 可省略或为空数组；reading 仅表计读数类检查项填写，其余留空。
+检查项带观察点标注时逐点核对，确认异常的观察点原名填入该项 abnormal_tags（无异常填空数组），存在异常观察点的该项 verdict 不得为 pass。
 quality.pass=false 时 verdict 仍照常给出；逐项确认存在明确异常时该项 verdict 输出 "abnormal"；有任何一项拿不准或存疑时，整体 verdict 一律输出 "review"，理由需说明疑点。`
 
 // outputFormatHint 自定义 prompt 时仍强制要求的输出格式说明。
-const outputFormatHint = "\n\n无论以上规则如何，你只输出 JSON：{\"quality\":{\"pass\":true|false,\"issue\":\"\"},\"verdict\":\"pass\"|\"review\",\"reason\":\"简要中文理由\",\"items\":[{\"name\":\"检查项名\",\"verdict\":\"pass\"|\"review\"|\"abnormal\",\"reason\":\"该项简要理由\",\"reading\":\"\"}]}，不要输出任何其他内容；items 逐项结论无法判断时可省略；拿不准一律 review。"
+const outputFormatHint = "\n\n无论以上规则如何，你只输出 JSON：{\"quality\":{\"pass\":true|false,\"issue\":\"\"},\"verdict\":\"pass\"|\"review\",\"reason\":\"简要中文理由\",\"items\":[{\"name\":\"检查项名\",\"verdict\":\"pass\"|\"review\"|\"abnormal\",\"reason\":\"该项简要理由\",\"reading\":\"\",\"abnormal_tags\":[]}]}，不要输出任何其他内容；items 逐项结论无法判断时可省略；检查项带观察点时异常观察点原名填入 abnormal_tags；拿不准一律 review。"
 
 // PhotoRef 待审核照片引用。
 type PhotoRef struct {
 	URL string
 }
 
-// ItemPhoto 检查项逐项照片（项名 + 标准要求 + AI 识别要点 + 判定类型/参数 + 该项照片），供大模型逐项核对。
+// ItemPhoto 检查项逐项照片（项名 + 标准要求 + AI 识别要点 + 判定类型/参数 + 观察点 tag + 该项照片），供大模型逐项核对。
 type ItemPhoto struct {
 	Name        string
 	Requirement string         // 检查标准要求（可空）
 	AIHint      string         // AI 识别要点（可空；空=该项不带识别要点）
 	JudgeType   string         // 判定类型（可空；空=general 通用判定）
 	JudgeConfig map[string]any // 判定参数（可空；metric 需 metric/unit/min/max，state/indicator 用 expected）
+	Tags        []string       // 观察点 tag 数组（可空；非空时模型逐 tag 核对，异常 tag 名填入 abnormal_tags）
 	Photos      []PhotoRef
 }
 
-// ItemVerdict 逐项大模型结论（检查项名 + 结论 + 理由 + 表计读数）。
+// ItemVerdict 逐项大模型结论（检查项名 + 结论 + 理由 + 表计读数 + 异常 tag）。
 type ItemVerdict struct {
-	Name    string
-	Verdict string // pass / review / abnormal
-	Reason  string
-	Reading string // 表计读数文本（metric 类检查项；可空）
+	Name         string
+	Verdict      string // pass / review / abnormal
+	Reason       string
+	Reading      string   // 表计读数文本（metric 类检查项；可空）
+	AbnormalTags []string // 异常观察点 tag（⊆ 该项 tags；可空）
 }
 
 // QualityResult 照片质量判定（第一层）；Pass=false 时 Issue 为面向巡检员的重拍提示。
@@ -267,6 +270,9 @@ func (c *Client) buildParts(input ReviewInput) []promptPart {
 			if inst := judgeInstruction(ip.JudgeType, ip.JudgeConfig); inst != "" {
 				sb.WriteString("（判定要求：" + inst + "）")
 			}
+			if len(ip.Tags) > 0 {
+				sb.WriteString("（观察点：" + strings.Join(ip.Tags, "、") + "，逐点核对，异常点原名填入 abnormal_tags）")
+			}
 		}
 		sb.WriteString("\n另请统计照片中识别到的目标设备/设施数量，以整数填入 count 字段（无法统计填 0）；无法逐项判断时该项 verdict 输出 review。")
 		parts = append(parts, promptPart{text: sb.String()})
@@ -294,6 +300,9 @@ func (c *Client) buildParts(input ReviewInput) []promptPart {
 			label += "的对应照片"
 			if inst := judgeInstruction(ip.JudgeType, ip.JudgeConfig); inst != "" {
 				label += "（判定要求：" + inst + "）"
+			}
+			if len(ip.Tags) > 0 {
+				label += "（观察点：" + strings.Join(ip.Tags, "、") + "，逐点核对，异常点原名填入 abnormal_tags）"
 			}
 			if len(imgs) == 0 {
 				// 该项无照片：仅发文字标注；无图可核对时要求模型判存疑，不凭空结论
@@ -401,10 +410,11 @@ func parseReview(content string) (*ReviewResult, error) {
 		Reason  string `json:"reason"`
 		Count   *int   `json:"count"` // 整组识别模式：识别到的设备/设施数量（可空）
 		Items   []struct {
-			Name    string `json:"name"`
-			Verdict string `json:"verdict"`
-			Reason  string `json:"reason"`
-			Reading string `json:"reading"`
+			Name         string   `json:"name"`
+			Verdict      string   `json:"verdict"`
+			Reason       string   `json:"reason"`
+			Reading      string   `json:"reading"`
+			AbnormalTags []string `json:"abnormal_tags"`
 		} `json:"items"`
 	}
 	if err := json.Unmarshal([]byte(m), &v); err != nil {
@@ -425,7 +435,17 @@ func parseReview(content string) (*ReviewResult, error) {
 		if name == "" || (it.Verdict != VerdictPass && it.Verdict != VerdictReview && it.Verdict != VerdictAbnormal) {
 			return nil, fmt.Errorf("非法 items 逐项结论")
 		}
-		res.Items = append(res.Items, ItemVerdict{Name: name, Verdict: it.Verdict, Reason: it.Reason, Reading: strings.TrimSpace(it.Reading)})
+		// 异常 tag 归一：trim/去空/去重（⊆ 模板 tags 的过滤在回写快照时做）
+		abn := make([]string, 0, len(it.AbnormalTags))
+		seen := map[string]bool{}
+		for _, t := range it.AbnormalTags {
+			t = strings.TrimSpace(t)
+			if t != "" && !seen[t] {
+				seen[t] = true
+				abn = append(abn, t)
+			}
+		}
+		res.Items = append(res.Items, ItemVerdict{Name: name, Verdict: it.Verdict, Reason: it.Reason, Reading: strings.TrimSpace(it.Reading), AbnormalTags: abn})
 	}
 	return res, nil
 }

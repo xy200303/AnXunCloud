@@ -166,6 +166,7 @@ func demoAssetByLabel_(label string) ([]byte, error) {
 
 type demoTemplateItem struct {
 	name, requirement, photoReq, aiHint string
+	tags                                []string // 观察点 tag 数组（一项一张照片，tag 不带图）
 }
 
 // createTemplate 检查项模板 + 项行，返回模板 ID 与必拍项名称列表。
@@ -182,6 +183,7 @@ func (d *demoSeeder) createTemplate(tenantID, name string, items []demoTemplateI
 		row := insmodel.CheckTemplateItem{
 			TemplateID: tpl.ID, Name: it.name, Requirement: strptr(it.requirement),
 			Required: true, PhotoRequired: it.photoReq, Sort: i + 1,
+			Tags: types.StringArray(it.tags),
 		}
 		if it.aiHint != "" {
 			row.AIHint = strptr(it.aiHint)
@@ -387,23 +389,18 @@ func (d *demoSeeder) seedTenantA() error {
 	return d.db.Create(&notice).Error
 }
 
-// hydrantBoxItems 「消火栓箱」原子模板项（对齐官方月报 4.2 明细列；整组拍照，逐项 photo_required=none）。
+// hydrantBoxItems 「消火栓箱」模板项：单项+观察点 tag（一项一张照片，官方月报 4.2 明细列由 tags 展开）。
 var hydrantBoxItems = []demoTemplateItem{
-	{"箱门完好无损", "箱门无破损、无变形、开闭正常，箱面无锈蚀", types.PhotoReqNone, "箱门无破损、无变形、开闭正常，箱面无锈蚀"},
-	{"水带齐全无破损", "消防水带在位、数量齐全，无破损、无霉变", types.PhotoReqNone, "消防水带在位、数量齐全，无破损、无霉变"},
-	{"枪头齐全在位", "水枪枪头在位、无缺失", types.PhotoReqNone, "水枪枪头在位、无缺失"},
-	{"接口完好", "水带接口与栓口接口无锈蚀、卡扣完好、无渗漏", types.PhotoReqNone, "水带接口与栓口接口无锈蚀、卡扣完好、无渗漏"},
-	{"水压正常", "栓口水压正常，无异常泄压", types.PhotoReqNone, "栓口水压正常，无异常泄压"},
-	{"周围无遮挡", "消火栓箱前无杂物堆放、无遮挡，取用通道畅通", types.PhotoReqNone, "消火栓箱前无杂物堆放、无遮挡，取用通道畅通"},
+	{"消火栓箱整体检查", "整组拍 1 张照片，逐项核对观察点；异常观察点在 App 上勾选上报", types.PhotoReqNone,
+		"逐观察点核对，异常观察点原名填入 abnormal_tags",
+		[]string{"箱门完好无损", "水带齐全无破损", "枪头齐全在位", "接口完好", "水压正常", "周围无遮挡"}},
 }
 
-// extinguisherItems 「灭火器」原子模板项（对齐官方月报 4.1 明细列；整组拍照）。
+// extinguisherItems 「灭火器」模板项：单项+观察点 tag（官方月报 4.1 明细列由 tags 展开）。
 var extinguisherItems = []demoTemplateItem{
-	{"压力正常", "压力表指针在绿色区域", types.PhotoReqNone, "压力表指针在绿色区域"},
-	{"瓶体完好", "瓶体无破损、无明显锈蚀、无变形", types.PhotoReqNone, "瓶体无破损、无明显锈蚀、无变形"},
-	{"喷管完好", "喷管无龟裂、无老化、无堵塞，喷嘴完好", types.PhotoReqNone, "喷管无龟裂、无老化、无堵塞，喷嘴完好"},
-	{"铅封完好", "铅封/保险销在位完好、未被拆除", types.PhotoReqNone, "铅封/保险销在位完好、未被拆除"},
-	{"在有效期内", "生产日期/维修（换粉）日期标签清晰，未超出有效期", types.PhotoReqNone, "生产日期/维修（换粉）日期标签清晰，未超出有效期"},
+	{"灭火器整体检查", "整组拍 1 张照片，逐项核对观察点；异常观察点在 App 上勾选上报", types.PhotoReqNone,
+		"逐观察点核对，异常观察点原名填入 abnormal_tags",
+		[]string{"压力正常", "瓶体完好", "喷管完好", "铅封完好", "在有效期内"}},
 }
 
 // fireAllItems 消防点位检查项并集（消火栓箱+灭火器；demo 打卡快照用）。
@@ -436,7 +433,7 @@ func (d *demoSeeder) seedFireMonthly(tid, cid string, tplIDs []string, bldIDs, a
 			Longitude: lng, Latitude: lat, FenceRadius: fence,
 			// 演示数据不强制 GPS 围栏（方便甲方远程测试打卡）；凭证默认二维码，每块前 demoFreeCheckCount 个免凭证
 			Credential: insmodel.CredentialQRCode, RequireFence: false,
-			Sort: len(points) + 1,
+			Sort:   len(points) + 1,
 			Status: sysmodel.StatusEnabled, Remark: "演示点位（seed-demo 生成）",
 		}
 		if bldID != "" {
@@ -704,6 +701,7 @@ func (d *demoSeeder) seedFireMonthly(tid, cid string, tplIDs []string, bldIDs, a
 	}
 
 	// 打卡记录（约 2% 异常；created_at 与 checkin_time 同月，满足按月分区）
+	// abSpec.item 为异常观察点 tag（落入对应整体项的 abnormal_tags）
 	type abSpec struct{ remark, item, note string }
 	abSpecs := []abSpec{
 		{"灭火器压力不足，已登记更换", "压力正常", "压力表指针在红区"},
@@ -745,7 +743,8 @@ func (d *demoSeeder) seedFireMonthly(tid, cid string, tplIDs []string, bldIDs, a
 		return err
 	}
 
-	// 逐项结果快照（消火栓箱 6 项+灭火器 5 项；有素材的项挂共享照片 key；异常记录的对应项 pass=false + note）
+	// 逐项结果快照（消火栓箱+灭火器各 1 个整体项，观察点走 tags；有素材的项挂共享照片 key；
+	// 异常记录：异常 tag 落入对应整体项 abnormal_tags + pass=false + note）
 	var items []insmodel.CheckinRecordItem
 	abCnt = 0
 	for i := range recs {
@@ -760,6 +759,7 @@ func (d *demoSeeder) seedFireMonthly(tid, cid string, tplIDs []string, bldIDs, a
 				RecordID: rec.ID, Name: it.name, Requirement: strptr(it.requirement),
 				JudgeType: "general", PhotoRequired: it.photoReq,
 				Pass: true, Sort: j + 1, CreatedAt: rec.CheckinTime,
+				Tags: types.StringArray(it.tags),
 			}
 			if it.aiHint != "" {
 				row.AIHint = strptr(it.aiHint)
@@ -767,14 +767,25 @@ func (d *demoSeeder) seedFireMonthly(tid, cid string, tplIDs []string, bldIDs, a
 			if key := d.photo(tid, rec.InspectorID, it.name); key != "" {
 				row.Photos = types.StringArray{key}
 			}
-			if ab != nil && it.name == ab.item {
+			if ab != nil && containsTag(it.tags, ab.item) {
 				row.Pass = false
 				row.Note = ab.note
+				row.AbnormalTags = types.StringArray{ab.item}
 			}
 			items = append(items, row)
 		}
 	}
 	return d.db.CreateInBatches(&items, 500).Error
+}
+
+// containsTag tag 是否在该项观察点数组内。
+func containsTag(tags []string, tag string) bool {
+	for _, t := range tags {
+		if t == tag {
+			return true
+		}
+	}
+	return false
 }
 
 // ---------- 租户 B：金源物业（验证多租户隔离） ----------
@@ -829,9 +840,9 @@ func (d *demoSeeder) seedTenantB() error {
 	}
 
 	tplID, required, err := d.createTemplate(tid, "安全巡查通用模板", []demoTemplateItem{
-		{"消防通道畅通无阻", "通道无杂物堆放，安全出口标识清晰", types.PhotoReqRequired, ""},
-		{"灭火器压力正常", "指针在绿色区域，在有效期内", types.PhotoReqRequired, ""},
-		{"无违规充电", "无电动车违规入户/飞线充电", types.PhotoReqOptional, ""},
+		{"消防通道畅通无阻", "通道无杂物堆放，安全出口标识清晰", types.PhotoReqRequired, "", nil},
+		{"灭火器压力正常", "指针在绿色区域，在有效期内", types.PhotoReqRequired, "", nil},
+		{"无违规充电", "无电动车违规入户/飞线充电", types.PhotoReqOptional, "", nil},
 	})
 	if err != nil {
 		return err
@@ -926,15 +937,15 @@ func demoTemplateItemsOf(pointType, tplSafetyID, tplEquipID string) (struct {
 }, bool,
 ) {
 	safety := []demoTemplateItem{
-		{"消防通道畅通无阻", "通道无杂物堆放，安全出口标识清晰、应急照明正常", types.PhotoReqRequired, ""},
-		{"灭火器压力正常", "指针在绿色区域，铅封完好，在有效期内", types.PhotoReqRequired, ""},
-		{"无违规用电", "无私拉电线、无大功率违规电器", types.PhotoReqOptional, ""},
-		{"门禁与监控运行正常", "门禁刷卡正常，监控画面清晰无遮挡", types.PhotoReqNone, ""},
+		{"消防通道畅通无阻", "通道无杂物堆放，安全出口标识清晰、应急照明正常", types.PhotoReqRequired, "", nil},
+		{"灭火器压力正常", "指针在绿色区域，铅封完好，在有效期内", types.PhotoReqRequired, "", nil},
+		{"无违规用电", "无私拉电线、无大功率违规电器", types.PhotoReqOptional, "", nil},
+		{"门禁与监控运行正常", "门禁刷卡正常，监控画面清晰无遮挡", types.PhotoReqNone, "", nil},
 	}
 	equip := []demoTemplateItem{
-		{"设备运行无异响", "运行声音平稳，无异常振动", types.PhotoReqRequired, ""},
-		{"仪表读数在正常范围", "压力表/温度表/电压表读数在额定区间内", types.PhotoReqRequired, ""},
-		{"无跑冒滴漏", "管路、阀门、泵体无渗漏", types.PhotoReqOptional, ""},
+		{"设备运行无异响", "运行声音平稳，无异常振动", types.PhotoReqRequired, "", nil},
+		{"仪表读数在正常范围", "压力表/温度表/电压表读数在额定区间内", types.PhotoReqRequired, "", nil},
+		{"无跑冒滴漏", "管路、阀门、泵体无渗漏", types.PhotoReqOptional, "", nil},
 	}
 	out := struct {
 		items          []demoTemplateItem

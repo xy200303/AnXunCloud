@@ -178,6 +178,10 @@ func (s *CheckinService) doCheckinLocked(ctx context.Context, inspectorID string
 	// 超时/失败降级 pending 动作），可信项翻转正常；动作落库由 persistCheckinMaintenances 同事务完成
 	maintActions := s.resolveCheckinMaintenances(ctx, point, checkItems)
 	equipmentForced, equipmentNote := equipmentForcedVerdict(checkItems)
+	// 异常 tag 一致性：任一项带异常 tag 即记录级异常（tag 本身即异常说明，不强制要求异常描述）
+	if hasAbnormalTags(checkItems) {
+		req.Result = insmodel.ResultAbnormal
+	}
 	// 异常时描述必填
 	if req.Result == insmodel.ResultAbnormal && strings.TrimSpace(req.Remark) == "" {
 		return nil, nil, errs.ErrParam.WithMsg("异常打卡必须填写异常描述")
@@ -553,14 +557,39 @@ func (s *CheckinService) applySyncResult(rec *insmodel.CheckinRecord, items []in
 			continue
 		}
 		v, r := iv.Verdict, strutil.Truncate(iv.Reason, 500)
+		// AI 异常 tag：过滤到快照 tags 后与客户端提交取并集；有异常 tag 的项结论至少 review
+		if len(iv.AbnormalTags) > 0 && len(items[i].Tags) > 0 {
+			allow := make(map[string]bool, len(items[i].Tags))
+			for _, t := range items[i].Tags {
+				allow[t] = true
+			}
+			seen := make(map[string]bool, len(items[i].AbnormalTags)+len(iv.AbnormalTags))
+			merged := make(types.StringArray, 0, len(items[i].AbnormalTags)+len(iv.AbnormalTags))
+			for _, t := range items[i].AbnormalTags {
+				if !seen[t] {
+					seen[t] = true
+					merged = append(merged, t)
+				}
+			}
+			for _, t := range iv.AbnormalTags {
+				if allow[t] && !seen[t] {
+					seen[t] = true
+					merged = append(merged, t)
+				}
+			}
+			items[i].AbnormalTags = merged
+		}
+		if len(items[i].AbnormalTags) > 0 && v == ai.VerdictPass {
+			v = ai.VerdictReview
+		}
 		items[i].AIVerdict = &v
 		items[i].AIReason = &r
 		if rd := strutil.Truncate(strings.TrimSpace(iv.Reading), 64); rd != "" {
 			items[i].AIReading = &rd
 		}
-		if iv.Verdict == insmodel.AIVerdictAbnormal {
+		if v == insmodel.AIVerdictAbnormal {
 			abnormalCnt++
-		} else if iv.Verdict == insmodel.AIVerdictReview {
+		} else if v == insmodel.AIVerdictReview {
 			hasIssue = true // AI 存疑 = 记录有效性未确认，转人工复核
 		}
 	}
@@ -601,6 +630,24 @@ func (s *CheckinService) applyConfirmedAI(rec *insmodel.CheckinRecord, items []i
 			if d.AIReading != nil {
 				rd = *d.AIReading
 			}
+			// AI 异常 tag 以服务端草稿为准与客户端提交取并集（草稿已按模板 tags 过滤）
+			if len(d.AbnormalTags) > 0 {
+				seen := map[string]bool{}
+				merged := make(types.StringArray, 0, len(items[i].AbnormalTags)+len(d.AbnormalTags))
+				for _, t := range items[i].AbnormalTags {
+					if !seen[t] {
+						seen[t] = true
+						merged = append(merged, t)
+					}
+				}
+				for _, t := range d.AbnormalTags {
+					if !seen[t] {
+						seen[t] = true
+						merged = append(merged, t)
+					}
+				}
+				items[i].AbnormalTags = merged
+			}
 		} else if ci, ok := byName[items[i].Name]; ok {
 			v = strings.TrimSpace(ci.AIVerdict)
 			r = ci.AIReason
@@ -614,6 +661,9 @@ func (s *CheckinService) applyConfirmedAI(rec *insmodel.CheckinRecord, items []i
 		items[i].AIReason = &r
 		if rd = strutil.Truncate(strings.TrimSpace(rd), 64); rd != "" {
 			items[i].AIReading = &rd
+		}
+		if len(items[i].AbnormalTags) > 0 {
+			items[i].Pass = false // 草稿并入的异常 tag 同样强制该项异常（与 resolveCheckItems 口径一致）
 		}
 		switch v {
 		case ai.VerdictPass:
@@ -825,21 +875,27 @@ func (s *CheckinService) resolveCheckItems(req *dto.CheckinReq, task *insmodel.I
 		if len(it.Photos) > 1 {
 			return nil, nil, errs.ErrParam.WithMsg("检查项「" + it.Name + "」照片超出上限：一项一图，最多 1 张")
 		}
+		// tag 校验：提交 ⊆ 模板 tag 快照（trim/去重）；非空即该项判异常（服务端强制，客户端 pass 被忽略）
+		abnTags, tagErr := resolveAbnormalTags(it.AbnormalTags, ti.Tags)
+		if tagErr != "" {
+			return nil, nil, errs.ErrParam.WithMsg("检查项「" + it.Name + "」" + tagErr)
+		}
+		pass := it.Pass && len(abnTags) == 0
 		// 处置方式（disposition）白名单/照片约束校验（纯函数规则见 checkItemDisposition）
 		disposition := strings.TrimSpace(it.Disposition)
-		if msg := checkItemDisposition(disposition, it.Pass, len(it.ResolutionFileIDs)); msg != "" {
+		if msg := checkItemDisposition(disposition, pass, len(it.ResolutionFileIDs)); msg != "" {
 			return nil, nil, errs.ErrParam.WithMsg("检查项「" + it.Name + "」" + msg)
 		}
 		// 「现场已处理」异常项：处置照片即凭证（避免重复拍照/存储），该项照片与必拍约束免除
 		onSiteResolved := disposition == insmodel.DispositionOnSiteResolved
-		if !isEqValidity && !onSiteResolved && !groupItem && !it.Pass && len(it.Photos) == 0 {
+		if !isEqValidity && !onSiteResolved && !groupItem && !pass && len(it.Photos) == 0 {
 			return nil, nil, errs.ErrPhotoMissing.WithMsg("检查项「" + it.Name + "」不合格，须至少上传 1 张该项照片")
 		}
 		exceptionType := strings.TrimSpace(it.ExceptionType)
 		if exceptionType != "" && !validItemExceptionType(exceptionType) {
 			return nil, nil, errs.ErrParam.WithMsg("检查项「" + it.Name + "」异常类型无效")
 		}
-		if exceptionType != "" && it.Pass {
+		if exceptionType != "" && pass {
 			return nil, nil, errs.ErrParam.WithMsg("检查项「" + it.Name + "」已上报项目异常，结果必须为异常")
 		}
 		if !isEqValidity && !onSiteResolved && !groupItem && ti.PhotoRequired == types.PhotoReqRequired && len(it.Photos) == 0 {
@@ -873,10 +929,11 @@ func (s *CheckinService) resolveCheckItems(req *dto.CheckinReq, task *insmodel.I
 			resIDs = append(resIDs, f.ID)
 		}
 		row := insmodel.CheckinRecordItem{
-			Name: it.Name, Pass: it.Pass, Note: it.Note, ExceptionType: exceptionType,
+			Name: it.Name, Pass: pass, Note: it.Note, ExceptionType: exceptionType,
 			Photos: types.StringArray(photoIDs), PhotoRequired: ti.PhotoRequired,
 			Requirement: ti.Requirement, AIHint: ti.AIHint,
 			JudgeType: ti.JudgeType, JudgeConfig: ti.JudgeConfig, Sort: i,
+			Tags: ti.Tags, AbnormalTags: abnTags,
 			Disposition: disposition, ResolutionFileIDs: types.StringArray(resIDs),
 			ResolutionNote: strings.TrimSpace(it.ResolutionNote),
 		}
@@ -905,6 +962,41 @@ func (s *CheckinService) resolveCheckItems(req *dto.CheckinReq, task *insmodel.I
 		}
 	}
 	return items, files, nil
+}
+
+// resolveAbnormalTags 校验提交的异常 tag 列表 ⊆ 模板 tag 快照（trim/去重）。返回归一后的列表与错误原因（空串=通过）。
+func resolveAbnormalTags(submitted []string, tags types.StringArray) (types.StringArray, string) {
+	if len(submitted) == 0 {
+		return types.StringArray{}, ""
+	}
+	allowed := make(map[string]bool, len(tags))
+	for _, t := range tags {
+		allowed[t] = true
+	}
+	out := make(types.StringArray, 0, len(submitted))
+	seen := map[string]bool{}
+	for _, t := range submitted {
+		t = strings.TrimSpace(t)
+		if t == "" || seen[t] {
+			continue
+		}
+		if !allowed[t] {
+			return nil, "tag「" + t + "」不属于该检查项"
+		}
+		seen[t] = true
+		out = append(out, t)
+	}
+	return out, ""
+}
+
+// hasAbnormalTags 任一项存在异常 tag（记录级结果一致性：强制打卡结果为异常）。
+func hasAbnormalTags(items []insmodel.CheckinRecordItem) bool {
+	for _, it := range items {
+		if len(it.AbnormalTags) > 0 {
+			return true
+		}
+	}
+	return false
 }
 
 // checkItemDisposition 异常项处置方式校验（纯函数）：白名单 ”/on_site_resolved/maintenance_registered/
@@ -1148,12 +1240,32 @@ func (s *CheckinService) applyWatermarks(rec *insmodel.CheckinRecord, point *ins
 }
 
 // writeItemVerdicts 逐项 AI 结论落库（按 record_id+name 匹配快照行；模型未返回逐项结论时为空不做事）。
+// abnormal_tags 按快照 tags 过滤（模型可能杜撰 tag 名，只认快照内的原名）。
 func writeItemVerdicts(db *gorm.DB, recID string, items []ai.ItemVerdict) {
+	var rows []insmodel.CheckinRecordItem
+	db.Select("name", "tags").Where("record_id = ?", recID).Find(&rows)
+	tagsByName := make(map[string]map[string]bool, len(rows))
+	for _, r := range rows {
+		allow := make(map[string]bool, len(r.Tags))
+		for _, t := range r.Tags {
+			allow[t] = true
+		}
+		tagsByName[r.Name] = allow
+	}
 	for _, iv := range items {
 		v, r := iv.Verdict, strutil.Truncate(iv.Reason, 500)
 		updates := map[string]any{"ai_verdict": v, "ai_reason": r}
 		if rd := strutil.Truncate(strings.TrimSpace(iv.Reading), 64); rd != "" {
 			updates["ai_reading"] = rd
+		}
+		if allow, ok := tagsByName[iv.Name]; ok && len(allow) > 0 && len(iv.AbnormalTags) > 0 {
+			abn := make(types.StringArray, 0, len(iv.AbnormalTags))
+			for _, t := range iv.AbnormalTags {
+				if allow[t] {
+					abn = append(abn, t)
+				}
+			}
+			updates["abnormal_tags"] = abn
 		}
 		if err := db.Model(&insmodel.CheckinRecordItem{}).
 			Where("record_id = ? AND name = ?", recID, iv.Name).
@@ -1190,15 +1302,18 @@ func (s *CheckinService) itemPhotoRefs(items []insmodel.CheckinRecordItem) []ai.
 		}
 		out = append(out, ai.ItemPhoto{
 			Name: it.Name, Requirement: strutil.StrVal(it.Requirement), AIHint: strutil.StrVal(it.AIHint),
-			JudgeType: it.JudgeType, JudgeConfig: it.JudgeConfig, Photos: refs,
+			JudgeType: it.JudgeType, JudgeConfig: it.JudgeConfig, Tags: it.Tags, Photos: refs,
 		})
 	}
 	return out
 }
 
-// hasJudgeMeta 判断逐项是否带判定元数据（非 general 判定类型 / 标准要求 / AI 识别要点）。
+// hasJudgeMeta 判断逐项是否带判定元数据（非 general 判定类型 / 标准要求 / AI 识别要点 / 观察点 tag）。
 func hasJudgeMeta(it insmodel.CheckinRecordItem) bool {
 	if it.JudgeType != "" && it.JudgeType != ai.JudgeGeneral {
+		return true
+	}
+	if len(it.Tags) > 0 {
 		return true
 	}
 	return strutil.StrVal(it.Requirement) != "" || strutil.StrVal(it.AIHint) != ""

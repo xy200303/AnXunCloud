@@ -424,6 +424,7 @@ func (s *MPService) TaskDetail(inspectorID, taskID string) (gin.H, *errs.Error) 
 				ci = append(ci, gin.H{
 					"name": it.Name, "requirement": requirement, "photo_required": it.PhotoRequired,
 					"judge_type":  it.JudgeType, // 判定类型透出（向导区分拍照项/感官项 manual）
+					"tags":        it.Tags,      // 观察点 tag 数组（向导反向勾选：默认正常，点选异常）
 					"template_id": it.TemplateID, "template_name": it.TemplateName,
 				})
 			}
@@ -571,7 +572,8 @@ func (s *MPService) CheckinItems(inspectorID, checkinID string) ([]gin.H, *errs.
 			"ai_reading":     strutil.StrVal(it.AIReading),
 			"note":           it.Note,
 			"exception_type": it.ExceptionType,
-			"disposition":    it.Disposition, "resolution_note": it.ResolutionNote,
+			"tags":           it.Tags, "abnormal_tags": it.AbnormalTags,
+			"disposition": it.Disposition, "resolution_note": it.ResolutionNote,
 			"photo_urls":            inssvc.ItemPhotoURLs(s.db, it.Photos),
 			"resolution_photo_urls": inssvc.ItemPhotoURLs(s.db, it.ResolutionFileIDs),
 		})

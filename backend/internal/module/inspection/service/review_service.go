@@ -508,7 +508,7 @@ func (s *ReviewService) reviewInputOf(r *model.CheckinRecord) ai.ReviewInput {
 			}
 			itemPhotos = append(itemPhotos, ai.ItemPhoto{
 				Name: it.Name, Requirement: strutil.StrVal(it.Requirement), AIHint: strutil.StrVal(it.AIHint),
-				JudgeType: it.JudgeType, JudgeConfig: it.JudgeConfig, Photos: irefs,
+				JudgeType: it.JudgeType, JudgeConfig: it.JudgeConfig, Tags: it.Tags, Photos: irefs,
 			})
 		}
 	}
@@ -527,12 +527,32 @@ func truncateRunes(s string, n int) string {
 }
 
 // writeItemVerdicts 逐项 AI 结论落库（按 record_id+name 匹配快照行；模型未返回逐项结论时为空不做事）。
+// abnormal_tags 按快照 tags 过滤（模型可能杜撰 tag 名，只认快照内的原名）。
 func writeItemVerdicts(db *gorm.DB, recID string, items []ai.ItemVerdict) {
+	var rows []model.CheckinRecordItem
+	db.Select("name", "tags").Where("record_id = ?", recID).Find(&rows)
+	tagsByName := make(map[string]map[string]bool, len(rows))
+	for _, r := range rows {
+		allow := make(map[string]bool, len(r.Tags))
+		for _, t := range r.Tags {
+			allow[t] = true
+		}
+		tagsByName[r.Name] = allow
+	}
 	for _, iv := range items {
 		v, r := iv.Verdict, truncateRunes(iv.Reason, 500)
 		updates := map[string]any{"ai_verdict": v, "ai_reason": r}
 		if rd := truncateRunes(strings.TrimSpace(iv.Reading), 64); rd != "" {
 			updates["ai_reading"] = rd
+		}
+		if allow, ok := tagsByName[iv.Name]; ok && len(allow) > 0 && len(iv.AbnormalTags) > 0 {
+			abn := make(types.StringArray, 0, len(iv.AbnormalTags))
+			for _, t := range iv.AbnormalTags {
+				if allow[t] {
+					abn = append(abn, t)
+				}
+			}
+			updates["abnormal_tags"] = abn
 		}
 		if err := db.Model(&model.CheckinRecordItem{}).
 			Where("record_id = ? AND name = ?", recID, iv.Name).

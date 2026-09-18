@@ -182,10 +182,14 @@ func (s *ReportService) pdfData(r *model.InspectionReport) pdf.MonthlyReportData
 		if len(pts) == 0 {
 			continue
 		}
-		items := s.templateItems(pts)
-		dt := pdf.DetailTable{TypeName: typeNames.label(t), TypeCode: t, Items: items}
-		if len(items) > 0 {
-			dt.Note = "注：检查标准：" + strings.Join(items, "；") + "。"
+		items := s.templateColumns(pts)
+		labels := make([]string, 0, len(items))
+		for _, c := range items {
+			labels = append(labels, c.label)
+		}
+		dt := pdf.DetailTable{TypeName: typeNames.label(t), TypeCode: t, Items: labels}
+		if len(labels) > 0 {
+			dt.Note = "注：检查标准：" + strings.Join(labels, "；") + "。"
 		}
 		// 行：每点位一行（取当期最新一次有效打卡；未巡点位保留空行，明细完整覆盖应巡清单）
 		// detail_mode=abnormal 时只保留异常点位行（报告厚度控制；汇总表仍为全量口径）
@@ -209,13 +213,31 @@ func (s *ReportService) pdfData(r *model.InspectionReport) pdf.MonthlyReportData
 			row.Time = rec.CheckinTime.Format("01-02 15:04")
 			marks := make([]string, len(items))
 			for _, ci := range itemsByRec[rec.ID] {
-				for j, name := range items {
-					if ci.Name == name {
+				for j, col := range items {
+					if ci.Name != col.item {
+						continue
+					}
+					if col.tag == "" {
+						// 无 tag 传统项：按项结果判
 						if ci.Pass {
 							marks[j] = "√"
 						} else {
 							marks[j] = "×"
 						}
+						continue
+					}
+					// tag 列：勾选异常 → ×；项整体异常但无 tag 明细 → 该项全部 tag 列 ×；其余 √
+					abn := false
+					for _, t := range ci.AbnormalTags {
+						if t == col.tag {
+							abn = true
+							break
+						}
+					}
+					if abn || (!ci.Pass && len(ci.AbnormalTags) == 0) {
+						marks[j] = "×"
+					} else {
+						marks[j] = "√"
 					}
 				}
 			}
@@ -366,8 +388,12 @@ func (s *ReportService) pointTypeNames(present map[string]bool) pointTypeNames {
 	return out
 }
 
-// templateItems 取该类型点位的检查项名（首个配置了模板的点位的全部模板检查项并集；v18 起读 check_template_item）。
-func (s *ReportService) templateItems(pts []*insmodel.InspectionPoint) []string {
+// detailColumn 明细列定义：tag 展开的列（item+tag 定位勾选结果；tag 空=无 tag 传统项按 pass 判）。
+type detailColumn struct{ label, item, tag string }
+
+// templateColumns 明细列：第一个有模板项的点位的模板项展开——带 tags 的项逐 tag 一列（官方月报明细列口径），
+// 无 tags 的项保持一项一列。
+func (s *ReportService) templateColumns(pts []*insmodel.InspectionPoint) []detailColumn {
 	ids := make([]string, 0, len(pts))
 	for _, pt := range pts {
 		ids = append(ids, pt.ID)
@@ -378,11 +404,17 @@ func (s *ReportService) templateItems(pts []*insmodel.InspectionPoint) []string 
 		if set == nil || len(set.Items) == 0 {
 			continue
 		}
-		items := make([]string, 0, len(set.Items))
+		var cols []detailColumn
 		for _, it := range set.Items {
-			items = append(items, it.Name)
+			if len(it.Tags) > 0 {
+				for _, tag := range it.Tags {
+					cols = append(cols, detailColumn{label: tag, item: it.Name, tag: tag})
+				}
+			} else {
+				cols = append(cols, detailColumn{label: it.Name, item: it.Name})
+			}
 		}
-		return items
+		return cols
 	}
 	return nil
 }

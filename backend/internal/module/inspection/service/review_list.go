@@ -35,8 +35,8 @@ func (s *ReviewService) loadReviewBatch(rows []model.CheckinRecord) *reviewBatch
 		userNames:  map[string]string{},
 		itemsByRec: map[string][]model.CheckinRecordItem{},
 		filesByID:  map[string]sysmodel.UploadFile{},
-		flows:     map[string]types.FlowStepArray{},
-		slots:     communitysvc.NewSlotCache(s.db),
+		flows:      map[string]types.FlowStepArray{},
+		slots:      communitysvc.NewSlotCache(s.db),
 	}
 	pointIDs, commIDs, userIDs, recIDs := []string{}, []string{}, []string{}, []string{}
 	seenP, seenC, seenU := map[string]bool{}, map[string]bool{}, map[string]bool{}
@@ -140,6 +140,7 @@ func (s *ReviewService) reviewItemBatch(r *model.CheckinRecord, ctx *reviewBatch
 			"photos": ci.Photos, "photo_urls": urls,
 			"requirement": ci.Requirement, "ai_hint": ci.AIHint,
 			"judge_type": ci.JudgeType, "judge_config": ci.JudgeConfig,
+			"tags": ci.Tags, "abnormal_tags": ci.AbnormalTags,
 			"ai_verdict": ci.AIVerdict, "ai_reason": ci.AIReason, "ai_reading": ci.AIReading,
 			"disposition": ci.Disposition, "resolution_note": ci.ResolutionNote,
 			"resolution_file_ids": ci.ResolutionFileIDs, "resolution_photo_urls": resURLs,
@@ -175,7 +176,7 @@ func (s *ReviewService) reviewItemBatch(r *model.CheckinRecord, ctx *reviewBatch
 		"audit_at": timefmt.TP(r.AuditAt), "audit_remark": r.AuditRemark,
 		"ai_verdict": r.AIVerdict, "ai_reason": r.AIReason,
 		"ai_quality_pass": r.AIQualityPass, "ai_quality_issue": r.AIQualityIssue,
-		"force_submit":    r.ForceSubmit,
+		"force_submit":      r.ForceSubmit,
 		"current_step_name": stepName, "can_audit": canAudit,
 	}
 }

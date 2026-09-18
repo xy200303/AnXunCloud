@@ -38,10 +38,10 @@ func TestShouldOverdue(t *testing.T) {
 	day := time.Date(2026, 8, 19, 0, 0, 0, 0, time.Local)
 	at := func(d, h, m int) time.Time { return time.Date(2026, 8, d, h, m, 0, 0, time.Local) }
 	cases := []struct {
-		scene      string // 规则表场景编号与名称
-		taskDate   time.Time
-		window     string
-		now        time.Time
+		scene       string // 规则表场景编号与名称
+		taskDate    time.Time
+		window      string
+		now         time.Time
 		wantOverdue bool
 	}{
 		// #1 普通轮次，窗口内：正常可执行

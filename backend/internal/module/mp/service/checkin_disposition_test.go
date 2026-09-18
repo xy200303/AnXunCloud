@@ -3,7 +3,7 @@ package service
 import "testing"
 
 // TestCheckItemDisposition 异常项处置方式校验（纯函数）：
-// 白名单 ''/on_site_resolved/maintenance_registered/report_pending；仅异常（!pass）项可填；
+// 白名单 ”/on_site_resolved/maintenance_registered/report_pending；仅异常（!pass）项可填；
 // on_site_resolved 必须带 ≥1 张处置照片。
 func TestCheckItemDisposition(t *testing.T) {
 	cases := []struct {

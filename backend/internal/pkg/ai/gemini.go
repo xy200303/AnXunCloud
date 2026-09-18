@@ -32,6 +32,11 @@ func (c *Client) callGemini(ctx context.Context, httpc *http.Client, baseURL, ap
 		"system_instruction": map[string]any{"parts": []map[string]any{{"text": c.rules()}}},
 		"contents":           []map[string]any{{"role": "user", "parts": parts}},
 	}
+	if c.cfgBool("ai.disable_thinking", true) {
+		payload["generationConfig"] = map[string]any{
+			"thinkingConfig": map[string]any{"thinkingBudget": 0}, // 关思考提速（Gemini 2.x）
+		}
+	}
 	respBody, err := postJSON(ctx, httpc, baseURL+"/models/"+model+":generateContent", map[string]string{
 		"x-goog-api-key": strings.TrimSpace(apiKey),
 	}, payload)

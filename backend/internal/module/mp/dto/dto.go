@@ -31,12 +31,9 @@ type CheckinItemReq struct {
 	// ResolutionFileIDs 处置照片 file_id（归属校验同 photos 口径）
 	ResolutionFileIDs []string `json:"resolution_file_ids" binding:"omitempty,max=9"`
 	ResolutionNote    string   `json:"resolution_note"`
-	// 标签抽查合成项（judge_type=equipment_date_spot）提交字段：生产日期/维修日期（YYYY-MM-DD，可空）、
-	// 无贴纸标记、标签缺失标记（勾缺失则日期免填、强制异常进审核）；服务端按四规则与台账比对，客户端 pass 被忽略
-	SpotManufactureDate string `json:"spot_manufacture_date"`
-	SpotMaintenanceDate string `json:"spot_maintenance_date"`
-	SpotNoSticker       bool   `json:"spot_no_sticker"`
-	SpotLabelMissing    bool   `json:"spot_label_missing"`
+	// 标签抽查合成项（judge_type=equipment_date_spot）：只交照片（+逃生 exception_type=label_missing）；
+	// 日期由服务端从该项 AI 读标签草稿的 ai_reading 解析（M{生产年月}|W{维修年月}），不与台账比对则以实物为准；
+	// 客户端 pass 被忽略，服务端按四规则与台账比对
 }
 
 // CheckinReq 打卡提交（离线补传单条结构相同）。
@@ -75,13 +72,18 @@ type AIItemJobReq struct {
 	FileIDs []string `json:"file_ids" binding:"required,len=1"`
 }
 
-// ManualItemDraftReq 手动确认项（感官项）选择落云端草稿：选择即保存，断点恢复以服务端为准。
+// ManualItemDraftReq 手动结论落云端草稿：选择即保存，断点恢复以服务端为准。
+// 感官项与手动档向导的拍照项通用；拍照项携 file_ids（照片证据）与 abnormal_tags（异常观察点）。
 type ManualItemDraftReq struct {
 	TaskID  string `json:"task_id" binding:"required"`
 	PointID string `json:"point_id" binding:"required"`
-	Name    string `json:"name" binding:"required"` // 检查项名（须为该点位模板的手动项）
+	Name    string `json:"name" binding:"required"` // 检查项名（须为该点位模板项）
 	Pass    bool   `json:"pass"`
 	Note    string `json:"note"`
+	// FileIDs 手动档拍照项的照片（≤3，归属校验同逐项照片）；感官项为空
+	FileIDs []string `json:"file_ids" binding:"omitempty,max=3"`
+	// AbnormalTags 异常观察点 tag（⊆ 模板项 tags）
+	AbnormalTags []string `json:"abnormal_tags" binding:"omitempty,max=20"`
 }
 
 // PhotoItemAbnormalDraftReq 拍照项异常逃生入口：设备不存在/无法拍摄时，拍照佐证后直接落异常草稿。

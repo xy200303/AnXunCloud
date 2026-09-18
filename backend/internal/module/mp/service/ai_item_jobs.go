@@ -417,19 +417,36 @@ func (s *CheckinService) SaveManualDraft(ctx context.Context, inspectorID string
 	if err := s.db.Where("template_id IN ? AND name = ?", tplIDs, req.Name).First(&tplItem).Error; err != nil {
 		return nil, errs.ErrParam.WithMsg("检查项「" + req.Name + "」不属于该点位模板")
 	}
-	if ai.NormalizeJudgeType(tplItem.JudgeType) != ai.JudgeManual {
-		return nil, errs.ErrParam.WithMsg("拍照识别项请走 AI 识别流程")
+	// 手动档向导的拍照项：照片归属校验 + 异常 tag 归一（⊆ 模板项 tags）
+	fileIDs := make([]string, 0, len(req.FileIDs))
+	for _, ref := range req.FileIDs {
+		f, err := uploadfile.ByID(s.db, ref)
+		if err != nil || f.UserID != inspectorID {
+			return nil, errs.ErrPhotoNotUploaded
+		}
+		fileIDs = append(fileIDs, f.ID)
+	}
+	abn := make(types.StringArray, 0, len(req.AbnormalTags))
+	allow := map[string]bool{}
+	for _, t := range tplItem.Tags {
+		allow[t] = true
+	}
+	for _, t := range req.AbnormalTags {
+		if allow[t] {
+			abn = append(abn, t)
+		}
 	}
 	draft := insmodel.CheckinItemDraft{
 		TenantID: task.TenantID, TaskID: task.ID, PointID: req.PointID,
 		InspectorID: inspectorID, CommunityID: task.CommunityID,
 		ItemName: tplItem.Name, AIStatus: insmodel.ItemDraftDone,
 		ManualPass: &req.Pass, ManualNote: strutil.Truncate(strings.TrimSpace(req.Note), 512),
+		FileIDs: types.StringArray(fileIDs), AbnormalTags: abn,
 	}
 	if err := s.db.Clauses(clause.OnConflict{
 		Columns: []clause.Column{{Name: "task_id"}, {Name: "point_id"}, {Name: "item_name"}},
 		DoUpdates: clause.AssignmentColumns([]string{
-			"inspector_id", "community_id", "tenant_id", "ai_status", "manual_pass", "manual_note", "updated_at",
+			"inspector_id", "community_id", "tenant_id", "ai_status", "manual_pass", "manual_note", "file_ids", "abnormal_tags", "updated_at",
 		}),
 	}).Create(&draft).Error; err != nil {
 		return nil, errs.ErrInternal
@@ -439,7 +456,8 @@ func (s *CheckinService) SaveManualDraft(ctx context.Context, inspectorID string
 
 // SavePhotoItemAbnormalDraft 拍照项异常逃生入口：设备不存在/无法拍摄时，拍照佐证后直接落异常草稿。
 func (s *CheckinService) SavePhotoItemAbnormalDraft(ctx context.Context, inspectorID string, req *dto.PhotoItemAbnormalDraftReq) (gin.H, *errs.Error) {
-	if !validItemExceptionType(req.ExceptionType) {
+	if !validItemExceptionType(req.ExceptionType) || req.ExceptionType == "label_missing" {
+		// label_missing 是标签抽查合成项的逃生类型，随正式提交直连 resolveSpotItem，不落模板项逃生草稿
 		return nil, errs.ErrParam.WithMsg("异常类型无效")
 	}
 	var task insmodel.InspectionTask
@@ -520,5 +538,6 @@ func pointTemplateIDs(db *gorm.DB, pointID string) []string {
 }
 
 func validItemExceptionType(exceptionType string) bool {
-	return exceptionType == "device_missing" || exceptionType == "unable_to_capture"
+	// label_missing 仅标签抽查合成项可用（模板项逃生校验在 SavePhotoItemAbnormalDraft 拦截）
+	return exceptionType == "device_missing" || exceptionType == "unable_to_capture" || exceptionType == "label_missing"
 }

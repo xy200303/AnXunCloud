@@ -518,23 +518,20 @@ func (s *MPService) injectEquipmentItems(taskID, taskDate string, points []gin.H
 				"judge_config": gin.H{"equipment_id": j.EquipmentID, "equipment_no": j.Code},
 				"auto_judge":   j.View(),
 			})
-			// 日期标签抽查（紧跟该设备的有效期项之后）：临期/逾期必触发（到期核验），否则确定性哈希随机；
-			// 台账长期未验证（超 6 个月）概率翻倍；标签缺失设备有效期项已判异常，不再叠加抽查
-			if spotEnabled && j.State != eqsvc.AutoLabelMissing {
-				triggered := j.State == eqsvc.DueWarning || j.State == eqsvc.DueOverdue
-				if !triggered {
-					lv, ok := verified[j.EquipmentID]
-					var lvPtr *time.Time
-					if ok {
-						lvPtr = &lv
-					}
-					ratio := eqsvc.SpotRatioFor(rules[j.Type], globalRatio, lvPtr, now)
-					triggered = eqsvc.SpotTriggered(taskID, pid, j.EquipmentID, taskDate, spotSalt, ratio)
+			// 日期标签抽查（紧跟该设备的有效期项之后）：只在台账正常的设备上确定性哈希随机命中
+			// （长期未验证概率翻倍）；临期/逾期设备已走进期维保处置链路、标签缺失设备已判异常，均不叠加抽查
+			if spotEnabled && j.State == eqsvc.DueNormal {
+				lv, ok := verified[j.EquipmentID]
+				var lvPtr *time.Time
+				if ok {
+					lvPtr = &lv
 				}
+				ratio := eqsvc.SpotRatioFor(rules[j.Type], globalRatio, lvPtr, now)
+				triggered := eqsvc.SpotTriggered(taskID, pid, j.EquipmentID, taskDate, spotSalt, ratio)
 				if triggered {
 					copied = append(copied, gin.H{
 						"name":           eqsvc.SpotItemPrefix + j.Name + "(" + j.Code + ")",
-						"requirement":    "拍 1 张瓶体标签/钢印照片，填写生产日期与维修日期（无贴纸选「无」）；标签磨损选「标签缺失」",
+						"requirement":    "拍 1 张瓶体标签/钢印照片",
 						"photo_required": types.PhotoReqRequired,
 						"judge_type":     ai.JudgeEquipmentDateSpot,
 						"judge_config":   gin.H{"equipment_id": j.EquipmentID, "equipment_no": j.Code},

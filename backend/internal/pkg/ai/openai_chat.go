@@ -18,6 +18,9 @@ func (c *Client) callOpenAIChat(ctx context.Context, httpc *http.Client, baseURL
 		"messages":   c.buildMessages(input),
 		"max_tokens": 1024,
 	}
+	if c.cfgBool("ai.disable_thinking", true) {
+		payload["enable_thinking"] = false // 关思考提速（通义/DashScope 等兼容网关生效，不识别的网关忽略）
+	}
 	respBody, err := postJSON(ctx, httpc, baseURL+"/chat/completions", map[string]string{
 		"Authorization": "Bearer " + strings.TrimSpace(apiKey),
 	}, payload)

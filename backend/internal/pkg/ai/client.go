@@ -71,7 +71,7 @@ func NormalizeJudgeType(jt string) string {
 const (
 	maxPhotos          = 4
 	maxPhotoBytes      = 8 << 20 // 单张图片上限 8MB
-	defaultTimeoutSecs = 60
+	defaultTimeoutSecs = 180
 )
 
 // builtinRules 内置审核规则（ai.prompt 非空时被整体替换，输出格式要求不变）。
@@ -82,13 +82,14 @@ const builtinRules = `你是物业巡检打卡审核助手。请根据打卡上�
 1. 照片内容与打卡点位、点位类型、检查项是否匹配；
 2. 照片中是否存在明显的安全异常（设备损坏、漏水、明火、杂物阻塞消防通道等）；
 3. 照片按检查项逐项给出（一项一图，每项照片前均有该项名称与判定要求标注），逐项按标注的判定要求核对该项照片；判定要求涉及表计读数的项，将读出的数值填入 reading。
+全部 reason/issue 字段各不超过 30 字，不要输出思考过程。
 只输出 JSON：{"quality":{"pass":true|false,"issue":""},"verdict":"pass"|"review","reason":"简要中文理由","items":[{"name":"检查项名","verdict":"pass"|"review"|"abnormal","reason":"该项简要理由","reading":"","abnormal_tags":[]}]}，不要输出任何其他内容。
 items 为逐项结论（与给出的检查项一一对应）；无法逐项判断时 items 可省略或为空数组；reading 仅表计读数类检查项填写，其余留空。
 检查项带观察点标注时逐点核对，确认异常的观察点原名填入该项 abnormal_tags（无异常填空数组），存在异常观察点的该项 verdict 不得为 pass。
 quality.pass=false 时 verdict 仍照常给出；逐项确认存在明确异常时该项 verdict 输出 "abnormal"；有任何一项拿不准或存疑时，整体 verdict 一律输出 "review"，理由需说明疑点。`
 
 // outputFormatHint 自定义 prompt 时仍强制要求的输出格式说明。
-const outputFormatHint = "\n\n无论以上规则如何，你只输出 JSON：{\"quality\":{\"pass\":true|false,\"issue\":\"\"},\"verdict\":\"pass\"|\"review\",\"reason\":\"简要中文理由\",\"items\":[{\"name\":\"检查项名\",\"verdict\":\"pass\"|\"review\"|\"abnormal\",\"reason\":\"该项简要理由\",\"reading\":\"\",\"abnormal_tags\":[]}]}，不要输出任何其他内容；items 逐项结论无法判断时可省略；检查项带观察点时异常观察点原名填入 abnormal_tags；拿不准一律 review。"
+const outputFormatHint = "\n\n无论以上规则如何，你只输出 JSON（reason/issue 各不超过 30 字，不要输出思考过程）：{\"quality\":{\"pass\":true|false,\"issue\":\"\"},\"verdict\":\"pass\"|\"review\",\"reason\":\"简要中文理由\",\"items\":[{\"name\":\"检查项名\",\"verdict\":\"pass\"|\"review\"|\"abnormal\",\"reason\":\"该项简要理由\",\"reading\":\"\",\"abnormal_tags\":[]}]}，不要输出任何其他内容；items 逐项结论无法判断时可省略；检查项带观察点时异常观察点原名填入 abnormal_tags；拿不准一律 review。"
 
 // PhotoRef 待审核照片引用。
 type PhotoRef struct {
@@ -174,6 +175,14 @@ func (c *Client) cfg(key string) (string, bool) {
 		return "", false
 	}
 	return c.getCfg(key)
+}
+
+func (c *Client) cfgBool(key string, def bool) bool {
+	v, ok := c.cfg(key)
+	if !ok {
+		return def
+	}
+	return strings.TrimSpace(strings.ToLower(v)) == "true"
 }
 
 func (c *Client) cfgInt(key string, def int) int {

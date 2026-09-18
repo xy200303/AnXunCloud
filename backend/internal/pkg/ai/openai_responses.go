@@ -27,6 +27,9 @@ func (c *Client) callOpenAIResponses(ctx context.Context, httpc *http.Client, ba
 		"input":             []map[string]any{{"role": "user", "content": content}},
 		"max_output_tokens": 1024,
 	}
+	if c.cfgBool("ai.disable_thinking", true) {
+		payload["reasoning"] = map[string]any{"effort": "minimal"} // 关思考提速（Responses API）
+	}
 	respBody, err := postJSON(ctx, httpc, baseURL+"/responses", map[string]string{
 		"Authorization": "Bearer " + strings.TrimSpace(apiKey),
 	}, payload)

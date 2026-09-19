@@ -82,23 +82,20 @@
       </template>
     </AppBottomSheet>
 
-    <!-- 驳回原因弹层 -->
-    <view v-if="rejecting" class="mask mask-center bg-mask"  @click="rejecting = false">
-      <view class="dialog bg-card"  @click.stop="">
-        <text class="dialog-title text-main" >驳回原因（必填）</text>
-        <textarea
-          v-model="rejectReason"
-          class="dialog-input border-default text-main"
-          
-          placeholder="请填写驳回原因"
-          :maxlength="200"
-        />
-        <view class="dialog-actions">
-          <text class="dialog-btn text-secondary"  @click="rejecting = false">取消</text>
-          <text class="dialog-btn text-danger"  @click="onRejectConfirm">确认驳回</text>
-        </view>
-      </view>
-    </view>
+    <!-- 驳回原因弹窗（AppDialog editable 多行；确认带回输入值，空值/失败不关窗且保留已填内容） -->
+    <AppDialog
+      :visible="rejecting"
+      kind="danger"
+      title="驳回原因（必填）"
+      :editable="true"
+      :multiline="true"
+      placeholder="请填写驳回原因"
+      :default-value="rejectReason"
+      confirm-text="确认驳回"
+      cancel-text="取消"
+      @update:visible="rejecting = $event"
+      @confirm="onRejectConfirm"
+    />
 
     <!-- 审核通过确认（自绘，替代原生 showModal） -->
     <AppDialog
@@ -291,16 +288,19 @@ export default {
       this.rejectReason = ''
       this.rejecting = true
     },
-    onRejectConfirm() {
+    onRejectConfirm(reason: string) {
       if (this.detail == null || this.acting) return
-      const reason = this.rejectReason.trim()
-      if (reason == '') {
+      this.rejectReason = reason
+      const v = (reason || '').trim()
+      // 空值不提交：提示并开回弹窗（AppDialog confirm 时已先置关）
+      if (v == '') {
         uni.showToast({ title: '请填写驳回原因', icon: 'none' })
+        this.rejecting = true
         return
       }
       const id = this.detail.id
       this.acting = true
-      apiReviewReject(id, reason)
+      apiReviewReject(id, v)
         .then(() => {
           uni.showToast({ title: '已驳回', icon: 'none' })
           this.closeDetail()
@@ -308,6 +308,8 @@ export default {
         })
         .catch((e: Error) => {
           uni.showToast({ title: e.message, icon: 'none' })
+          // 失败开回弹窗：default-value 回填 rejectReason，已填理由不丢
+          this.rejecting = true
         })
         .finally(() => {
           this.acting = false
@@ -430,42 +432,5 @@ export default {
   font-weight: 600;
 }
 
-/* 驳回原因对话框 */
-.mask-center {
-  justify-content: center;
-  align-items: center;
-}
-
-.dialog {
-  width: 600rpx;
-  border-radius: 24rpx;
-  padding: 32rpx;
-}
-
-.dialog-title {
-  font-size: 32rpx;
-  font-weight: 600;
-}
-
-.dialog-input {
-  width: 100%;
-  height: 160rpx;
-  border-width: 2rpx;
-  border-style: solid;
-  border-radius: 12rpx;
-  padding: 16rpx;
-  font-size: 28rpx;
-  margin-top: 24rpx;
-}
-
-.dialog-actions {
-  flex-direction: row;
-  justify-content: flex-end;
-  margin-top: 24rpx;
-}
-
-.dialog-btn {
-  font-size: 30rpx;
-  padding: 8rpx 24rpx;
-}
+/* 驳回原因对话框（AppDialog 承载，样式见 components/AppDialog.vue） */
 </style>

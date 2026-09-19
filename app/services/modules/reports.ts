@@ -60,6 +60,11 @@ export type ReportDetail = {
 	review_step: number
 	review_current_ids: string[]
   reject_reason: string
+  /** 作废留痕（status=voided 时有值） */
+  void_reason: string
+  voided_by: string | null
+  voided_by_name: string
+  voided_at: string | null
   file_id: string
   file_url: string | null
   created_at: string
@@ -126,6 +131,10 @@ export function apiReportDetail(id: string): Promise<ReportDetail> {
           review_step: Number(d.review_step ?? 0),
           review_current_ids: (d.review_current_ids ?? []).map((x: any) => String(x)),
           reject_reason: d.reject_reason ?? '',
+          void_reason: d.void_reason ?? '',
+          voided_by: d.voided_by ?? null,
+          voided_by_name: d.voided_by_name ?? '',
+          voided_at: d.voided_at ?? null,
           file_id: d.file_id ?? '',
           file_url: d.file_url ?? null,
           created_at: d.created_at ?? '',

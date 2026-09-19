@@ -82,11 +82,13 @@ const TABS: { value: TabKey; label: string }[] = [
 function nodeTextOf(status: string): string {
   if (status == 'pending_review') return '待审核'
   if (status == 'approved') return '已归档'
+  if (status == 'voided') return '已作废'
   return status
 }
 
 function nodeColorOf(status: string): string {
   if (status == 'approved') return '#2BA471'
+  if (status == 'voided') return '#86909C'
   return '#2B5AED'
 }
 

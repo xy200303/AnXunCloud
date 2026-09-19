@@ -117,23 +117,20 @@
       </button>
     </view>
 
-    <!-- 驳回原因弹层（uni-popup 居中；遮罩点击不关闭，避免误触丢失已填理由；用「取消」显式关闭，驳回失败不关窗） -->
-    <uni-popup ref="rejectPopup" type="center" :is-mask-click="false" :mask-background-color="'rgba(0, 0, 0, 0.45)'" border-radius="28rpx">
-      <view class="dialog bg-card" >
-        <text class="dialog-title text-main" >驳回原因（必填）</text>
-        <textarea
-          v-model="rejectReason"
-          class="dialog-input border-default text-main"
-          
-          placeholder="如：照片为旧标签，请重新拍摄"
-          :maxlength="200"
-        />
-        <view class="dialog-actions">
-          <text class="dialog-btn text-secondary"  @click="rejecting = false">取消</text>
-          <text class="dialog-btn text-danger"  @click="onRejectConfirm">确认驳回</text>
-        </view>
-      </view>
-    </uni-popup>
+    <!-- 驳回原因弹窗（AppDialog editable 多行；确认带回输入值，空值/失败不关窗且保留已填内容） -->
+    <AppDialog
+      :visible="rejecting"
+      kind="danger"
+      title="驳回原因（必填）"
+      :editable="true"
+      :multiline="true"
+      placeholder="如：照片为旧标签，请重新拍摄"
+      :default-value="rejectReason"
+      confirm-text="确认驳回"
+      cancel-text="取消"
+      @update:visible="rejecting = $event"
+      @confirm="onRejectConfirm"
+    />
 
     <!-- 确认通过弹窗（自绘，替代原生 showModal）：单条/批量共用，ids 在打开时暂存 -->
     <AppDialog
@@ -206,15 +203,6 @@ export default {
       acting: false,
       confirmDlgShow: false,
       confirmIds: [] as string[]
-    }
-  },
-  watch: {
-    /** 驳回弹层驱动 uni-popup 开/关（v-model 语义保留在 rejecting 单字段） */
-    rejecting(v: boolean) {
-      const popup: any = this.$refs.rejectPopup
-      if (popup == null) return
-      if (v) popup.open()
-      else popup.close()
     }
   },
   computed: {
@@ -345,16 +333,19 @@ export default {
       this.rejectReason = ''
       this.rejecting = true
     },
-    onRejectConfirm() {
+    onRejectConfirm(reason: string) {
       if (this.rejectTarget == null || this.acting) return
-      const reason = this.rejectReason.trim()
-      if (reason == '') {
+      this.rejectReason = reason
+      const v = (reason || '').trim()
+      // 空值不提交：提示并开回弹窗（AppDialog confirm 时已先置关）
+      if (v == '') {
         uni.showToast({ title: '请填写驳回原因', icon: 'none' })
+        this.rejecting = true
         return
       }
       const id = this.rejectTarget.id
       this.acting = true
-      apiMaintenanceReject(id, reason)
+      apiMaintenanceReject(id, v)
         .then(() => {
           uni.showToast({ title: '已驳回，已通知登记人', icon: 'none' })
           this.rejecting = false
@@ -362,6 +353,8 @@ export default {
         })
         .catch((e: Error) => {
           uni.showToast({ title: e.message, icon: 'none' })
+          // 失败开回弹窗：default-value 回填 rejectReason，已填理由不丢
+          this.rejecting = true
         })
         .finally(() => {
           this.acting = false
@@ -538,37 +531,5 @@ export default {
   font-weight: 600;
 }
 
-/* 驳回原因弹层内容（容器为 uni-popup） */
-.dialog {
-  width: 600rpx;
-  border-radius: 24rpx;
-  padding: 32rpx;
-}
-
-.dialog-title {
-  font-size: 32rpx;
-  font-weight: 600;
-}
-
-.dialog-input {
-  width: 100%;
-  height: 160rpx;
-  border-width: 2rpx;
-  border-style: solid;
-  border-radius: 12rpx;
-  padding: 16rpx;
-  font-size: 28rpx;
-  margin-top: 24rpx;
-}
-
-.dialog-actions {
-  flex-direction: row;
-  justify-content: flex-end;
-  margin-top: 24rpx;
-}
-
-.dialog-btn {
-  font-size: 30rpx;
-  padding: 8rpx 24rpx;
-}
+/* 驳回原因弹窗（AppDialog 承载，样式见 components/AppDialog.vue） */
 </style>

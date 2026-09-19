@@ -7,10 +7,13 @@
         <text class="sub text-secondary" >{{ d.community_name }} · {{ d.period }} · 生成于 {{ d.created_at }}</text>
         <uni-tag
           :text="statusLabel(d.status)"
-          :custom-style="d.status === 'approved' ? 'background-color:#E8F7EE;color:#2BA471;border-color:transparent' : 'background-color:#FDF3E5;color:#ED7B2F;border-color:transparent'"
+          :custom-style="d.status === 'approved' ? 'background-color:#E8F7EE;color:#2BA471;border-color:transparent' : (d.status === 'voided' ? 'background-color:#F2F3F5;color:#86909C;border-color:transparent' : 'background-color:#FDF3E5;color:#ED7B2F;border-color:transparent')"
         />
         <view v-if="d.reject_reason != ''" class="reject-bar" :style="{ backgroundColor: '#FEF0EF' }">
           <text class="reject-text text-danger" >最近驳回原因：{{ d.reject_reason }}</text>
+        </view>
+        <view v-if="d.status === 'voided'" class="reject-bar" :style="{ backgroundColor: '#F2F3F5' }">
+          <text class="reject-text text-secondary" >已作废：{{ d.void_reason || '—' }}（{{ d.voided_by_name || '—' }} {{ d.voided_at || '' }}）</text>
         </view>
       </view>
 
@@ -138,7 +141,7 @@ export default {
         this.errorMsg = e?.message || '报告加载失败，请稍后重试'
       }
     },
-    statusLabel(status: string) { return status === 'approved' ? '已通过' : '待审核' },
+    statusLabel(status: string) { if (status === 'approved') return '已通过'; if (status === 'voided') return '已作废'; return '待审核' },
     stepColor(index: number): string {
       if (!this.d) return '#86909C'
       if (index < this.d.review_step || this.d.status === 'approved') return '#2BA471'

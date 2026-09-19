@@ -1,6 +1,7 @@
 <template>
   <!-- 通用确认/提示弹窗：内部基于 uni-popup（type=center），遮罩/动画交给官方；
-       圆形状态图标 + 标题 + 说明 + 胶囊按钮；editable 时带输入框（驳回原因场景）。对外 props/事件接口不变 -->
+       圆形状态图标 + 标题 + 说明 + 胶囊按钮；editable 时带输入框（multiline 升级为多行，
+       驳回原因场景）。对外 props/事件接口不变 -->
   <uni-popup
     ref="popup"
     type="center"
@@ -15,8 +16,16 @@
       </view>
       <text class="dlg-title text-main" >{{ title }}</text>
       <text v-if="content != ''" class="dlg-content text-regular" >{{ content }}</text>
+      <textarea
+        v-if="editable && multiline"
+        class="dlg-input dlg-input-multi border-default text-main bg-page"
+        v-model="inputValue"
+        :placeholder="placeholder"
+        :placeholder-style="'color:' + '#86909C'"
+        :maxlength="200"
+      />
       <input
-        v-if="editable"
+        v-else-if="editable"
         class="dlg-input border-default text-main bg-page"
         
         v-model="inputValue"
@@ -57,6 +66,8 @@ export default {
     confirmText: { type: String, default: '知道了' },
     cancelText: { type: String, default: '' },
     editable: { type: Boolean, default: false },
+    /** editable 时用多行 textarea（驳回原因等长文本场景） */
+    multiline: { type: Boolean, default: false },
     placeholder: { type: String, default: '' },
     defaultValue: { type: String, default: '' },
     maskClosable: { type: Boolean, default: false }
@@ -169,6 +180,11 @@ export default {
   margin-top: 24rpx;
   font-size: 28rpx;
   box-sizing: border-box;
+}
+
+.dlg-input-multi {
+  height: 180rpx;
+  padding: 20rpx 24rpx;
 }
 
 .dlg-btn {

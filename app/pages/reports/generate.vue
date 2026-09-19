@@ -1,9 +1,12 @@
 <template>
   <view class="page bg-page" >
     <view class="card bg-card" :style="{ boxShadow: shadow }">
-      <!-- 小区 -->
+      <!-- 小区（选项加载完成后再挂载下拉，规避异步时序导致的选中值不回显） -->
       <text class="label text-regular" >小区</text>
-      <uni-data-select v-model="communityId" :localdata="communityItems" placeholder="请选择小区" :clear="false" @change="onCommunityChange" />
+      <uni-data-select v-if="communityItems.length > 0" v-model="communityId" :localdata="communityItems" placeholder="请选择小区" :clear="false" @change="onCommunityChange" />
+      <view v-else class="picker-box border-default" >
+        <text class="text-secondary">小区加载中…</text>
+      </view>
 
       <!-- 月份 -->
       <text class="label text-regular" >报告月份</text>
@@ -196,11 +199,14 @@ export default {
         this.reviewSteps = d.steps
         this.selected = Object.fromEntries(d.steps.map((step) => [step.slot, [...step.default_candidate_ids]]))
         this.candidatesLoaded = true
-      } catch {
+      } catch (e: any) {
         if (requestId != this.candidateRequestId) return
         this.reviewSteps = []
         this.selected = {}
         this.candidateError = '审核链加载失败，点我重试'
+        // 真实原因浮层透出（权限码/接口不存在/网络），便于现场截图反馈定位
+        const msg = e != null && e.message != null && e.message != '' ? e.message : '未知错误'
+        uni.showToast({ title: '审核链加载失败：' + msg, icon: 'none' })
       } finally {
         if (requestId == this.candidateRequestId) this.candidateLoading = false
       }

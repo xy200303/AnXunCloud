@@ -1,12 +1,14 @@
 <template>
   <view class="page bg-page" >
     <view class="card bg-card" :style="{ boxShadow: shadow }">
-      <!-- 小区（选项加载完成后再挂载下拉，规避异步时序导致的选中值不回显） -->
+      <!-- 小区（AppPickerField=原生 selector picker 封装；选项未到达时显示加载占位） -->
       <text class="label text-regular" >小区</text>
-      <uni-data-select v-if="communityItems.length > 0" v-model="communityId" :localdata="communityItems" placeholder="请选择小区" :clear="false" @change="onCommunityChange" />
-      <view v-else class="picker-box border-default" >
-        <text class="text-secondary">小区加载中…</text>
-      </view>
+      <AppPickerField
+        :range="communityNames"
+        :value="communityId == '' ? -1 : communityIndex"
+        :placeholder="communities.length == 0 ? '小区加载中…' : '请选择小区'"
+        @change="onCommunityPick"
+      />
 
       <!-- 月份 -->
       <text class="label text-regular" >报告月份</text>
@@ -19,7 +21,7 @@
 
       <!-- 报告类型 -->
       <text class="label text-regular" >报告类型</text>
-      <uni-data-select v-model="patrolType" :localdata="typeItems" placeholder="综合（全部巡查类型）" :clear="false" @change="onTypeChange" />
+      <AppPickerField :range="typeNames" :value="typeIndex" placeholder="综合（全部巡查类型）" @change="onTypePick" />
 
       <!-- 明细范围 -->
       <text class="label text-regular" >明细范围</text>
@@ -41,7 +43,7 @@
       <text class="label text-regular" >审核路径</text>
       <view v-for="step in reviewSteps" :key="step.slot" class="signer-row" hover-class="hover-dim" @click="openCandidates(step.slot)">
         <text class="signer-label text-regular" >{{ step.name }}</text>
-        <text class="signer-value" :style="{ color: selectedIds(step.slot).length ? '#1F2329' : '#86909C' }">{{ signerDisplay(selectedIds(step.slot), step.slot) }} ›</text>
+        <text class="signer-value" :style="{ color: (selected[step.slot] || []).length ? '#1F2329' : '#86909C' }">{{ signerDisplay(selected[step.slot] || [], step.slot) }} ›</text>
       </view>
       <view v-if="candidateLoading && reviewSteps.length == 0" class="signer-row">
         <text class="signer-label text-secondary" >审核链加载中…</text>
@@ -83,9 +85,10 @@ import { toastErr } from '@/utils/ui'
 import { ShadowCard } from '@/utils/theme'
 import { apiCommunityTree, apiDictOptions, apiReportGenerate, apiReportSignCandidates, DictOption, ReportSignCandidate } from '@/services/api'
 import AppSelectionSheet from '@/components/AppSelectionSheet.vue'
+import AppPickerField from '@/components/AppPickerField.vue'
 
 export default {
-  components: { AppSelectionSheet },
+  components: { AppSelectionSheet, AppPickerField },
   data() {
     return {
       shadow: ShadowCard,
@@ -123,13 +126,27 @@ export default {
       }))
     },
     activeStep(): any { return this.reviewSteps.find((step) => step.slot === this.candidateRole) },
-    /** 小区下拉（uni-data-select localdata 形态；value=小区 id） */
-    communityItems(): Array<{ text: string; value: string }> {
-      return this.communities.map((community) => ({ text: community.name, value: community.id }))
+    /** 小区选择项名（picker range） */
+    communityNames(): string[] {
+      return this.communities.map((community) => community.name)
+    },
+    /** 小区 picker 当前下标（未选时归 0，仅作滚轮初始位） */
+    communityIndex(): number {
+      const idx = this.communities.findIndex((community) => community.id === this.communityId)
+      return idx < 0 ? 0 : idx
     },
     /** 报告类型下拉（首项=综合全部，value=''） */
     typeItems(): Array<{ text: string; value: string }> {
       return [{ text: '综合（全部巡查类型）', value: '' }].concat(this.typeOptions.map((option) => ({ text: option.label, value: option.value })))
+    },
+    /** 报告类型 picker range */
+    typeNames(): string[] {
+      return this.typeItems.map((item) => item.text)
+    },
+    /** 报告类型 picker 当前下标 */
+    typeIndex(): number {
+      const idx = this.typeItems.findIndex((item) => item.value === this.patrolType)
+      return idx < 0 ? 0 : idx
     },
     monthStart(): string {
       const now = new Date()
@@ -174,14 +191,20 @@ export default {
       })
   },
   methods: {
-    onCommunityChange() {
+    onCommunityPick(idx: number) {
+      const community = this.communities[idx]
+      if (community == null || community.id === this.communityId) return
+      this.communityId = community.id
       this.loadCandidates()
     },
     onMonthPick(event: any) {
       this.period = String(event.detail.value)
       this.loadCandidates() // 巡检员确认环节候选人按月份解析，换月份必须重载
     },
-    onTypeChange() {
+    onTypePick(idx: number) {
+      const item = this.typeItems[idx]
+      if (item == null || item.value === this.patrolType) return
+      this.patrolType = item.value
       this.loadCandidates()
     },
     async loadCandidates() {

@@ -14,9 +14,7 @@
         <uni-easyinput v-model="password" type="password" placeholder="密码" :input-border="false" :clearable="false" :primary-color="'#2B5AED'" />
       </view>
       <!-- 公司选择：仅当用户名存在于多家公司（后端 40109）时显示，选项来自 40109 响应的 tenants -->
-      <view v-if="needTenantCode" class="input-wrap bg-card border-default" >
-        <uni-data-select :modelValue="tenantIndex < 0 ? '' : tenantIndex" :localdata="tenantItems" placeholder="请选择所属公司" :clear="false" @change="onTenantPick" />
-      </view>
+      <AppPickerField v-if="needTenantCode" class="tenant-field" :range="tenantNames" :value="tenantIndex" placeholder="请选择所属公司" :large="true" @change="onLoginTenantPick" />
 
       <!-- 错误内联提示（按钮上方，不用 Toast） -->
       <text v-if="errorMsg != ''" class="error text-danger" >{{ errorMsg }}</text>
@@ -80,9 +78,7 @@
           <input v-model="regForm.phone" class="input text-main"  placeholder="手机号（必填）" placeholder-class="input-ph" type="number" :maxlength="11" />
         </view>
         <!-- 所属公司：多租户时必选一个；仅 1 个租户时隐藏（默认租户自动归属） -->
-        <view v-if="regTenants.length > 1" class="input-wrap sheet-input bg-page border-default" >
-          <uni-data-select :modelValue="regTenantIndex < 0 ? '' : regTenantIndex" :localdata="regTenantItems" placeholder="请选择所属公司" :clear="false" @change="onRegTenantPick" />
-        </view>
+        <AppPickerField v-if="regTenants.length > 1" class="tenant-field" :range="regTenantNames" :value="regTenantIndex" placeholder="请选择所属公司" :large="true" box-bg="bg-page" @change="onRegTenantPick" />
 
         <text v-if="regError != ''" class="error text-danger" >{{ regError }}</text>
 
@@ -105,6 +101,7 @@ import { apiRegisterConfig, apiRegister, apiRegisterTenants } from '@/services/a
 import { useAuthStore } from '@/stores/auth'
 import { upsertSwitchAccount } from '@/utils/storage'
 import AppBottomSheet from '@/components/AppBottomSheet.vue'
+import AppPickerField from '@/components/AppPickerField.vue'
 
 type RegisterForm = {
   username: string
@@ -143,7 +140,7 @@ type LoginData = {
 }
 
 export default {
-  components: { AppBottomSheet },
+  components: { AppBottomSheet, AppPickerField },
   data(): LoginData {
     return {
       statusBarH: 20,
@@ -201,25 +198,23 @@ export default {
     regBtnText(): string {
       return this.regLoading ? '提交中…' : '注 册'
     },
-    /** 登录公司下拉选项（uni-data-select localdata 形态；value=选项下标，保持 tenantIndex 单字段语义） */
-    tenantItems(): Array<{ text: string; value: number }> {
-      return this.tenantOptions.map((t: TenantOption, i: number) => ({ text: t.name, value: i }))
+    /** 登录公司选项名（picker range） */
+    tenantNames(): string[] {
+      return this.tenantOptions.map((t: TenantOption) => t.name)
     },
-    /** 注册公司下拉选项（同上） */
-    regTenantItems(): Array<{ text: string; value: number }> {
-      return this.regTenants.map((t: TenantOption, i: number) => ({ text: t.name, value: i }))
+    /** 注册公司选项名（同上） */
+    regTenantNames(): string[] {
+      return this.regTenants.map((t: TenantOption) => t.name)
     }
   },
   methods: {
-    /** 登录公司下拉选择（uni-data-select change，直接吐 value） */
-    onTenantPick(v: number | string) {
-      if (v === '') return
-      this.tenantIndex = Number(v)
+    /** 登录公司选择（AppPickerField change 按下标写回，保持 tenantIndex 单字段语义） */
+    onLoginTenantPick(idx: number) {
+      this.tenantIndex = idx
     },
-    /** 注册公司下拉选择（同上） */
-    onRegTenantPick(v: number | string) {
-      if (v === '') return
-      this.regTenantIndex = Number(v)
+    /** 注册公司选择（同上） */
+    onRegTenantPick(idx: number) {
+      this.regTenantIndex = idx
     },
     doLogin() {
       if (this.loading) return
@@ -359,6 +354,10 @@ export default {
   align-items: center;
   padding-left: 32rpx;
   padding-right: 32rpx;
+  margin-bottom: 24rpx;
+}
+
+.tenant-field {
   margin-bottom: 24rpx;
 }
 

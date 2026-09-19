@@ -232,24 +232,15 @@
         }
 
         let result = []
-				if (Array.isArray(value)) {
-					for (let i = 0; i < value.length; i++) {
-						var val = value[i]
-						var item = dataList.find((v) => {
-							return v.value == val
-						})
-						if (item) {
-							result.push(item)
-						}
-					}
-				} else {
-					let item = dataList.find((v) => {
-						return v.value == value;
-					});
-					if (item) {
-						result.push(item);
-					}
-				}
+        for (let i = 0; i < value.length; i++) {
+          var val = value[i]
+          var item = dataList.find((v) => {
+            return v.value == val
+          })
+          if (item) {
+            result.push(item)
+          }
+        }
         if (result.length) {
           this.inputSelected = result
         }

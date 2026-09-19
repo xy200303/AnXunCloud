@@ -193,13 +193,10 @@
 				this.cale.setDate(this.nowDate.fullDate)
 				this.weeks = this.cale.weeks
 			},
-			selected: {
-			    handler(newVal) {
-				   this.cale.setSelectInfo(this.nowDate.fullDate, newVal);
-				   this.weeks = this.cale.weeks;
-			    },
-			    deep: true,
-		    },
+			selected(newVal) {
+				this.cale.setSelectInfo(this.nowDate.fullDate, newVal)
+				this.weeks = this.cale.weeks
+			}
 		},
 		created() {
 			this.cale = new Calendar({
@@ -217,11 +214,11 @@
 				const value = e.detail.value + '-1'
 				this.setDate(value)
 
-				let detail = this.cale.getDate(value)
-				this.$emit('monthSwitch', {
-					year: detail.year,
-					month: Number(detail.month)
-				})
+				const { year,month } = this.cale.getDate(value)
+        this.$emit('monthSwitch', {
+            year,
+            month
+        })
 			},
 			/**
 			 * 初始化日期显示

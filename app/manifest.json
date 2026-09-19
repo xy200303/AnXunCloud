@@ -75,7 +75,8 @@
                             }
                         }
                     }
-                }
+                },
+                "oauth" : {}
             },
             "icons" : {
                 "android" : {
@@ -108,6 +109,9 @@
                         "spotlight@3x" : "unpackage/res/icons/120x120.png"
                     }
                 }
+            },
+            "splashscreen" : {
+                "useOriginalMsgbox" : true
             }
         }
     },

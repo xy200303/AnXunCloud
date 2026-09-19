@@ -8,7 +8,8 @@
 			<!-- ,'is-list-card':showType === 'list-card' -->
 
 			<view class="uni-file-picker__lists-box" v-for="(item ,index) in list" :key="index" :class="{
-				'files-border':index !== 0 && styles.dividline}" :style="index !== 0 && styles.dividline &&borderLineStyle">
+				'files-border':index !== 0 && styles.dividline}"
+			 :style="index !== 0 && styles.dividline &&borderLineStyle">
 				<view class="uni-file-picker__item">
 					<!-- :class="{'is-text-image':showType === 'list'}" -->
 					<!-- 	<view class="files__image is-text-image">
@@ -21,7 +22,8 @@
 					</view>
 				</view>
 				<view v-if="(item.progress && item.progress !== 100) ||item.progress===0 " class="file-picker__progress">
-					<progress class="file-picker__progress-item" :percent="item.progress === -1?0:item.progress" stroke-width="4" :backgroundColor="item.errMsg?'#ff5a5f':'#EBEBEB'" />
+					<progress class="file-picker__progress-item" :percent="item.progress === -1?0:item.progress" stroke-width="4"
+					 :backgroundColor="item.errMsg?'#ff5a5f':'#EBEBEB'" />
 				</view>
 				<view v-if="item.status === 'error'" class="file-picker__mask" @click.stop="uploadFiles(item,index)">
 					点击重试
@@ -35,7 +37,7 @@
 <script>
 	export default {
 		name: "uploadFile",
-		emits: ['uploadFiles', 'choose', 'delFile'],
+		emits:['uploadFiles','choose','delFile'],
 		props: {
 			filesList: {
 				type: Array,
@@ -68,9 +70,9 @@
 					}
 				}
 			},
-			readonly: {
-				type: Boolean,
-				default: false
+			readonly:{
+				type:Boolean,
+				default:false
 			}
 		},
 		computed: {

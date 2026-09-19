@@ -1,74 +1,60 @@
 <template>
-  <view class="page" :style="{ backgroundColor: colors.bgPage }">
-    <view class="card" :style="{ backgroundColor: colors.bgCard, boxShadow: shadow }">
+  <view class="page bg-page" >
+    <view class="card bg-card" :style="{ boxShadow: shadow }">
       <!-- 小区 -->
-      <text class="label" :style="{ color: colors.textRegular }">小区</text>
-      <picker mode="selector" :range="communityNames" :value="communityIndex" @change="onCommunityPick">
-        <view class="picker-box" hover-class="hover-dim" :style="{ borderColor: colors.border }">
-          <text :style="{ color: communityId == '' ? colors.textSecondary : colors.textPrimary }">{{ communityText }}</text>
-          <text :style="{ color: colors.textSecondary }">›</text>
-        </view>
-      </picker>
+      <text class="label text-regular" >小区</text>
+      <uni-data-select v-model="communityId" :localdata="communityItems" placeholder="请选择小区" :clear="false" @change="onCommunityChange" />
 
       <!-- 月份 -->
-      <text class="label" :style="{ color: colors.textRegular }">报告月份</text>
+      <text class="label text-regular" >报告月份</text>
       <picker mode="date" fields="month" :value="period" :start="monthStart" :end="monthEnd" @change="onMonthPick">
-        <view class="picker-box" hover-class="hover-dim" :style="{ borderColor: colors.border }">
-          <text :style="{ color: period == '' ? colors.textSecondary : colors.textPrimary }">{{ period == '' ? '请选择月份' : periodText }}</text>
-          <text :style="{ color: colors.textSecondary }">›</text>
+        <view class="picker-box border-default" hover-class="hover-dim" >
+          <text  :class="(period == '' ? 'text-secondary' : 'text-main')">{{ period == '' ? '请选择月份' : periodText }}</text>
+          <text  class="text-secondary">›</text>
         </view>
       </picker>
 
       <!-- 报告类型 -->
-      <text class="label" :style="{ color: colors.textRegular }">报告类型</text>
-      <picker mode="selector" :range="typeNames" :value="typeIndex" @change="onTypePick">
-        <view class="picker-box" hover-class="hover-dim" :style="{ borderColor: colors.border }">
-          <text :style="{ color: colors.textPrimary }">{{ patrolTypeText }}</text>
-          <text :style="{ color: colors.textSecondary }">›</text>
-        </view>
-      </picker>
+      <text class="label text-regular" >报告类型</text>
+      <uni-data-select v-model="patrolType" :localdata="typeItems" placeholder="综合（全部巡查类型）" :clear="false" @change="onTypeChange" />
 
       <!-- 明细范围 -->
-      <text class="label" :style="{ color: colors.textRegular }">明细范围</text>
+      <text class="label text-regular" >明细范围</text>
+      <!-- 明细范围 chip：官方 uni-tag（选中实心品牌色 / 未选灰底描边），点击语义不变 -->
       <view class="mode-row">
-        <view
+        <uni-tag
           v-for="m in detailModes"
           :key="m.value"
-          class="mode-chip"
-          hover-class="hover-dim"
-          :style="{
-            backgroundColor: detailMode == m.value ? colors.primary : colors.bgPage,
-            borderColor: detailMode == m.value ? colors.primary : colors.border
-          }"
+          :text="m.label"
+          :inverted="true"
+          :custom-style="detailMode == m.value ? 'background-color:#2B5AED;border-color:#2B5AED;color:#FFFFFF;margin-right:20rpx' : 'background-color:#F5F6F8;border-color:#E5E6EB;color:#4E5969;margin-right:20rpx'"
           @click="detailMode = m.value"
-        >
-          <text class="mode-chip-text" :style="{ color: detailMode == m.value ? colors.white : colors.textRegular }">{{ m.label }}</text>
-        </view>
+        />
       </view>
-      <text class="tip" :style="{ color: colors.textSecondary }">点位量大时选「仅异常点位」，报告页数更少（汇总统计不受影响）</text>
+      <text class="tip text-secondary" >点位量大时选「仅异常点位」，报告页数更少（汇总统计不受影响）</text>
 
-      <text class="tip" :style="{ color: colors.textSecondary }">审核链由后台配置，生成时可调整各步骤候选人。</text>
+      <text class="tip text-secondary" >审核链由后台配置，生成时可调整各步骤候选人。</text>
 
-      <text class="label" :style="{ color: colors.textRegular }">审核路径</text>
+      <text class="label text-regular" >审核路径</text>
       <view v-for="step in reviewSteps" :key="step.slot" class="signer-row" hover-class="hover-dim" @click="openCandidates(step.slot)">
-        <text class="signer-label" :style="{ color: colors.textRegular }">{{ step.name }}</text>
-        <text class="signer-value" :style="{ color: selectedIds(step.slot).length ? colors.textPrimary : colors.textSecondary }">{{ signerDisplay(selectedIds(step.slot), step.slot) }} ›</text>
+        <text class="signer-label text-regular" >{{ step.name }}</text>
+        <text class="signer-value" :style="{ color: selectedIds(step.slot).length ? '#1F2329' : '#86909C' }">{{ signerDisplay(selectedIds(step.slot), step.slot) }} ›</text>
       </view>
       <view v-if="candidateLoading && reviewSteps.length == 0" class="signer-row">
-        <text class="signer-label" :style="{ color: colors.textSecondary }">审核链加载中…</text>
+        <text class="signer-label text-secondary" >审核链加载中…</text>
       </view>
       <view v-else-if="candidateError != ''" class="signer-row" hover-class="hover-dim" @click="loadCandidates">
-        <text class="signer-label" :style="{ color: colors.danger }">{{ candidateError }}</text>
+        <text class="signer-label text-danger" >{{ candidateError }}</text>
       </view>
       <view v-else-if="candidatesLoaded && reviewSteps.length == 0" class="signer-row">
-        <text class="signer-label" :style="{ color: colors.textSecondary }">该小区未配置审核链，生成后直接归档</text>
+        <text class="signer-label text-secondary" >该小区未配置审核链，生成后直接归档</text>
       </view>
-      <text class="tip" :style="{ color: colors.textSecondary }">空候选步骤会自动跳过；任一/全部签署规则由审核链配置决定。</text>
+      <text class="tip text-secondary" >空候选步骤会自动跳过；任一/全部签署规则由审核链配置决定。</text>
     </view>
 
-    <view class="btn-big" hover-class="hover-dim" :style="{ backgroundColor: canSubmit ? colors.primary : colors.border }" @click="submit">
-      <text class="btn-big-text" :style="{ color: canSubmit ? colors.white : colors.textSecondary }">{{ submitting ? '生成中…' : '生成报告' }}</text>
-    </view>
+    <button plain="true" class="btn-big" hover-class="hover-dim" :class="(canSubmit ? 'btn-primary' : 'btn-disabled')" @click="submit">
+      <text class="btn-big-text">{{ submitting ? '生成中…' : '生成报告' }}</text>
+    </button>
 
     <AppSelectionSheet
       :visible="candidateShow"
@@ -78,9 +64,9 @@
       :loading="candidateLoading"
       :error="candidateError"
       empty-text="暂无该审核级别候选人"
-      :mask-color="colors.mask"
-      :background-color="colors.bgCard"
-      :colors="colors"
+      :mask-color="'rgba(0, 0, 0, 0.45)'"
+      :background-color="'#FFFFFF'"
+     
       @close="candidateShow = false"
       @clear="clearCandidates"
       @retry="loadCandidates"
@@ -91,7 +77,7 @@
 
 <script lang="ts">
 import { toastErr } from '@/utils/ui'
-import { Colors, ColorTokens, ShadowCard } from '@/utils/theme'
+import { ShadowCard } from '@/utils/theme'
 import { apiCommunityTree, apiDictOptions, apiReportGenerate, apiReportSignCandidates, DictOption, ReportSignCandidate } from '@/services/api'
 import AppSelectionSheet from '@/components/AppSelectionSheet.vue'
 
@@ -99,7 +85,6 @@ export default {
   components: { AppSelectionSheet },
   data() {
     return {
-      colors: Colors,
       shadow: ShadowCard,
       communities: [] as Array<{ id: string; name: string }>,
       communityId: '',
@@ -135,25 +120,13 @@ export default {
       }))
     },
     activeStep(): any { return this.reviewSteps.find((step) => step.slot === this.candidateRole) },
-    communityText(): string {
-      if (this.communityId == '') return '请选择小区'
-      const c = this.communities.find((x) => x.id == this.communityId)
-      return c != null ? c.name : '请选择小区'
+    /** 小区下拉（uni-data-select localdata 形态；value=小区 id） */
+    communityItems(): Array<{ text: string; value: string }> {
+      return this.communities.map((community) => ({ text: community.name, value: community.id }))
     },
-    communityNames(): string[] {
-      return this.communities.map((community) => community.name)
-    },
-    communityIndex(): number {
-      const index = this.communities.findIndex((community) => community.id == this.communityId)
-      return index >= 0 ? index : 0
-    },
-    typeNames(): string[] {
-      return ['综合（全部巡查类型）'].concat(this.typeOptions.map((option) => option.label))
-    },
-    typeIndex(): number {
-      if (this.patrolType == '') return 0
-      const index = this.typeOptions.findIndex((option) => option.value == this.patrolType)
-      return index >= 0 ? index + 1 : 0
+    /** 报告类型下拉（首项=综合全部，value=''） */
+    typeItems(): Array<{ text: string; value: string }> {
+      return [{ text: '综合（全部巡查类型）', value: '' }].concat(this.typeOptions.map((option) => ({ text: option.label, value: option.value })))
     },
     monthStart(): string {
       const now = new Date()
@@ -167,11 +140,6 @@ export default {
     periodText(): string {
       const parts = this.period.split('-')
       return parts.length == 2 ? parts[0] + ' 年 ' + Number(parts[1]) + ' 月' : this.period
-    },
-    patrolTypeText(): string {
-      if (this.patrolType == '') return '综合（全部巡查类型）'
-      const t = this.typeOptions.find((x) => x.value == this.patrolType)
-      return t != null ? t.label : this.patrolType
     },
     canSubmit(): boolean {
       return this.communityId != '' && this.period != '' && !this.submitting
@@ -203,23 +171,14 @@ export default {
       })
   },
   methods: {
-    onCommunityPick(event: any) {
-      const index = Number(event.detail.value)
-      const community = this.communities[index]
-      if (community == null || community.id == this.communityId) return
-      this.communityId = community.id
+    onCommunityChange() {
       this.loadCandidates()
     },
     onMonthPick(event: any) {
       this.period = String(event.detail.value)
       this.loadCandidates() // 巡检员确认环节候选人按月份解析，换月份必须重载
     },
-    onTypePick(event: any) {
-      const index = Number(event.detail.value)
-      const option = this.typeOptions[index - 1]
-      const nextType = index <= 0 || option == null ? '' : option.value
-      if (nextType == this.patrolType) return
-      this.patrolType = nextType
+    onTypeChange() {
       this.loadCandidates()
     },
     async loadCandidates() {
@@ -353,17 +312,7 @@ export default {
   flex-direction: row;
 }
 
-.mode-chip {
-  border-width: 1rpx;
-  border-style: solid;
-  border-radius: 999rpx;
-  padding: 14rpx 32rpx;
-  margin-right: 20rpx;
-}
 
-.mode-chip-text {
-  font-size: 28rpx;
-}
 
 .tip {
   display: block;

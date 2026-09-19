@@ -1,6 +1,6 @@
 <template>
-  <view class="page" :style="{ backgroundColor: colors.bgPage }">
-    <AppSegmentTabs :items="tabs" :value="tab" :colors="colors" @change="switchTab" />
+  <view class="page bg-page" >
+    <AppSegmentTabs :items="tabs" :value="tab" @change="switchTab" />
 
     <AppListShell
       :loading="loading"
@@ -10,7 +10,7 @@
       :show-skeleton="list.length == 0"
       :empty-title="emptyTitle"
       :empty-sub="emptySub"
-      :colors="colors"
+     
       @retry="load"
     >
 
@@ -20,21 +20,21 @@
       <view
         v-for="r in list"
         :key="r.id"
-         hover-class="hover-dim" class="card"
-        :style="{ backgroundColor: colors.bgCard }"
+         hover-class="hover-dim" class="card bg-card"
+        
         @click="goDetail(r.id)"
       >
         <view  hover-class="hover-dim" class="card-head">
-          <text  hover-class="hover-dim" class="card-title" :style="{ color: colors.textPrimary }">{{ r.title }}</text>
+          <text  hover-class="hover-dim" class="card-title text-main" >{{ r.title }}</text>
         </view>
         <view  hover-class="hover-dim" class="card-row">
-          <text  hover-class="hover-dim" class="card-node" :style="{ color: nodeColorOf(r.status), backgroundColor: colors.primaryLight }">{{ nodeTextOf(r.status) }}</text>
-          <text v-if="r.status == 'pending_review'" hover-class="hover-dim" class="card-progress" :style="{ color: colors.textSecondary }">待当前审核步骤处理</text>
+          <text  hover-class="hover-dim" class="card-node bg-brand-light" :style="{ color: nodeColorOf(r.status) }">{{ nodeTextOf(r.status) }}</text>
+          <text v-if="r.status == 'pending_review'" hover-class="hover-dim" class="card-progress text-secondary" >待当前审核步骤处理</text>
         </view>
-        <text class="card-signers" :style="{ color: colors.textSecondary }">
+        <text class="card-signers text-secondary" >
           审核路径：{{ (r.review_steps || []).map((x: any) => x.name).join(' → ') || '无需审核' }}
         </text>
-        <text  hover-class="hover-dim" class="card-time" :style="{ color: colors.textSecondary }">生成时间 {{ r.created_at }}</text>
+        <text  hover-class="hover-dim" class="card-time text-secondary" >生成时间 {{ r.created_at }}</text>
       </view>
     </view>
     </template>
@@ -43,8 +43,8 @@
     <view v-if="menuOpen" class="plus-mask" @click="menuOpen = false">
       <view class="plus-menu" @click.stop>
         <view v-if="canGenerate" hover-class="hover-dim" class="plus-item" @click="goGenerate">
-          <text hover-class="hover-dim" class="plus-item-icon" :style="{ color: colors.white }">＋</text>
-          <text hover-class="hover-dim" class="plus-item-text" :style="{ color: colors.white }">生成报告</text>
+          <text hover-class="hover-dim" class="plus-item-icon text-white" >＋</text>
+          <text hover-class="hover-dim" class="plus-item-text text-white" >生成报告</text>
         </view>
       </view>
     </view>
@@ -53,7 +53,7 @@
 
 <script lang="ts">
 import { toastErr } from '@/utils/ui'
-import { Colors, ColorTokens } from '@/utils/theme'
+
 import { apiReports, ReportListItem } from '@/services/api'
 import { useAuthStore } from '@/stores/auth'
 import AppListShell from '@/components/AppListShell.vue'
@@ -62,7 +62,6 @@ import AppSegmentTabs from '@/components/AppSegmentTabs.vue'
 type TabKey = 'pending' | 'doing' | 'done' | 'all'
 
 type PendingData = {
-  colors: ColorTokens
   tab: TabKey
   loading: boolean
   loaded: boolean
@@ -87,15 +86,14 @@ function nodeTextOf(status: string): string {
 }
 
 function nodeColorOf(status: string): string {
-  if (status == 'approved') return Colors.success
-  return Colors.primary
+  if (status == 'approved') return '#2BA471'
+  return '#2B5AED'
 }
 
 export default {
   components: { AppListShell, AppSegmentTabs },
   data(): PendingData {
     return {
-      colors: Colors,
       tab: 'pending',
       loading: true,
       loaded: false,

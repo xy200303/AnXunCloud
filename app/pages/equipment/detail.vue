@@ -1,67 +1,67 @@
 <template>
-  <view class="page" :style="{ backgroundColor: colors.bgPage }">
+  <view class="page bg-page" >
     <AppListShell
       :loading="loading"
       :loaded="loaded"
       :empty="false"
       :error="errorMsg"
-      :colors="colors"
+     
       @retry="load"
     >
       <template #default>
       <view class="content" v-if="detail != null">
         <!-- 基础信息 -->
-        <view class="card" :style="{ backgroundColor: colors.bgCard }">
+        <view class="card bg-card" >
           <view class="card-head">
             <view class="card-title-row">
-              <view class="due-dot" :style="{ backgroundColor: dueColorOf(detail.due_state) }"></view>
-              <text class="card-title" :style="{ color: colors.textPrimary }">{{ detail.name }}</text>
+              <uni-badge :is-dot="true" :custom-style="{ backgroundColor: dueColorOf(detail.due_state), marginRight: '12rpx' }" />
+              <text class="card-title text-main" >{{ detail.name }}</text>
             </view>
             <text class="card-status" :style="{ color: dueColorOf(detail.due_state) }">{{ dueText }}</text>
           </view>
-          <text class="info-line" :style="{ color: colors.textRegular }">编号：{{ detail.code }}</text>
-          <text class="info-line" :style="{ color: colors.textRegular }">类型：{{ detail.type_label != '' ? detail.type_label : detail.type }}</text>
-          <text class="info-line" :style="{ color: colors.textRegular }">位置：{{ locationText }}</text>
-          <text class="info-line" :style="{ color: colors.textRegular }">出厂日期：{{ detail.manufacture_date != '' ? detail.manufacture_date : '未录' }}</text>
-          <text class="info-line" :style="{ color: colors.textRegular }">最近维保：{{ detail.last_maintenance_date != '' ? detail.last_maintenance_date : '无记录' }}</text>
-          <text class="info-line" :style="{ color: detail.due_state == 'overdue' ? colors.danger : colors.textRegular }">
+          <text class="info-line text-regular" >编号：{{ detail.code }}</text>
+          <text class="info-line text-regular" >类型：{{ detail.type_label != '' ? detail.type_label : detail.type }}</text>
+          <text class="info-line text-regular" >位置：{{ locationText }}</text>
+          <text class="info-line text-regular" >出厂日期：{{ detail.manufacture_date != '' ? detail.manufacture_date : '未录' }}</text>
+          <text class="info-line text-regular" >最近维保：{{ detail.last_maintenance_date != '' ? detail.last_maintenance_date : '无记录' }}</text>
+          <text class="info-line"  :class="(detail.due_state == 'overdue' ? 'text-danger' : 'text-regular')">
             下次到期：{{ detail.next_due_date != '' ? detail.next_due_date : '无到期日（无规则或未录日期）' }}
           </text>
-          <text v-if="detail.scrap_date != ''" class="info-line" :style="{ color: colors.textRegular }">报废日期：{{ detail.scrap_date }}</text>
-          <text class="info-line" :style="{ color: colors.textRegular }">状态：{{ detail.status_label }}</text>
-          <text v-if="detail.remark != ''" class="info-line" :style="{ color: colors.textSecondary }">备注：{{ detail.remark }}</text>
+          <text v-if="detail.scrap_date != ''" class="info-line text-regular" >报废日期：{{ detail.scrap_date }}</text>
+          <text class="info-line text-regular" >状态：{{ detail.status_label }}</text>
+          <text v-if="detail.remark != ''" class="info-line text-secondary" >备注：{{ detail.remark }}</text>
         </view>
 
         <!-- 档案信息（extra 口袋键值展示，空值不显示） -->
-        <view v-if="archiveRows.length > 0" class="card" :style="{ backgroundColor: colors.bgCard }">
-          <text class="sec-title" :style="{ color: colors.textPrimary }">档案信息</text>
+        <view v-if="archiveRows.length > 0" class="card bg-card" >
+          <text class="sec-title text-main" >档案信息</text>
           <view v-for="r in archiveRows" :key="r.key" class="archive-row">
-            <text class="archive-label" :style="{ color: colors.textSecondary }">{{ r.label }}</text>
-            <text class="archive-value" :style="{ color: colors.textRegular }">{{ r.value }}</text>
+            <text class="archive-label text-secondary" >{{ r.label }}</text>
+            <text class="archive-value text-regular" >{{ r.value }}</text>
           </view>
         </view>
 
         <!-- 维保历史时间线 -->
-        <view class="card" :style="{ backgroundColor: colors.bgCard }">
-          <text class="sec-title" :style="{ color: colors.textPrimary }">维保历史</text>
+        <view class="card bg-card" >
+          <text class="sec-title text-main" >维保历史</text>
           <view v-if="history.length == 0 && historyLoaded">
-            <text class="history-empty" :style="{ color: colors.textSecondary }">暂无维保记录</text>
+            <text class="history-empty text-secondary" >暂无维保记录</text>
           </view>
           <view v-for="m in history" :key="m.id" class="history-item">
             <view class="history-rail">
-              <view class="history-dot" :style="{ backgroundColor: confirmColorOf(m.confirm_status) }"></view>
-              <view class="history-line-rail" :style="{ backgroundColor: colors.border }"></view>
+              <uni-badge :is-dot="true" :custom-style="{ backgroundColor: confirmColorOf(m.confirm_status), marginRight: '12rpx' }" />
+              <view class="history-line-rail bg-border" ></view>
             </view>
             <view class="history-body">
               <view class="history-head">
-                <text class="history-date" :style="{ color: colors.textPrimary }">{{ m.maintenance_date }}</text>
-                <text class="history-type" :style="{ color: colors.primary }">{{ maintTypeText(m.maintenance_type) }}</text>
+                <text class="history-date text-main" >{{ m.maintenance_date }}</text>
+                <text class="history-type text-brand" >{{ maintTypeText(m.maintenance_type) }}</text>
                 <text class="history-status" :style="{ color: confirmColorOf(m.confirm_status) }">{{ confirmTextOf(m.confirm_status) }}</text>
               </view>
-              <text class="history-line" :style="{ color: colors.textRegular }">经办人：{{ m.operator_name }}<text v-if="m.vendor != null && m.vendor != ''">　单位：{{ m.vendor }}</text></text>
-              <text v-if="m.ai_verdict == 'review'" class="history-line" :style="{ color: colors.warning }">AI 存疑{{ m.ai_reason != null && m.ai_reason != '' ? '：' + m.ai_reason : '' }}</text>
-              <text v-if="m.reject_reason != null && m.reject_reason != ''" class="history-line" :style="{ color: colors.danger }">驳回理由：{{ m.reject_reason }}</text>
-              <text v-if="m.note != ''" class="history-line" :style="{ color: colors.textSecondary }">备注：{{ m.note }}</text>
+              <text class="history-line text-regular" >经办人：{{ m.operator_name }}<text v-if="m.vendor != null && m.vendor != ''">　单位：{{ m.vendor }}</text></text>
+              <text v-if="m.ai_verdict == 'review'" class="history-line text-warning" >AI 存疑{{ m.ai_reason != null && m.ai_reason != '' ? '：' + m.ai_reason : '' }}</text>
+              <text v-if="m.reject_reason != null && m.reject_reason != ''" class="history-line text-danger" >驳回理由：{{ m.reject_reason }}</text>
+              <text v-if="m.note != ''" class="history-line text-secondary" >备注：{{ m.note }}</text>
               <view v-if="m.photos.length > 0" class="photos">
                 <image
                   v-for="(p, pi) in m.photos"
@@ -76,7 +76,7 @@
             </view>
           </view>
           <view v-if="historyMore" class="history-more" @click="loadMoreHistory">
-            <text class="history-more-text" :style="{ color: colors.primary }">加载更多</text>
+            <text class="history-more-text text-brand" >加载更多</text>
           </view>
         </view>
 
@@ -86,21 +86,21 @@
     </AppListShell>
 
     <!-- 底部维保登记按钮（逾期红/临期黄高亮） -->
-    <view v-if="detail != null && canRegister" class="footer-bar" :style="{ backgroundColor: colors.bgCard, borderTopColor: colors.border }">
+    <view v-if="detail != null && canRegister" class="footer-bar bg-card border-default" >
       <view
         hover-class="hover-dim"
         class="btn-primary"
-        :style="{ backgroundColor: detail.due_state == 'overdue' ? colors.danger : (detail.due_state == 'warning' ? colors.warning : colors.primary) }"
+        :style="{ backgroundColor: detail.due_state == 'overdue' ? '#D54941' : (detail.due_state == 'warning' ? '#ED7B2F' : '#2B5AED') }"
         @click="goRegister"
       >
-        <text class="btn-primary-text" :style="{ color: colors.white }">维保登记</text>
+        <text class="btn-primary-text text-white" >维保登记</text>
       </view>
     </view>
   </view>
 </template>
 
 <script lang="ts">
-import { Colors, ColorTokens } from '@/utils/theme'
+
 import { apiEquipmentDetail, apiMaintenanceHistory, apiDictOptions, EquipmentDetail, MaintenanceItem, DictOption } from '@/services/api'
 import { useAuthStore } from '@/stores/auth'
 import { toAbsUrl } from '@/utils/url'
@@ -109,7 +109,6 @@ import AppListShell from '@/components/AppListShell.vue'
 const PAGE_SIZE = 20
 
 type DetailData = {
-  colors: ColorTokens
   id: string
   detail: EquipmentDetail | null
   maintTypeOptions: DictOption[]
@@ -123,16 +122,16 @@ type DetailData = {
 }
 
 function dueColorOf(s: string): string {
-  if (s == 'normal') return Colors.success
-  if (s == 'warning') return Colors.warning
-  if (s == 'overdue' || s == 'scrap') return Colors.danger
-  return Colors.info
+  if (s == 'normal') return '#2BA471'
+  if (s == 'warning') return '#ED7B2F'
+  if (s == 'overdue' || s == 'scrap') return '#D54941'
+  return '#909399'
 }
 
 function confirmColorOf(s: string): string {
-  if (s == 'confirmed') return Colors.success
-  if (s == 'rejected') return Colors.danger
-  return Colors.warning
+  if (s == 'confirmed') return '#2BA471'
+  if (s == 'rejected') return '#D54941'
+  return '#ED7B2F'
 }
 
 function confirmTextOf(s: string): string {
@@ -151,7 +150,6 @@ export default {
   components: { AppListShell },
   data(): DetailData {
     return {
-      colors: Colors,
       id: '',
       detail: null,
       maintTypeOptions: [] as DictOption[],
@@ -316,12 +314,6 @@ export default {
   flex: 1;
 }
 
-.due-dot {
-  width: 20rpx;
-  height: 20rpx;
-  border-radius: 10rpx;
-  margin-right: 16rpx;
-}
 
 .card-title {
   font-size: 34rpx;
@@ -376,12 +368,6 @@ export default {
   align-items: center;
 }
 
-.history-dot {
-  width: 16rpx;
-  height: 16rpx;
-  border-radius: 8rpx;
-  margin-top: 12rpx;
-}
 
 .history-line-rail {
   flex: 1;

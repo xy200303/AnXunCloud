@@ -81,11 +81,15 @@ export default {
 }
 </script>
 
-<style>
-/* 全局样式：色值与 utils/theme.ts 一一对应，修改时请同步 */
+<style lang="scss">
+/*
+ * 颜色唯一来源：app/uni.scss 的 $uni-* 变量（uni-ui 官方换色机制，改色只改 uni.scss）。
+ * 本文件只引用变量定义全局基色与工具类，不写死色值。
+ */
+
 page {
-  background-color: #F5F6F8; /* Colors.bgPage */
-  color: #1F2329;            /* Colors.textPrimary */
+  background-color: $uni-bg-color;
+  color: $uni-main-color;
 }
 
 /*
@@ -107,21 +111,96 @@ uni-app uni-swiper-item {
   box-sizing: border-box;
 }
 
-/* 设计令牌 CSS 变量（页面内颜色仍以 theme.ts 绑定为准，二者保持一致） */
-:root {
-  --primary: #2B5AED;
-  --primary-light: #EAEFFF;
-  --success: #2BA471;
-  --warning: #ED7B2F;
-  --danger: #D54941;
-  --info: #909399;
-  --bg-page: #F5F6F8;
-  --bg-card: #FFFFFF;
-  --text-primary: #1F2329;
-  --text-regular: #4E5969;
-  --text-secondary: #86909C;
-  --border: #E5E6EB;
+/* ===== 颜色工具类（替代已废除的 theme.ts Colors 令牌；模板 :class 使用） ===== */
+/* 文字色 */
+.text-main { color: $uni-main-color; }
+.text-regular { color: $uni-base-color; }
+.text-secondary { color: $uni-secondary-color; }
+.text-brand { color: $uni-primary; }
+.text-brand-light { color: $uni-primary-light; }
+.text-success { color: $uni-success; }
+.text-warning { color: $uni-warning; }
+.text-danger { color: $uni-error; }
+.text-info { color: $uni-info; }
+.text-white { color: $uni-white; }
+.text-border { color: $uni-border-color; }
+
+/* 背景色 */
+.bg-page { background-color: $uni-bg-color; }
+.bg-card { background-color: $uni-bg-card; }
+.bg-white { background-color: $uni-white; }
+.bg-brand { background-color: $uni-primary; }
+.bg-brand-light { background-color: $uni-primary-light; }
+.bg-success { background-color: $uni-success; }
+.bg-warning { background-color: $uni-warning; }
+.bg-danger { background-color: $uni-error; }
+.bg-info { background-color: $uni-info; }
+.bg-border { background-color: $uni-border-color; }
+.bg-mask { background-color: $uni-mask; }
+
+/* 通用全屏遮罩（自绘对话框用）：fixed 盖全屏 + flex 布局；
+   z-index 需高于 uni-popup（99，PC 端 999），否则弹层开在半屏下面"点了没反应" */
+.mask {
+  position: fixed;
+  left: 0;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 1001;
+  display: flex;
+  flex-direction: column;
 }
+.bg-main { background-color: $uni-main-color; }
+
+/* 边框色（仅设颜色，宽度/样式由各组件自定） */
+.border-default { border-color: $uni-border-color; }
+.border-brand { border-color: $uni-primary; }
+.border-brand-light { border-color: $uni-primary-light; }
+.border-success { border-color: $uni-success; }
+.border-warning { border-color: $uni-warning; }
+.border-danger { border-color: $uni-error; }
+.border-info { border-color: $uni-info; }
+.border-white { border-color: $uni-white; }
+.border-secondary { border-color: $uni-secondary-color; }
+
+/* uni-segmented-control（text 样式）未选中项官方件内部硬编码 #000，覆盖对齐 $uni-base-color；
+   选中项色值为组件内联样式（activeColor），不受影响 */
+uni-app .segmented-control--text .segmented-control__text {
+  color: $uni-base-color;
+}
+
+/* ===== 按钮官方化：内置 <button plain="true"> + 全局工具类（色值 = $uni-*） ===== */
+/* plain 按钮默认样式重置：去边框/背景/内边距，居中布局（与 view 的 flex 默认对齐） */
+button[plain="true"] {
+  background-color: transparent;
+  border-width: 0;
+  padding: 0;
+  margin: 0;
+  line-height: normal;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+}
+button[plain="true"]::after {
+  border: none;
+}
+
+/* 实心按钮（文字反白）。工具类与 button[plain] 属性选择器组合书写——属性选择器(0-1-1)
+   优先级高于单类(0-1-0)，不这样写会被上方重置的 background:transparent 盖掉 */
+button[plain="true"].btn-primary { background-color: $uni-primary; color: $uni-white; }
+button[plain="true"].btn-success { background-color: $uni-success; color: $uni-white; }
+button[plain="true"].btn-danger { background-color: $uni-error; color: $uni-white; }
+button[plain="true"].btn-warning { background-color: $uni-warning; color: $uni-white; }
+/* 描边按钮 */
+button[plain="true"].btn-outline { background-color: transparent; color: $uni-primary; border-width: 2rpx; border-style: solid; border-color: $uni-primary; }
+button[plain="true"].btn-outline-danger { background-color: transparent; color: $uni-error; border-width: 2rpx; border-style: solid; border-color: $uni-error; }
+button[plain="true"].btn-outline-warning { background-color: transparent; color: $uni-warning; border-width: 2rpx; border-style: solid; border-color: $uni-warning; }
+/* 置灰（禁用态/不可改） */
+button[plain="true"].btn-disabled { background-color: $uni-border-color; color: $uni-secondary-color; }
+/* 大按钮通用尺寸（页面可再叠加局部圆角/高度微调） */
+.btn-big { width: 100%; height: 104rpx; border-radius: 20rpx; font-size: 34rpx; font-weight: 600; }
 
 /* 可点元素的按下反馈（微信式触摸变暗），配 hover-class="hover-dim" 使用 */
 .hover-dim {

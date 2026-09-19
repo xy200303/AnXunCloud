@@ -1,23 +1,22 @@
 <template>
   <view
-    class="app-filter-field"
+    class="app-filter-field border-default"
     hover-class="hover-dim"
-    :style="{ borderColor: colors.border }"
+    
     @click="$emit('click')"
   >
-    <text class="app-filter-field-text" :style="{ color: selected ? colors.textPrimary : colors.textSecondary }">{{ text }}</text>
-    <text class="app-filter-field-arrow" :style="{ color: colors.textSecondary }">▾</text>
+    <text class="app-filter-field-text"  :class="(selected ? 'text-main' : 'text-secondary')">{{ text }}</text>
+    <text class="app-filter-field-arrow text-secondary" >▾</text>
   </view>
 </template>
 
 <script lang="ts">
-import { Colors, ColorTokens } from '@/utils/theme'
+
 
 export default {
   props: {
     text: { type: String, default: '' },
     selected: { type: Boolean, default: false },
-    colors: { type: Object, default: () => Colors as ColorTokens }
   },
   emits: ['click']
 }

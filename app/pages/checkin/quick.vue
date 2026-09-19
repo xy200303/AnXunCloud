@@ -1,15 +1,15 @@
 <template>
-  <view class="page" :style="{ backgroundColor: colors.bgPage }">
+  <view class="page bg-page" >
     <!-- 自定义导航栏：左返回（返回=退出巡检）、中标题、右侧「?」=逃生（仅逐项步、非台账项显示） -->
-    <view class="navbar" :style="{ backgroundColor: colors.primary, paddingTop: statusBarHeight + 'px' }">
+    <view class="navbar bg-brand" :style="{ paddingTop: statusBarHeight + 'px' }">
       <view class="navbar-row">
         <view hover-class="hover-dim" class="navbar-side" @click="onBackTap">
-          <text class="navbar-back" :style="{ color: colors.white }">‹</text>
+          <uni-icons type="back" size="24" :color="'#FFFFFF'" />
         </view>
-        <text class="navbar-title" :style="{ color: colors.white }">{{ manualMode ? '手动巡检' : '连续巡检' }}</text>
+        <text class="navbar-title text-white" >{{ manualMode ? '手动巡检' : '连续巡检' }}</text>
         <view class="navbar-side navbar-right">
-          <view v-if="showEscapeEntry" hover-class="hover-dim" class="navbar-help" :style="{ borderColor: colors.white }" @click="onEscapeTap">
-            <text class="navbar-help-text" :style="{ color: colors.white }">?</text>
+          <view v-if="showEscapeEntry" hover-class="hover-dim" class="navbar-help" @click="onEscapeTap">
+            <uni-icons type="help-filled" size="24" :color="'#FFFFFF'" />
           </view>
         </view>
       </view>
@@ -18,33 +18,33 @@
 
     <!-- 骨架屏 -->
     <view v-if="loading" class="skeleton">
-      <view class="sk-block" :style="{ backgroundColor: colors.border }"></view>
-      <view class="sk-block" :style="{ backgroundColor: colors.border }"></view>
+      <view class="sk-block bg-border" ></view>
+      <view class="sk-block bg-border" ></view>
     </view>
 
     <!-- 加载失败 -->
     <view v-else-if="!loaded" class="empty">
-      <text class="empty-title" :style="{ color: colors.textRegular }">{{ errorMsg }}</text>
-      <text class="empty-retry" :style="{ color: colors.primary }" @click="load">重试</text>
+      <text class="empty-title text-regular" >{{ errorMsg }}</text>
+      <text class="empty-retry text-brand"  @click="load">重试</text>
     </view>
 
     <!-- 连续巡检向导 -->
     <view v-else class="wizard">
       <!-- 顶部进度区（任务完成页不显示） -->
-      <view v-if="phase != 'taskDone'" class="head" :style="{ backgroundColor: colors.bgCard, boxShadow: shadow }">
+      <view v-if="phase != 'taskDone'" class="head bg-card" :style="{ boxShadow: shadow }">
         <view class="head-row">
-          <text class="head-progress" :style="{ color: colors.primary }">点位 {{ pointOrdinal }}/{{ totalPoints }}</text>
-          <view v-if="phase == 'items'" class="head-item-pill" :style="{ backgroundColor: colors.primaryLight }">
-            <text class="head-item-pill-text" :style="{ color: colors.primary }">第 {{ itemIdx + 1 }}/{{ curItemCount }} 项</text>
+          <text class="head-progress text-brand" >点位 {{ pointOrdinal }}/{{ totalPoints }}</text>
+          <view v-if="phase == 'items'" class="head-item-pill bg-brand-light" >
+            <text class="head-item-pill-text text-brand" >第 {{ itemIdx + 1 }}/{{ curItemCount }} 项</text>
           </view>
         </view>
-        <text class="head-point" :style="{ color: colors.textPrimary }">{{ curPoint != null ? curPoint.point_name : '' }}</text>
-        <text class="head-building" :style="{ color: colors.textSecondary }">{{ curPoint != null && curPoint.building_name != '' ? curPoint.building_name : '未分区' }}</text>
+        <text class="head-point text-main" >{{ curPoint != null ? curPoint.point_name : '' }}</text>
+        <text class="head-building text-secondary" >{{ curPoint != null && curPoint.building_name != '' ? curPoint.building_name : '未分区' }}</text>
         <view class="head-bar-row">
-          <view class="progress head-bar" :style="{ backgroundColor: colors.border }">
-            <view class="progress-inner" :style="{ width: progressWidth, backgroundColor: colors.primary }"></view>
+          <view class="progress head-bar bg-border" >
+            <view class="progress-inner bg-brand" :style="{ width: progressWidth }"></view>
           </view>
-          <text class="head-bar-text" :style="{ color: colors.textSecondary }">{{ progressWidth }}</text>
+          <text class="head-bar-text text-secondary" >{{ progressWidth }}</text>
         </view>
       </view>
 
@@ -60,7 +60,7 @@
         :loc-failed="locFailed"
         :distance="fenceDispDistance"
         :cred-flash="credFlash"
-        :colors="colors"
+       
         :shadow="shadow"
         @scan-fallback="scanCredential"
         @nfc-tap="onNfcRowTap"
@@ -77,7 +77,7 @@
           :equip-judge="curEquipJudge"
           :manual-mode="manualMode"
           :exception-label="curItemExceptionText"
-          :colors="colors"
+         
           :shadow="shadow"
           @take-photo="takePhoto"
           @preview-photo="previewCurPhoto"
@@ -96,7 +96,7 @@
         :stats="gateStats"
         :rows="gateRows"
         :submit-error="gateSubmitError"
-        :colors="colors"
+       
         :shadow="shadow"
         @skip="onGateSkip"
         @retry="onGateRetry"
@@ -106,7 +106,7 @@
       <block v-if="phase == 'retake'">
         <QuickIssuePanel
           :items="retakeItems"
-          :colors="colors"
+         
           :shadow="shadow"
           @preview="previewPhoto"
           @image-error="$event.img_error = true"
@@ -117,23 +117,23 @@
 
       <!-- 异常不再单设处置页（处置是甲方线下的事）：异常项随点位直接提交，服务端强制人工审核 -->
       <!-- 点位完成（绿勾，自动下一点位） -->
-      <view v-if="phase == 'pointDone'" class="done-pane" :style="{ backgroundColor: colors.success }">
-        <text class="done-icon" :style="{ color: colors.white }">✓</text>
-        <text class="done-title" :style="{ color: colors.white }">本点位完成</text>
+      <view v-if="phase == 'pointDone'" class="done-pane bg-success" >
+        <text class="done-icon text-white" >✓</text>
+        <text class="done-title text-white" >本点位完成</text>
       </view>
 
       <!-- 任务完成 -->
-      <view v-if="phase == 'taskDone'" class="done-pane" :style="{ backgroundColor: colors.success }">
-        <text class="done-icon" :style="{ color: colors.white }">✓</text>
-        <text class="done-title" :style="{ color: colors.white }">任务完成</text>
-        <view hover-class="hover-dim" class="done-btn" :style="{ backgroundColor: colors.white }" @click="exitWizard">
-          <text hover-class="hover-dim" class="done-btn-text" :style="{ color: colors.success }">返回</text>
-        </view>
+      <view v-if="phase == 'taskDone'" class="done-pane bg-success" >
+        <text class="done-icon text-white" >✓</text>
+        <text class="done-title text-white" >任务完成</text>
+        <button plain="true" hover-class="hover-dim" class="done-btn bg-white" @click="exitWizard">
+          <text class="done-btn-text text-success">返回</text>
+        </button>
       </view>
 
       <!-- 档位切换：仅凭证步；AI 档"改用人工填写"，手动档"改回 AI 自动识别"（双向可切，进度在云端草稿） -->
       <view v-if="showManualEntry" hover-class="hover-dim" class="manual-link" @click="switchMode">
-        <text hover-class="hover-dim" class="manual-link-text" :style="{ color: colors.textSecondary }">{{ manualMode ? '改回 AI 自动识别 ›' : 'AI 不好使？改用人工填写 ›' }}</text>
+        <text hover-class="hover-dim" class="manual-link-text text-secondary" >{{ manualMode ? '改回 AI 自动识别 ›' : 'AI 不好使？改用人工填写 ›' }}</text>
       </view>
 
       <view class="bottom-space"></view>
@@ -142,7 +142,7 @@
     <!-- 底部操作栏（文档流底部随整页滚动，不固定；凭证步不显示）：状态-按钮对照见方案第五节 -->
     <WizardBottomBar
       v-if="barCfg.visible"
-      :colors="colors"
+     
       :primary-text="barCfg.primaryText"
       :primary-kind="barCfg.primaryKind"
       :secondary-text="barCfg.secondaryText"
@@ -157,11 +157,11 @@
     />
 
     <!-- 上传 / 提交中弹窗 -->
-    <view v-if="overlayMsg != ''" class="overlay" :style="{ backgroundColor: colors.mask }">
-      <view class="overlay-dialog" :style="{ backgroundColor: colors.bgCard }">
-        <view class="spinner" :style="{ borderTopColor: colors.primary }"></view>
-        <text class="overlay-text" :style="{ color: colors.textPrimary }">{{ overlayMsg }}</text>
-        <text class="overlay-sub" :style="{ color: colors.textSecondary }">{{ overlaySub }}</text>
+    <view v-if="overlayMsg != ''" class="overlay bg-mask" >
+      <view class="overlay-dialog bg-card" >
+        <view class="spinner border-brand" ></view>
+        <text class="overlay-text text-main" >{{ overlayMsg }}</text>
+        <text class="overlay-sub text-secondary" >{{ overlaySub }}</text>
       </view>
     </view>
 
@@ -200,7 +200,7 @@
       :tags="pickerTags"
       :selected="pickerSelected"
       confirm-text="完成"
-      :colors="colors"
+     
       @update:visible="tagPickerShow = $event"
       @toggle="toggleCurTag"
       @confirm="tagPickerShow = false"
@@ -214,7 +214,7 @@
       with-note
       :note="manualNote"
       confirm-text="确认异常，下一项"
-      :colors="colors"
+     
       @update:visible="abnSheetShow = $event"
       @toggle="toggleCurTag"
       @update:note="manualNote = $event"
@@ -224,7 +224,7 @@
 </template>
 
 <script lang="ts">
-import { Colors, ColorTokens, ShadowCard } from '@/utils/theme'
+import { ShadowCard } from '@/utils/theme'
 import {
   apiTaskDetail,
   apiCheckin,
@@ -297,7 +297,6 @@ type BarCfg = {
 }
 
 type QuickData = {
-  colors: ColorTokens
   shadow: string
   /** 状态栏高度（px），自定义导航栏占位用 */
   statusBarHeight: number
@@ -381,7 +380,6 @@ type QuickData = {
   /** 凭证步：核验通过绿色过渡态 / 自动进入防重 / 内嵌扫码窗 */
   credFlash: boolean
   credAutoStarted: boolean
-  scanView: any
 }
 
 /** haversine 距离（米） */
@@ -466,7 +464,6 @@ export default {
   components: { QuickItemCard, QuickIssuePanel, QuickCredentialCard, QuickGateCard, WizardBottomBar, QuickTagPicker, AppDialog, AppActionSheet },
   data(): QuickData {
     return {
-      colors: Colors,
       shadow: ShadowCard,
       statusBarHeight: 0,
       taskId: '',
@@ -523,7 +520,6 @@ export default {
       escapeType: '',
       credFlash: false,
       credAutoStarted: false,
-      scanView: null
     }
   },
   computed: {
@@ -683,13 +679,13 @@ export default {
     /** 逐项步底栏档位切换链：AI 档/手动档双向可切（草稿在云端，互切不丢进度） */
     showModeSwitch(): boolean {
       if (!this.aiEnabled) return false
-      if (this.modify || this.overlayMsg != '' || this.submitting || this.captureBusy) return false
+      if (this.overlayMsg != '' || this.submitting || this.captureBusy) return false
       if (this.curPoint == null) return false
       return this.phase == 'items'
     },
     showManualEntry(): boolean {
       if (!this.aiEnabled) return false
-      if (this.modify || this.overlayMsg != '' || this.submitting || this.captureBusy) return false
+      if (this.overlayMsg != '' || this.submitting || this.captureBusy) return false
       if (this.curPoint == null) return false
       // 档位在进门时定：仅凭证步提供切手动档入口（方案 §13.4）
       return this.phase == 'cred'
@@ -763,7 +759,7 @@ export default {
     this.taskId = options && options.task_id ? String(options.task_id) : ''
     this.pointIdParam = options && options.point_id ? String(options.point_id) : ''
     this.modify = options != null && options.mode == 'modify'
-    this.manualMode = options != null && options.mode == 'manual'
+    this.manualMode = options != null && (options.mode == 'manual' || options.manual == '1')
     if (options && options.no) {
       this.preVerifiedNo = String(options.no).trim()
     }
@@ -776,12 +772,10 @@ export default {
     // 回到页面（如接电话切回）：自动补传待补传照片（无网/处理中自动跳过）
     this.retryPendingItems()
     this.ensureBgPoll()
-    // 回到凭证步：重开内嵌扫码窗（onHide 已关闭，避免原生视图遮盖其他页面）
-    if (this.loaded && this.phase == 'cred') this.openCredScan()
   },
   onHide() {
-    // 内嵌扫码窗是原生视图、盖在 webview 上层：页面不可见时关闭
-    this.closeCredScan()
+    // 切后台/锁屏暂停 AI 轮询（onShow 的 ensureBgPoll 会无缝恢复），避免后台耗电耗流量
+    this.stopBgPoll()
   },
   onUnload() {
     this.destroyed = true
@@ -790,7 +784,6 @@ export default {
     this.bgQueue = []
     uni.offNetworkStatusChange(this.onNetChange)
     this.stopBgPoll()
-    this.closeCredScan()
     if (this.overlayWatchdog != null) {
       clearTimeout(this.overlayWatchdog)
       this.overlayWatchdog = null
@@ -825,11 +818,6 @@ export default {
         uni.showToast({ title: '网络较慢，请检查后重试', icon: 'none' })
       }, 75000)
     },
-    /** 内嵌扫码窗生命周期收进 phase 状态机：进凭证步开，离开凭证步必须 close */
-    phase(v: Phase) {
-      if (v == 'cred') this.openCredScan()
-      else this.closeCredScan()
-    }
   },
   methods: {
     load() {
@@ -1109,9 +1097,6 @@ export default {
       }
       // 断点恢复/切档重进停在收尾步：不自动提交（gateArmed=false），等用户自己点「提交本点位」
       this.gateArmed = false
-      // 内嵌扫码窗：phase 未变化时 watcher 不触发（如同相位连续进点位），这里显式开/关
-      if (this.phase == 'cred') this.openCredScan()
-      else this.closeCredScan()
     },
     locate() {
       if (this.locating) return
@@ -1171,7 +1156,6 @@ export default {
       if (!this.credOk || !this.fenceOk) return
       this.credAutoStarted = true
       this.credFlash = true
-      this.closeCredScan()
       uni.vibrateShort({})
       setTimeout(() => {
         if (this.destroyed) return
@@ -1207,20 +1191,17 @@ export default {
         fence_distance: fenceDistance
       })
     },
-    /** 扫码结果统一处理（内嵌扫码窗 onmarked / 全屏扫码 success 共用） */
+    /** 扫码结果统一处理（全屏 uni.scanCode success） */
     onCredScanResult(raw: string) {
       const code = extractPointCode(raw)
       if (code == '') {
         uni.showToast({ title: '请扫描新版点位二维码', icon: 'none' })
-        this.reopenCredScan()
         return
       }
       if (this.curPoint != null && this.curPoint.qrcode_no != '' && code != this.curPoint.qrcode_no) {
         uni.showToast({ title: '二维码与本点位不匹配', icon: 'none' })
-        this.reopenCredScan()
         return
       }
-      this.closeCredScan()
       if (this.curWizPoint != null) {
         this.curWizPoint.scannedNo = code
         this.saveCredDraft('qrcode', code, this.distance >= 0 ? this.distance : 0)
@@ -1232,65 +1213,6 @@ export default {
         return
       }
       this.maybeAutoStartCred()
-    },
-    /** 扫码结果无效：内嵌窗重开持续识别 */
-    reopenCredScan() {
-      setTimeout(() => {
-        if (!this.destroyed && this.phase == 'cred') this.openCredScan()
-      }, 300)
-    },
-    /**
-     * 内嵌摄像头扫码（方案 §13.3）：plus.barcode 在凭证卡上部开固定高度原生扫码视图，
-     * 持续识别，扫到即震动+点亮+自动关闭。原生视图盖在 webview 上层不随滚动（凭证步内容短不滚动，正好成立）；
-     * 离开凭证步必须 close（生命周期收进 phase watcher / onHide / onUnload）。
-     */
-    openCredScan() {
-      // #ifdef APP-PLUS
-      if (this.scanView != null || this.destroyed) return
-      const pt = this.curPoint
-      if (pt == null || (pt.credential != 'qrcode' && pt.credential != 'any')) return
-      const wp = this.curWizPoint
-      if (wp == null || wp.scannedNo != '') return
-      // any 同屏锁死：NFC 已核验则扫码窗不再开启
-      if (pt.credential == 'any' && wp.nfcCardId != '') return
-      setTimeout(() => {
-        if (this.destroyed || this.phase != 'cred' || this.scanView != null) return
-        uni.createSelectorQuery()
-          .in(this)
-          .select('#cred-scan-slot')
-          .boundingClientRect((rect: any) => {
-            if (this.destroyed || this.phase != 'cred' || this.scanView != null) return
-            if (rect == null || rect.width == 0) return // 占位未渲染：保留全屏扫码备用入口
-            try {
-              const bc: any = (plus as any).barcode
-              const view = bc.create('credScanView', [bc.QR], {
-                top: Math.round(rect.top) + 'px',
-                left: Math.round(rect.left) + 'px',
-                width: Math.round(rect.width) + 'px',
-                height: Math.round(rect.height) + 'px'
-              })
-              view.onmarked = (_type: number, result: string) => {
-                this.onCredScanResult(result)
-              }
-              view.start()
-              this.scanView = view
-            } catch (_e) {
-              // 创建失败：回退全屏扫码入口（卡上常驻「点这里全屏扫码」）
-            }
-          })
-          .exec()
-      }, 400)
-      // #endif
-    },
-    closeCredScan() {
-      // #ifdef APP-PLUS
-      if (this.scanView != null) {
-        try {
-          this.scanView.close()
-        } catch (_e) {}
-        this.scanView = null
-      }
-      // #endif
     },
     /** 核验清单-NFC 行点按（iOS 手动触发；Android 常驻监听贴卡即亮，点按同样可用） */
     onNfcRowTap() {
@@ -1542,17 +1464,26 @@ export default {
      * 服务端 validateConfirmedAI 对 pending/failed 草稿放行并把记录转人工复核。
      * 质量不合格（模糊/翻拍）仍须重拍。
      */
+    /** 跳过识别 = 逃生类「AI 识别失败」（escaped，不是正常也不是异常）：保留已拍照片，落 escape 草稿 */
     manualConfirmItem(it: WizardItemSnap) {
       if (it.status != 'failed' && it.status != 'recognizing') return
-      if (it.job_id != '') this.skippedJobs[it.job_id] = true // 轮询落定不再回写，保持人工确认结论
+      if (it.job_id != '') this.skippedJobs[it.job_id] = true // 轮询落定不再回写，保持逃生结论
+      const wp = this.curWizPoint
       it.status = 'done'
       it.quality_pass = true
       it.quality_issue = ''
       it.verdict = ''
-      it.reason = 'AI 未识别，巡检员现场确认'
-      it.pass = true
+      it.reason = 'AI 识别失败，巡检员现场确认'
+      it.pass = false
+      it.exception_type = 'ai_failed'
       it.manual_confirmed = true
-      uni.showToast({ title: '已转人工确认，异常请勾选观察点', icon: 'none' })
+      if (wp != null) {
+        apiItemDraftPhotoAbnormal({
+          task_id: this.taskId, point_id: wp.point_id, name: it.name,
+          file_ids: it.file_ids.slice(), note: it.reason, exception_type: 'ai_failed'
+        }).catch(() => {})
+      }
+      uni.showToast({ title: '已按「无法检查·AI识别失败」上报', icon: 'none' })
       this.maybeGateSettled()
     },
     onGateSkip(it: WizardItemSnap) {
@@ -2070,7 +2001,8 @@ export default {
       let url =
         '/pages/checkin/quick?task_id=' + encodeURIComponent(this.taskId) +
         '&point_id=' + encodeURIComponent(pt.point_id)
-      if (!this.manualMode) url += '&mode=manual'
+      if (this.modify) url += '&mode=modify'
+      if (!this.manualMode) url += '&manual=1'
       const wp = this.curWizPoint
       const preNo = wp != null ? (wp.scannedNo != '' ? wp.scannedNo : wp.nfcCardId) : ''
       if (preNo != '') url += '&no=' + encodeURIComponent(preNo)
@@ -2577,32 +2509,17 @@ export default {
   padding-right: 24rpx;
 }
 
-.navbar-back {
-  font-size: 64rpx;
-  font-weight: 300;
-  line-height: 64rpx;
-}
-
 .navbar-title {
   font-size: 36rpx;
   font-weight: 600;
 }
 
-/* 导航条右侧逃生「?」（仅逐项步、非台账项显示） */
+/* 导航条右侧逃生入口（uni-icons help 自带问号圆圈，仅逐项步、非台账项显示） */
 .navbar-help {
   width: 56rpx;
   height: 56rpx;
-  border-radius: 28rpx;
-  border-width: 3rpx;
-  border-style: solid;
   align-items: center;
   justify-content: center;
-}
-
-.navbar-help-text {
-  font-size: 36rpx;
-  font-weight: 700;
-  line-height: 48rpx;
 }
 
 .navbar-space {

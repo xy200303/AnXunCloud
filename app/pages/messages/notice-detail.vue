@@ -1,39 +1,38 @@
 <template>
-  <view class="page" :style="{ backgroundColor: colors.bgPage }">
+  <view class="page bg-page" >
     <!-- 骨架屏 -->
     <view v-if="loading" class="skeleton">
-      <view class="sk-block" :style="{ backgroundColor: colors.border }"></view>
-      <view class="sk-block" :style="{ backgroundColor: colors.border }"></view>
-      <view class="sk-block sk-short" :style="{ backgroundColor: colors.border }"></view>
+      <view class="sk-block bg-border" ></view>
+      <view class="sk-block bg-border" ></view>
+      <view class="sk-block sk-short bg-border" ></view>
     </view>
 
     <!-- 错误态 -->
     <view v-else-if="errorMsg" class="empty">
-      <text class="empty-title" :style="{ color: colors.textRegular }">{{ errorMsg }}</text>
-      <text class="empty-retry" :style="{ color: colors.primary }" @click="load">重试</text>
+      <text class="empty-title text-regular" >{{ errorMsg }}</text>
+      <text class="empty-retry text-brand"  @click="load">重试</text>
     </view>
 
     <!-- 正文 -->
     <view v-else-if="loaded" class="content">
-      <view class="card" :style="{ backgroundColor: colors.bgCard }">
-        <text class="title" :style="{ color: colors.textPrimary }">{{ detail.title }}</text>
-        <text class="meta" :style="{ color: colors.textSecondary }">{{ metaText }}</text>
+      <view class="card bg-card" >
+        <text class="title text-main" >{{ detail.title }}</text>
+        <text class="meta text-secondary" >{{ metaText }}</text>
         <!-- 纯文本正文：http(s) 链接切段渲染为可点链接 -->
         <view class="body">
           <text
             v-for="(seg, i) in contentSegs"
             :key="i"
             class="body-text"
-            :class="{ 'body-link': seg.isLink }"
-            :style="{ color: seg.isLink ? colors.primary : colors.textRegular }"
+            :class="{ 'body-link text-brand': seg.isLink, 'text-regular': !seg.isLink }"
             @click="seg.isLink ? openLink(seg.text) : noop()"
           >{{ seg.text }}</text>
         </view>
       </view>
 
       <!-- 附件区 -->
-      <view v-if="detail.attachments.length > 0" class="card" :style="{ backgroundColor: colors.bgCard }">
-        <text class="attach-title" :style="{ color: colors.textPrimary }">附件（{{ detail.attachments.length }}）</text>
+      <view v-if="detail.attachments.length > 0" class="card bg-card" >
+        <text class="attach-title text-main" >附件（{{ detail.attachments.length }}）</text>
         <!-- 图片附件：缩略图，点击预览 -->
         <view v-if="imageAttachments.length > 0" class="thumb-grid">
           <image
@@ -50,14 +49,12 @@
         <view
           v-for="(f, i) in fileAttachments"
           :key="i"
-          class="file-item"
-          :style="{ borderColor: colors.border }"
+          class="file-item border-default"
+          
           @click="copyFileLink(f)"
         >
-          <view class="file-badge" :style="{ backgroundColor: colors.primaryLight }">
-            <text class="file-badge-text" :style="{ color: colors.primary }">{{ f.extText }}</text>
-          </view>
-          <text class="file-name" :style="{ color: colors.textRegular }">{{ f.name }}</text>
+          <uni-tag :text="f.extText" size="small" :custom-style="'background-color:#EAEFFF;color:#2B5AED;border-color:transparent;margin-right:16rpx'" />
+          <text class="file-name text-regular" >{{ f.name }}</text>
         </view>
       </view>
     </view>
@@ -65,7 +62,7 @@
 </template>
 
 <script lang="ts">
-import { Colors, ColorTokens } from '@/utils/theme'
+
 import { toAbsUrl } from '@/utils/url'
 import { apiAnnouncementDetail, AnnouncementDetail, NoticeAttachment } from '@/services/api'
 
@@ -86,7 +83,6 @@ type FileAttachment = {
 }
 
 type NoticeDetailData = {
-  colors: ColorTokens
   noticeId: string
   loading: boolean
   loaded: boolean
@@ -122,7 +118,6 @@ function extOf(name: string): string {
 export default {
   data(): NoticeDetailData {
     return {
-      colors: Colors,
       noticeId: '',
       loading: true,
       loaded: false,
@@ -311,16 +306,6 @@ export default {
   margin-top: 16rpx;
 }
 
-.file-badge {
-  border-radius: 8rpx;
-  padding: 6rpx 12rpx;
-  margin-right: 20rpx;
-}
-
-.file-badge-text {
-  font-size: 20rpx;
-  font-weight: 600;
-}
 
 .file-name {
   font-size: 26rpx;

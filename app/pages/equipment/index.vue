@@ -1,23 +1,33 @@
 <template>
-  <view class="page" :style="{ backgroundColor: colors.bgPage }">
+  <view class="page bg-page" >
+    <!-- 选择模式提示（维保登记入口跳入）：点设备行即选中去登记 -->
+    <uni-notice-bar
+      v-if="pickMode"
+      text="选择要维保的设备"
+      :single="true"
+      :scrollable="false"
+      :show-icon="true"
+      color="#2B5AED"
+      background-color="#EAEFFF"
+    />
     <!-- 筛选栏：小区 + 关键字 + 类型/到期状态 chips（字典驱动） -->
-    <view class="filter-bar" :style="{ backgroundColor: colors.bgCard, borderBottomColor: colors.border }">
-      <view class="filter-row">
-        <AppFilterField :text="communityName" :selected="communityId != ''" :colors="colors" @click="openCommunitySheet" />
+    <view class="filter-bar bg-card border-default" >
+      <view v-if="!pickMode" class="filter-row">
+        <AppFilterField :text="communityName" :selected="communityId != ''" @click="openCommunitySheet" />
       </view>
       <view class="search-row">
         <input
           v-model="keyword"
-          class="search-input"
-          :style="{ borderColor: colors.border, color: colors.textPrimary }"
+          class="search-input border-default text-main"
+          
           placeholder="搜索设备编号或名称"
           confirm-type="search"
           @confirm="reload"
         />
-        <text class="search-btn" :style="{ color: colors.primary }" @click="reload">搜索</text>
+        <text class="search-btn text-brand"  @click="reload">搜索</text>
       </view>
-      <AppChipScroller :items="typeChips" :value="typeFilter" :colors="colors" @change="pickType" />
-      <AppChipScroller :items="dueChips" :value="dueFilter" :colors="colors" @change="pickDue" />
+      <AppChipScroller v-if="!pickMode" :items="typeChips" :value="typeFilter" @change="pickType" />
+      <AppChipScroller :items="dueChips" :value="dueFilter" @change="pickDue" />
     </view>
 
     <AppListShell
@@ -28,7 +38,7 @@
       :show-skeleton="list.length == 0"
       empty-title="暂无设备"
       empty-sub="切换筛选条件试试，或联系管理员导入台账"
-      :colors="colors"
+     
       @retry="reload"
     >
       <!-- 设备卡片列表：红黄绿灰状态灯 -->
@@ -38,30 +48,30 @@
           v-for="e in list"
           :key="e.id"
           hover-class="hover-dim"
-          class="card"
-          :style="{ backgroundColor: colors.bgCard }"
+          class="card bg-card"
+          
           @click="goDetail(e.id)"
         >
           <view class="card-head">
             <view class="card-title-row">
-              <view class="due-dot" :style="{ backgroundColor: dueColorOf(e.due_state) }"></view>
-              <text class="card-title" :style="{ color: colors.textPrimary }">{{ e.name }}</text>
+              <uni-badge :is-dot="true" :custom-style="{ backgroundColor: dueColorOf(e.due_state), marginRight: '12rpx' }" />
+              <text class="card-title text-main" >{{ e.name }}</text>
             </view>
             <text class="card-status" :style="{ color: dueColorOf(e.due_state) }">{{ dueTextOf(e) }}</text>
           </view>
-          <text class="card-sub" :style="{ color: colors.textSecondary }">编号：{{ e.code }}</text>
+          <text class="card-sub text-secondary" >编号：{{ e.code }}</text>
           <view class="card-foot">
             <view class="foot-tags">
-              <text class="tag" :style="{ color: colors.textSecondary, borderColor: colors.border }">{{ e.type_label != '' ? e.type_label : e.type }}</text>
-              <text v-if="e.status != 'in_service'" class="tag" :style="{ color: colors.info, borderColor: colors.info }">{{ e.status_label }}</text>
+              <uni-tag :text="e.type_label != '' ? e.type_label : e.type" :inverted="true" size="small" :custom-style="'color:#86909C;border-color:#E5E6EB;margin-right:16rpx;margin-bottom:8rpx'" />
+              <uni-tag v-if="e.status != 'in_service'" :text="e.status_label" :inverted="true" size="small" :custom-style="'color:#909399;border-color:#909399;margin-right:16rpx;margin-bottom:8rpx'" />
             </view>
-            <text class="card-loc" :style="{ color: colors.textSecondary }">{{ locationText(e) }}</text>
+            <text class="card-loc text-secondary" >{{ locationText(e) }}</text>
           </view>
         </view>
       </view>
       </template>
       <template #footer>
-        <AppListFooter :loading-more="loadingMore" :no-more="noMore" :visible="list.length > 0" :colors="colors" />
+        <AppListFooter :loading-more="loadingMore" :no-more="noMore" :visible="list.length > 0" />
       </template>
     </AppListShell>
 
@@ -77,8 +87,8 @@
 
 <script lang="ts">
 import { toastErr } from '@/utils/ui'
-import { Colors, ColorTokens } from '@/utils/theme'
-import { apiEquipmentList, apiCommunityTree, apiDictOptions, EquipmentListItem, EquipmentDueState, CommunityTreeNode, DictOption } from '@/services/api'
+
+import { apiEquipmentList, apiCommunityTree, apiDictOptions, EquipmentListItem, EquipmentDueState, CommunityTreeNode, DictOption, apiMpEquipmentList } from '@/services/api'
 import AppListShell from '@/components/AppListShell.vue'
 import AppListFooter from '@/components/AppListFooter.vue'
 import AppChipScroller from '@/components/AppChipScroller.vue'
@@ -88,7 +98,8 @@ import AppActionSheet from '@/components/AppActionSheet.vue'
 const PAGE_SIZE = 20
 
 type ListData = {
-  colors: ColorTokens
+  /** 选择模式（?mode=pick，维保登记入口）：行点击=选中设备去登记 */
+  pickMode: boolean
   communities: CommunityTreeNode[]
   communityId: string
   keyword: string
@@ -109,10 +120,10 @@ type ListData = {
 
 /** 状态灯颜色：normal 绿 / warning 黄 / overdue 红 / scrap 红 / none、label_missing 灰 */
 function dueColorOf(s: EquipmentDueState): string {
-  if (s == 'normal') return Colors.success
-  if (s == 'warning') return Colors.warning
-  if (s == 'overdue' || s == 'scrap') return Colors.danger
-  return Colors.info
+  if (s == 'normal') return '#2BA471'
+  if (s == 'warning') return '#ED7B2F'
+  if (s == 'overdue' || s == 'scrap') return '#D54941'
+  return '#909399'
 }
 
 /** 今日 0 点（本地时区），逾期天数计算用 */
@@ -126,7 +137,7 @@ export default {
   components: { AppListShell, AppListFooter, AppChipScroller, AppFilterField, AppActionSheet },
   data(): ListData {
     return {
-      colors: Colors,
+      pickMode: false,
       communities: [] as CommunityTreeNode[],
       communityId: '',
       keyword: '',
@@ -173,14 +184,22 @@ export default {
     }
   },
   onLoad(options: any) {
+    // 选择模式（维保登记入口跳入）：行点击变为"选中该设备去登记"
+    if (options && options.mode == 'pick') {
+      this.pickMode = true
+      uni.setNavigationBarTitle({ title: '选择要维保的设备' })
+    }
     // 今日任务「维保待办」卡片带筛选跳入（due_state=overdue/warning）
     if (options && options.due_state) this.dueFilter = String(options.due_state)
-    apiCommunityTree().then((list) => {
-      this.communities = list
-    }).catch((_e: any) => {})
-    apiDictOptions('equipment_type').then((opts) => {
-      this.typeOptions = opts
-    }).catch(() => {})
+    // 选择模式（巡检员）：小区树/类型字典是管理端接口（需权限），跳过；筛选仅关键字 + 到期状态
+    if (!this.pickMode) {
+      apiCommunityTree().then((list) => {
+        this.communities = list
+      }).catch((_e: any) => {})
+      apiDictOptions('equipment_type').then((opts) => {
+        this.typeOptions = opts
+      }).catch(() => {})
+    }
     this.reload()
   },
   onShow() {
@@ -247,12 +266,16 @@ export default {
       } else {
         this.loading = true
       }
-      apiEquipmentList(this.page, PAGE_SIZE, {
-        type: this.typeFilter,
-        communityId: this.communityId,
-        dueState: this.dueFilter,
-        keyword: this.keyword.trim()
-      })
+      // 选择模式（巡检员）走 mp 免权限列表（keyword/due_state）；管理端维持原口径（含类型/小区筛选）
+      const req = this.pickMode
+        ? apiMpEquipmentList(this.page, PAGE_SIZE, { keyword: this.keyword.trim(), dueState: this.dueFilter })
+        : apiEquipmentList(this.page, PAGE_SIZE, {
+            type: this.typeFilter,
+            communityId: this.communityId,
+            dueState: this.dueFilter,
+            keyword: this.keyword.trim()
+          })
+      req
         .then((res) => {
           this.total = res.total
           this.list = append ? this.list.concat(res.list) : res.list
@@ -273,6 +296,15 @@ export default {
     },
     goDetail(id: string) {
       this.lastLoadedAt = 0
+      if (this.pickMode) {
+        const e = this.list.find((x) => x.id == id)
+        uni.redirectTo({
+          url:
+            '/pages/equipment/maintain?equipment_id=' + encodeURIComponent(id) +
+            (e != null ? '&name=' + encodeURIComponent(e.name) + '&code=' + encodeURIComponent(e.code) : '')
+        })
+        return
+      }
       uni.navigateTo({ url: '/pages/equipment/detail?id=' + encodeURIComponent(id) })
     }
   }
@@ -339,12 +371,6 @@ export default {
 }
 
 /* 红黄绿灰状态灯 */
-.due-dot {
-  width: 20rpx;
-  height: 20rpx;
-  border-radius: 10rpx;
-  margin-right: 16rpx;
-}
 
 .card-title {
   font-size: 34rpx; /* FontSize.bodyL */
@@ -373,14 +399,6 @@ export default {
   flex-direction: row;
 }
 
-.tag {
-  font-size: 22rpx;
-  border-width: 2rpx;
-  border-style: solid;
-  border-radius: 12rpx; /* Radius.tag */
-  padding: 4rpx 16rpx;
-  margin-right: 16rpx;
-}
 
 .card-loc {
   font-size: 24rpx;

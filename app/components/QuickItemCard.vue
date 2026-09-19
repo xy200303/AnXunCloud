@@ -1,16 +1,17 @@
 <template>
-  <!-- 逐项卡片（方案 §三统一布局）：引导语大字号 + 项名小字灰 + PhotoSlot + ResultBar + 观察点行 + 类型差异区。
+  <!-- 逐项卡片（方案 §三统一布局；§18.1 容器官方化 uni-card）：引导语大字号 + 项名小字灰 + PhotoSlot + ResultBar + 观察点行 + 类型差异区。
        自身无推进/作答按钮——主操作全部在底部操作栏（WizardBottomBar）。 -->
-  <view class="item-card" :style="{ backgroundColor: colors.bgCard, boxShadow: shadow }">
+  <uni-card :is-shadow="true" :border="false" margin="0 0 24rpx 0" padding="0" spacing="0">
+    <view class="item-card">
     <!-- 合成项（台账有效期/标签抽查）保持原标题+要求文案；拍照/感官项以引导语为主标题 -->
     <template v-if="equipJudge != null || isSpot">
-      <text class="item-name" :style="{ color: colors.textPrimary }">{{ item.name }}</text>
-      <text class="item-hint" :style="{ color: colors.textSecondary }">{{ item.requirement != '' ? item.requirement : (isPhoto || manualMode ? '拍一张该项的照片' : '这项正常吗？') }}</text>
+      <text class="item-name text-main" >{{ item.name }}</text>
+      <text class="item-hint text-secondary" >{{ item.requirement != '' ? item.requirement : (isPhoto || manualMode ? '拍一张该项的照片' : '这项正常吗？') }}</text>
     </template>
     <template v-else>
-      <text class="item-name" :style="{ color: colors.textPrimary }">{{ cardTitle }}</text>
-      <text class="item-sub" :style="{ color: colors.textSecondary }">{{ item.name }}</text>
-      <text v-if="item.requirement != ''" class="item-req" :style="{ color: colors.textSecondary }">{{ item.requirement }}</text>
+      <text class="item-name text-main" >{{ cardTitle }}</text>
+      <text class="item-sub text-secondary" >{{ item.name }}</text>
+      <text v-if="item.requirement != ''" class="item-req text-secondary" >{{ item.requirement }}</text>
     </template>
 
     <!-- 台账有效期（equipment_validity）：一行小字状态 + （逾期/缺数据时）拍新标签多图槽（至多 3 张） -->
@@ -26,12 +27,12 @@
           :img-error="item.img_error == true"
           status="done"
           :required="false"
-          :colors="colors"
+         
           @take-photo="$emit('equip-label-photo')"
           @preview="$emit('preview-photo')"
           @image-error="$emit('image-error')"
         />
-        <text v-if="item.file_ids.length > 0" class="equip-photo-hint" :style="{ color: colors.textSecondary }">
+        <text v-if="item.file_ids.length > 0" class="equip-photo-hint text-secondary" >
           已拍 {{ item.file_ids.length }} 张新标签，提交时系统自动核对
         </text>
       </block>
@@ -50,7 +51,7 @@
         :escaped="escaped"
         :escape-text="exceptionLabel"
         :required="slotRequired"
-        :colors="colors"
+       
         @take-photo="$emit('take-photo')"
         @preview="$emit('preview-photo')"
         @retry-upload="$emit('retry-upload')"
@@ -67,34 +68,41 @@
         :quality-pass="item.quality_pass"
         :quality-issue="item.quality_issue"
         :has-job="item.job_id != ''"
-        :colors="colors"
+       
       />
 
-      <!-- 观察点下拉多选入口行（无 tag 不渲染） -->
-      <view v-if="item.tags.length > 0" hover-class="hover-dim" class="tag-entry" :style="{ borderColor: colors.border }" @click="$emit('open-tags')">
-        <text class="tag-entry-name" :style="{ color: colors.textPrimary }">观察点（{{ item.tags.length }}）</text>
-        <text class="tag-entry-val" :style="{ color: item.abnormal_tags.length == 0 ? colors.success : colors.danger }">
-          {{ item.abnormal_tags.length == 0 ? '全部正常 ✓' : item.abnormal_tags.length + ' 项异常' }} ›
-        </text>
-      </view>
-      <!-- 已勾选异常观察点红芯片回显（点入口行可改） -->
+      <!-- 观察点下拉多选入口行（§18.1 uni-list-item 标准行：左标题右值+箭头；无 tag 不渲染） -->
+      <uni-list v-if="item.tags.length > 0" :border="false" class="tag-entry border-default" >
+        <uni-list-item :title="'观察点（' + item.tags.length + '）'" clickable show-arrow @click="$emit('open-tags')">
+          <template #footer>
+            <view>
+              <text class="tag-entry-val"  :class="(item.abnormal_tags.length == 0 ? 'text-success' : 'text-danger')">
+                {{ item.abnormal_tags.length == 0 ? '全部正常 ✓' : item.abnormal_tags.length + ' 项异常' }}
+              </text>
+            </view>
+          </template>
+        </uni-list-item>
+      </uni-list>
+      <!-- 已勾选异常观察点红芯片回显（官方 uni-tag 实心 error；点入口行可改） -->
       <view v-if="item.abnormal_tags.length > 0" class="tag-row">
-        <text
+        <uni-tag
           v-for="(t, ti) in item.abnormal_tags"
           :key="ti"
-          class="tag-chip"
-          :style="{ color: colors.white, backgroundColor: colors.danger, borderColor: colors.danger }"
-        >✕ {{ t }}</text>
+          :text="'✕ ' + t"
+          type="error"
+          :circle="true"
+          :custom-style="'margin-right:16rpx;margin-bottom:12rpx'"
+        />
       </view>
 
       <!-- 差异区：抽查合成项 AI 读数一行小字 -->
-      <text v-if="isSpot && spotReadingText != ''" class="reading-line" :style="{ color: colors.textSecondary }">{{ spotReadingText }}</text>
+      <text v-if="isSpot && spotReadingText != ''" class="reading-line text-secondary" >{{ spotReadingText }}</text>
     </template>
-  </view>
+    </view>
+  </uni-card>
 </template>
 
 <script lang="ts">
-import type { ColorTokens } from '@/utils/theme'
 import type { WizardItemSnap } from '@/utils/checkinWizard'
 import type { EquipmentAutoJudge } from '@/services/api'
 import WizardPhotoSlot from '@/components/WizardPhotoSlot.vue'
@@ -112,7 +120,6 @@ export default {
     /** 手动档（mode=manual）：不建 AI job，拍照后停留作答「✓ 正常 / ⚠ 有异常」 */
     manualMode: { type: Boolean, default: false },
     exceptionLabel: { type: String, default: '设备不存在/无法检测，提交异常' },
-    colors: { type: Object as () => ColorTokens, required: true },
     shadow: { type: String, default: '' }
   },
   emits: [
@@ -162,11 +169,11 @@ export default {
     },
     equipColor(): string {
       const aj = this.equipJudge
-      if (aj == null) return this.colors.success
-      if (aj.status == 'overdue') return this.colors.danger
-      if (aj.status == 'warning') return this.colors.warning
-      if (aj.status == 'no_data' || aj.status == 'label_missing') return this.colors.info
-      return this.colors.success
+      if (aj == null) return '#2BA471'
+      if (aj.status == 'overdue') return '#D54941'
+      if (aj.status == 'warning') return '#ED7B2F'
+      if (aj.status == 'no_data' || aj.status == 'label_missing') return '#909399'
+      return '#2BA471'
     },
     escaped(): boolean {
       return (this.item.exception_type ?? '') != ''
@@ -199,15 +206,15 @@ export default {
 
 <style scoped>
 .item-card {
-  border-radius: 24rpx;
-  padding: 48rpx 32rpx;
   align-items: center;
-  margin-bottom: 24rpx;
+  padding: 48rpx 32rpx;
+  width: 100%;
 }
 
 .item-name {
   font-size: 56rpx;
   font-weight: 700;
+  line-height: 76rpx;
 }
 
 .item-hint {
@@ -248,22 +255,14 @@ export default {
 }
 
 /* 观察点入口行（微信列表行：左文右 ›） */
+/* 观察点入口行（容器为 uni-list/uni-list-item，保留下边框圆角外壳） */
 .tag-entry {
   width: 100%;
-  min-height: 104rpx;
-  flex-direction: row;
-  align-items: center;
-  justify-content: space-between;
   border-width: 1rpx;
   border-style: solid;
   border-radius: 20rpx;
-  padding: 0 28rpx;
   margin-top: 24rpx;
-}
-
-.tag-entry-name {
-  font-size: 34rpx;
-  font-weight: 600;
+  overflow: hidden;
 }
 
 .tag-entry-val {
@@ -271,23 +270,13 @@ export default {
   font-weight: 600;
 }
 
-/* 异常观察点红芯片回显 */
+/* 异常观察点红芯片回显行（芯片为 uni-tag） */
 .tag-row {
   width: 100%;
   flex-direction: row;
   flex-wrap: wrap;
   justify-content: center;
   margin-top: 16rpx;
-}
-
-.tag-chip {
-  font-size: 30rpx;
-  font-weight: 600;
-  border-width: 2rpx;
-  border-style: solid;
-  border-radius: 999rpx;
-  padding: 12rpx 28rpx;
-  margin: 8rpx;
 }
 
 /* 抽查合成项 AI 读数行：小字灰字，不阻塞 */

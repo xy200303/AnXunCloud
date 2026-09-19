@@ -1,68 +1,66 @@
 <template>
   <!-- 凭证步（方案 §十三 无感化）：到场即自动核验——定位自动获取一次；Android NFC 常驻监听贴卡即亮；
-       qrcode/any 在卡上部内嵌 plus.barcode 扫码窗（扫到即关，故障回退全屏扫码）；any 同屏两入口任一完成即锁死另一入口；
+       扫码走点击拉起全屏 uni.scanCode（官方 <camera> 不支持 App，内嵌扫码窗已废弃）；any 同屏两入口任一完成即锁死另一入口；
        核验齐全 → 「✓ 核验通过」绿色过渡 → 自动进入第一项，无「开始检查」按钮。 -->
-  <view class="card" :style="{ backgroundColor: colors.bgCard, boxShadow: shadow }">
-    <text class="cred-title" :style="{ color: colors.textPrimary }">到场打卡</text>
+  <view class="card bg-card" :style="{ boxShadow: shadow }">
+    <text class="cred-title text-main" >到场打卡</text>
 
     <!-- 核验通过绿色过渡（0.6s 后自动进入第一项） -->
-    <view v-if="credFlash" class="cred-flash" :style="{ backgroundColor: colors.success }">
-      <text class="cred-flash-text" :style="{ color: colors.white }">✓ 核验通过</text>
+    <view v-if="credFlash" class="cred-flash bg-success" >
+      <text class="cred-flash-text text-white" >✓ 核验通过</text>
     </view>
 
     <template v-else>
-      <text v-if="!needsCred" class="cred-none" :style="{ color: colors.success }">✓ 本点位到场直接检查</text>
+      <text v-if="!needsCred" class="cred-none text-success" >✓ 本点位到场直接检查</text>
 
-      <!-- 二维码：内嵌扫码取景窗（扫到即点亮收起）；any 已被 NFC 先行核验时锁死不渲染 -->
+      <!-- 二维码：点行拉起全屏扫码（uni.scanCode，App/小程序通吃；官方 <camera> 组件不支持 App，内嵌扫码窗方案已废弃）；
+           any 已被 NFC 先行核验时锁死不渲染 -->
       <template v-if="point != null && (point.credential == 'qrcode' || point.credential == 'any')">
         <view v-if="wizPoint != null && wizPoint.scannedNo != ''" class="cred-done-row">
-          <text class="cred-done-text" :style="{ color: colors.success }">{{ credType == 'qrcode' && verifiedHm != '' ? '✓ 已于 ' + verifiedHm + ' 核验' : '✓ 已通过二维码核验' }}</text>
+          <text class="cred-done-text text-success" >{{ credType == 'qrcode' && verifiedHm != '' ? '✓ 已于 ' + verifiedHm + ' 核验' : '✓ 已通过二维码核验' }}</text>
         </view>
-        <block v-else-if="!anyLockedByNfc">
-          <view id="cred-scan-slot" class="scan-slot" :style="{ borderColor: colors.border, backgroundColor: colors.bgPage }">
-            <text class="scan-slot-hint" :style="{ color: colors.textSecondary }">对准点位二维码，扫到自动核验</text>
-          </view>
-          <text hover-class="hover-dim" class="scan-fallback" :style="{ color: colors.primary }" @click="$emit('scan-fallback')">扫码窗异常？点这里全屏扫码 ›</text>
-        </block>
+        <view v-else-if="!anyLockedByNfc" hover-class="hover-dim" class="cred-row" @click="$emit('scan-fallback')">
+          <text class="cred-row-name text-main" >扫点位二维码</text>
+          <text class="cred-status text-brand" >点我扫码 ›</text>
+        </view>
       </template>
 
       <!-- any 同屏：两种方式，任选其一 -->
-      <text v-if="point != null && point.credential == 'any' && wizPoint != null && wizPoint.scannedNo == '' && wizPoint.nfcCardId == ''" class="cred-any-hint" :style="{ color: colors.textSecondary }">
+      <text v-if="point != null && point.credential == 'any' && wizPoint != null && wizPoint.scannedNo == '' && wizPoint.nfcCardId == ''" class="cred-any-hint text-secondary" >
         两种方式，任选其一
       </text>
 
       <!-- NFC：贴卡自动识别（Android 常驻监听）；any 已被扫码先行核验时锁死不渲染 -->
       <template v-if="point != null && (point.credential == 'nfc' || point.credential == 'any')">
         <view v-if="wizPoint != null && wizPoint.nfcCardId != ''" class="cred-done-row">
-          <text class="cred-done-text" :style="{ color: colors.success }">{{ credType == 'nfc' && verifiedHm != '' ? '✓ 已于 ' + verifiedHm + ' 核验' : '✓ 已通过 NFC 核验' }}</text>
+          <text class="cred-done-text text-success" >{{ credType == 'nfc' && verifiedHm != '' ? '✓ 已于 ' + verifiedHm + ' 核验' : '✓ 已通过 NFC 核验' }}</text>
         </view>
         <view v-else-if="!anyLockedByScan" hover-class="hover-dim" class="cred-row" @click="$emit('nfc-tap')">
-          <text class="cred-row-name" :style="{ color: colors.textPrimary }">NFC</text>
-          <text class="cred-status" :style="{ color: colors.textSecondary }">贴卡自动识别…</text>
+          <text class="cred-row-name text-main" >NFC</text>
+          <text class="cred-status text-secondary" >贴卡自动识别…</text>
         </view>
       </template>
 
       <!-- 围栏：进凭证步自动获取一次，不实时刷新；失败自动重试一次，仍失败点行重试 -->
       <view v-if="point != null && point.require_fence" hover-class="hover-dim" class="cred-row" @click="$emit('retry-location')">
-        <text class="cred-row-name" :style="{ color: colors.textPrimary }">📍 位置</text>
-        <text v-if="locating" class="cred-status" :style="{ color: colors.textSecondary }">定位中…</text>
-        <text v-else-if="locFailed" class="cred-status" :style="{ color: colors.danger }">定位失败，点我重试</text>
-        <text v-else-if="credType == 'fence' && verifiedHm != '' && distance >= 0 && distance <= point.fence_radius" class="cred-status" :style="{ color: colors.success }">✓ 已于 {{ verifiedHm }} 核验（距点位 {{ distance }} 米）</text>
-        <text v-else-if="distance >= 0 && distance <= point.fence_radius" class="cred-status" :style="{ color: colors.success }">距点位 {{ distance }} 米（围栏内 ✓）</text>
-        <text v-else-if="distance >= 0" class="cred-status" :style="{ color: colors.danger }">超出围栏（当前 {{ distance }} 米）</text>
-        <text v-else class="cred-status" :style="{ color: colors.textSecondary }">自动获取中…</text>
+        <text class="cred-row-name text-main" >📍 位置</text>
+        <text v-if="locating" class="cred-status text-secondary" >定位中…</text>
+        <text v-else-if="locFailed" class="cred-status text-danger" >定位失败，点我重试</text>
+        <text v-else-if="credType == 'fence' && verifiedHm != '' && distance >= 0 && distance <= point.fence_radius" class="cred-status text-success" >✓ 已于 {{ verifiedHm }} 核验（距点位 {{ distance }} 米）</text>
+        <text v-else-if="distance >= 0 && distance <= point.fence_radius" class="cred-status text-success" >距点位 {{ distance }} 米（围栏内 ✓）</text>
+        <text v-else-if="distance >= 0" class="cred-status text-danger" >超出围栏（当前 {{ distance }} 米）</text>
+        <text v-else class="cred-status text-secondary" >自动获取中…</text>
       </view>
 
       <!-- 核验未齐：缺哪项哪行红字说明，停在凭证步；全部核验后自动开始 -->
-      <text v-if="needsCred && !(credOk && fenceOk)" class="cred-hint" :style="{ color: colors.textSecondary }">核验齐全后自动开始检查</text>
+      <text v-if="needsCred && !(credOk && fenceOk)" class="cred-hint text-secondary" >核验齐全后自动开始检查</text>
       <!-- 全部已核验（如回退查看）：保留一个继续入口 -->
-      <text v-if="needsCred && credOk && fenceOk" hover-class="hover-dim" class="cred-go" :style="{ color: colors.success }" @click="$emit('start')">✓ 核验齐全，点我继续检查 ›</text>
+      <text v-if="needsCred && credOk && fenceOk" hover-class="hover-dim" class="cred-go text-success"  @click="$emit('start')">✓ 核验齐全，点我继续检查 ›</text>
     </template>
   </view>
 </template>
 
 <script lang="ts">
-import type { ColorTokens } from '@/utils/theme'
 import type { WizardPointSnap } from '@/utils/checkinWizard'
 import type { TaskPoint } from '@/services/api'
 
@@ -78,7 +76,6 @@ export default {
     distance: { type: Number, default: -1 },
     /** 「✓ 核验通过」绿色过渡态（0.6s，随后自动进入第一项） */
     credFlash: { type: Boolean, default: false },
-    colors: { type: Object as () => ColorTokens, required: true },
     shadow: { type: String, default: '' }
   },
   emits: ['scan-fallback', 'nfc-tap', 'retry-location', 'start'],
@@ -137,31 +134,6 @@ export default {
 .cred-flash-text {
   font-size: 48rpx;
   font-weight: 700;
-}
-
-/* 内嵌扫码取景窗占位（原生 plus.barcode 视图盖在其上，不随滚动；凭证步内容短不滚动） */
-.scan-slot {
-  width: 100%;
-  height: 420rpx;
-  border-radius: 20rpx;
-  border-width: 1rpx;
-  border-style: solid;
-  margin-top: 16rpx;
-  align-items: center;
-  justify-content: center;
-  overflow: hidden;
-}
-
-.scan-slot-hint {
-  font-size: 28rpx;
-  text-align: center;
-  padding: 0 48rpx;
-}
-
-.scan-fallback {
-  font-size: 28rpx;
-  text-align: center;
-  padding: 20rpx 0 8rpx;
 }
 
 .cred-any-hint {

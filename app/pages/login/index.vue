@@ -1,5 +1,5 @@
 <template>
-  <view class="page" :style="{ backgroundColor: colors.bgPage, paddingTop: statusPadTop }">
+  <view class="page bg-page" :style="{ paddingTop: statusPadTop }">
     <!-- 品牌区 -->
     <view class="brand">
       <image class="logo" src="/static/brand/anxuncloud-lockup.png" mode="aspectFit" />
@@ -7,57 +7,36 @@
 
     <!-- 登录表单 -->
     <view class="form">
-      <view class="input-wrap" :style="{ backgroundColor: colors.bgCard, borderColor: colors.border }">
-        <input
-          v-model="username"
-          class="input"
-          :style="{ color: colors.textPrimary }"
-          placeholder="账号"
-          placeholder-class="input-ph"
-        />
+      <view class="input-wrap bg-card border-default" >
+        <uni-easyinput v-model="username" placeholder="账号" :input-border="false" :primary-color="'#2B5AED'" />
       </view>
-      <view class="input-wrap" :style="{ backgroundColor: colors.bgCard, borderColor: colors.border }">
-        <input
-          v-model="password"
-          class="input input-pwd"
-          :style="{ color: colors.textPrimary }"
-          placeholder="密码"
-          placeholder-class="input-ph"
-          :password="!showPwd"
-        />
-        <image
-          class="pwd-toggle"
-          :src="showPwd ? '/static/icons/eye-off.png' : '/static/icons/eye.png'"
-          mode="aspectFit"
-          @click="togglePwd"
-        />
+      <view class="input-wrap bg-card border-default" >
+        <uni-easyinput v-model="password" type="password" placeholder="密码" :input-border="false" :clearable="false" :primary-color="'#2B5AED'" />
       </view>
       <!-- 公司选择：仅当用户名存在于多家公司（后端 40109）时显示，选项来自 40109 响应的 tenants -->
-      <view v-if="needTenantCode" class="input-wrap" :style="{ backgroundColor: colors.bgCard, borderColor: colors.border }">
-        <picker class="picker" mode="selector" :range="tenantNames" :value="tenantIndex < 0 ? 0 : tenantIndex" @change="onTenantPick">
-          <view class="picker-text" :style="{ color: tenantIndex < 0 ? colors.textSecondary : colors.textPrimary }">
-            {{ tenantIndex < 0 ? '请选择所属公司' : tenantOptions[tenantIndex].name }}
-          </view>
-        </picker>
+      <view v-if="needTenantCode" class="input-wrap bg-card border-default" >
+        <uni-data-select :modelValue="tenantIndex < 0 ? '' : tenantIndex" :localdata="tenantItems" placeholder="请选择所属公司" :clear="false" @change="onTenantPick" />
       </view>
 
       <!-- 错误内联提示（按钮上方，不用 Toast） -->
-      <text v-if="errorMsg != ''" class="error" :style="{ color: colors.danger }">{{ errorMsg }}</text>
+      <text v-if="errorMsg != ''" class="error text-danger" >{{ errorMsg }}</text>
 
-      <view
+      <button
+        plain="true"
         class="btn-primary"
-        :style="{ backgroundColor: loginBtnColor }"
+        :class="(loading ? 'btn-disabled' : 'btn-primary')"
+        hover-class="hover-dim"
         @click="doLogin"
       >
-        <text class="btn-primary-text" :style="{ color: colors.white }">{{ loginBtnText }}</text>
-      </view>
+        <text class="btn-primary-text">{{ loginBtnText }}</text>
+      </button>
     </view>
 
     <!-- 其他方式 -->
     <view class="divider">
-      <view class="divider-line" :style="{ backgroundColor: colors.border }"></view>
-      <text class="divider-text" :style="{ color: colors.textSecondary }">其他方式</text>
-      <view class="divider-line" :style="{ backgroundColor: colors.border }"></view>
+      <view class="divider-line bg-border" ></view>
+      <text class="divider-text text-secondary" >其他方式</text>
+      <view class="divider-line bg-border" ></view>
     </view>
 
     <!--
@@ -66,69 +45,66 @@
       - 微信小程序端改为一键登录主按钮（wx.login code 换会话），未绑定走绑定页。
       TODO(M5 前): 申请微信开放平台移动应用 AppID / 小程序 AppID 后接入。
     -->
-    <view class="btn-wechat" :style="{ borderColor: colors.border }" @click="onWechatLogin">
+    <button plain="true" class="btn-wechat border-default" hover-class="hover-dim" @click="onWechatLogin">
       <image class="btn-wechat-icon" src="/static/icons/wechat.png" mode="aspectFit" />
-      <text class="btn-wechat-text" :style="{ color: colors.textRegular }">微信登录</text>
-    </view>
+      <text class="btn-wechat-text text-regular">微信登录</text>
+    </button>
 
     <!-- 注册入口：仅当后端开关 auth.register_enabled 开启时显示 -->
     <text
       v-if="registerEnabled"
-      class="link"
-      :style="{ color: colors.primary }"
+      class="link text-brand"
+      
       @click="openRegister"
     >注册账号</text>
-    <text class="helper" :style="{ color: colors.textSecondary }">忘记密码请联系管理员重置</text>
+    <text class="helper text-secondary" >忘记密码请联系管理员重置</text>
 
-    <!-- 注册弹层（底部弹层，遮罩 45% 黑） -->
-    <view v-if="showRegister" class="mask" :style="{ backgroundColor: colors.mask }" @click="closeRegister">
-      <view class="sheet" :style="{ backgroundColor: colors.bgCard }" @click.stop="noop">
-        <text class="sheet-title" :style="{ color: colors.textPrimary }">注册账号</text>
+    <!-- 注册弹层（AppBottomSheet→uni-popup 底部弹层，遮罩点击关闭） -->
+    <AppBottomSheet :visible="showRegister" @close="closeRegister">
+      <view class="sheet bg-card" >
+        <text class="sheet-title text-main" >注册账号</text>
 
-        <view class="input-wrap sheet-input" :style="{ backgroundColor: colors.bgPage, borderColor: colors.border }">
-          <input v-model="regForm.username" class="input" :style="{ color: colors.textPrimary }" placeholder="用户名（4-20 位字母数字下划线）" placeholder-class="input-ph" />
+        <view class="input-wrap sheet-input bg-page border-default" >
+          <input v-model="regForm.username" class="input text-main"  placeholder="用户名（4-20 位字母数字下划线）" placeholder-class="input-ph" />
         </view>
-        <view class="input-wrap sheet-input" :style="{ backgroundColor: colors.bgPage, borderColor: colors.border }">
-          <input v-model="regForm.password" class="input" :style="{ color: colors.textPrimary }" placeholder="密码（8-32 位，含字母与数字）" placeholder-class="input-ph" :password="true" />
+        <view class="input-wrap sheet-input bg-page border-default" >
+          <input v-model="regForm.password" class="input text-main"  placeholder="密码（8-32 位，含字母与数字）" placeholder-class="input-ph" :password="true" />
         </view>
-        <view class="input-wrap sheet-input" :style="{ backgroundColor: colors.bgPage, borderColor: colors.border }">
-          <input v-model="regForm.confirm" class="input" :style="{ color: colors.textPrimary }" placeholder="确认密码" placeholder-class="input-ph" :password="true" />
+        <view class="input-wrap sheet-input bg-page border-default" >
+          <input v-model="regForm.confirm" class="input text-main"  placeholder="确认密码" placeholder-class="input-ph" :password="true" />
         </view>
-        <view class="input-wrap sheet-input" :style="{ backgroundColor: colors.bgPage, borderColor: colors.border }">
-          <input v-model="regForm.name" class="input" :style="{ color: colors.textPrimary }" placeholder="姓名" placeholder-class="input-ph" />
+        <view class="input-wrap sheet-input bg-page border-default" >
+          <input v-model="regForm.name" class="input text-main"  placeholder="姓名" placeholder-class="input-ph" />
         </view>
-        <view class="input-wrap sheet-input" :style="{ backgroundColor: colors.bgPage, borderColor: colors.border }">
-          <input v-model="regForm.phone" class="input" :style="{ color: colors.textPrimary }" placeholder="手机号（必填）" placeholder-class="input-ph" type="number" :maxlength="11" />
+        <view class="input-wrap sheet-input bg-page border-default" >
+          <input v-model="regForm.phone" class="input text-main"  placeholder="手机号（必填）" placeholder-class="input-ph" type="number" :maxlength="11" />
         </view>
         <!-- 所属公司：多租户时必选一个；仅 1 个租户时隐藏（默认租户自动归属） -->
-        <view v-if="regTenants.length > 1" class="input-wrap sheet-input" :style="{ backgroundColor: colors.bgPage, borderColor: colors.border }">
-          <picker class="picker" mode="selector" :range="regTenantNames" :value="regTenantIndex < 0 ? 0 : regTenantIndex" @change="onRegTenantPick">
-            <view class="picker-text" :style="{ color: regTenantIndex < 0 ? colors.textSecondary : colors.textPrimary }">
-              {{ regTenantIndex < 0 ? '请选择所属公司' : regTenants[regTenantIndex].name }}
-            </view>
-          </picker>
+        <view v-if="regTenants.length > 1" class="input-wrap sheet-input bg-page border-default" >
+          <uni-data-select :modelValue="regTenantIndex < 0 ? '' : regTenantIndex" :localdata="regTenantItems" placeholder="请选择所属公司" :clear="false" @change="onRegTenantPick" />
         </view>
 
-        <text v-if="regError != ''" class="error" :style="{ color: colors.danger }">{{ regError }}</text>
+        <text v-if="regError != ''" class="error text-danger" >{{ regError }}</text>
 
         <view
           class="btn-primary"
           :style="{ backgroundColor: regBtnColor }"
           @click="doRegister"
         >
-          <text class="btn-primary-text" :style="{ color: colors.white }">{{ regBtnText }}</text>
+          <text class="btn-primary-text text-white" >{{ regBtnText }}</text>
         </view>
-        <text class="helper sheet-helper" :style="{ color: colors.textSecondary }">注册成功后请联系管理员分配角色与所辖小区</text>
+        <text class="helper sheet-helper text-secondary" >注册成功后请联系管理员分配角色与所辖小区</text>
       </view>
-    </view>
+    </AppBottomSheet>
   </view>
 </template>
 
 <script lang="ts">
-import { Colors, ColorTokens } from '@/utils/theme'
+
 import { apiRegisterConfig, apiRegister, apiRegisterTenants } from '@/services/api'
 import { useAuthStore } from '@/stores/auth'
 import { upsertSwitchAccount } from '@/utils/storage'
+import AppBottomSheet from '@/components/AppBottomSheet.vue'
 
 type RegisterForm = {
   username: string
@@ -144,11 +120,9 @@ type TenantOption = {
 }
 
 type LoginData = {
-  colors: ColorTokens
   statusBarH: number
   username: string
   password: string
-  showPwd: boolean
   loading: boolean
   errorMsg: string
   /** 用户名跨租户重名（40109）时显示公司选择 */
@@ -169,13 +143,12 @@ type LoginData = {
 }
 
 export default {
+  components: { AppBottomSheet },
   data(): LoginData {
     return {
-      colors: Colors,
       statusBarH: 20,
       username: '',
       password: '',
-      showPwd: false,
       loading: false,
       errorMsg: '',
       needTenantCode: false,
@@ -217,39 +190,36 @@ export default {
       return `${this.statusBarH}px`
     },
     loginBtnColor(): string {
-      return this.loading ? Colors.info : Colors.primary
+      return this.loading ? '#909399' : '#2B5AED'
     },
     loginBtnText(): string {
       return this.loading ? '登录中…' : '登 录'
     },
     regBtnColor(): string {
-      return this.regLoading ? Colors.info : Colors.primary
+      return this.regLoading ? '#909399' : '#2B5AED'
     },
     regBtnText(): string {
       return this.regLoading ? '提交中…' : '注 册'
     },
-    /** 登录公司下拉选项（picker range） */
-    tenantNames(): string[] {
-      return this.tenantOptions.map((t: TenantOption) => t.name)
+    /** 登录公司下拉选项（uni-data-select localdata 形态；value=选项下标，保持 tenantIndex 单字段语义） */
+    tenantItems(): Array<{ text: string; value: number }> {
+      return this.tenantOptions.map((t: TenantOption, i: number) => ({ text: t.name, value: i }))
     },
-    /** 注册公司下拉选项（picker range） */
-    regTenantNames(): string[] {
-      return this.regTenants.map((t: TenantOption) => t.name)
+    /** 注册公司下拉选项（同上） */
+    regTenantItems(): Array<{ text: string; value: number }> {
+      return this.regTenants.map((t: TenantOption, i: number) => ({ text: t.name, value: i }))
     }
   },
   methods: {
-    /** 弹层内容区点击阻断冒泡（防止误关弹层） */
-    noop() {},
-    togglePwd() {
-      this.showPwd = !this.showPwd
+    /** 登录公司下拉选择（uni-data-select change，直接吐 value） */
+    onTenantPick(v: number | string) {
+      if (v === '') return
+      this.tenantIndex = Number(v)
     },
-    /** 登录公司下拉选择（picker change） */
-    onTenantPick(e: any) {
-      this.tenantIndex = Number(e.detail.value)
-    },
-    /** 注册公司下拉选择（picker change） */
-    onRegTenantPick(e: any) {
-      this.regTenantIndex = Number(e.detail.value)
+    /** 注册公司下拉选择（同上） */
+    onRegTenantPick(v: number | string) {
+      if (v === '') return
+      this.regTenantIndex = Number(v)
     },
     doLogin() {
       if (this.loading) return
@@ -359,7 +329,7 @@ export default {
 </script>
 
 <style scoped>
-/* 布局尺寸见 utils/theme.ts（750 基准 rpx）；色值全部经 :style 绑定 */
+/* 布局尺寸见 utils/theme.ts（750 基准 rpx）；颜色用全局工具类（uni.scss $uni-* 唯一来源） */
 .page {
   flex: 1;
   padding-left: 48rpx;
@@ -403,30 +373,13 @@ export default {
 }
 
 /* 公司下拉（picker 占满 input-wrap，与输入框同高同字号） */
-.picker {
-  flex: 1;
-  height: 104rpx;
-}
 
-.picker-text {
-  height: 104rpx;
-  line-height: 104rpx;
-  font-size: 34rpx; /* FontSize.bodyL */
-}
 
 .input-ph {
-  color: #86909c; /* Colors.textSecondary */
+  color: #86909c; /* '#86909C' */
 }
 
-.input-pwd {
-  flex: 1;
-}
 
-.pwd-toggle {
-  width: 36rpx;
-  height: 36rpx;
-  padding: 16rpx 8rpx;
-}
 
 .error {
   font-size: 26rpx;
@@ -500,14 +453,6 @@ export default {
   margin-bottom: 16rpx;
 }
 
-.mask {
-  position: fixed;
-  left: 0;
-  right: 0;
-  top: 0;
-  bottom: 0;
-  justify-content: flex-end;
-}
 
 .sheet {
   border-top-left-radius: 32rpx; /* Radius.sheet */

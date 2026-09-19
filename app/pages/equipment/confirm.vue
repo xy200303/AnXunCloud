@@ -1,5 +1,5 @@
 <template>
-  <view class="page" :style="{ backgroundColor: colors.bgPage }">
+  <view class="page bg-page" >
     <AppListShell
       :loading="loading"
       :loaded="loaded"
@@ -8,7 +8,7 @@
       :show-skeleton="list.length == 0"
       empty-title="暂无待确认的维保登记"
       empty-sub="巡检员现场登记后会出现在这里"
-      :colors="colors"
+     
       @retry="reload"
     >
       <!-- pending 列表：AI 存疑（review）后端已置顶，行头红条加强提示；点卡片开详情弹层（与打卡审核同交互） -->
@@ -17,69 +17,69 @@
         <view
           v-for="m in list"
           :key="m.id"
-          class="card"
-          :style="{ backgroundColor: colors.bgCard, borderLeftColor: m.ai_verdict == 'review' ? colors.danger : colors.bgCard }"
+          class="card bg-card"
+           :class="(m.ai_verdict == 'review' ? 'border-danger' : 'border-card')"
           hover-class="hover-dim"
           @click="openDetail(m)"
         >
           <view class="card-head">
             <view class="card-title-row">
               <!-- 多选框 -->
-              <view
-                class="check-circle"
-                :style="{ borderColor: selected[m.id] ? colors.primary : colors.border, backgroundColor: selected[m.id] ? colors.primary : colors.bgCard }"
+              <uni-icons
+                class="check-icon"
+                :type="selected[m.id] ? 'checkbox-filled' : 'circle'"
+                size="22"
+                :color="selected[m.id] ? '#2B5AED' : '#E5E6EB'"
                 @click.stop="toggleSelect(m.id)"
-              >
-                <text v-if="selected[m.id]" class="check-mark" :style="{ color: colors.white }">✓</text>
-              </view>
-              <text class="card-title" :style="{ color: colors.textPrimary }">{{ m.equipment_name }}</text>
+              />
+              <text class="card-title text-main" >{{ m.equipment_name }}</text>
             </view>
-            <text v-if="m.ai_verdict == 'review'" class="card-status" :style="{ color: colors.danger }">AI 存疑</text>
-            <text v-else-if="m.ai_verdict == 'pass'" class="card-status" :style="{ color: colors.success }">AI 通过</text>
-            <text v-else class="card-status" :style="{ color: colors.textSecondary }">未预检</text>
+            <text v-if="m.ai_verdict == 'review'" class="card-status text-danger" >AI 存疑</text>
+            <text v-else-if="m.ai_verdict == 'pass'" class="card-status text-success" >AI 通过</text>
+            <text v-else class="card-status text-secondary" >未预检</text>
           </view>
-          <text class="card-sub" :style="{ color: colors.textSecondary }">编号：{{ m.equipment_code }}<text v-if="m.point_name != null && m.point_name != ''"> · {{ m.point_name }}</text></text>
-          <text class="card-sub" :style="{ color: colors.textSecondary }">
+          <text class="card-sub text-secondary" >编号：{{ m.equipment_code }}<text v-if="m.point_name != null && m.point_name != ''"> · {{ m.point_name }}</text></text>
+          <text class="card-sub text-secondary" >
             {{ maintTypeText(m.maintenance_type) }} · {{ m.maintenance_date }} · {{ m.operator_name }} 经办 · {{ m.created_by_name }} 登记
           </text>
           <view class="card-foot">
-            <text v-if="m.ai_verdict == 'review' && m.ai_reason != null && m.ai_reason != ''" class="card-ai" :style="{ color: colors.danger }">AI 说明：{{ m.ai_reason }}</text>
-            <text v-if="m.can_confirm === false" class="card-noauth" :style="{ color: colors.textSecondary }">待授权人处理</text>
+            <text v-if="m.ai_verdict == 'review' && m.ai_reason != null && m.ai_reason != ''" class="card-ai text-danger" >AI 说明：{{ m.ai_reason }}</text>
+            <text v-if="m.can_confirm === false" class="card-noauth text-secondary" >待授权人处理</text>
           </view>
         </view>
       </view>
       </template>
       <template #footer>
-        <AppListFooter :loading-more="loadingMore" :no-more="noMore" :visible="list.length > 0" :colors="colors" />
+        <AppListFooter :loading-more="loadingMore" :no-more="noMore" :visible="list.length > 0" />
       </template>
     </AppListShell>
 
     <!-- 详情弹层（与打卡审核同交互：点开看明细，底部驳回/通过） -->
     <AppBottomSheet
       :visible="detail != null"
-      :mask-color="colors.mask"
-      :background-color="colors.bgPage"
+      :mask-color="'rgba(0, 0, 0, 0.45)'"
+      :background-color="'#F5F6F8'"
       height="80%"
       @close="closeDetail"
     >
       <template v-if="detail != null">
         <scroll-view scroll-y class="sheet-scroll">
           <view class="sheet-head">
-            <text class="sheet-title" :style="{ color: colors.textPrimary }">{{ detail.equipment_name }}</text>
-            <text class="sheet-close" :style="{ color: colors.textSecondary }" @click="closeDetail">×</text>
+            <text class="sheet-title text-main" >{{ detail.equipment_name }}</text>
+            <text class="sheet-close text-secondary"  @click="closeDetail">×</text>
           </view>
           <view class="sheet-body">
-            <text class="info-line" :style="{ color: colors.textRegular }">编号：{{ detail.equipment_code }}<text v-if="detail.point_name != null && detail.point_name != ''"> · {{ detail.point_name }}</text></text>
-            <text class="info-line" :style="{ color: colors.textRegular }">
+            <text class="info-line text-regular" >编号：{{ detail.equipment_code }}<text v-if="detail.point_name != null && detail.point_name != ''"> · {{ detail.point_name }}</text></text>
+            <text class="info-line text-regular" >
               {{ maintTypeText(detail.maintenance_type) }} · {{ detail.maintenance_date }} · {{ detail.operator_name }} 经办 · {{ detail.created_by_name }} 登记
             </text>
-            <text v-if="detail.vendor != null && detail.vendor != ''" class="info-line" :style="{ color: colors.textRegular }">维保单位：{{ detail.vendor }}</text>
-            <text v-if="detail.maintenance_type == 'ledger_fix'" class="info-line" :style="{ color: colors.textRegular }">
+            <text v-if="detail.vendor != null && detail.vendor != ''" class="info-line text-regular" >维保单位：{{ detail.vendor }}</text>
+            <text v-if="detail.maintenance_type == 'ledger_fix'" class="info-line text-regular" >
               补录日期：出厂 {{ detail.fix_manufacture_date != '' ? detail.fix_manufacture_date : '--' }} / 维保 {{ detail.fix_last_maintenance_date != '' ? detail.fix_last_maintenance_date : '--' }}
             </text>
-            <text v-if="detail.note != ''" class="info-line" :style="{ color: colors.textRegular }">备注：{{ detail.note }}</text>
-            <text v-if="detail.ai_verdict == 'review' && detail.ai_reason != null && detail.ai_reason != ''" class="info-line" :style="{ color: colors.danger }">AI 说明：{{ detail.ai_reason }}</text>
-            <text class="info-line" :style="{ color: colors.textSecondary }">登记时间：{{ detail.created_at }}</text>
+            <text v-if="detail.note != ''" class="info-line text-regular" >备注：{{ detail.note }}</text>
+            <text v-if="detail.ai_verdict == 'review' && detail.ai_reason != null && detail.ai_reason != ''" class="info-line text-danger" >AI 说明：{{ detail.ai_reason }}</text>
+            <text class="info-line text-secondary" >登记时间：{{ detail.created_at }}</text>
             <view class="photos">
               <image
                 v-for="(p, pi) in detail.photos"
@@ -90,50 +90,50 @@
                 lazy-load
                 @click="preview(detail, pi)"
               />
-              <text v-if="detail.photos.length == 0" class="info-line" :style="{ color: colors.textSecondary }">无照片</text>
+              <text v-if="detail.photos.length == 0" class="info-line text-secondary" >无照片</text>
             </view>
           </view>
         </scroll-view>
 
         <!-- 底部操作：不在当前环节授权名单内的只给说明，不让点了再报错 -->
-        <view v-if="detail.can_confirm !== false" class="sheet-actions" :style="{ backgroundColor: colors.bgCard, borderTopColor: colors.border }">
-          <view class="btn-half" :style="{ borderColor: colors.danger }" @click="onRejectTap">
-            <text class="btn-half-text" :style="{ color: colors.danger }">驳回</text>
-          </view>
-          <view class="btn-half btn-half-solid" :style="{ backgroundColor: colors.success }" @click="onPass">
-            <text class="btn-half-text" :style="{ color: colors.white }">通过</text>
-          </view>
+        <view v-if="detail.can_confirm !== false" class="sheet-actions bg-card border-default" >
+          <button plain="true" class="btn-half btn-outline-danger" hover-class="hover-dim" @click="onRejectTap">
+            <text class="btn-half-text">驳回</text>
+          </button>
+          <button plain="true" class="btn-half btn-success" hover-class="hover-dim" @click="onPass">
+            <text class="btn-half-text">通过</text>
+          </button>
         </view>
-        <view v-else class="sheet-actions" :style="{ backgroundColor: colors.bgCard, borderTopColor: colors.border }">
-          <text class="no-auth-text" :style="{ color: colors.textSecondary }">当前环节「{{ detail.current_step_name || '确认' }}」· 你不在授权名单内，待授权人处理</text>
+        <view v-else class="sheet-actions bg-card border-default" >
+          <text class="no-auth-text text-secondary" >当前环节「{{ detail.current_step_name || '确认' }}」· 你不在授权名单内，待授权人处理</text>
         </view>
       </template>
     </AppBottomSheet>
 
     <!-- 底部批量通过栏 -->
-    <view v-if="selectedCount > 0" class="footer-bar" :style="{ backgroundColor: colors.bgCard, borderTopColor: colors.border }">
-      <view class="btn-primary" :style="{ backgroundColor: acting ? colors.info : colors.success }" @click="onBatchPass">
-        <text class="btn-primary-text" :style="{ color: colors.white }">批量通过（{{ selectedCount }}）</text>
-      </view>
+    <view v-if="selectedCount > 0" class="footer-bar bg-card border-default" >
+      <button plain="true" class="btn-primary" :class="(acting ? 'btn-disabled' : 'btn-success')" hover-class="hover-dim" @click="onBatchPass">
+        <text class="btn-primary-text">批量通过（{{ selectedCount }}）</text>
+      </button>
     </view>
 
-    <!-- 驳回原因弹层（遮罩点击不关闭，避免误触丢失已填理由；用「取消」显式关闭） -->
-    <view v-if="rejecting" class="mask mask-center" :style="{ backgroundColor: colors.mask }">
-      <view class="dialog" :style="{ backgroundColor: colors.bgCard }" @click.stop="">
-        <text class="dialog-title" :style="{ color: colors.textPrimary }">驳回原因（必填）</text>
+    <!-- 驳回原因弹层（uni-popup 居中；遮罩点击不关闭，避免误触丢失已填理由；用「取消」显式关闭，驳回失败不关窗） -->
+    <uni-popup ref="rejectPopup" type="center" :is-mask-click="false" :mask-background-color="'rgba(0, 0, 0, 0.45)'" border-radius="28rpx">
+      <view class="dialog bg-card" >
+        <text class="dialog-title text-main" >驳回原因（必填）</text>
         <textarea
           v-model="rejectReason"
-          class="dialog-input"
-          :style="{ borderColor: colors.border, color: colors.textPrimary }"
+          class="dialog-input border-default text-main"
+          
           placeholder="如：照片为旧标签，请重新拍摄"
           :maxlength="200"
         />
         <view class="dialog-actions">
-          <text class="dialog-btn" :style="{ color: colors.textSecondary }" @click="rejecting = false">取消</text>
-          <text class="dialog-btn" :style="{ color: colors.danger }" @click="onRejectConfirm">确认驳回</text>
+          <text class="dialog-btn text-secondary"  @click="rejecting = false">取消</text>
+          <text class="dialog-btn text-danger"  @click="onRejectConfirm">确认驳回</text>
         </view>
       </view>
-    </view>
+    </uni-popup>
 
     <!-- 确认通过弹窗（自绘，替代原生 showModal）：单条/批量共用，ids 在打开时暂存 -->
     <AppDialog
@@ -151,7 +151,7 @@
 
 <script lang="ts">
 import { toastErr } from '@/utils/ui'
-import { Colors, ColorTokens } from '@/utils/theme'
+
 import {
   apiMaintenancePending, apiMaintenanceConfirm, apiMaintenanceReject, apiDictOptions,
   MaintenanceItem, DictOption
@@ -165,7 +165,6 @@ import AppDialog from '@/components/AppDialog.vue'
 const PAGE_SIZE = 20
 
 type ConfirmData = {
-  colors: ColorTokens
   loading: boolean
   loadingMore: boolean
   loaded: boolean
@@ -191,7 +190,6 @@ export default {
   components: { AppListShell, AppListFooter, AppBottomSheet, AppDialog },
   data(): ConfirmData {
     return {
-      colors: Colors,
       loading: true,
       loadingMore: false,
       loaded: false,
@@ -208,6 +206,15 @@ export default {
       acting: false,
       confirmDlgShow: false,
       confirmIds: [] as string[]
+    }
+  },
+  watch: {
+    /** 驳回弹层驱动 uni-popup 开/关（v-model 语义保留在 rejecting 单字段） */
+    rejecting(v: boolean) {
+      const popup: any = this.$refs.rejectPopup
+      if (popup == null) return
+      if (v) popup.open()
+      else popup.close()
     }
   },
   computed: {
@@ -387,26 +394,18 @@ export default {
   align-items: center;
 }
 
+/* 多选勾选图标（uni-icons）：放大触控区 */
+.check-icon {
+  padding: 16rpx;
+}
+
 .card-title-row {
   flex-direction: row;
   align-items: center;
   flex: 1;
 }
 
-.check-circle {
-  width: 40rpx;
-  height: 40rpx;
-  border-radius: 20rpx;
-  border-width: 2rpx;
-  border-style: solid;
-  align-items: center;
-  justify-content: center;
-  margin-right: 16rpx;
-}
 
-.check-mark {
-  font-size: 26rpx;
-}
 
 .card-title {
   font-size: 34rpx; /* FontSize.bodyL */
@@ -539,21 +538,7 @@ export default {
   font-weight: 600;
 }
 
-/* 驳回原因对话框 */
-.mask {
-  position: fixed;
-  left: 0;
-  top: 0;
-  right: 0;
-  bottom: 0;
-  z-index: 99;
-}
-
-.mask-center {
-  justify-content: center;
-  align-items: center;
-}
-
+/* 驳回原因弹层内容（容器为 uni-popup） */
 .dialog {
   width: 600rpx;
   border-radius: 24rpx;

@@ -1,90 +1,51 @@
 <template>
-  <view class="page" :style="{ backgroundColor: colors.bgPage }">
-    <view class="card" :style="{ backgroundColor: colors.bgCard }">
-      <view class="field" :style="{ borderColor: colors.border }">
-        <text class="field-label" :style="{ color: colors.textRegular }">原密码</text>
-        <input
-          v-model="oldPwd"
-          class="field-input"
-          :style="{ color: colors.textPrimary }"
-          :password="!showOld"
-          placeholder="请输入当前密码"
-          placeholder-class="ph"
-          :maxlength="32"
-        />
-        <image class="eye" :src="showOld ? eyeOff : eyeOn" @click="showOld = !showOld" />
+  <view class="page bg-page" >
+    <view class="card bg-card" >
+      <view class="field border-default" >
+        <text class="field-label text-regular" >原密码</text>
+        <uni-easyinput class="field-input" v-model="oldPwd" type="password" placeholder="请输入当前密码" :maxlength="32" :input-border="false" :clearable="false" :primary-color="'#2B5AED'" />
       </view>
-      <view class="field" :style="{ borderColor: colors.border }">
-        <text class="field-label" :style="{ color: colors.textRegular }">新密码</text>
-        <input
-          v-model="newPwd"
-          class="field-input"
-          :style="{ color: colors.textPrimary }"
-          :password="!showNew"
-          placeholder="8-32 位，含字母和数字"
-          placeholder-class="ph"
-          :maxlength="32"
-        />
-        <image class="eye" :src="showNew ? eyeOff : eyeOn" @click="showNew = !showNew" />
+      <view class="field border-default" >
+        <text class="field-label text-regular" >新密码</text>
+        <uni-easyinput class="field-input" v-model="newPwd" type="password" placeholder="8-32 位，含字母和数字" :maxlength="32" :input-border="false" :clearable="false" :primary-color="'#2B5AED'" />
       </view>
       <view class="field field-last">
-        <text class="field-label" :style="{ color: colors.textRegular }">确认新密码</text>
-        <input
-          v-model="confirmPwd"
-          class="field-input"
-          :style="{ color: colors.textPrimary }"
-          :password="!showConfirm"
-          placeholder="再输入一次新密码"
-          placeholder-class="ph"
-          :maxlength="32"
-        />
-        <image class="eye" :src="showConfirm ? eyeOff : eyeOn" @click="showConfirm = !showConfirm" />
+        <text class="field-label text-regular" >确认新密码</text>
+        <uni-easyinput class="field-input" v-model="confirmPwd" type="password" placeholder="再输入一次新密码" :maxlength="32" :input-border="false" :clearable="false" :primary-color="'#2B5AED'" />
       </view>
     </view>
 
-    <view
-       hover-class="hover-dim" class="btn-submit"
-      :style="{ backgroundColor: submitting ? colors.border : colors.primary }"
+    <button
+      plain="true" hover-class="hover-dim" class="btn-submit"
+      :class="(submitting ? 'btn-disabled' : 'btn-primary')"
       @click="submit"
     >
-      <text  hover-class="hover-dim" class="btn-submit-text" :style="{ color: colors.white }">{{ submitting ? '提交中…' : '确认修改' }}</text>
-    </view>
+      <text class="btn-submit-text">{{ submitting ? '提交中…' : '确认修改' }}</text>
+    </button>
 
-    <text class="tip" :style="{ color: colors.textSecondary }">修改成功后下次登录请使用新密码</text>
+    <text class="tip text-secondary" >修改成功后下次登录请使用新密码</text>
   </view>
 </template>
 
 <script lang="ts">
 import { toastErr } from '@/utils/ui'
-import { Colors, ColorTokens } from '@/utils/theme'
+
 import { apiChangePassword } from '@/services/api'
 
 type PasswordData = {
-  colors: ColorTokens
   oldPwd: string
   newPwd: string
   confirmPwd: string
-  showOld: boolean
-  showNew: boolean
-  showConfirm: boolean
   submitting: boolean
-  eyeOn: string
-  eyeOff: string
 }
 
 export default {
   data(): PasswordData {
     return {
-      colors: Colors,
       oldPwd: '',
       newPwd: '',
       confirmPwd: '',
-      showOld: false,
-      showNew: false,
-      showConfirm: false,
-      submitting: false,
-      eyeOn: '/static/icons/eye.png',
-      eyeOff: '/static/icons/eye-off.png'
+      submitting: false
     }
   },
   methods: {
@@ -152,19 +113,6 @@ export default {
 
 .field-input {
   flex: 1;
-  font-size: 30rpx;
-  height: 104rpx;
-}
-
-.ph {
-  color: #a8abb2;
-  font-size: 28rpx;
-}
-
-.eye {
-  width: 44rpx;
-  height: 44rpx;
-  padding: 10rpx;
 }
 
 .btn-submit {

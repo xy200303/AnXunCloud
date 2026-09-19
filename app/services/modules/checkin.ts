@@ -405,7 +405,7 @@ export function apiItemDraftDelete(req: { task_id: string; point_id: string; nam
 }
 
 /** 拍照项逃生入口 POST /checkin/item-drafts/photo-abnormal（device_missing 携 1 张佐证；unable_to_capture/camera_broken 拍不了照，无 file_ids 直接上报；shoot_* 拍摄时空信息可选） */
-export function apiItemDraftPhotoAbnormal(req: { task_id: string; point_id: string; name: string; file_ids?: string[]; note: string; exception_type: 'device_missing' | 'unable_to_capture' | 'camera_broken'; shoot_lng?: number; shoot_lat?: number; shoot_at?: string }): Promise<void> {
+export function apiItemDraftPhotoAbnormal(req: { task_id: string; point_id: string; name: string; file_ids?: string[]; note: string; exception_type: 'device_missing' | 'unable_to_capture' | 'camera_broken' | 'ai_failed'; shoot_lng?: number; shoot_lat?: number; shoot_at?: string }): Promise<void> {
   return new Promise<void>((resolve, reject) => {
     httpPost('/checkin/item-drafts/photo-abnormal', req as unknown as Record<string, any>)
       .then(() => resolve())

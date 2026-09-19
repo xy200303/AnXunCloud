@@ -7,11 +7,12 @@ export function checkinTypeTextOf(t: string): string {
   return t
 }
 
-/** 无法检查原因展示映射（exception_type：device_missing/unable_to_capture/camera_broken/label_missing；空=无原因） */
+/** 无法检查原因展示映射（exception_type：device_missing/unable_to_capture/camera_broken/ai_failed/label_missing；空=无原因） */
 export function itemExceptionTextOf(t: string): string {
   if (t == 'device_missing') return '设备不存在'
   if (t == 'unable_to_capture') return '无法拍摄'
   if (t == 'camera_broken') return '相机故障'
+  if (t == 'ai_failed') return 'AI 识别失败（人工现场确认）'
   if (t == 'label_missing') return '标签磨损'
   return ''
 }

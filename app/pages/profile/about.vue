@@ -1,45 +1,40 @@
 <template>
-  <view class="page" :style="{ backgroundColor: colors.bgPage }">
+  <view class="page bg-page" >
     <!-- 品牌区 -->
     <view class="brand">
       <image class="brand-icon" src="/static/brand/app-icon-1024.png" mode="aspectFit" />
-      <text class="brand-name" :style="{ color: colors.textPrimary }">安巡云</text>
-      <text class="brand-version" :style="{ color: colors.textSecondary }">v{{ version }}</text>
+      <text class="brand-name text-main" >安巡云</text>
+      <text class="brand-version text-secondary" >v{{ version }}</text>
     </view>
 
     <!-- 简介 -->
-    <view class="card" :style="{ backgroundColor: colors.bgCard }">
-      <text class="intro" :style="{ color: colors.textRegular }">安巡云是面向物业巡检场景的数字化管理平台：扫码 / NFC / GPS 围栏三重到点校验，拍照留证、AI 审核、月度报告电子签，让每一次巡检都有据可查。</text>
+    <view class="card bg-card" >
+      <text class="intro text-regular" >安巡云是面向物业巡检场景的数字化管理平台：扫码 / NFC / GPS 围栏三重到点校验，拍照留证、AI 审核、月度报告电子签，让每一次巡检都有据可查。</text>
     </view>
 
-    <!-- 链接区 -->
-    <view class="card menu-card" :style="{ backgroundColor: colors.bgCard }">
-      <view  hover-class="hover-dim" class="row" @click="copySite">
-        <text  hover-class="hover-dim" class="row-text" :style="{ color: colors.textRegular }">官网 / 下载页</text>
-        <text  hover-class="hover-dim" class="row-value" :style="{ color: colors.textSecondary }">{{ siteUrl }}</text>
-      </view>
-      <view  hover-class="hover-dim" class="row" @click="checkUpdate">
-        <text  hover-class="hover-dim" class="row-text" :style="{ color: colors.textRegular }">检查更新</text>
-        <text  hover-class="hover-dim" class="row-value" :style="{ color: colors.textSecondary }">当前 v{{ version }}</text>
-      </view>
+    <!-- 链接区：官方 uni-list 列表行 -->
+    <view class="card menu-card bg-card" >
+      <uni-list :border="false">
+        <uni-list-item title="官网 / 下载页" :right-text="siteUrl" clickable @click="copySite" />
+        <uni-list-item title="检查更新" :right-text="'当前 v' + version" clickable show-arrow @click="checkUpdate" />
+      </uni-list>
     </view>
 
     <!-- 版本更新弹窗（手动检查） -->
     <UpdateDialog ref="updDialog" />
 
-    <text class="copyright" :style="{ color: colors.textSecondary }">安巡云 AnXunCloud · 物业巡检数字化</text>
+    <text class="copyright text-secondary" >安巡云 AnXunCloud · 物业巡检数字化</text>
   </view>
 </template>
 
 <script lang="ts">
-import { Colors, ColorTokens } from '@/utils/theme'
+
 import { getPublicOrigin } from '@/services/request'
 import { fetchLatestRelease, currentVersion } from '@/utils/update'
 import { APP_VERSION } from '@/utils/appVersion'
 import UpdateDialog from '@/components/UpdateDialog.vue'
 
 type AboutData = {
-  colors: ColorTokens
   version: string
   siteUrl: string
   checking: boolean
@@ -49,7 +44,6 @@ export default {
   components: { UpdateDialog },
   data(): AboutData {
     return {
-      colors: Colors,
       version: APP_VERSION,
       siteUrl: '',
       checking: false
@@ -131,24 +125,6 @@ export default {
 .intro {
   font-size: 28rpx;
   line-height: 44rpx;
-}
-
-.row {
-  min-height: 104rpx;
-  flex-direction: row;
-  align-items: center;
-  justify-content: space-between;
-}
-
-.row-text {
-  font-size: 30rpx;
-}
-
-.row-value {
-  font-size: 26rpx;
-  flex: 1;
-  text-align: right;
-  margin-left: 24rpx;
 }
 
 .copyright {

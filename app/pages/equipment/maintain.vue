@@ -1,18 +1,28 @@
 <template>
-  <view class="page" :style="{ backgroundColor: colors.bgPage }">
+  <view class="page bg-page" >
     <!-- 骨架屏 -->
     <view v-if="loading" class="skeleton">
-      <view class="sk-block" :style="{ backgroundColor: colors.border }"></view>
+      <view class="sk-block bg-border" ></view>
+    </view>
+
+    <!-- 裸进兜底（无设备参数/编辑参数）：引导先选设备，防深链空表单 -->
+    <view v-else-if="bareEntry" class="content">
+      <view class="item-card bg-card bare-card">
+        <uni-icons type="gear" size="48" color="#2B5AED" />
+        <text class="bare-title text-main">维保登记需要先选择设备</text>
+        <text class="bare-sub text-secondary">从设备台账里挑一台要维保的设备，再拍新标签提交</text>
+        <button plain="true" class="btn-primary btn-big bare-btn" hover-class="hover-dim" @click="goPickEquipment">去选择设备</button>
+      </view>
     </view>
 
     <view v-else class="content">
       <!-- 与打卡向导同一套视觉语言：大卡片 + 大拍照块 + 大按钮（巡检员零学习成本） -->
-      <view class="item-card" :style="{ backgroundColor: colors.bgCard }">
-        <text class="item-name" :style="{ color: colors.textPrimary }">{{ eqName }}</text>
-        <text class="item-hint" :style="{ color: colors.textSecondary }">编号：{{ eqCode }}<text v-if="detail != null && detail.next_due_date != ''"> · 到期日 {{ detail.next_due_date }}</text></text>
+      <view class="item-card bg-card" >
+        <text class="item-name text-main" >{{ eqName }}</text>
+        <text class="item-hint text-secondary" >编号：{{ eqCode }}<text v-if="detail != null && detail.next_due_date != ''"> · 到期日 {{ detail.next_due_date }}</text></text>
 
         <!-- 到期状态横幅（与向导台账有效期项同口径） -->
-        <view v-if="dueText != ''" class="equip-banner" :style="{ backgroundColor: colors.bgPage }">
+        <view v-if="dueText != ''" class="equip-banner bg-page" >
           <text class="equip-state" :style="{ color: dueColor }">{{ dueText }}</text>
         </view>
 
@@ -20,19 +30,19 @@
         <view
           v-if="photos.length == 0"
           hover-class="hover-dim"
-          class="shot-empty"
-          :style="{ borderColor: colors.primary }"
+          class="shot-empty border-brand"
+          
           @click="takePhoto"
         >
-          <view class="cam-icon" :style="{ borderColor: colors.primary }">
-            <view class="cam-lens" :style="{ borderColor: colors.primary }"></view>
+          <view class="cam-icon border-brand" >
+            <view class="cam-lens border-brand" ></view>
           </view>
-          <text class="shot-empty-text" :style="{ color: colors.primary }">已维保？点这里拍新标签</text>
+          <text class="shot-empty-text text-brand" >已维保？点这里拍新标签</text>
         </view>
 
         <!-- 已拍：大图预览（同向导）+ 缩略图行 + 提示 -->
         <block v-else>
-          <view class="shot-preview" :style="{ backgroundColor: colors.bgPage }" @click="preview(0)">
+          <view class="shot-preview bg-page"  @click="preview(0)">
             <image v-if="!imgError" :src="photos[0]" class="shot-img" mode="aspectFill" @error="imgError = true" />
             <view v-else class="shot-img shot-img-fallback">
               <text class="shot-img-fallback-text">照片加载失败，可重新拍</text>
@@ -47,42 +57,38 @@
                 @click="preview(pi)"
                 @longpress="removePhoto(pi)"
               />
-              <view class="equip-thumb-del" :style="{ backgroundColor: colors.danger }" @click.stop="removePhoto(pi)">
-                <text class="equip-thumb-del-text" :style="{ color: colors.white }">×</text>
+              <view class="equip-thumb-del bg-danger"  @click.stop="removePhoto(pi)">
+                <text class="equip-thumb-del-text text-white" >×</text>
               </view>
             </view>
           </view>
-          <text class="equip-photo-hint" :style="{ color: colors.textSecondary }">
+          <text class="equip-photo-hint text-secondary" >
             已拍 {{ photos.length }} 张新标签（点缩略图右上角 × 删除，长按也可），提交时系统自动核对，拿不准转经理确认
           </text>
-          <view v-if="photos.length < 3" hover-class="hover-dim" class="btn-outline reshot" :style="{ borderColor: colors.primary }" @click="takePhoto">
-            <text class="btn-outline-text" :style="{ color: colors.primary }">再拍一张</text>
-          </view>
+          <button v-if="photos.length < 3" plain="true" hover-class="hover-dim" class="btn-outline reshot" @click="takePhoto">
+            <text class="btn-outline-text">再拍一张</text>
+          </button>
         </block>
 
         <!-- 提交（同向导大按钮） -->
-        <view hover-class="hover-dim" class="btn-big" :style="{ backgroundColor: photos.length == 0 || submitting ? colors.info : colors.primary }" @click="submit">
-          <text class="btn-big-text" :style="{ color: colors.white }">{{ submitting ? 'AI 核对中…' : editId != '' ? '重新提交' : '提交维保' }}</text>
-        </view>
+        <button plain="true" hover-class="hover-dim" class="btn-big" :class="(photos.length == 0 || submitting ? 'btn-disabled' : 'btn-primary')" @click="submit">
+          <text class="btn-big-text">{{ submitting ? 'AI 核对中…' : editId != '' ? '重新提交' : '提交维保' }}</text>
+        </button>
 
-        <text class="foot-note" :style="{ color: colors.textSecondary }">标签磨损无法辨认？请联系经理在电脑端处理</text>
+        <text class="foot-note text-secondary" >标签磨损无法辨认？请联系经理在电脑端处理</text>
       </view>
       <view class="bottom-space"></view>
     </view>
 
-    <!-- 提交结果弹窗（自绘：圆形状态图标 + 标题 + 说明 + 胶囊按钮；系统 showModal 太生硬） -->
-    <view v-if="resultDlg.show" class="dlg-mask" :style="{ backgroundColor: colors.mask }">
-      <view class="dlg-card" :style="{ backgroundColor: colors.bgCard }">
-        <view class="dlg-icon" :style="{ backgroundColor: resultDlg.color }">
-          <text class="dlg-icon-text" :style="{ color: colors.white }">{{ resultDlg.icon }}</text>
-        </view>
-        <text class="dlg-title" :style="{ color: colors.textPrimary }">{{ resultDlg.title }}</text>
-        <text class="dlg-content" :style="{ color: colors.textRegular }">{{ resultDlg.content }}</text>
-        <view hover-class="hover-dim" class="dlg-btn" :style="{ backgroundColor: resultDlg.color }" @click="onResultConfirm">
-          <text class="dlg-btn-text" :style="{ color: colors.white }">知道了</text>
-        </view>
-      </view>
-    </view>
+    <!-- 提交结果弹窗（AppDialog：圆形状态图标 + 标题 + 说明 + 胶囊按钮；结果必须被看到，确认后才退出） -->
+    <AppDialog
+      :visible="resultDlg.show"
+      :kind="resultDlg.kind == 'fail' ? 'danger' : resultDlg.kind == 'pending' ? 'primary' : 'success'"
+      :title="resultDlg.title"
+      :content="resultDlg.content"
+      @update:visible="resultDlg.show = $event"
+      @confirm="onResultConfirm"
+    />
     <!-- 删除照片确认（自绘弹窗，与结果弹窗同口径） -->
     <AppDialog
       :visible="delDlg.show"
@@ -98,7 +104,7 @@
 </template>
 
 <script lang="ts">
-import { Colors, ColorTokens } from '@/utils/theme'
+
 import { apiEquipmentDetail, apiEquipmentRegister, apiMaintenanceUpdate, apiMaintenanceMine, apiUploadLocal, EquipmentDetail, CODE_QUALITY_FAIL } from '@/services/api'
 import { compressForUpload } from '@/utils/image'
 import { toAbsUrl } from '@/utils/url'
@@ -122,7 +128,6 @@ function todayZero(): number {
 }
 
 type MaintainData = {
-  colors: ColorTokens
   equipmentId: string
   /** 编辑模式：待确认记录 id（「我的提交 → 修改照片」跳入）；空 = 新登记 */
   editId: string
@@ -137,8 +142,8 @@ type MaintainData = {
   imgError: boolean
   submitting: boolean
   uploading: boolean
-  /** 提交结果弹窗（自绘）：kind 决定图标/颜色；成功类确认后退出，失败类留在原地 */
-  resultDlg: { show: boolean; kind: 'ok' | 'pending' | 'fail'; icon: string; color: string; title: string; content: string }
+  /** 提交结果弹窗（AppDialog）：kind 决定图标/颜色（ok=success / pending=primary / fail=danger）；成功类确认后退出，失败类留在原地 */
+  resultDlg: { show: boolean; kind: 'ok' | 'pending' | 'fail'; title: string; content: string }
   /** 删除照片确认弹窗：idx 为待删照片下标 */
   delDlg: { show: boolean; idx: number }
 }
@@ -147,7 +152,6 @@ export default {
   components: { AppDialog },
   data(): MaintainData {
     return {
-      colors: Colors,
       equipmentId: '',
       editId: '',
       detail: null,
@@ -159,7 +163,7 @@ export default {
       imgError: false,
       submitting: false,
       uploading: false,
-      resultDlg: { show: false, kind: 'ok', icon: '✓', color: Colors.success, title: '', content: '' },
+      resultDlg: { show: false, kind: 'ok', title: '', content: '' },
       delDlg: { show: false, idx: -1 }
     }
   },
@@ -173,13 +177,17 @@ export default {
       if (days == 0) return '今天到期'
       return days + ' 天后到期（' + d.next_due_date + '）'
     },
+    /** 裸进判定：无 equipment_id（新登记缺设备）且无 maintenance_id（非编辑模式） */
+    bareEntry(): boolean {
+      return this.equipmentId == '' && this.editId == ''
+    },
     dueColor(): string {
       const d = this.detail
-      if (d == null || d.next_due_date == '') return Colors.info
+      if (d == null || d.next_due_date == '') return '#909399'
       const days = Math.round((new Date(d.next_due_date.replace(/-/g, '/')).getTime() - todayZero()) / 86400000)
-      if (days < 0) return Colors.danger
-      if (days <= 30) return Colors.warning
-      return Colors.success
+      if (days < 0) return '#D54941'
+      if (days <= 30) return '#ED7B2F'
+      return '#2BA471'
     }
   },
   onLoad(options: any) {
@@ -221,6 +229,10 @@ export default {
     if (this.editId != '') uni.removeStorageSync(MAINTAIN_EDIT_KEY)
   },
   methods: {
+    /** 裸进兜底：去设备台账选择模式挑设备（选择后 redirectTo 回本页带参数） */
+    goPickEquipment() {
+      uni.redirectTo({ url: '/pages/equipment/index?mode=pick' })
+    },
     /** 编辑模式预填：优先 mine.vue 写入的草稿；缺失（如页面刷新）时拉我的提交列表兜底 */
     prefillDraft() {
       const draft = uni.getStorageSync(MAINTAIN_EDIT_KEY) as MaintainEditDraft | ''
@@ -339,9 +351,7 @@ export default {
     },
     /** 打开结果弹窗：ok=绿勾（已生效）/pending=蓝点（待经理确认）/fail=红叉（留在原地可重试） */
     openResult(kind: 'ok' | 'pending' | 'fail', title: string, content: string) {
-      const icon = kind == 'fail' ? '✕' : kind == 'pending' ? '●' : '✓'
-      const color = kind == 'fail' ? Colors.danger : kind == 'pending' ? Colors.primary : Colors.success
-      this.resultDlg = { show: true, kind, icon, color, title, content }
+      this.resultDlg = { show: true, kind, title, content }
     },
     /** 结果弹窗确认：成功类退出本页；失败类仅关闭，照片保留可重试 */
     onResultConfirm() {
@@ -534,11 +544,7 @@ export default {
 .btn-outline {
   width: 100%;
   height: 112rpx;
-  border-width: 2rpx;
-  border-style: solid;
   border-radius: 20rpx;
-  align-items: center;
-  justify-content: center;
   margin-top: 8rpx;
 }
 
@@ -553,66 +559,30 @@ export default {
   text-align: center;
 }
 
-.bottom-space {
-  height: 64rpx;
-}
-
-/* 提交结果弹窗（自绘，居中卡片） */
-.dlg-mask {
-  position: fixed;
-  left: 0;
-  top: 0;
-  right: 0;
-  bottom: 0;
-  z-index: 999;
-  justify-content: center;
+.bare-card {
   align-items: center;
+  padding-top: 96rpx;
+  padding-bottom: 64rpx;
 }
 
-.dlg-card {
-  width: 600rpx;
-  border-radius: 28rpx;
-  padding: 48rpx 40rpx 40rpx;
-  align-items: center;
-}
-
-.dlg-icon {
-  width: 112rpx;
-  height: 112rpx;
-  border-radius: 56rpx;
-  align-items: center;
-  justify-content: center;
-}
-
-.dlg-icon-text {
-  font-size: 56rpx;
-  font-weight: 700;
-}
-
-.dlg-title {
+.bare-title {
   font-size: 36rpx;
   font-weight: 700;
-  margin-top: 24rpx;
+  margin-top: 32rpx;
 }
 
-.dlg-content {
+.bare-sub {
   font-size: 28rpx;
   margin-top: 16rpx;
-  line-height: 44rpx;
   text-align: center;
+  line-height: 44rpx;
 }
 
-.dlg-btn {
-  width: 100%;
-  height: 96rpx;
-  border-radius: 48rpx;
-  align-items: center;
-  justify-content: center;
-  margin-top: 40rpx;
+.bare-btn {
+  margin-top: 48rpx;
 }
 
-.dlg-btn-text {
-  font-size: 34rpx;
-  font-weight: 600;
+.bottom-space {
+  height: 64rpx;
 }
 </style>

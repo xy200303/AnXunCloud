@@ -157,11 +157,12 @@ export function request<T = any>(
   method: 'GET' | 'POST' | 'PUT' | 'DELETE',
   data: Record<string, any> | null = null,
   withAuth: boolean = true,
-  isRetry: boolean = false
+  isRetry: boolean = false,
+  baseUrl: string = BASE_URL
 ): Promise<T | null> {
   return new Promise<T | null>((resolve, reject) => {
     const token = withAuth ? getAccessToken() : ''
-    httpRaw(BASE_URL + path, method, data, token)
+    httpRaw(baseUrl + path, method, data, token)
       .then((env) => {
         if (env.code == 0) {
           resolve(env.data as T)
@@ -169,7 +170,7 @@ export function request<T = any>(
           refreshSession()
             .then((ok) => {
               if (ok) {
-                request<T>(path, method, data, withAuth, true).then(resolve).catch(reject)
+                request<T>(path, method, data, withAuth, true, baseUrl).then(resolve).catch(reject)
               } else {
                 forceLogoutToLogin()
                 reject(new Error('登录已失效，请重新登录'))
@@ -214,6 +215,16 @@ export function httpDelete<T = any>(path: string, data: Record<string, any> | nu
 /** 当前 baseURL（调试用） */
 export function getBaseUrl(): string {
   return BASE_URL
+}
+
+/** mp 组基址（App 端跨组调 mp 接口用：mp 组鉴权与 App 共用 app 通道会话，见 router.go mpAuth 注释；MP 端本就在 mp 组，原地返回） */
+export function getMpBaseUrl(): string {
+  return BASE_URL.replace(/\/api\/app$/, '/api/mp')
+}
+
+/** 以 mp 组基址发起 GET（巡检员免权限接口跨组调用；信封/鉴权/40102 刷新逻辑与 request 一致） */
+export function httpGetMp<T = any>(path: string): Promise<T | null> {
+  return request<T>(path, 'GET', null, true, false, getMpBaseUrl())
 }
 
 /** 站点公开访问源（去掉 /api/app|mp 后缀）：用于生成 NFC 短链接等对外 URL */

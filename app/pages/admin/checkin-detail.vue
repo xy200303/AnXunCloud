@@ -1,12 +1,12 @@
 <template>
-  <view class="page" :style="{ backgroundColor: colors.bgPage }">
+  <view class="page bg-page" >
     <!-- 加载中 / 失败 -->
     <view v-if="loading" class="hint">
-      <text class="hint-text" :style="{ color: colors.textSecondary }">加载中…</text>
+      <uni-load-more status="loading" :content-text="{ contentrefresh: '加载中…' }" :color="'#86909C'" />
     </view>
     <view v-else-if="!loaded" class="hint">
-      <text class="hint-text" :style="{ color: colors.textRegular }">{{ errorMsg }}</text>
-      <text class="hint-retry" :style="{ color: colors.primary }" @click="load">重试</text>
+      <text class="hint-text text-regular" >{{ errorMsg }}</text>
+      <text class="hint-retry text-brand"  @click="load">重试</text>
     </view>
 
     <block v-else-if="d != null">
@@ -17,7 +17,7 @@
 </template>
 
 <script lang="ts">
-import { Colors } from '@/utils/theme'
+
 import { apiAdminCheckinDetail, AdminCheckinDetail } from '@/services/api'
 import CheckinDetailView from '@/components/CheckinDetailView.vue'
 
@@ -25,7 +25,6 @@ export default {
   components: { CheckinDetailView },
   data() {
     return {
-      colors: Colors,
       checkinId: '',
       loading: true,
       loaded: false,

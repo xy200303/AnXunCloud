@@ -1,51 +1,52 @@
 <template>
-  <view class="page" :style="{ backgroundColor: colors.bgPage, paddingTop: statusPadTop }">
+  <view class="page bg-page" :style="{ paddingTop: statusPadTop }">
     <!-- 自定义导航栏（左侧返回登录页，右侧管理/完成切换删除模式） -->
     <view class="nav">
-      <text class="nav-back" :style="{ color: colors.textPrimary }" @click="goLogin">‹</text>
-      <text class="nav-manage" :style="{ color: colors.textPrimary }" @click="toggleManage">{{ managing ? '完成' : '管理' }}</text>
+      <view class="nav-back" @click="goLogin"><uni-icons type="back" size="24" :color="'#1F2329'" /></view>
+      <text class="nav-manage text-main"  @click="toggleManage">{{ managing ? '完成' : '管理' }}</text>
     </view>
 
     <view class="header">
-      <text class="title" :style="{ color: colors.textPrimary }">轻触头像以切换账号</text>
+      <text class="title text-main" >轻触头像以切换账号</text>
     </view>
 
-    <!-- 账号卡片列表 -->
-    <view class="list">
-      <view
+    <!-- 账号列表（§18.4 uni-list 标准行：头像 + 名称/用户名 + 右侧状态；删除模式右侧出「删除」） -->
+    <uni-list class="list bg-card" :style="{ borderRadius: '24rpx' }">
+      <uni-list-item
         v-for="(acc, idx) in accounts"
         :key="acc.username + ':' + acc.tenant_code"
-        class="acc-card"
-        :style="{ backgroundColor: colors.bgCard }"
-        hover-class="hover-dim"
+        :title="acc.remark != '' ? acc.remark : acc.username"
+        :note="acc.username"
+        clickable
         @click="onAccountTap(idx)"
       >
-        <view class="acc-avatar" :style="{ backgroundColor: colors.primaryLight }">
-          <text class="acc-avatar-text" :style="{ color: colors.primary }">{{ avatarText(acc) }}</text>
-          <view v-if="loginKey == acc.username + ':' + acc.tenant_code" class="acc-loading" :style="{ backgroundColor: colors.mask }">
-            <text class="acc-loading-text" :style="{ color: colors.white }">…</text>
+        <template #header>
+          <view class="acc-avatar bg-brand-light" >
+            <text class="acc-avatar-text text-brand" >{{ avatarText(acc) }}</text>
+            <view v-if="loginKey == acc.username + ':' + acc.tenant_code" class="acc-loading bg-mask" >
+              <text class="acc-loading-text text-white" >…</text>
+            </view>
           </view>
-        </view>
-        <view class="acc-meta">
-          <text class="acc-name" :style="{ color: colors.textPrimary }">{{ acc.remark != '' ? acc.remark : acc.username }}</text>
-          <text class="acc-sub" :style="{ color: colors.textSecondary }">{{ acc.username }}</text>
-        </view>
-        <text v-if="idx == 0 && !managing" class="acc-current" :style="{ color: colors.success }">● 最近使用</text>
-        <text v-if="managing" class="acc-del" :style="{ color: colors.danger }" @click.stop="onDeleteTap(idx)">删除</text>
-      </view>
+        </template>
+        <template #footer>
+          <view>
+            <uni-tag v-if="idx == 0 && !managing" text="最近使用" type="success" :inverted="true" size="small" />
+            <text v-if="managing" class="acc-del text-danger"  @click.stop="onDeleteTap(idx)">删除</text>
+          </view>
+        </template>
+      </uni-list-item>
 
       <!-- 添加账号：去登录页手动登录 -->
-      <view class="acc-card" :style="{ backgroundColor: colors.bgCard }" hover-class="hover-dim" @click="goLogin">
-        <view class="acc-avatar acc-add" :style="{ borderColor: colors.border }">
-          <text class="acc-add-icon" :style="{ color: colors.textSecondary }">+</text>
-        </view>
-        <view class="acc-meta">
-          <text class="acc-name acc-add-text" :style="{ color: colors.textSecondary }">添加账号</text>
-        </view>
-      </view>
-    </view>
+      <uni-list-item title="添加账号" clickable show-arrow @click="goLogin">
+        <template #header>
+          <view class="acc-avatar acc-add border-default" >
+            <uni-icons type="plusempty" size="22" :color="'#86909C'" />
+          </view>
+        </template>
+      </uni-list-item>
+    </uni-list>
 
-    <text v-if="errorMsg != ''" class="error" :style="{ color: colors.danger }">{{ errorMsg }}</text>
+    <text v-if="errorMsg != ''" class="error text-danger" >{{ errorMsg }}</text>
 
     <!-- 删除确认 -->
     <AppDialog
@@ -62,7 +63,7 @@
 </template>
 
 <script lang="ts">
-import { Colors, ColorTokens } from '@/utils/theme'
+
 import { useAuthStore } from '@/stores/auth'
 import {
   SwitchAccount,
@@ -73,7 +74,6 @@ import {
 import AppDialog from '@/components/AppDialog.vue'
 
 type SwitchData = {
-  colors: ColorTokens
   statusBarH: number
   accounts: SwitchAccount[]
   /** 删除管理模式（右上角 管理/完成 切换） */
@@ -89,7 +89,6 @@ export default {
   components: { AppDialog },
   data(): SwitchData {
     return {
-      colors: Colors,
       statusBarH: 20,
       accounts: [],
       managing: false,
@@ -186,9 +185,10 @@ export default {
 }
 
 .nav-back {
-  font-size: 56rpx;
-  line-height: 88rpx;
   width: 88rpx;
+  height: 88rpx;
+  align-items: center;
+  justify-content: center;
 }
 
 .nav-manage {
@@ -208,16 +208,11 @@ export default {
 }
 
 .list {
+  border-radius: 24rpx;
+  overflow: hidden;
   flex-direction: column;
 }
 
-.acc-card {
-  border-radius: 24rpx;
-  padding: 28rpx 32rpx;
-  margin-bottom: 24rpx;
-  flex-direction: row;
-  align-items: center;
-}
 
 .acc-avatar {
   width: 96rpx;
@@ -249,23 +244,9 @@ export default {
   font-size: 32rpx;
 }
 
-.acc-meta {
-  flex: 1;
-}
 
-.acc-name {
-  font-size: 34rpx;
-  font-weight: 600;
-}
 
-.acc-sub {
-  font-size: 26rpx;
-  margin-top: 6rpx;
-}
 
-.acc-current {
-  font-size: 26rpx;
-}
 
 .acc-del {
   font-size: 28rpx;
@@ -278,13 +259,7 @@ export default {
   border-style: dashed;
 }
 
-.acc-add-icon {
-  font-size: 48rpx;
-}
 
-.acc-add-text {
-  font-weight: 400;
-}
 
 .error {
   font-size: 26rpx;

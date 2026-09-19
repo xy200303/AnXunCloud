@@ -1,83 +1,86 @@
 <template>
-  <view class="page" :style="{ backgroundColor: colors.bgPage }">
+  <view class="page bg-page" >
     <!-- 骨架屏 -->
     <view v-if="loading && tasks.length == 0" class="skeleton">
-      <view class="sk-block" :style="{ backgroundColor: colors.border }"></view>
-      <view class="sk-block" :style="{ backgroundColor: colors.border }"></view>
-      <view class="sk-block sk-short" :style="{ backgroundColor: colors.border }"></view>
+      <view class="sk-block bg-border" ></view>
+      <view class="sk-block bg-border" ></view>
+      <view class="sk-block sk-short bg-border" ></view>
     </view>
 
     <!-- 加载失败 -->
     <view v-else-if="!loaded && tasks.length == 0" class="empty">
-      <text class="empty-title" :style="{ color: colors.textRegular }">{{ errorMsg }}</text>
-      <text class="empty-retry" :style="{ color: colors.primary }" @click="reload">重试</text>
+      <text class="empty-title text-regular" >{{ errorMsg }}</text>
+      <text class="empty-retry text-brand"  @click="reload">重试</text>
     </view>
 
     <view v-else class="content">
       <!-- 统计卡（2x2） -->
       <view class="stats">
-        <view class="stat-card" :style="{ backgroundColor: colors.bgCard }">
-          <text class="stat-num" :style="{ color: colors.primary }">{{ rateText }}</text>
-          <text class="stat-label" :style="{ color: colors.textSecondary }">今日完成率 {{ doneCount }}/{{ totalCount }}</text>
+        <view class="stat-card bg-card" >
+          <text class="stat-num text-brand" >{{ rateText }}</text>
+          <text class="stat-label text-secondary" >今日完成率 {{ doneCount }}/{{ totalCount }}</text>
         </view>
-        <view class="stat-card" :style="{ backgroundColor: colors.bgCard }">
-          <text class="stat-num" :style="{ color: colors.primary }">{{ board.doing_tasks }}</text>
-          <text class="stat-label" :style="{ color: colors.textSecondary }">进行中任务</text>
+        <view class="stat-card bg-card" >
+          <text class="stat-num text-brand" >{{ board.doing_tasks }}</text>
+          <text class="stat-label text-secondary" >进行中任务</text>
         </view>
-        <view class="stat-card" :style="{ backgroundColor: colors.bgCard }">
-          <text class="stat-num" :style="{ color: colors.danger }">{{ board.overdue_tasks }}</text>
-          <text class="stat-label" :style="{ color: colors.textSecondary }">已逾期任务</text>
+        <view class="stat-card bg-card" >
+          <text class="stat-num text-danger" >{{ board.overdue_tasks }}</text>
+          <text class="stat-label text-secondary" >已逾期任务</text>
         </view>
       </view>
 
-      <AppSegmentTabs :items="tabs" :value="filter" :colors="colors" @change="switchFilter" />
+      <AppSegmentTabs :items="tabs" :value="filter" @change="switchFilter" />
 
       <!-- 空态 -->
       <view v-if="loaded && tasks.length == 0" class="empty">
-        <text class="empty-title" :style="{ color: colors.textRegular }">{{ filter == '' ? '今日暂无巡检任务' : '该筛选下暂无任务' }}</text>
-        <text class="empty-sub" :style="{ color: colors.textSecondary }">下拉可刷新</text>
+        <text class="empty-title text-regular" >{{ filter == '' ? '今日暂无巡检任务' : '该筛选下暂无任务' }}</text>
+        <text class="empty-sub text-secondary" >下拉可刷新</text>
       </view>
 
       <!-- 今日任务列表 -->
       <view
         v-for="t in tasks"
         :key="t.id"
-        class="card"
-        :style="{ backgroundColor: colors.bgCard }"
+        class="card bg-card"
+        
         @click="goDetail(t.id)"
       >
         <view class="card-head">
-          <text class="card-title" :style="{ color: colors.textPrimary }">{{ t.plan_name }}</text>
+          <text class="card-title text-main" >{{ t.plan_name }}</text>
           <text class="card-status" :style="{ color: t.status_color }">{{ t.status_text }}</text>
         </view>
-        <text class="card-sub" :style="{ color: colors.textSecondary }">
+        <text class="card-sub text-secondary" >
           {{ t.community_name }} · {{ t.inspector_name }}<text v-if="t.time_window != ''"> · {{ t.time_window }}</text>
         </text>
-        <view class="progress" :style="{ backgroundColor: colors.border }">
+        <view class="progress bg-border" >
           <view class="progress-inner" :style="{ width: t.progress + '%', backgroundColor: t.status_color }"></view>
         </view>
         <view class="card-foot">
-          <text class="card-progress-text" :style="{ color: colors.textRegular }">
+          <text class="card-progress-text text-regular" >
             {{ t.done_points }}/{{ t.total_points }} 点位
-            <text v-if="t.abnormal_count > 0" :style="{ color: colors.danger }"> · 异常 {{ t.abnormal_count }}</text>
-            <text v-if="t.missing_count > 0 && t.status != 'done' && t.status != 'pending'" :style="{ color: colors.warning }"> · 漏 {{ t.missing_count }}</text>
+            <text v-if="t.abnormal_count > 0"  class="text-danger"> · 异常 {{ t.abnormal_count }}</text>
+            <text v-if="t.missing_count > 0 && t.status != 'done' && t.status != 'pending'"  class="text-warning"> · 漏 {{ t.missing_count }}</text>
           </text>
-          <view
+          <button
             v-if="t.status != 'done' && t.can_remind !== false"
-            class="btn-remind"
-            :style="{ borderColor: colors.warning }"
+            plain="true"
+            class="btn-remind btn-outline-warning"
+            hover-class="hover-dim"
             @click.stop="onRemind(t)"
           >
-            <text class="btn-remind-text" :style="{ color: colors.warning }">催办</text>
-          </view>
+            <text class="btn-remind-text">催办</text>
+          </button>
         </view>
       </view>
 
       <!-- 加载更多状态 -->
-      <view v-if="tasks.length > 0" class="loadmore">
-        <text v-if="loadingMore" class="loadmore-text" :style="{ color: colors.textSecondary }">加载中…</text>
-        <text v-else-if="noMore" class="loadmore-text" :style="{ color: colors.textSecondary }">没有更多了</text>
-      </view>
+      <uni-load-more
+        v-if="tasks.length > 0 && (loadingMore || noMore)"
+        :status="loadingMore ? 'loading' : 'noMore'"
+        :content-text="{ contentrefresh: '加载中…', contentnomore: '没有更多了' }"
+        :color="'#86909C'"
+      />
     </view>
 
     <!-- 催办确认（自绘，替代原生 showModal） -->
@@ -96,7 +99,7 @@
 
 <script lang="ts">
 import { toastErr } from '@/utils/ui'
-import { Colors, ColorTokens } from '@/utils/theme'
+
 import { apiAdminDashboard, apiTaskMonitorList, apiTaskRemind, DashboardData, MonitorTask } from '@/services/api'
 import AppSegmentTabs from '@/components/AppSegmentTabs.vue'
 import AppDialog from '@/components/AppDialog.vue'
@@ -110,7 +113,6 @@ type TaskView = MonitorTask & {
 }
 
 type BoardData = {
-  colors: ColorTokens
   board: Pick<DashboardData, 'today_completion' | 'doing_tasks' | 'overdue_tasks'>
   filter: string
   tabs: Array<{ label: string; value: string }>
@@ -143,10 +145,10 @@ function statusTextOf(s: string): string {
 }
 
 function statusColorOf(s: string): string {
-  if (s == 'doing') return Colors.primary
-  if (s == 'done') return Colors.success
-  if (s == 'overdue') return Colors.danger
-  return Colors.warning
+  if (s == 'doing') return '#2B5AED'
+  if (s == 'done') return '#2BA471'
+  if (s == 'overdue') return '#D54941'
+  return '#ED7B2F'
 }
 
 function toTaskView(t: MonitorTask): TaskView {
@@ -160,7 +162,6 @@ export default {
   components: { AppSegmentTabs, AppDialog },
   data(): BoardData {
     return {
-      colors: Colors,
       board: emptyBoard(),
       filter: '',
       tabs: [
@@ -428,12 +429,5 @@ export default {
   font-size: 26rpx;
 }
 
-.loadmore {
-  align-items: center;
-  padding: 16rpx 0 32rpx;
-}
 
-.loadmore-text {
-  font-size: 24rpx;
-}
 </style>

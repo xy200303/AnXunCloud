@@ -1,13 +1,19 @@
 <template>
-  <view v-if="visible" class="app-sheet-mask" :style="{ backgroundColor: maskColor }" @click="onMaskClick">
+  <!-- 底部半屏弹层：内部基于 uni-popup（type=bottom），遮罩/动画/底部安全区交给官方；对外 props/事件接口不变 -->
+  <uni-popup
+    ref="popup"
+    type="bottom"
+    :mask-background-color="maskColor"
+    border-radius="24rpx 24rpx 0 0"
+    @maskClick="$emit('close')"
+  >
     <view
       class="app-bottom-sheet"
       :style="{ backgroundColor: backgroundColor, height: height, maxHeight: maxHeight }"
-      @click.stop="noop"
     >
       <slot />
     </view>
-  </view>
+  </uni-popup>
 </template>
 
 <script lang="ts">
@@ -20,45 +26,28 @@ export default {
     maxHeight: { type: String, default: '80vh' }
   },
   emits: ['close'],
-  methods: {
-    noop() {},
-    onMaskClick() {
-      this.$emit('close')
+  watch: {
+    visible(v: boolean) {
+      const popup: any = this.$refs.popup
+      if (popup == null) return
+      if (v) popup.open()
+      else popup.close()
+    }
+  },
+  mounted() {
+    if (this.visible) {
+      const popup: any = this.$refs.popup
+      if (popup != null) popup.open()
     }
   }
 }
 </script>
 
 <style scoped>
-.app-sheet-mask {
-  position: fixed;
-  left: 0;
-  top: 0;
-  right: 0;
-  bottom: 0;
-  z-index: 99;
-  justify-content: flex-end;
-  animation: app-sheet-fade-in 180ms ease-out;
-}
-
 .app-bottom-sheet {
   width: 100%;
-  flex-shrink: 0;
   flex-direction: column;
   border-radius: 24rpx 24rpx 0 0;
   overflow: hidden;
-  padding-bottom: env(safe-area-inset-bottom);
-  transform: translateY(0);
-  animation: app-sheet-slide-up 220ms ease-out;
-}
-
-@keyframes app-sheet-fade-in {
-  from { opacity: 0; }
-  to { opacity: 1; }
-}
-
-@keyframes app-sheet-slide-up {
-  from { transform: translateY(100%); }
-  to { transform: translateY(0); }
 }
 </style>

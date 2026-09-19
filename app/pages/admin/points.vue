@@ -1,28 +1,28 @@
 <template>
-  <view class="page" :style="{ backgroundColor: colors.bgPage }">
+  <view class="page bg-page" >
     <!-- 筛选栏：超级管理员支持企业/小区选择 + 名称搜索 + 新增 -->
-    <view class="filter-bar" :style="{ backgroundColor: colors.bgCard, borderBottomColor: colors.border }">
+    <view class="filter-bar bg-card border-default" >
       <view class="filter-row">
-        <AppFilterField v-if="canTenantFilter" :text="tenantName" :selected="tenantId != ''" :colors="colors" @click="openTenantSheet" />
-        <AppFilterField :text="communityName" :selected="communityId != ''" :colors="colors" @click="openCommunitySheet" />
-        <AppFilterField v-if="communityId != ''" :text="buildingName" :selected="buildingId != ''" :colors="colors" @click="openBuildingSheet" />
-        <view v-if="canCreate" class="btn-add" :style="{ backgroundColor: colors.primary }" @click="goCreate">
-          <text class="btn-add-text" :style="{ color: colors.white }">+ 新增</text>
-        </view>
+        <AppFilterField v-if="canTenantFilter" :text="tenantName" :selected="tenantId != ''" @click="openTenantSheet" />
+        <AppFilterField :text="communityName" :selected="communityId != ''" @click="openCommunitySheet" />
+        <AppFilterField v-if="communityId != ''" :text="buildingName" :selected="buildingId != ''" @click="openBuildingSheet" />
+        <button v-if="canCreate" plain="true" class="btn-add btn-primary" hover-class="hover-dim" @click="goCreate">
+          <text class="btn-add-text">+ 新增</text>
+        </button>
       </view>
       <view class="search-row">
         <input
           v-model="keyword"
-          class="search-input"
-          :style="{ borderColor: colors.border, color: colors.textPrimary }"
+          class="search-input border-default text-main"
+          
           placeholder="搜索点位名称"
           confirm-type="search"
           @confirm="reload"
         />
-        <text class="search-btn" :style="{ color: colors.primary }" @click="reload">搜索</text>
+        <text class="search-btn text-brand"  @click="reload">搜索</text>
       </view>
-      <AppChipScroller :items="typeChips" :value="typeFilter" :colors="colors" @change="pickType" />
-      <AppChipScroller :items="credChips" :value="credFilter" :colors="colors" @change="pickCred" />
+      <AppChipScroller :items="typeChips" :value="typeFilter" @change="pickType" />
+      <AppChipScroller :items="credChips" :value="credFilter" @change="pickCred" />
     </view>
 
     <AppListShell
@@ -33,7 +33,7 @@
       :show-skeleton="list.length == 0"
       empty-title="暂无点位"
       :empty-sub="canCreate ? '点右上角「新增」现场建点' : '切换小区或关键词试试'"
-      :colors="colors"
+     
       @retry="reload"
     >
 
@@ -43,33 +43,33 @@
       <view
         v-for="p in list"
         :key="p.id"
-        class="card"
-        :style="{ backgroundColor: colors.bgCard }"
+        class="card bg-card"
+        
         @click="goEdit(p.id)"
       >
         <view class="card-head">
-          <text class="card-title" :style="{ color: colors.textPrimary }">{{ p.name }}</text>
+          <text class="card-title text-main" >{{ p.name }}</text>
           <text class="card-status" :style="{ color: p.state_color }">{{ p.state_text }}</text>
         </view>
-        <text class="card-sub" :style="{ color: colors.textSecondary }">
+        <text class="card-sub text-secondary" >
           编号：{{ p.qrcode_no }} · {{ p.community_name }}<text v-if="p.building_name != ''"> · {{ p.building_name }}</text>
         </text>
         <view class="card-foot">
           <view class="foot-tags">
-            <text v-if="p.status != 1" class="tag" :style="{ color: colors.info, borderColor: colors.info }">停用</text>
-            <text class="tag" :style="{ color: colors.textSecondary, borderColor: colors.border }">{{ p.type_label != '' ? p.type_label : p.type }}</text>
-            <text class="tag" :style="{ color: colors.primary, borderColor: colors.primary }">{{ p.credential_text }}</text>
-            <text v-if="p.template_text != ''" class="tag" :style="{ color: colors.textSecondary, borderColor: colors.border }">{{ p.template_text }}</text>
-            <text v-if="p.fence_text != ''" class="tag" :style="{ color: colors.textSecondary, borderColor: colors.border }">{{ p.fence_text }}</text>
+            <uni-tag v-if="p.status != 1" text="停用" :inverted="true" size="small" :custom-style="'color:#909399;border-color:#909399;margin-right:16rpx;margin-bottom:8rpx'" />
+            <uni-tag :text="p.type_label != '' ? p.type_label : p.type" :inverted="true" size="small" :custom-style="'color:#86909C;border-color:#E5E6EB;margin-right:16rpx;margin-bottom:8rpx'" />
+            <uni-tag :text="p.credential_text" :inverted="true" size="small" :custom-style="'color:#2B5AED;border-color:#2B5AED;margin-right:16rpx;margin-bottom:8rpx'" />
+            <uni-tag v-if="p.template_text != ''" :text="p.template_text" :inverted="true" size="small" :custom-style="'color:#86909C;border-color:#E5E6EB;margin-right:16rpx;margin-bottom:8rpx'" />
+            <uni-tag v-if="p.fence_text != ''" :text="p.fence_text" :inverted="true" size="small" :custom-style="'color:#86909C;border-color:#E5E6EB;margin-right:16rpx;margin-bottom:8rpx'" />
           </view>
         </view>
-        <text v-if="p.coord_missing" class="card-hint" :style="{ color: colors.danger }">点进详情可现场定位补录</text>
+        <text v-if="p.coord_missing" class="card-hint text-danger" >点进详情可现场定位补录</text>
       </view>
 
     </view>
     </template>
     <template #footer>
-      <AppListFooter :loading-more="loadingMore" :no-more="noMore" :visible="list.length > 0" :colors="colors" />
+      <AppListFooter :loading-more="loadingMore" :no-more="noMore" :visible="list.length > 0" />
     </template>
     </AppListShell>
 
@@ -85,7 +85,7 @@
 
 <script lang="ts">
 import { toastErr } from '@/utils/ui'
-import { Colors, ColorTokens } from '@/utils/theme'
+
 import { apiPointList, apiCommunityTree, apiDictOptions, PointItem, CommunityTreeNode, DictOption } from '@/services/api'
 import { useAuthStore } from '@/stores/auth'
 import AppListShell from '@/components/AppListShell.vue'
@@ -110,7 +110,6 @@ type PointView = PointItem & {
 }
 
 type ListData = {
-  colors: ColorTokens
   communities: CommunityTreeNode[]
   tenantId: string
   communityId: string
@@ -144,12 +143,12 @@ function credentialTextOf(c: string): string {
  * 停用 > 未录坐标（经纬度为空或 0）> 未绑 NFC（凭证含 nfc 但 nfc_id 空）> 已就绪
  */
 function stateOf(p: PointItem): { text: string; color: string } {
-  if (p.status != 1) return { text: '已停用', color: Colors.info }
-  if (p.longitude == 0 || p.latitude == 0) return { text: '未录坐标', color: Colors.danger }
+  if (p.status != 1) return { text: '已停用', color: '#909399' }
+  if (p.longitude == 0 || p.latitude == 0) return { text: '未录坐标', color: '#D54941' }
   if ((p.credential == 'nfc' || p.credential == 'any') && p.nfc_id == '') {
-    return { text: '未绑NFC', color: Colors.warning }
+    return { text: '未绑NFC', color: '#ED7B2F' }
   }
-  return { text: '已就绪', color: Colors.success }
+  return { text: '已就绪', color: '#2BA471' }
 }
 
 function toPointView(p: PointItem): PointView {
@@ -168,7 +167,6 @@ export default {
   components: { AppListShell, AppListFooter, AppChipScroller, AppFilterField, AppActionSheet },
   data(): ListData {
     return {
-      colors: Colors,
       communities: [] as CommunityTreeNode[],
       tenantId: '',
       communityId: '',
@@ -471,15 +469,6 @@ export default {
   flex-wrap: wrap;
 }
 
-.tag {
-  font-size: 22rpx;
-  border-width: 2rpx;
-  border-style: solid;
-  border-radius: 12rpx; /* Radius.tag */
-  padding: 4rpx 16rpx;
-  margin-right: 16rpx;
-  margin-bottom: 8rpx;
-}
 
 .card-hint {
   font-size: 24rpx;

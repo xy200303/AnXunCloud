@@ -1,0 +1,23 @@
+/**
+ * 颜色唯一来源（uni-ui 官方换色机制）：uni-ui 各组件经 uni-scss 的 !default 变量引用本文件赋值；
+ * 业务组件在 <style lang="scss"> 中直接用 $uni-* 变量（uni.scss 会被自动注入每个 scss 块）。
+ * 改色只改这里。utils/theme.ts 的颜色令牌已废除（ FontSize/Shadow 布局令牌保留）。
+ */
+$uni-primary: #2B5AED;
+$uni-success: #2BA471;
+$uni-warning: #ED7B2F;
+$uni-error: #D54941;
+$uni-info: #909399;
+
+$uni-main-color: #1F2329;
+$uni-base-color: #4E5969;
+$uni-secondary-color: #86909C;
+
+$uni-bg-color: #F5F6F8;
+$uni-mask: rgba(0, 0, 0, 0.45);
+
+/* 业务补充（uni-scss 无对应 !default 变量）：品牌浅底 / 卡片白 / 边框色 / 纯白 */
+$uni-primary-light: #EAEFFF;
+$uni-bg-card: #FFFFFF;
+$uni-border-color: #E5E6EB;
+$uni-white: #FFFFFF;

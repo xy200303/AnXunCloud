@@ -4,7 +4,7 @@
  * 管理端能力（列表/详情/历史/确认链）复用 PC 控制器 + 同一套权限点，巡检员能力为待维保与登记。
  */
 
-import { httpGet, httpPost, httpPut } from '@/services/request'
+import { httpGet, httpPost, httpPut, httpGetMp } from '@/services/request'
 import { buildQuery } from './common'
 
 /** 到期状态：normal 正常 / warning 临期 / overdue 已逾期 / none 无到期日 */
@@ -118,6 +118,35 @@ export function apiEquipmentList(
           total: d?.total ?? 0,
           page: d?.page ?? page,
           page_size: d?.page_size ?? pageSize
+        })
+      })
+      .catch(reject)
+  })
+}
+
+/** 巡检员设备台账分页 GET /mp/equipment/list（维保登记选设备等免 equipment:list 权限场景；keyword 模糊/due_state 可选。
+ *  App 端 /api/app/equipment/list 是管理端口径（RequirePerm equipment:list），故跨组走 mp 基址（会话通道互通）；
+ *  响应兼容分页信封 {list,total} 与 MpDueDevices 纯数组两种形态（后端落地后以实际为准）） */
+export function apiMpEquipmentList(
+  page: number,
+  pageSize: number,
+  opts: { keyword?: string; dueState?: string } = {}
+): Promise<EquipmentPage> {
+  const path = '/equipment/list' + buildQuery({
+    page: page,
+    page_size: pageSize,
+    keyword: opts.keyword,
+    due_state: opts.dueState
+  })
+  return new Promise<EquipmentPage>((resolve, reject) => {
+    httpGetMp<any>(path)
+      .then((d) => {
+        const list = (Array.isArray(d) ? d : d?.list ?? []) as EquipmentListItem[]
+        resolve({
+          list: list,
+          total: Array.isArray(d) ? list.length : d?.total ?? list.length,
+          page: Array.isArray(d) ? page : d?.page ?? page,
+          page_size: Array.isArray(d) ? pageSize : d?.page_size ?? pageSize
         })
       })
       .catch(reject)

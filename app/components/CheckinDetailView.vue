@@ -5,60 +5,62 @@
   <view v-if="record != null" class="detail">
     <!-- 疑似标记横幅 -->
     <view v-if="record.is_suspect" class="suspect-bar" :style="{ backgroundColor: '#FDF3E7' }">
-      <text class="suspect-text" :style="{ color: colors.warning }">⚠ 疑似异常打卡：{{ suspectText }}</text>
+      <text class="suspect-text text-warning" >⚠ 疑似异常打卡：{{ suspectText }}</text>
     </view>
 
-    <!-- 头部：点位 + 结果 + 元信息 -->
-    <view class="card" :style="{ backgroundColor: colors.bgCard, boxShadow: shadow }">
+    <!-- 头部：点位 + 结果 + 元信息（§18.3 uni-card 分组容器） -->
+    <uni-card :is-shadow="true" :border="false" margin="0 0 24rpx 0" padding="28rpx" spacing="0">
       <view class="head-row">
-        <text class="point-name" :style="{ color: colors.textPrimary }">{{ record.point_name }}</text>
-        <text
-          class="result-badge"
-          :style="{
-            color: record.result == 'abnormal' ? colors.danger : colors.success,
-            backgroundColor: record.result == 'abnormal' ? '#FDECEC' : '#E7F6EF'
-          }"
-        >{{ record.result == 'abnormal' ? '⚠ 有异常' : '✓ 正常' }}</text>
+        <text class="point-name text-main" >{{ record.point_name }}</text>
+        <!-- 记录级结论徽章：官方 uni-tag（custom-style 对齐原浅底深字配色） -->
+        <uni-tag
+          :text="record.result == 'abnormal' ? '⚠ 有异常' : '✓ 正常'"
+          :custom-style="record.result == 'abnormal' ? 'color:#D54941;background-color:#FDECEC;border-color:transparent' : 'color:#2BA471;background-color:#E7F6EF;border-color:transparent'"
+        />
       </view>
-      <text class="head-sub" :style="{ color: colors.textSecondary }">{{ headSub }}</text>
+      <text class="head-sub text-secondary" >{{ headSub }}</text>
       <view v-if="record.checkin_time != null && record.checkin_time != ''" class="meta-row">
-        <text class="meta-label" :style="{ color: colors.textSecondary }">打卡时间</text>
-        <text class="meta-value" :style="{ color: colors.textRegular }">{{ record.checkin_time }}</text>
+        <text class="meta-label text-secondary" >打卡时间</text>
+        <uni-dateformat class="meta-value text-regular"  :date="record.checkin_time" format="yyyy-MM-dd hh:mm:ss" />
       </view>
       <view v-if="record.checkin_type != null && record.checkin_type != ''" class="meta-row">
-        <text class="meta-label" :style="{ color: colors.textSecondary }">打卡方式</text>
-        <text class="meta-value" :style="{ color: colors.textRegular }">{{ checkinTypeText }}</text>
+        <text class="meta-label text-secondary" >打卡方式</text>
+        <text class="meta-value text-regular" >{{ checkinTypeText }}</text>
       </view>
       <view v-if="record.distance_to_point != null" class="meta-row">
-        <text class="meta-label" :style="{ color: colors.textSecondary }">距点位</text>
-        <text class="meta-value" :style="{ color: colors.textRegular }">{{ record.distance_to_point }} 米</text>
+        <text class="meta-label text-secondary" >距点位</text>
+        <text class="meta-value text-regular" >{{ record.distance_to_point }} 米</text>
       </view>
-      <text v-if="record.remark != null && record.remark != ''" class="remark" :style="{ color: colors.textRegular }">备注：{{ record.remark }}</text>
-    </view>
+      <text v-if="record.remark != null && record.remark != ''" class="remark text-regular" >备注：{{ record.remark }}</text>
+    </uni-card>
 
     <!-- AI 审核结论（有才显示） -->
-    <view v-if="record.ai_verdict != null && record.ai_verdict != ''" class="card" :style="{ backgroundColor: colors.bgCard, boxShadow: shadow }">
-      <text class="sec-title" :style="{ color: colors.textPrimary }">AI 审核结论</text>
-      <text class="info-line" :style="{ color: colors.textRegular }">结论：{{ record.ai_verdict }}</text>
-      <text v-if="record.ai_reason != null && record.ai_reason != ''" class="info-line" :style="{ color: colors.textSecondary }">{{ record.ai_reason }}</text>
-    </view>
+    <uni-card v-if="record.ai_verdict != null && record.ai_verdict != ''" :is-shadow="true" :border="false" margin="0 0 24rpx 0" padding="28rpx" spacing="0">
+      <text class="sec-title text-main" >AI 审核结论</text>
+      <text class="info-line text-regular" >结论：{{ record.ai_verdict }}</text>
+      <text v-if="record.ai_reason != null && record.ai_reason != ''" class="info-line text-secondary" >{{ record.ai_reason }}</text>
+    </uni-card>
 
     <!-- 检查项逐项明细 -->
-    <view v-for="(it, i) in items" :key="i" class="card" :style="{ backgroundColor: colors.bgCard, boxShadow: shadow }">
+    <uni-card v-for="(it, i) in items" :key="it.name" :is-shadow="true" :border="false" margin="0 0 24rpx 0" padding="28rpx" spacing="0">
       <view class="item-head">
-        <text class="item-name" :style="{ color: colors.textPrimary }">{{ it.name }}</text>
-        <text class="item-result" :style="{ color: itemResultColor(it) }">{{ itemResultTextOf(it.result ?? '', it.exception_type) }}</text>
+        <text class="item-name text-main" >{{ it.name }}</text>
+        <uni-tag :text="itemResultTextOf(it.result ?? '', it.exception_type)" :type="itemResultTagType(it)" :inverted="true" size="small" />
       </view>
-      <!-- 观察点 tag 快照：异常 tag 红色高亮，正常 tag 灰色 -->
+      <!-- 观察点 tag 快照：异常 tag 红色实心，正常 tag 灰色空心（官方 uni-tag） -->
       <view v-if="it.tags != null && it.tags.length > 0" class="tag-row">
-        <text
+        <uni-tag
           v-for="(t, ti) in it.tags"
           :key="ti"
-          class="tag-chip"
-          :style="isAbnTag(it, t) ? { color: colors.white, backgroundColor: colors.danger, borderColor: colors.danger } : { color: colors.textSecondary, borderColor: colors.border }"
-        >{{ t }}</text>
+          :text="t"
+          size="small"
+          :circle="true"
+          :type="isAbnTag(it, t) ? 'error' : 'default'"
+          :inverted="!isAbnTag(it, t)"
+          :custom-style="isAbnTag(it, t) ? 'margin-right:16rpx;margin-bottom:12rpx' : 'color:#86909C;border-color:#E5E6EB;margin-right:16rpx;margin-bottom:12rpx'"
+        />
       </view>
-      <text v-if="it.note != null && it.note != ''" class="item-note" :style="{ color: colors.textRegular }">备注：{{ it.note }}</text>
+      <text v-if="it.note != null && it.note != ''" class="item-note text-regular" >备注：{{ it.note }}</text>
       <view v-if="itemPhotoList(it).length > 0" class="photos">
         <image
           v-for="(u, pi) in itemPhotoList(it)"
@@ -70,17 +72,17 @@
           @click="preview(itemPhotoList(it), pi)"
         />
       </view>
-      <text v-else class="no-photo" :style="{ color: colors.textSecondary }">无照片</text>
-      <text v-if="it.ai_reason != null && it.ai_reason != ''" class="item-ai" :style="{ color: colors.textSecondary }">AI：{{ it.ai_reason }}</text>
+      <text v-else class="no-photo text-secondary" >无照片</text>
+      <text v-if="it.ai_reason != null && it.ai_reason != ''" class="item-ai text-secondary" >AI：{{ it.ai_reason }}</text>
 
-    </view>
-    <view v-if="items.length == 0" class="card" :style="{ backgroundColor: colors.bgCard, boxShadow: shadow }">
-      <text class="no-photo" :style="{ color: colors.textSecondary }">这次是纯打卡，没有检查项</text>
-    </view>
+    </uni-card>
+    <uni-card v-if="items.length == 0" :is-shadow="true" :border="false" margin="0 0 24rpx 0" padding="28rpx" spacing="0">
+      <text class="no-photo text-secondary" >这次是纯打卡，没有检查项</text>
+    </uni-card>
 
     <!-- 整单现场照片墙 -->
-    <view v-if="recordPhotoList.length > 0" class="card" :style="{ backgroundColor: colors.bgCard, boxShadow: shadow }">
-      <text class="sec-title" :style="{ color: colors.textPrimary }">现场照片</text>
+    <uni-card v-if="recordPhotoList.length > 0" :is-shadow="true" :border="false" margin="0 0 24rpx 0" padding="28rpx" spacing="0">
+      <text class="sec-title text-main" >现场照片</text>
       <view class="photos">
         <image
           v-for="(u, pi) in recordPhotoList"
@@ -92,23 +94,23 @@
           @click="preview(recordPhotoList, pi)"
         />
       </view>
-    </view>
+    </uni-card>
 
     <!-- 审核状态与审核意见 -->
-    <view v-if="record.audit_status != null && record.audit_status != ''" class="card" :style="{ backgroundColor: colors.bgCard, boxShadow: shadow }">
-      <text class="sec-title" :style="{ color: colors.textPrimary }">审核结果</text>
+    <uni-card v-if="record.audit_status != null && record.audit_status != ''" :is-shadow="true" :border="false" margin="0 0 24rpx 0" padding="28rpx" spacing="0">
+      <text class="sec-title text-main" >审核结果</text>
       <text class="info-line" :style="{ color: auditColor }">{{ auditText }}<text v-if="record.audit_at != null && record.audit_at != ''"> · {{ record.audit_at }}</text></text>
       <text
         v-if="record.audit_remark != null && record.audit_remark != ''"
         class="info-line"
-        :style="{ color: record.audit_status == 'rejected' ? colors.danger : colors.textSecondary }"
+         :class="(record.audit_status == 'rejected' ? 'text-danger' : 'text-secondary')"
       >意见：{{ record.audit_remark }}</text>
-    </view>
+    </uni-card>
   </view>
 </template>
 
 <script lang="ts">
-import { Colors, ColorTokens, ShadowCard } from '@/utils/theme'
+
 import { toAbsUrl } from '@/utils/url'
 import { checkinTypeTextOf, itemResultTextOf, itemResultColorKeyOf } from '@/utils/format'
 
@@ -161,8 +163,6 @@ export type CheckinDetailRecord = {
 }
 
 type ViewData = {
-  colors: ColorTokens
-  shadow: string
 }
 
 function auditTextOf(s: string): string {
@@ -179,8 +179,6 @@ export default {
   },
   data(): ViewData {
     return {
-      colors: Colors,
-      shadow: ShadowCard
     }
   },
   computed: {
@@ -207,9 +205,9 @@ export default {
     },
     auditColor(): string {
       const s = this.rec.audit_status
-      if (s == 'rejected') return Colors.danger
-      if (s == 'pending') return Colors.warning
-      return Colors.success
+      if (s == 'rejected') return '#D54941'
+      if (s == 'pending') return '#ED7B2F'
+      return '#2BA471'
     },
     /** 整单现场照片：优先水印图，统一绝对地址 */
     recordPhotoList(): string[] {
@@ -218,8 +216,10 @@ export default {
   },
   methods: {
     itemResultTextOf: itemResultTextOf,
-    itemResultColor(it: CheckinDetailItem): string {
-      return this.colors[itemResultColorKeyOf(it.result ?? '')]
+    /** 三态 → uni-tag type（uni-tag 用 error 命名，danger 色系映射） */
+    itemResultTagType(it: CheckinDetailItem): 'success' | 'warning' | 'error' {
+      const k = itemResultColorKeyOf(it.result ?? '')
+      return k == 'danger' ? 'error' : k
     },
     isAbnTag(it: CheckinDetailItem, t: string): boolean {
       return it.abnormal_tags != null && it.abnormal_tags.indexOf(t) >= 0
@@ -250,11 +250,6 @@ export default {
   font-size: 26rpx;
 }
 
-.card {
-  border-radius: 24rpx;
-  padding: 28rpx;
-  margin-bottom: 24rpx;
-}
 
 .head-row {
   flex-direction: row;
@@ -266,13 +261,6 @@ export default {
   font-size: 36rpx;
   font-weight: 600;
   flex: 1;
-}
-
-.result-badge {
-  font-size: 26rpx;
-  font-weight: 600;
-  padding: 8rpx 20rpx;
-  border-radius: 999rpx;
 }
 
 .head-sub {
@@ -324,26 +312,12 @@ export default {
   flex: 1;
 }
 
-.item-result {
-  font-size: 28rpx;
-  font-weight: 600;
-}
 
-/* 观察点 tag 快照：异常红色实心，正常灰色描边 */
+/* 观察点 tag 快照行（芯片为 uni-tag） */
 .tag-row {
   flex-direction: row;
   flex-wrap: wrap;
   margin-top: 16rpx;
-}
-
-.tag-chip {
-  font-size: 24rpx;
-  border-width: 2rpx;
-  border-style: solid;
-  border-radius: 999rpx;
-  padding: 6rpx 20rpx;
-  margin-right: 16rpx;
-  margin-bottom: 12rpx;
 }
 
 .item-note {

@@ -1,63 +1,62 @@
 <template>
-  <view class="page" :style="{ backgroundColor: colors.bgPage }">
+  <view class="page bg-page" >
     <!-- 顶部说明：GPS 只能定到楼栋级，楼内仍需扫码/NFC 确认 -->
-    <view class="tip" :style="{ backgroundColor: colors.primaryLight }">
-      <text class="tip-text" :style="{ color: colors.primary }">按距离推荐今日任务点位，点击直达打卡；楼内密集点位请以扫码/NFC 为准</text>
+    <view class="tip bg-brand-light" >
+      <text class="tip-text text-brand" >按距离推荐今日任务点位，点击直达打卡；楼内密集点位请以扫码/NFC 为准</text>
     </view>
 
-    <!-- 定位中 -->
+    <!-- 定位中（§18.6 统一 uni-load-more 加载态） -->
     <view v-if="loading" class="center-box">
-      <text class="center-text" :style="{ color: colors.textSecondary }">正在获取位置…</text>
+      <uni-load-more status="loading" :content-text="{ contentrefresh: '正在获取位置…' }" :color="'#86909C'" />
     </view>
 
     <!-- 定位/加载失败 -->
     <view v-else-if="errorMsg != ''" class="center-box">
-      <text class="center-text" :style="{ color: colors.textRegular }">{{ errorMsg }}</text>
-      <text class="center-retry" :style="{ color: colors.primary }" @click="load">重新定位</text>
+      <text class="center-text text-regular" >{{ errorMsg }}</text>
+      <text class="center-retry text-brand"  @click="load">重新定位</text>
     </view>
 
     <!-- 空态 -->
     <view v-else-if="loaded && list.length == 0" class="center-box">
-      <text class="center-text" :style="{ color: colors.textRegular }">今天没有待巡的任务点位</text>
-      <text class="center-sub" :style="{ color: colors.textSecondary }">或点位还没有坐标（可在电脑端导入时留空，现场到点位编辑「获取当前位置」补齐）</text>
+      <text class="center-text text-regular" >今天没有待巡的任务点位</text>
+      <text class="center-sub text-secondary" >或点位还没有坐标（可在电脑端导入时留空，现场到点位编辑「获取当前位置」补齐）</text>
     </view>
 
-    <!-- 点位列表 -->
+    <!-- 点位列表（§18.2 uni-list 标准行：左距离圆徽标 + 标题/分区·计划 + 右状态徽标） -->
     <view v-else-if="loaded" class="content">
-      <view
-        v-for="(p, i) in list"
-        :key="p.task_id + '-' + p.point_id"
-        hover-class="hover-dim"
-        class="card"
-        :style="{ backgroundColor: colors.bgCard }"
-        @click="onTap(p)"
-      >
-        <view class="row-main">
-          <view class="dist-badge" :style="{ backgroundColor: p.checked ? colors.border : (p.distance <= 50 ? colors.success : colors.primary) }">
-            <text class="dist-text" :style="{ color: colors.white }">{{ p.distance }}m</text>
-          </view>
-          <view class="row-texts">
-            <text class="point-name" :style="{ color: colors.textPrimary }">{{ p.point_name }}</text>
-            <text class="point-sub" :style="{ color: colors.textSecondary }">{{ (p.building_name || '未分区') + ' · ' + p.plan_name }}</text>
-          </view>
-        </view>
-        <view class="row-side">
-          <text v-if="p.checked" class="state-text" :style="{ color: colors.success }">已打卡</text>
-          <text v-else class="state-text" :style="{ color: colors.warning }">{{ credentialTextOf(p.credential, p.require_fence) }}</text>
-        </view>
-      </view>
-      <text class="foot-note" :style="{ color: colors.textSecondary }">仅显示最近 {{ list.length }} 个点位 · 下拉可刷新距离</text>
+      <uni-list class="point-list bg-card" >
+        <uni-list-item
+          v-for="(p, i) in list"
+          :key="p.task_id + '-' + p.point_id"
+          :title="p.point_name"
+          :note="(p.building_name || '未分区') + ' · ' + p.plan_name"
+          clickable
+          @click="onTap(p)"
+        >
+          <template #header>
+            <view class="dist-badge" :style="{ backgroundColor: p.checked ? '#E5E6EB' : (p.distance <= 50 ? '#2BA471' : '#2B5AED') }">
+              <text class="dist-text text-white" >{{ p.distance }}m</text>
+            </view>
+          </template>
+          <template #footer>
+            <view>
+              <uni-tag v-if="p.checked" text="已打卡" type="success" :inverted="true" size="small" />
+              <uni-tag v-else :text="credentialTextOf(p.credential, p.require_fence)" type="warning" :inverted="true" size="small" />
+            </view>
+          </template>
+        </uni-list-item>
+      </uni-list>
+      <text class="foot-note text-secondary" >仅显示最近 {{ list.length }} 个点位 · 下拉可刷新距离</text>
     </view>
   </view>
 </template>
 
 <script lang="ts">
-import { Colors, ColorTokens } from '@/utils/theme'
+
 import { getLocationGcj02 } from '@/utils/geo'
 import { apiNearbyPoints, NearbyPoint } from '@/services/api'
 
 type PageData = {
-  colors: ColorTokens
   loading: boolean
   loaded: boolean
   errorMsg: string
@@ -76,7 +75,6 @@ function credentialTextOf(credential: string, requireFence: boolean): string {
 export default {
   data(): PageData {
     return {
-      colors: Colors,
       loading: true,
       loaded: false,
       errorMsg: '',
@@ -195,21 +193,7 @@ export default {
   flex-direction: column;
 }
 
-.card {
-  flex-direction: row;
-  align-items: center;
-  justify-content: space-between;
-  border-radius: 16rpx;
-  padding: 24rpx;
-  margin-bottom: 16rpx;
-}
 
-.row-main {
-  flex-direction: row;
-  align-items: center;
-  flex: 1;
-  min-width: 0;
-}
 
 .dist-badge {
   width: 88rpx;
@@ -225,28 +209,14 @@ export default {
   font-weight: 600;
 }
 
-.row-texts {
-  flex-direction: column;
-  flex: 1;
-  min-width: 0;
-}
 
-.point-name {
-  font-size: 30rpx;
-  font-weight: 500;
-}
 
-.point-sub {
-  font-size: 24rpx;
-  margin-top: 6rpx;
-}
 
-.row-side {
-  margin-left: 16rpx;
-}
 
-.state-text {
-  font-size: 24rpx;
+
+.point-list {
+  border-radius: 24rpx;
+  overflow: hidden;
 }
 
 .foot-note {

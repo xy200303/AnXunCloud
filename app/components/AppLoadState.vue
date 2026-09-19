@@ -3,24 +3,26 @@
     <view
       v-for="index in skeletonCount"
       :key="index"
-      class="app-load-skeleton-block"
-      :style="{ backgroundColor: colors.border }"
+      class="app-load-skeleton-block bg-border"
+      
     ></view>
   </view>
+  <!-- 加载中（非骨架场景）：官方 uni-load-more 转圈态 -->
+  <uni-load-more v-else-if="loading" status="loading" :content-text="{ contentrefresh: '加载中…' }" :color="'#86909C'" />
   <view v-else-if="!loaded && error != ''" class="app-load-state app-load-state-empty">
-    <text class="app-load-title" :style="{ color: colors.textRegular }">{{ error }}</text>
+    <text class="app-load-title text-regular" >{{ error }}</text>
     <view class="app-load-action" hover-class="hover-dim" @click="$emit('retry')">
-      <text :style="{ color: colors.primary }">{{ retryText }}</text>
+      <text  class="text-brand">{{ retryText }}</text>
     </view>
   </view>
   <view v-else-if="loaded && empty" class="app-load-state app-load-state-empty">
-    <text class="app-load-title" :style="{ color: colors.textRegular }">{{ emptyTitle }}</text>
-    <text v-if="emptySub != ''" class="app-load-sub" :style="{ color: colors.textSecondary }">{{ emptySub }}</text>
+    <text class="app-load-title text-regular" >{{ emptyTitle }}</text>
+    <text v-if="emptySub != ''" class="app-load-sub text-secondary" >{{ emptySub }}</text>
   </view>
 </template>
 
 <script lang="ts">
-import { Colors, ColorTokens } from '@/utils/theme'
+
 
 export default {
   props: {
@@ -33,7 +35,6 @@ export default {
     retryText: { type: String, default: '重试' },
     skeletonCount: { type: Number, default: 3 },
     showSkeleton: { type: Boolean, default: true },
-    colors: { type: Object, default: () => Colors as ColorTokens }
   },
   emits: ['retry']
 }

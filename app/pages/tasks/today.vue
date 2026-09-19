@@ -1,91 +1,95 @@
 <template>
-  <view class="page" :style="{ backgroundColor: colors.bgPage }">
+  <view class="page bg-page" >
     <!-- 离线暂存提示条：队列非空时显示，点击手动触发补传 -->
     <view
       v-if="offlineCount > 0"
-      class="offline-bar"
-      :style="{ backgroundColor: colors.primaryLight }"
+      class="offline-bar bg-brand-light"
+      
       @click="onOfflineTap"
     >
-      <text class="offline-bar-text" :style="{ color: colors.primary }">离线暂存 {{ offlineCount }} 条打卡，点击立即补传</text>
+      <text class="offline-bar-text text-brand" >离线暂存 {{ offlineCount }} 条打卡，点击立即补传</text>
     </view>
 
     <!-- 维保待办红色卡片：有临期/逾期设备才显示，右侧「去维保」直达维保待办选设备（整卡不再承担跳转） -->
     <view
       v-if="dueCount > 0"
-      class="due-bar"
-      :style="{ backgroundColor: colors.danger }"
+      class="due-bar bg-danger"
+      
     >
-      <text class="due-bar-text" :style="{ color: colors.white }">
+      <text class="due-bar-text text-white" >
         维保待办 {{ dueCount }} 台{{ dueMaxOverdue > 0 ? '，最早已逾期 ' + dueMaxOverdue + ' 天' : '（临期），请及时处理' }}
       </text>
-      <view hover-class="hover-dim" class="due-bar-btn" :style="{ backgroundColor: colors.white }" @click="goEquipmentDue">
-        <text class="due-bar-btn-text" :style="{ color: colors.danger }">去维保</text>
-      </view>
+      <button plain="true" hover-class="hover-dim" class="due-bar-btn bg-white" @click="goEquipmentDue">
+        <text class="due-bar-btn-text text-danger">去维保</text>
+      </button>
     </view>
 
     <!-- 骨架屏 -->
     <view v-if="loading" class="skeleton">
-      <view class="sk-block" :style="{ backgroundColor: colors.border }"></view>
-      <view class="sk-block" :style="{ backgroundColor: colors.border }"></view>
-      <view class="sk-block sk-short" :style="{ backgroundColor: colors.border }"></view>
+      <view class="sk-block bg-border" ></view>
+      <view class="sk-block bg-border" ></view>
+      <view class="sk-block sk-short bg-border" ></view>
     </view>
 
     <!-- 空态 -->
     <view v-else-if="loaded && tasks.length == 0" class="empty">
-      <text class="empty-title" :style="{ color: colors.textRegular }">今天没有任务，安心休息</text>
-      <text class="empty-sub" :style="{ color: colors.textSecondary }">如需补检请联系主管安排</text>
+      <text class="empty-title text-regular" >今天没有任务，安心休息</text>
+      <text class="empty-sub text-secondary" >如需补检请联系主管安排</text>
     </view>
 
     <!-- 任务列表 -->
     <view v-else-if="loaded" class="content">
-      <AppChipScroller :items="typeChips" :value="typeFilter" :colors="colors" @change="typeFilter = $event" />
+      <AppChipScroller :items="typeChips" :value="typeFilter" @change="typeFilter = $event" />
 
       <view class="summary">
-        <text class="summary-date" :style="{ color: colors.textSecondary }">{{ date }}</text>
+        <text class="summary-date text-secondary" >{{ date }}</text>
         <view class="summary-right">
-          <text class="summary-progress" :style="{ color: colors.primary }">{{ donePoints }}/{{ totalPoints }}</text>
+          <text class="summary-progress text-brand" >{{ donePoints }}/{{ totalPoints }}</text>
         </view>
       </view>
 
       <view v-if="filteredTasks.length == 0" class="empty-filter">
-        <text class="empty-filter-text" :style="{ color: colors.textSecondary }">这类今天没有任务</text>
+        <text class="empty-filter-text text-secondary" >这类今天没有任务</text>
       </view>
 
-      <!-- 轮次任务按「窗口开始时刻」分组（带组头）；非轮次任务为平铺列表（展示不变） -->
+      <!-- 轮次任务按「窗口开始时刻」分组（带组头）；非轮次任务为平铺列表（展示不变）。
+           §18.2 容器官方化：uni-card + uni-tag 徽标；进度条为业务呈现保留 -->
       <view v-for="row in displayRows" :key="row.key">
-        <text v-if="row.task == null" class="group-title" :style="{ color: colors.textSecondary }">{{ row.header }}</text>
-        <view
+        <text v-if="row.task == null" class="group-title text-secondary" >{{ row.header }}</text>
+        <uni-card
           v-else
-           hover-class="hover-dim" class="card"
-          :style="{ backgroundColor: colors.bgCard }"
+          :is-shadow="true"
+          :border="false"
+          margin="0 0 24rpx 0"
+          padding="28rpx 32rpx"
+          spacing="0"
           @click="goDetail(row.task.id)"
         >
-          <view  hover-class="hover-dim" class="card-head">
-            <text  hover-class="hover-dim" class="card-title" :style="{ color: colors.textPrimary }">{{ row.task.community_name }} · {{ row.task.plan_name }}</text>
-            <text  hover-class="hover-dim" class="card-tag" :style="{ color: row.task.status_color }">{{ row.task.status_text }}</text>
+          <view hover-class="hover-dim" class="card-head">
+            <text hover-class="hover-dim" class="card-title text-main" >{{ row.task.community_name }} · {{ row.task.plan_name }}</text>
+            <uni-tag :text="row.task.status_text" :inverted="true" size="small" :custom-style="'color:' + row.task.status_color + ';border-color:' + row.task.status_color" />
           </view>
-          <view  hover-class="hover-dim" class="card-sub-row">
-            <text v-if="row.task.round_name != ''" class="type-tag" :style="{ color: colors.warning, borderColor: colors.warning }">{{ row.task.round_name }}</text>
-            <text v-if="row.task.patrol_text != ''" class="type-tag" :style="{ color: colors.primary, borderColor: colors.primary }">{{ row.task.patrol_text }}</text>
-            <text v-if="row.task.due_text != ''" class="type-tag" :style="row.task.due_urgent ? { color: colors.warning, borderColor: colors.warning } : { color: colors.info, borderColor: colors.info }">{{ row.task.due_text }}</text>
-            <text  hover-class="hover-dim" class="card-sub" :style="{ color: colors.textSecondary }">{{ row.task.time_window != '' ? row.task.time_window : (row.task.round_name != '' ? '不限时段' : '') }}</text>
+          <view hover-class="hover-dim" class="card-sub-row">
+            <uni-tag v-if="row.task.round_name != ''" :text="row.task.round_name" :inverted="true" size="small" :custom-style="'color:#ED7B2F;border-color:#ED7B2F;margin-right:16rpx'" />
+            <uni-tag v-if="row.task.patrol_text != ''" :text="row.task.patrol_text" :inverted="true" size="small" :custom-style="'color:#2B5AED;border-color:#2B5AED;margin-right:16rpx'" />
+            <uni-tag v-if="row.task.due_text != ''" :text="row.task.due_text" :inverted="true" size="small" :custom-style="row.task.due_urgent ? 'color:#ED7B2F;border-color:#ED7B2F;margin-right:16rpx' : 'color:#909399;border-color:#909399;margin-right:16rpx'" />
+            <text hover-class="hover-dim" class="card-sub text-secondary" >{{ row.task.time_window != '' ? row.task.time_window : (row.task.round_name != '' ? '不限时段' : '') }}</text>
           </view>
-          <view class="progress" :style="{ backgroundColor: colors.border }">
+          <view class="progress bg-border" >
             <view
               class="progress-inner"
               :style="{ width: row.task.progress_width, backgroundColor: row.task.bar_color }"
             ></view>
           </view>
-          <text  hover-class="hover-dim" class="card-progress-text" :style="{ color: colors.textRegular }">{{ row.task.done_points }}/{{ row.task.total_points }} 点位</text>
-        </view>
+          <text hover-class="hover-dim" class="card-progress-text text-regular" >{{ row.task.done_points }}/{{ row.task.total_points }} 点位</text>
+        </uni-card>
       </view>
     </view>
 
     <!-- 加载失败 -->
     <view v-else class="empty">
-      <text class="empty-title" :style="{ color: colors.textRegular }">{{ errorMsg }}</text>
-      <text class="empty-retry" :style="{ color: colors.primary }" @click="load">重试</text>
+      <text class="empty-title text-regular" >{{ errorMsg }}</text>
+      <text class="empty-retry text-brand"  @click="load">重试</text>
     </view>
 
     <!-- 导航栏「+」菜单（微信式下拉；数据驱动，加功能往 plusItems 里加一行） -->
@@ -94,8 +98,8 @@
         <block v-for="(m, i) in plusItems" :key="m.key">
           <view v-if="i > 0" class="plus-divider"></view>
           <view  hover-class="hover-dim" class="plus-item" @click="onPlusItem(m.key)">
-            <text  hover-class="hover-dim" class="plus-item-icon" :style="{ color: colors.white }">{{ m.icon }}</text>
-            <text  hover-class="hover-dim" class="plus-item-text" :style="{ color: colors.white }">{{ m.label }}</text>
+            <text  hover-class="hover-dim" class="plus-item-icon text-white" >{{ m.icon }}</text>
+            <text  hover-class="hover-dim" class="plus-item-text text-white" >{{ m.label }}</text>
           </view>
         </block>
       </view>
@@ -103,17 +107,19 @@
 
     <view class="tabbar-space"></view>
 
-    <!-- 维保启动提醒弹窗（每天第一次进本页且有待维保设备时弹出，自绘） -->
-    <view v-if="dueTipVisible" class="tip-mask" :style="{ backgroundColor: colors.mask }" @click="closeDueTip">
-      <view class="tip-dialog" :style="{ backgroundColor: colors.bgCard }" @click.stop="">
-        <text class="tip-title" :style="{ color: colors.textPrimary }">维保提醒</text>
-        <text class="tip-content" :style="{ color: colors.textRegular }">{{ dueTipText }}</text>
-        <view class="tip-actions">
-          <text class="tip-btn" :style="{ color: colors.textSecondary }" @click="closeDueTip">知道了</text>
-          <text class="tip-btn" :style="{ color: colors.primary }" @click="goEquipmentDue">去处理</text>
-        </view>
-      </view>
-    </view>
+    <!-- 维保启动提醒弹窗（每天第一次进本页且有待维保设备时弹出；AppDialog 双按钮） -->
+    <AppDialog
+      :visible="dueTipVisible"
+      kind="warning"
+      title="维保提醒"
+      :content="dueTipText"
+      confirm-text="去处理"
+      cancel-text="知道了"
+      :mask-closable="true"
+      @update:visible="dueTipVisible = $event"
+      @confirm="goEquipmentDue"
+      @cancel="closeDueTip"
+    />
 
     <!-- 版本更新弹窗（启动自动检查；强制更新不可跳过） -->
     <UpdateDialog ref="updDialog" />
@@ -122,7 +128,7 @@
 
 <script lang="ts">
 import { toastErr } from '@/utils/ui'
-import { Colors, ColorTokens } from '@/utils/theme'
+
 import { apiTasksToday, apiEquipmentDue, TodayTask } from '@/services/api'
 import { offlineCount, syncOfflineCheckins } from '@/utils/offline'
 import { useMessageStore } from '@/stores/message'
@@ -130,6 +136,7 @@ import { useAuthStore } from '@/stores/auth'
 import { doNfc } from '@/utils/scan'
 import { fetchLatestRelease } from '@/utils/update'
 import AppChipScroller from '@/components/AppChipScroller.vue'
+import AppDialog from '@/components/AppDialog.vue'
 import UpdateDialog from '@/components/UpdateDialog.vue'
 
 /** 维保提醒「每日一次」存储键 */
@@ -197,7 +204,6 @@ type TaskView = {
 }
 
 type TodayData = {
-  colors: ColorTokens
   loading: boolean
   loaded: boolean
   errorMsg: string
@@ -229,10 +235,10 @@ function statusTextOf(s: string): string {
 }
 
 function statusColorOf(s: string): string {
-  if (s == 'doing') return Colors.primary
-  if (s == 'done') return Colors.success
-  if (s == 'overdue') return Colors.danger
-  return Colors.warning
+  if (s == 'doing') return '#2B5AED'
+  if (s == 'done') return '#2BA471'
+  if (s == 'overdue') return '#D54941'
+  return '#ED7B2F'
 }
 
 /** 期限标签：due_date（YYYY-MM-DD，空串=无期限）→ 「期限 MM-DD」；距期限 ≤3 天（含已过）为临期 */
@@ -262,17 +268,16 @@ function toTaskView(t: TodayTask): TaskView {
     status_text: statusTextOf(t.status),
     status_color: statusColorOf(t.status),
     progress_width: `${t.progress}%`,
-    bar_color: t.status == 'overdue' ? Colors.danger : Colors.primary,
+    bar_color: t.status == 'overdue' ? '#D54941' : '#2B5AED',
     total_points: t.total_points,
     done_points: t.done_points
   } as TaskView
 }
 
 export default {
-  components: { AppChipScroller, UpdateDialog },
+  components: { AppChipScroller, AppDialog, UpdateDialog },
   data(): TodayData {
     return {
-      colors: Colors,
       loading: true,
       loaded: false,
       errorMsg: '',
@@ -289,8 +294,9 @@ export default {
       dueMaxOverdue: 0,
       dueTipVisible: false,
       dueTipText: '',
-      // 「+」菜单项（静态三项；维保入口收敛到待办卡片/巡检向导内，不再放全局菜单）
+      // 「+」菜单项（数据驱动，加功能加一行；维保登记是主动上报入口，巡楼发现该维保的设备随时登记）
       plusItems: [
+        { key: 'maintain', label: '维保登记', icon: '⚒' },
         { key: 'nearby', label: '附近点位', icon: '◎' },
         { key: 'nfc', label: 'NFC 识别', icon: '≋' },
         { key: 'history', label: '历史任务', icon: '◷' }
@@ -364,6 +370,11 @@ export default {
     /** 「+」菜单项分发 */
     onPlusItem(key: string) {
       this.menuOpen = false
+      if (key == 'maintain') {
+        // 维保登记需先选设备（裸进 maintain 是空表单）：跳台账选择模式，点设备行带参直达登记页
+        uni.navigateTo({ url: '/pages/equipment/index?mode=pick' })
+        return
+      }
       if (key == 'nearby') {
         this.goNearby()
         return
@@ -520,46 +531,6 @@ export default {
   font-weight: 600;
 }
 
-/* 维保启动提醒弹窗 */
-.tip-mask {
-  position: fixed;
-  left: 0;
-  top: 0;
-  right: 0;
-  bottom: 0;
-  z-index: 999;
-  justify-content: center;
-  align-items: center;
-}
-
-.tip-dialog {
-  width: 600rpx;
-  border-radius: 24rpx;
-  padding: 32rpx;
-}
-
-.tip-title {
-  font-size: 32rpx;
-  font-weight: 600;
-}
-
-.tip-content {
-  font-size: 28rpx;
-  margin-top: 24rpx;
-  line-height: 44rpx;
-}
-
-.tip-actions {
-  flex-direction: row;
-  justify-content: flex-end;
-  margin-top: 32rpx;
-}
-
-.tip-btn {
-  font-size: 30rpx;
-  padding: 8rpx 24rpx;
-}
-
 /* 巡查类型筛选 chips */
 .empty-filter {
   align-items: center;
@@ -577,14 +548,6 @@ export default {
   margin-bottom: 24rpx;
 }
 
-.type-tag {
-  font-size: 22rpx;
-  border-width: 2rpx;
-  border-style: solid;
-  border-radius: 12rpx; /* Radius.tag */
-  padding: 4rpx 16rpx;
-  margin-right: 16rpx;
-}
 
 .skeleton {
   padding-top: 8rpx;
@@ -643,11 +606,6 @@ export default {
   font-weight: 600;
 }
 
-.card {
-  border-radius: 24rpx; /* Radius.card */
-  padding: 32rpx;
-  margin-bottom: 24rpx;
-}
 
 .card-head {
   flex-direction: row;
@@ -661,10 +619,6 @@ export default {
   flex: 1;
 }
 
-.card-tag {
-  font-size: 26rpx;
-  margin-left: 16rpx;
-}
 
 .card-sub {
   font-size: 26rpx;

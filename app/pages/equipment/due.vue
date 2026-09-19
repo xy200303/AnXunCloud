@@ -1,14 +1,20 @@
 <template>
-  <view class="page" :style="{ backgroundColor: colors.bgPage }">
+  <view class="page bg-page" >
     <!-- 状态筛选 chips（客户端过滤：待维保列表一次拉全，上限 200 台） -->
-    <view class="filter-bar" :style="{ backgroundColor: colors.bgCard, borderBottomColor: colors.border }">
-      <AppChipScroller :items="dueChips" :value="dueFilter" :colors="colors" @change="dueFilter = $event" />
+    <view class="filter-bar bg-card border-default" >
+      <uni-segmented-control
+        :values="dueChips.map((c) => c.label)"
+        :current="dueTabIdx"
+        style-type="button"
+        active-color="#2B5AED"
+        @clickItem="onDueTab"
+      />
     </view>
 
     <!-- 我的提交入口：提交后设备从待办消失（有 pending 流水），这里给登记人查看/修改的固定入口 -->
-    <view hover-class="hover-dim" class="mine-entry" :style="{ backgroundColor: colors.bgCard, borderBottomColor: colors.border }" @click="goMine">
-      <text class="mine-entry-text" :style="{ color: colors.textPrimary }">我的提交记录</text>
-      <text class="mine-entry-arrow" :style="{ color: colors.textSecondary }">查看 / 修改 ›</text>
+    <view hover-class="hover-dim" class="mine-entry bg-card border-default"  @click="goMine">
+      <text class="mine-entry-text text-main" >我的提交记录</text>
+      <text class="mine-entry-arrow text-secondary" >查看 / 修改 ›</text>
     </view>
 
     <AppListShell
@@ -19,7 +25,7 @@
       :show-skeleton="list.length == 0"
       empty-title="暂无待维保设备"
       empty-sub="临期/逾期设备会出现在这里"
-      :colors="colors"
+     
       @retry="load"
     >
       <template #default>
@@ -28,21 +34,21 @@
           v-for="e in filtered"
           :key="e.id"
           hover-class="hover-dim"
-          class="card"
-          :style="{ backgroundColor: colors.bgCard }"
+          class="card bg-card"
+          
           @click="goDetail(e)"
         >
           <view class="card-head">
             <view class="card-title-row">
-              <view class="due-dot" :style="{ backgroundColor: dueColorOf(e.due_state) }"></view>
-              <text class="card-title" :style="{ color: colors.textPrimary }">{{ e.name }}</text>
+              <uni-badge :is-dot="true" :custom-style="{ backgroundColor: dueColorOf(e.due_state), marginRight: '12rpx' }" />
+              <text class="card-title text-main" >{{ e.name }}</text>
             </view>
             <text class="card-status" :style="{ color: dueColorOf(e.due_state) }">{{ dueTextOf(e) }}</text>
           </view>
-          <text class="card-sub" :style="{ color: colors.textSecondary }">编号：{{ e.code }}</text>
+          <text class="card-sub text-secondary" >编号：{{ e.code }}</text>
           <view class="card-foot">
-            <text class="tag" :style="{ color: colors.textSecondary, borderColor: colors.border }">{{ e.type_label != '' ? e.type_label : e.type }}</text>
-            <text class="card-loc" :style="{ color: colors.textSecondary }">{{ locationText(e) }}</text>
+            <uni-tag :text="e.type_label != '' ? e.type_label : e.type" :inverted="true" size="small" :custom-style="'color:#86909C;border-color:#E5E6EB;margin-right:16rpx'" />
+            <text class="card-loc text-secondary" >{{ locationText(e) }}</text>
           </view>
         </view>
       </view>
@@ -53,14 +59,12 @@
 
 <script lang="ts">
 import { toastErr } from '@/utils/ui'
-import { Colors, ColorTokens } from '@/utils/theme'
+
 import { apiEquipmentDue, EquipmentListItem, EquipmentDueState } from '@/services/api'
 import AppListShell from '@/components/AppListShell.vue'
-import AppChipScroller from '@/components/AppChipScroller.vue'
 import { useAuthStore } from '@/stores/auth'
 
 type PageData = {
-  colors: ColorTokens
   dueFilter: string
   /** 'pick' = 选设备模式（今日任务维保待办卡片跳入）：点卡片直达维保拍照页 */
   mode: string
@@ -73,10 +77,10 @@ type PageData = {
 
 /** 状态灯颜色：与台账页同口径（warning 黄 / overdue、scrap 红 / 其他灰） */
 function dueColorOf(s: EquipmentDueState): string {
-  if (s == 'normal') return Colors.success
-  if (s == 'warning') return Colors.warning
-  if (s == 'overdue' || s == 'scrap') return Colors.danger
-  return Colors.info
+  if (s == 'normal') return '#2BA471'
+  if (s == 'warning') return '#ED7B2F'
+  if (s == 'overdue' || s == 'scrap') return '#D54941'
+  return '#909399'
 }
 
 /** 今日 0 点（本地时区），逾期天数计算用 */
@@ -87,10 +91,9 @@ function todayZero(): number {
 }
 
 export default {
-  components: { AppListShell, AppChipScroller },
+  components: { AppListShell },
   data(): PageData {
     return {
-      colors: Colors,
       dueFilter: '',
       mode: '',
       loading: true,
@@ -108,6 +111,11 @@ export default {
         { value: 'warning', label: '临期' },
         { value: 'scrap', label: '应报废' }
       ]
+    },
+    /** 分段器当前下标（dueChips 下标 ↔ dueFilter 值换算） */
+    dueTabIdx(): number {
+      const i = this.dueChips.findIndex((c) => c.value == this.dueFilter)
+      return i >= 0 ? i : 0
     },
     filtered(): EquipmentListItem[] {
       if (this.dueFilter == '') return this.list
@@ -132,6 +140,10 @@ export default {
     this.load()
   },
   methods: {
+    onDueTab(e: { currentIndex: number }) {
+      const c = this.dueChips[e.currentIndex]
+      if (c != null) this.dueFilter = c.value
+    },
     dueColorOf,
     /** 到期状态文案：逾期红字带天数（与台账页同口径） */
     dueTextOf(e: EquipmentListItem): string {
@@ -246,12 +258,6 @@ export default {
 }
 
 /* 红黄绿灰状态灯 */
-.due-dot {
-  width: 20rpx;
-  height: 20rpx;
-  border-radius: 10rpx;
-  margin-right: 16rpx;
-}
 
 .card-title {
   font-size: 34rpx; /* FontSize.bodyL */
@@ -276,13 +282,6 @@ export default {
   margin-top: 24rpx;
 }
 
-.tag {
-  font-size: 22rpx;
-  border-width: 2rpx;
-  border-style: solid;
-  border-radius: 12rpx; /* Radius.tag */
-  padding: 4rpx 16rpx;
-}
 
 .card-loc {
   font-size: 24rpx;

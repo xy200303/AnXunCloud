@@ -1,13 +1,13 @@
 <template>
   <!-- 手写签名板：canvas 自绘，导出白底 PNG 临时路径 -->
-  <view v-if="show" class="pad-mask" :style="{ backgroundColor: colors.mask }" @touchmove.stop.prevent="noop">
-    <view class="pad-panel" :style="{ backgroundColor: colors.bgCard, borderRadius: radiusSheet }">
+  <view v-if="show" class="pad-mask bg-mask"  @touchmove.stop.prevent="noop">
+    <view class="pad-panel bg-card" :style="{ borderRadius: radiusSheet }">
       <view class="pad-head">
-        <text class="pad-title" :style="{ color: colors.textPrimary }">手写签名</text>
-        <text class="pad-tip" :style="{ color: colors.textSecondary }">请在下方区域手写，保存后为白底 PNG</text>
+        <text class="pad-title text-main" >手写签名</text>
+        <text class="pad-tip text-secondary" >请在下方区域手写，保存后为白底 PNG</text>
       </view>
 
-      <view class="pad-canvas-wrap" :style="{ borderColor: colors.border }">
+      <view class="pad-canvas-wrap border-default" >
         <canvas
           id="signPad"
           canvas-id="signPad"
@@ -18,7 +18,7 @@
           @touchend="onTouchEnd"
         ></canvas>
         <view v-if="empty" class="pad-placeholder">
-          <text class="pad-placeholder-text" :style="{ color: colors.textSecondary }">请在此区域手写签名</text>
+          <text class="pad-placeholder-text text-secondary" >请在此区域手写签名</text>
         </view>
       </view>
 
@@ -26,30 +26,29 @@
       <view v-if="showSaveOption" class="pad-save" @click="saveForLater = !saveForLater">
         <view
           class="pad-checkbox"
-          :style="{
-            borderColor: saveForLater ? colors.primary : colors.border,
-            backgroundColor: saveForLater ? colors.primary : colors.white
-          }"
+           :class="(saveForLater ? 'border-brand' : 'border-default') + (saveForLater ? 'bg-brand' : 'bg-white')"
         >
-          <text v-if="saveForLater" class="pad-check" :style="{ color: colors.white }">✓</text>
+          <text v-if="saveForLater" class="pad-check text-white" >✓</text>
         </view>
-        <text class="pad-save-text" :style="{ color: colors.textRegular }">保存为我的签名，下次签字直接使用</text>
+        <text class="pad-save-text text-regular" >保存为我的签名，下次签字直接使用</text>
       </view>
 
       <view class="pad-actions">
-        <view class="pad-btn" :style="{ borderColor: colors.border }" @click="onClear">
-          <text class="pad-btn-text" :style="{ color: colors.textRegular }">清除</text>
-        </view>
-        <view class="pad-btn" :style="{ borderColor: colors.border }" @click="onCancel">
-          <text class="pad-btn-text" :style="{ color: colors.textRegular }">取消</text>
-        </view>
-        <view
-          class="pad-btn pad-btn-primary"
-          :style="{ backgroundColor: colors.primary, opacity: saving ? 0.6 : 1 }"
+        <button plain="true" class="pad-btn border-default" hover-class="hover-dim" @click="onClear">
+          <text class="pad-btn-text text-regular">清除</text>
+        </button>
+        <button plain="true" class="pad-btn border-default" hover-class="hover-dim" @click="onCancel">
+          <text class="pad-btn-text text-regular">取消</text>
+        </button>
+        <button
+          plain="true"
+          class="pad-btn pad-btn-primary btn-primary"
+          :style="{ opacity: saving ? 0.6 : 1 }"
+          hover-class="hover-dim"
           @click="onConfirm"
         >
-          <text class="pad-btn-text" :style="{ color: colors.white }">{{ saving ? '保存中…' : '确认' }}</text>
-        </view>
+          <text class="pad-btn-text">{{ saving ? '保存中…' : '确认' }}</text>
+        </button>
       </view>
     </view>
   </view>
@@ -62,10 +61,9 @@
  * - 父组件上传完成后调 this.$refs.pad.finish(true) 关闭并重置，失败调 finish(false) 留在面板可重试；
  * - 坐标取 touch.touches[0].x/y（相对画布），ctx.draw(true) 增量保留笔迹。
  */
-import { Colors, ColorTokens, Radius } from '@/utils/theme'
+import { Radius } from '@/utils/theme'
 
 type PadData = {
-  colors: ColorTokens
   radiusSheet: string
   show: boolean
   empty: boolean
@@ -83,7 +81,6 @@ export default {
   },
   data(): PadData {
     return {
-      colors: Colors,
       radiusSheet: Radius.sheet,
       show: false,
       empty: true,
@@ -291,15 +288,12 @@ export default {
   width: 30%;
   height: 88rpx;
   border-radius: 16rpx;
-  border-width: 1rpx;
-  border-style: solid;
-  border-color: transparent;
-  align-items: center;
-  justify-content: center;
 }
 
-.pad-btn-primary {
-  border-width: 0;
+/* 描边灰按钮（清除/取消）：border-default 工具类给色，这里补宽度/样式 */
+.pad-btn.border-default {
+  border-width: 1rpx;
+  border-style: solid;
 }
 
 .pad-btn-text {

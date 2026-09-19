@@ -1,86 +1,82 @@
 <template>
-  <view class="page" :style="{ backgroundColor: colors.bgPage }">
+  <view class="page bg-page" >
     <template v-if="d">
       <!-- 报告头卡 -->
-      <view class="card" :style="{ backgroundColor: colors.bgCard }">
-        <text class="title" :style="{ color: colors.textPrimary }">{{ d.title }}</text>
-        <text class="sub" :style="{ color: colors.textSecondary }">{{ d.community_name }} · {{ d.period }} · 生成于 {{ d.created_at }}</text>
-        <view
-          class="status-chip"
-          :style="{
-            backgroundColor: d.status === 'approved' ? '#E8F7EE' : '#FDF3E5',
-            color: d.status === 'approved' ? colors.success : colors.warning
-          }"
-        >
-          <text class="status-chip-text">{{ statusLabel(d.status) }}</text>
-        </view>
+      <view class="card bg-card" >
+        <text class="title text-main" >{{ d.title }}</text>
+        <text class="sub text-secondary" >{{ d.community_name }} · {{ d.period }} · 生成于 {{ d.created_at }}</text>
+        <uni-tag
+          :text="statusLabel(d.status)"
+          :custom-style="d.status === 'approved' ? 'background-color:#E8F7EE;color:#2BA471;border-color:transparent' : 'background-color:#FDF3E5;color:#ED7B2F;border-color:transparent'"
+        />
         <view v-if="d.reject_reason != ''" class="reject-bar" :style="{ backgroundColor: '#FEF0EF' }">
-          <text class="reject-text" :style="{ color: colors.danger }">最近驳回原因：{{ d.reject_reason }}</text>
+          <text class="reject-text text-danger" >最近驳回原因：{{ d.reject_reason }}</text>
         </view>
       </view>
 
       <!-- 汇总统计 -->
-      <view class="card" :style="{ backgroundColor: colors.bgCard }">
-        <text class="sec-title" :style="{ color: colors.textPrimary }">本月汇总</text>
+      <view class="card bg-card" >
+        <text class="sec-title text-main" >本月汇总</text>
         <view class="stats-grid">
           <view v-for="s in statsItems" :key="s.label" class="stats-cell">
-            <text class="stats-value" :style="{ color: s.danger ? colors.danger : colors.textPrimary }">{{ s.value }}</text>
-            <text class="stats-label" :style="{ color: colors.textSecondary }">{{ s.label }}</text>
+            <text class="stats-value"  :class="(s.danger ? 'text-danger' : 'text-main')">{{ s.value }}</text>
+            <text class="stats-label text-secondary" >{{ s.label }}</text>
           </view>
         </view>
       </view>
 
       <!-- 审核链 -->
-      <view class="card" :style="{ backgroundColor: colors.bgCard }">
-        <text class="sec-title" :style="{ color: colors.textPrimary }">审核链</text>
-        <view v-for="(step, index) in d.review_steps" :key="step.slot" class="step" :style="{ borderBottomColor: colors.border }">
+      <view class="card bg-card" >
+        <text class="sec-title text-main" >审核链</text>
+        <view v-for="(step, index) in d.review_steps" :key="step.slot" class="step border-default" >
           <view class="step-head">
             <view class="step-no" :style="{ backgroundColor: stepBg(index) }">
               <text class="step-no-text" :style="{ color: stepColor(index) }">{{ index + 1 }}</text>
             </view>
-            <text class="step-name" :style="{ color: colors.textPrimary }">{{ step.name }}</text>
-            <text class="step-mode" :style="{ color: colors.textSecondary }">{{ step.mode === 'all' ? '全部签署' : '任一签署' }}</text>
+            <text class="step-name text-main" >{{ step.name }}</text>
+            <text class="step-mode text-secondary" >{{ step.mode === 'all' ? '全部签署' : '任一签署' }}</text>
           </view>
           <view v-for="user in step.users" :key="user.user_id" class="person">
             <view class="person-main">
-              <text class="person-name" :style="{ color: colors.textRegular }">{{ user.name }}</text>
-              <text v-if="user.signed && user.signed_at" class="person-time" :style="{ color: colors.textSecondary }">{{ user.signed_at }}</text>
+              <text class="person-name text-regular" >{{ user.name }}</text>
+              <text v-if="user.signed && user.signed_at" class="person-time text-secondary" >{{ user.signed_at }}</text>
             </view>
             <image
               v-if="user.signed && user.signature_url"
               class="sign-img"
               :src="user.signature_url"
               mode="aspectFit"
+              lazy-load
               @click="previewImage(user.signature_url)"
             />
-            <text v-else class="person-state" :style="{ color: user.signed ? colors.success : colors.textSecondary }">{{ user.signed ? '已签' : '待签' }}</text>
+            <text v-else class="person-state"  :class="(user.signed ? 'text-success' : 'text-secondary')">{{ user.signed ? '已签' : '待签' }}</text>
           </view>
-          <text v-if="!step.users?.length" class="muted" :style="{ color: colors.textSecondary }">无候选人，已跳过</text>
+          <text v-if="!step.users?.length" class="muted text-secondary" >无候选人，已跳过</text>
         </view>
       </view>
 
       <!-- 查看完整报告 -->
-      <view class="btn-outline" :style="{ borderColor: colors.primary, backgroundColor: colors.bgCard }" @click="openPdf">
-        <text class="btn-outline-text" :style="{ color: colors.primary }">查看完整报告 PDF</text>
-      </view>
+      <button plain="true" class="btn-outline" hover-class="hover-dim" @click="openPdf">
+        <text class="btn-outline-text">查看完整报告 PDF</text>
+      </button>
 
       <!-- 审核操作（当前环节候选人才显示） -->
       <view v-if="canSign" class="actions">
-        <view class="btn-primary" :style="{ backgroundColor: colors.primary, opacity: busy ? 0.6 : 1 }" @click="approve">
-          <text class="btn-primary-text" :style="{ color: colors.white }">签署通过</text>
-        </view>
-        <view class="btn-danger" :style="{ borderColor: colors.danger, opacity: busy ? 0.6 : 1 }" @click="reject">
-          <text class="btn-danger-text" :style="{ color: colors.danger }">驳回</text>
-        </view>
+        <button plain="true" class="btn-primary" hover-class="hover-dim" :style="{ opacity: busy ? 0.6 : 1 }" @click="approve">
+          <text class="btn-primary-text">签署通过</text>
+        </button>
+        <button plain="true" class="btn-danger btn-outline-danger" hover-class="hover-dim" :style="{ opacity: busy ? 0.6 : 1 }" @click="reject">
+          <text class="btn-danger-text">驳回</text>
+        </button>
       </view>
     </template>
     <view v-else-if="errorMsg != ''" class="empty">
-      <text class="empty-title" :style="{ color: colors.textRegular }">{{ errorMsg }}</text>
-      <text class="empty-retry" :style="{ color: colors.primary }" @click="load">重试</text>
+      <text class="empty-title text-regular" >{{ errorMsg }}</text>
+      <text class="empty-retry text-brand"  @click="load">重试</text>
     </view>
-    <view v-else class="loading" :style="{ color: colors.textSecondary }">加载中…</view>
+    <uni-load-more v-else status="loading" :content-text="{ contentrefresh: '加载中…' }" :color="'#86909C'" />
 
-    <!-- 驳回原因弹窗（自绘，替代原生 showModal editable；确认带回输入值，空值不提交） -->
+    <!-- 驳回原因弹窗（AppDialog editable；确认带回输入值，空值不提交） -->
     <AppDialog
       :visible="rejectDlgShow"
       kind="danger"
@@ -102,13 +98,13 @@
 <script lang="ts">
 import { apiReportDetail, apiSignStep, apiUploadLocal, apiUpdateProfile, openReportPdf, type ReportDetail, type ReportSignReq } from '@/services/api'
 import { useAuthStore } from '@/stores/auth'
-import { Colors } from '@/utils/theme'
+
 import AppDialog from '@/components/AppDialog.vue'
 import SignaturePad from '@/components/SignaturePad.vue'
 
 export default {
   components: { AppDialog, SignaturePad },
-  data() { return { colors: Colors, d: null as ReportDetail | null, busy: false, reportId: '', errorMsg: '', rejectDlgShow: false, rejectReason: '' } },
+  data() { return { d: null as ReportDetail | null, busy: false, reportId: '', errorMsg: '', rejectDlgShow: false, rejectReason: '' } },
   computed: {
     currentStep(): any { return this.d?.review_steps?.[this.d.review_step] },
     canSign(): boolean {
@@ -144,16 +140,16 @@ export default {
     },
     statusLabel(status: string) { return status === 'approved' ? '已通过' : '待审核' },
     stepColor(index: number): string {
-      if (!this.d) return Colors.textSecondary
-      if (index < this.d.review_step || this.d.status === 'approved') return Colors.success
-      if (index === this.d.review_step) return Colors.primary
-      return Colors.textSecondary
+      if (!this.d) return '#86909C'
+      if (index < this.d.review_step || this.d.status === 'approved') return '#2BA471'
+      if (index === this.d.review_step) return '#2B5AED'
+      return '#86909C'
     },
     stepBg(index: number): string {
-      if (!this.d) return Colors.bgPage
+      if (!this.d) return '#F5F6F8'
       if (index < this.d.review_step || this.d.status === 'approved') return '#E8F7EE'
-      if (index === this.d.review_step) return Colors.primaryLight
-      return Colors.bgPage
+      if (index === this.d.review_step) return '#EAEFFF'
+      return '#F5F6F8'
     },
     previewImage(url: string | null | undefined) {
       if (url == null || url == '') return
@@ -211,8 +207,6 @@ export default {
 .card { padding: 28rpx; border-radius: 20rpx; margin-bottom: 24rpx; }
 .title { display: block; font-size: 34rpx; font-weight: 600; line-height: 1.4; }
 .sub { display: block; margin-top: 10rpx; font-size: 26rpx; }
-.status-chip { display: inline-flex; margin-top: 18rpx; padding: 6rpx 20rpx; border-radius: 999rpx; }
-.status-chip-text { font-size: 24rpx; }
 .reject-bar { margin-top: 18rpx; border-radius: 12rpx; padding: 16rpx 20rpx; }
 .reject-text { font-size: 26rpx; }
 .sec-title { display: block; font-size: 30rpx; font-weight: 600; margin-bottom: 16rpx; }
@@ -241,7 +235,6 @@ export default {
 .btn-primary-text { font-size: 30rpx; font-weight: 600; }
 .btn-danger { flex: 1; height: 88rpx; border-radius: 999rpx; border-width: 2rpx; border-style: solid; align-items: center; justify-content: center; }
 .btn-danger-text { font-size: 30rpx; font-weight: 600; }
-.loading { text-align: center; padding-top: 160rpx; font-size: 28rpx; }
 .empty { align-items: center; padding-top: 160rpx; }
 .empty-title { font-size: 28rpx; }
 .empty-retry { font-size: 28rpx; margin-top: 16rpx; }

@@ -6,11 +6,11 @@
        variant=multi 为多图变体（仅台账新标签/手动档多图/处置佐证，至多 max 张）。 -->
   <view class="slot">
     <!-- 已逃生（可撤销：选错回到待拍） -->
-    <view v-if="escaped" class="slot-escaped" :style="{ backgroundColor: colors.bgPage }">
-      <text class="slot-escaped-text" :style="{ color: colors.textRegular }">{{ escapeText }}</text>
-      <text class="slot-escaped-hint" :style="{ color: colors.textSecondary }">点导航条右上角 ? 可改报</text>
-      <view hover-class="hover-dim" class="slot-undo" :style="{ borderColor: colors.primary }" @click="$emit('escape-undo')">
-        <text class="slot-undo-text" :style="{ color: colors.primary }">撤销上报，重新拍照</text>
+    <view v-if="escaped" class="slot-escaped bg-page" >
+      <text class="slot-escaped-text text-regular" >{{ escapeText }}</text>
+      <text class="slot-escaped-hint text-secondary" >点导航条右上角 ? 可改报</text>
+      <view hover-class="hover-dim" class="slot-undo border-brand"  @click="$emit('escape-undo')">
+        <text class="slot-undo-text text-brand" >撤销上报，重新拍照</text>
       </view>
     </view>
 
@@ -29,23 +29,23 @@
             <text class="slot-img-fallback-text">照片已保留，待补传</text>
           </view>
         </view>
-        <view hover-class="hover-dim" class="slot-pending" :style="{ backgroundColor: colors.warning }" @click="$emit('retry-upload')">
-          <text class="slot-pending-text" :style="{ color: colors.white }">照片还没传上去，联网自动补传（点我立即重试）</text>
+        <view hover-class="hover-dim" class="slot-pending bg-warning"  @click="$emit('retry-upload')">
+          <text class="slot-pending-text text-white" >照片还没传上去，联网自动补传（点我立即重试）</text>
         </view>
-        <view hover-class="hover-dim" class="slot-retake" :style="{ borderColor: colors.primary }" @click="$emit('take-photo')">
-          <text class="slot-retake-text" :style="{ color: colors.primary }">重新拍照</text>
+        <view hover-class="hover-dim" class="slot-retake border-brand"  @click="$emit('take-photo')">
+          <text class="slot-retake-text text-brand" >重新拍照</text>
         </view>
       </template>
 
       <!-- 空态 -->
       <template v-else-if="photos.length == 0">
-        <view v-if="required" class="slot-empty" :style="{ backgroundColor: colors.bgPage }">
-          <text class="slot-empty-text" :style="{ color: colors.textSecondary }">还没有照片</text>
-          <text class="slot-empty-hint" :style="{ color: colors.textSecondary }">点底部「📷 拍照片」按钮拍摄</text>
+        <view v-if="required" class="slot-empty bg-page" >
+          <text class="slot-empty-text text-secondary" >还没有照片</text>
+          <text class="slot-empty-hint text-secondary" >点底部「📷 拍照片」按钮拍摄</text>
         </view>
-        <view v-else hover-class="hover-dim" class="slot-opt-row" :style="{ borderColor: colors.border }" @click="$emit('take-photo')">
-          <text class="slot-opt-text" :style="{ color: colors.primary }">📷 {{ emptyAddText }}</text>
-          <text class="slot-opt-arrow" :style="{ color: colors.textSecondary }">›</text>
+        <view v-else hover-class="hover-dim" class="slot-opt-row border-default"  @click="$emit('take-photo')">
+          <text class="slot-opt-text text-brand" >📷 {{ emptyAddText }}</text>
+          <text class="slot-opt-arrow text-secondary" >›</text>
         </view>
       </template>
 
@@ -64,19 +64,19 @@
             <text class="slot-img-fallback-text">照片加载失败</text>
           </view>
           <!-- 后台处理中：右上角小型状态点（灰转圈），不阻塞任何操作 -->
-          <view v-if="status == 'recognizing'" class="slot-busy" :style="{ backgroundColor: colors.bgCard }">
-            <view class="slot-busy-dot" :style="{ borderTopColor: colors.info }"></view>
+          <view v-if="status == 'recognizing'" class="slot-busy bg-card" >
+            <view class="slot-busy-dot border-info" ></view>
           </view>
         </view>
         <!-- 单图：一图一位，重拍=替换 -->
         <view
           v-if="variant == 'single' && status != 'recognizing'"
           hover-class="hover-dim"
-          class="slot-retake"
-          :style="{ borderColor: colors.primary }"
+          class="slot-retake border-brand"
+          
           @click="$emit('take-photo')"
         >
-          <text class="slot-retake-text" :style="{ color: colors.primary }">重新拍照</text>
+          <text class="slot-retake-text text-brand" >重新拍照</text>
         </view>
         <!-- 多图变体：缩略图行 + 补拍列表行 -->
         <block v-if="variant == 'multi'">
@@ -94,12 +94,12 @@
           <view
             v-if="photos.length < max"
             hover-class="hover-dim"
-            class="slot-opt-row"
-            :style="{ borderColor: colors.border }"
+            class="slot-opt-row border-default"
+            
             @click="$emit('take-photo')"
           >
-            <text class="slot-opt-text" :style="{ color: colors.primary }">📷 {{ addText }}（{{ photos.length }}/{{ max }}）</text>
-            <text class="slot-opt-arrow" :style="{ color: colors.textSecondary }">›</text>
+            <text class="slot-opt-text text-brand" >📷 {{ addText }}（{{ photos.length }}/{{ max }}）</text>
+            <text class="slot-opt-arrow text-secondary" >›</text>
           </view>
         </block>
       </template>
@@ -108,7 +108,6 @@
 </template>
 
 <script lang="ts">
-import type { ColorTokens } from '@/utils/theme'
 
 export default {
   props: {
@@ -130,7 +129,6 @@ export default {
     emptyAddText: { type: String, default: '随手拍一张（可选）' },
     /** 多图变体补拍行文案 */
     addText: { type: String, default: '再拍一张' },
-    colors: { type: Object as () => ColorTokens, required: true }
   },
   emits: ['take-photo', 'preview', 'retry-upload', 'image-error', 'escape-undo'],
   methods: {

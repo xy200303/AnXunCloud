@@ -1,47 +1,46 @@
 <template>
-  <!-- 版本更新弹窗（自定义 UI；强制更新无关闭入口，弱更新可「以后再说」）
+  <!-- 版本更新弹窗：内部基于 uni-popup（type=center，遮罩不可点关——强制更新无关闭入口，弱更新走「以后再说」）
        安装包按版本缓存：同版本再次弹窗直接「立即安装」，不重复下载 -->
-  <view v-if="visible" class="upd-mask">
-    <view class="upd-dialog" :style="{ backgroundColor: colors.bgCard }">
+  <uni-popup ref="popup" type="center" :is-mask-click="false" mask-background-color="rgba(0, 0, 0, 0.55)" border-radius="28rpx">
+    <view class="upd-dialog bg-card" >
       <!-- 顶部横幅 -->
-      <view class="upd-banner" :style="{ backgroundColor: colors.primary }">
+      <view class="upd-banner bg-brand" >
         <text class="upd-banner-icon">⤴</text>
-        <text class="upd-banner-title" :style="{ color: colors.white }">发现新版本</text>
-        <text class="upd-banner-ver" :style="{ color: colors.white }">v{{ info != null ? info.version : '' }}</text>
+        <text class="upd-banner-title text-white" >发现新版本</text>
+        <text class="upd-banner-ver text-white" >v{{ info != null ? info.version : '' }}</text>
       </view>
 
       <view class="upd-body">
         <view v-if="info != null && info.force_update" class="upd-force">
-          <text class="upd-force-text" :style="{ color: colors.danger }">本次为强制更新，更新后才能继续使用</text>
+          <text class="upd-force-text text-danger" >本次为强制更新，更新后才能继续使用</text>
         </view>
-        <text v-if="noteText != ''" class="upd-note" :style="{ color: colors.textRegular }">{{ noteText }}</text>
-        <text v-else class="upd-note" :style="{ color: colors.textSecondary }">版本更新，体验更流畅</text>
-        <text v-if="sizeText != ''" class="upd-size" :style="{ color: colors.textSecondary }">安装包大小 {{ sizeText }}</text>
-        <text v-if="phase == 'ready'" class="upd-cached" :style="{ color: colors.success }">✓ 安装包已下载，无需重复下载</text>
+        <text v-if="noteText != ''" class="upd-note text-regular" >{{ noteText }}</text>
+        <text v-else class="upd-note text-secondary" >版本更新，体验更流畅</text>
+        <text v-if="sizeText != ''" class="upd-size text-secondary" >安装包大小 {{ sizeText }}</text>
+        <text v-if="phase == 'ready'" class="upd-cached text-success" >✓ 安装包已下载，无需重复下载</text>
 
         <!-- 下载进度 -->
-        <view v-if="phase == 'downloading'" class="upd-progress" :style="{ backgroundColor: colors.border }">
-          <view class="upd-progress-inner" :style="{ width: progress + '%', backgroundColor: colors.primary }"></view>
+        <view v-if="phase == 'downloading'" class="upd-progress bg-border" >
+          <view class="upd-progress-inner bg-brand" :style="{ width: progress + '%' }"></view>
         </view>
       </view>
 
       <!-- 按钮区 -->
       <view class="upd-actions">
-        <view
+        <button
           v-if="info != null && !info.force_update && phase != 'downloading'"
-           hover-class="hover-dim" class="upd-btn-later"
-          :style="{ borderColor: colors.border }"
+          plain="true" hover-class="hover-dim" class="upd-btn-later border-default"
           @click="later"
         >
-          <text  hover-class="hover-dim" class="upd-btn-later-text" :style="{ color: colors.textSecondary }">以后再说</text>
-        </view>
-        <view
-           hover-class="hover-dim" class="upd-btn-go"
-          :style="{ backgroundColor: phase == 'downloading' ? colors.info : colors.primary }"
+          <text class="upd-btn-later-text text-secondary">以后再说</text>
+        </button>
+        <button
+          plain="true" hover-class="hover-dim" class="upd-btn-go"
+          :class="(phase == 'downloading' ? 'btn-disabled' : 'btn-primary')"
           @click="onGoTap"
         >
-          <text  hover-class="hover-dim" class="upd-btn-go-text" :style="{ color: colors.white }">{{ goText }}</text>
-        </view>
+          <text class="upd-btn-go-text">{{ goText }}</text>
+        </button>
       </view>
     </view>
 
@@ -53,11 +52,11 @@
       :content="errDlgContent"
       @update:visible="errDlgShow = $event"
     />
-  </view>
+  </uni-popup>
 </template>
 
 <script lang="ts">
-import { Colors, ColorTokens } from '@/utils/theme'
+
 import { getPublicOrigin } from '@/services/request'
 import { LatestRelease } from '@/utils/update'
 import { platformOf } from '@/utils/nfc'
@@ -70,7 +69,6 @@ const CACHE_KEY = KEY_UPDATE_PKG_CACHE
 type PkgCache = { version: string; path: string }
 
 type UpdData = {
-  colors: ColorTokens
   visible: boolean
   info: LatestRelease | null
   /** idle=待下载 / downloading=下载中 / ready=已缓存可直接安装 */
@@ -87,7 +85,6 @@ export default {
   components: { AppDialog },
   data(): UpdData {
     return {
-      colors: Colors,
       visible: false,
       info: null,
       phase: 'idle',
@@ -95,6 +92,14 @@ export default {
       cachedPath: '',
       errDlgShow: false,
       errDlgContent: ''
+    }
+  },
+  watch: {
+    visible(v: boolean) {
+      const popup: any = this.$refs.popup
+      if (popup == null) return
+      if (v) popup.open()
+      else popup.close()
     }
   },
   computed: {
@@ -207,21 +212,8 @@ export default {
 </script>
 
 <style scoped>
-.upd-mask {
-  position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background-color: rgba(0, 0, 0, 0.55);
-  z-index: 999;
-  align-items: center;
-  justify-content: center;
-  padding: 64rpx;
-}
-
 .upd-dialog {
-  width: 100%;
+  width: 622rpx;
   border-radius: 28rpx;
   overflow: hidden;
 }

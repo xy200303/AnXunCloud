@@ -8,20 +8,20 @@
     @close="$emit('close')"
   >
     <view class="selection-header">
-      <text class="selection-title" :style="{ color: colors.textPrimary }">{{ title }}</text>
+      <text class="selection-title text-main" >{{ title }}</text>
       <view class="selection-clear" hover-class="hover-dim" @click="$emit('clear')">
-        <text :style="{ color: colors.danger }">清空</text>
+        <text  class="text-danger">清空</text>
       </view>
     </view>
     <view v-if="loading" class="selection-state">
-      <text :style="{ color: colors.textSecondary }">加载中…</text>
+      <text  class="text-secondary">加载中…</text>
     </view>
     <view v-else-if="error != ''" class="selection-state" hover-class="hover-dim" @click="$emit('retry')">
-      <text :style="{ color: colors.danger }">{{ error }}</text>
-      <text class="selection-retry" :style="{ color: colors.primary }">重试</text>
+      <text  class="text-danger">{{ error }}</text>
+      <text class="selection-retry text-brand" >重试</text>
     </view>
     <view v-else-if="items.length == 0" class="selection-state">
-      <text :style="{ color: colors.textSecondary }">{{ emptyText }}</text>
+      <text  class="text-secondary">{{ emptyText }}</text>
     </view>
     <scroll-view v-else scroll-y class="selection-scroll" :show-scrollbar="false">
       <view
@@ -31,20 +31,20 @@
         hover-class="hover-dim"
         @click="$emit('toggle', item.id)"
       >
-        <text :style="{ color: selectedIds.indexOf(item.id) >= 0 ? colors.primary : colors.textPrimary }">
+        <text :style="{ color: selectedIds.indexOf(item.id) >= 0 ? '#2B5AED' : '#1F2329' }">
           {{ selectedIds.indexOf(item.id) >= 0 ? '✓ ' : '○ ' }}{{ item.name }}
         </text>
-        <text v-if="item.warning" class="selection-warning" :style="{ color: colors.warning }">{{ item.warning }}</text>
+        <text v-if="item.warning" class="selection-warning text-warning" >{{ item.warning }}</text>
       </view>
     </scroll-view>
     <view class="selection-done" hover-class="hover-dim" @click="$emit('close')">
-      <text :style="{ color: colors.primary }">完成</text>
+      <text  class="text-brand">完成</text>
     </view>
   </AppBottomSheet>
 </template>
 
 <script lang="ts">
-import { Colors, ColorTokens } from '@/utils/theme'
+
 import AppBottomSheet from '@/components/AppBottomSheet.vue'
 
 type SelectionItem = { id: string; name: string; warning?: string }
@@ -63,7 +63,6 @@ export default {
     maxHeight: { type: String, default: '80vh' },
     maskColor: { type: String, default: 'rgba(0, 0, 0, 0.45)' },
     backgroundColor: { type: String, default: '#ffffff' },
-    colors: { type: Object, default: () => Colors as ColorTokens }
   },
   emits: ['close', 'clear', 'retry', 'toggle']
 }

@@ -1,12 +1,12 @@
 <template>
-  <view class="page" :style="{ backgroundColor: colors.bgPage }">
+  <view class="page bg-page" >
     <!-- 顶部操作行：公告入口 + 全部已读 -->
     <view class="topbar">
-      <view  hover-class="hover-dim" class="topbar-item" :style="{ backgroundColor: colors.bgCard }" @click="openAnnouncements">
-        <text class="topbar-text" :style="{ color: colors.primary }">公告</text>
+      <view  hover-class="hover-dim" class="topbar-item bg-card"  @click="openAnnouncements">
+        <text class="topbar-text text-brand" >公告</text>
       </view>
-      <view  hover-class="hover-dim" class="topbar-item" :style="{ backgroundColor: colors.bgCard }" @click="markAllRead">
-        <text class="topbar-text" :style="{ color: colors.textRegular }">全部已读</text>
+      <view  hover-class="hover-dim" class="topbar-item bg-card"  @click="markAllRead">
+        <text class="topbar-text text-regular" >全部已读</text>
       </view>
     </view>
 
@@ -18,7 +18,7 @@
       :show-skeleton="list.length == 0"
       empty-title="没有新消息，都去巡检啦"
       empty-sub="派单、待签、驳回等提醒会出现在这里"
-      :colors="colors"
+     
       @retry="reload"
     >
 
@@ -28,54 +28,50 @@
       <view
         v-for="m in list"
         :key="m.id"
-         hover-class="hover-dim" class="card"
-        :style="{ backgroundColor: colors.bgCard }"
+         hover-class="hover-dim" class="card bg-card"
+        
         @click="onTap(m)"
       >
         <view class="msg-main">
           <view class="msg-head">
-            <view class="type-tag" :style="{ backgroundColor: typeColorOf(m.type) }">
-              <text class="type-tag-text" :style="{ color: colors.white }">{{ typeTextOf(m.type) }}</text>
-            </view>
-            <text class="msg-title" :style="{ color: colors.textPrimary }">{{ m.title }}</text>
-            <view v-if="!m.is_read" class="dot" :style="{ backgroundColor: colors.danger }"></view>
+            <uni-tag :text="typeTextOf(m.type)" size="small" :custom-style="'background-color:' + typeColorOf(m.type) + ';color:#ffffff;border-color:' + typeColorOf(m.type) + ';margin-right:16rpx'" />
+            <text class="msg-title text-main" >{{ m.title }}</text>
+            <uni-badge v-if="!m.is_read" :is-dot="true" type="error" :custom-style="{ marginLeft: '16rpx' }" />
           </view>
-          <text class="msg-content" :style="{ color: colors.textSecondary }">{{ m.content }}</text>
-          <text class="msg-time" :style="{ color: colors.textSecondary }">{{ m.created_at }}</text>
+          <text class="msg-content text-secondary" >{{ m.content }}</text>
+          <text class="msg-time text-secondary" >{{ m.created_at }}</text>
         </view>
       </view>
 
     </view>
     </template>
     <template #footer>
-      <AppListFooter :loading-more="loadingMore" :no-more="finished" :visible="list.length > 0" :colors="colors" />
+      <AppListFooter :loading-more="loadingMore" :no-more="finished" :visible="list.length > 0" />
     </template>
     </AppListShell>
 
-    <!-- 公告弹层：已发布公告列表，点击进入公告详情页 -->
-    <view v-if="noticeShow" class="notice-mask" :style="{ backgroundColor: colors.mask }" @click="noticeShow = false">
-      <view class="notice-panel" :style="{ backgroundColor: colors.bgCard }" @click.stop="noop">
+    <!-- 公告弹层：已发布公告列表（底部半屏，基于 AppBottomSheet→uni-popup），点击进入公告详情页 -->
+    <AppBottomSheet :visible="noticeShow" @close="noticeShow = false">
+      <view class="notice-panel bg-card" >
         <view class="notice-head">
-          <text class="notice-title" :style="{ color: colors.textPrimary }">公告</text>
-          <text class="notice-close" :style="{ color: colors.textSecondary }" @click="noticeShow = false">关闭</text>
+          <text class="notice-title text-main" >公告</text>
+          <text class="notice-close text-secondary"  @click="noticeShow = false">关闭</text>
         </view>
         <scroll-view scroll-y class="notice-scroll">
-          <view v-if="noticeLoading" class="notice-empty">
-            <text :style="{ color: colors.textSecondary }">加载中…</text>
-          </view>
+          <uni-load-more v-if="noticeLoading" status="loading" :content-text="{ contentrefresh: '加载中…' }" :color="'#86909C'" />
           <view v-else-if="notices.length == 0" class="notice-empty">
-            <text :style="{ color: colors.textSecondary }">暂时没有公告</text>
+            <text  class="text-secondary">暂时没有公告</text>
           </view>
           <view v-for="n in notices" :key="n.id"  hover-class="hover-dim" class="notice-item" @click="openNoticeDetail(n.id)">
             <view  hover-class="hover-dim" class="notice-item-head">
-              <text  hover-class="hover-dim" class="notice-item-title" :style="{ color: colors.textPrimary }">{{ n.title }}</text>
-              <text  hover-class="hover-dim" class="notice-item-time" :style="{ color: colors.textSecondary }">{{ n.publish_at }}</text>
+              <text  hover-class="hover-dim" class="notice-item-title text-main" >{{ n.title }}</text>
+              <text  hover-class="hover-dim" class="notice-item-time text-secondary" >{{ n.publish_at }}</text>
             </view>
-            <text  hover-class="hover-dim" class="notice-item-brief" :style="{ color: colors.textSecondary }">{{ n.content }}</text>
+            <text  hover-class="hover-dim" class="notice-item-brief text-secondary" >{{ n.content }}</text>
           </view>
         </scroll-view>
       </view>
-    </view>
+    </AppBottomSheet>
 
     <view class="tabbar-space"></view>
 
@@ -91,7 +87,7 @@
 
 <script lang="ts">
 import { toastErr } from '@/utils/ui'
-import { Colors, ColorTokens } from '@/utils/theme'
+
 import { apiMessages, apiMarkMessageRead, apiAnnouncements, apiCheckinBrief, MessageItem, AnnouncementItem } from '@/services/api'
 import { useMessageStore } from '@/stores/message'
 import { useAuthStore } from '@/stores/auth'
@@ -99,11 +95,11 @@ import { syncBadge } from '@/utils/push'
 import AppListShell from '@/components/AppListShell.vue'
 import AppListFooter from '@/components/AppListFooter.vue'
 import AppDialog from '@/components/AppDialog.vue'
+import AppBottomSheet from '@/components/AppBottomSheet.vue'
 
 const PAGE_SIZE = 20
 
 type MessagesData = {
-  colors: ColorTokens
   loading: boolean
   loaded: boolean
   loadingMore: boolean
@@ -133,20 +129,19 @@ function typeTextOf(t: string): string {
 }
 
 function typeColorOf(t: string): string {
-  if (t == 'report') return Colors.warning
-  if (t == 'checkin_audit') return Colors.danger
-  if (t == 'task') return Colors.warning
-  if (t == 'equipment_maint_pending') return Colors.primary
-  if (t == 'equipment_expire' || t == 'equipment_scrap' || t == 'equipment_maint_reject') return Colors.primary
-  if (t == 'announcement' || t == 'notice') return Colors.success
-  return Colors.info
+  if (t == 'report') return '#ED7B2F'
+  if (t == 'checkin_audit') return '#D54941'
+  if (t == 'task') return '#ED7B2F'
+  if (t == 'equipment_maint_pending') return '#2B5AED'
+  if (t == 'equipment_expire' || t == 'equipment_scrap' || t == 'equipment_maint_reject') return '#2B5AED'
+  if (t == 'announcement' || t == 'notice') return '#2BA471'
+  return '#909399'
 }
 
 export default {
-  components: { AppListShell, AppListFooter, AppDialog },
+  components: { AppListShell, AppListFooter, AppDialog, AppBottomSheet },
   data(): MessagesData {
     return {
-      colors: Colors,
       loading: true,
       loaded: false,
       loadingMore: false,
@@ -179,7 +174,6 @@ export default {
   methods: {
     typeTextOf,
     typeColorOf,
-    noop() {},
     reload() {
       this.loading = !this.loaded
       this.page = 1
@@ -375,27 +369,10 @@ export default {
   align-items: center;
 }
 
-.type-tag {
-  border-radius: 8rpx;
-  padding: 4rpx 12rpx;
-  margin-right: 16rpx;
-}
-
-.type-tag-text {
-  font-size: 20rpx;
-}
-
 .msg-title {
   font-size: 30rpx;
   font-weight: 600;
   flex: 1;
-}
-
-.dot {
-  width: 16rpx;
-  height: 16rpx;
-  border-radius: 8rpx;
-  margin-left: 16rpx;
 }
 
 .msg-content {
@@ -414,23 +391,10 @@ export default {
   margin-top: 12rpx;
 }
 
-/* 公告居中弹窗 */
-.notice-mask {
-  position: fixed;
-  left: 0;
-  top: 0;
-  right: 0;
-  bottom: 0;
-  z-index: 998;
-  align-items: center;
-  justify-content: center;
-  padding: 48rpx;
-}
-
+/* 公告底部半屏（AppBottomSheet 容器内） */
 .notice-panel {
   width: 100%;
-  max-height: 70%;
-  border-radius: 24rpx;
+  border-radius: 24rpx 24rpx 0 0;
   padding: 32rpx;
 }
 

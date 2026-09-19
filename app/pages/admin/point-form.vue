@@ -1,81 +1,81 @@
 <template>
-  <view class="page" :style="{ backgroundColor: colors.bgPage }">
+  <view class="page bg-page" >
     <!-- 骨架屏（编辑模式加载详情） -->
     <view v-if="loading" class="skeleton">
-      <view class="sk-block" :style="{ backgroundColor: colors.border }"></view>
-      <view class="sk-block" :style="{ backgroundColor: colors.border }"></view>
+      <view class="sk-block bg-border" ></view>
+      <view class="sk-block bg-border" ></view>
     </view>
 
     <!-- 加载失败 -->
     <view v-else-if="loadError != ''" class="empty">
-      <text class="empty-title" :style="{ color: colors.textRegular }">{{ loadError }}</text>
-      <text class="empty-retry" :style="{ color: colors.primary }" @click="loadDetail">重试</text>
+      <text class="empty-title text-regular" >{{ loadError }}</text>
+      <text class="empty-retry text-brand"  @click="loadDetail">重试</text>
     </view>
 
     <view v-else class="content">
       <!-- 只读提示 -->
-      <view v-if="readonly" class="readonly-tip" :style="{ backgroundColor: colors.primaryLight }">
-        <text class="readonly-tip-text" :style="{ color: colors.primary }">无点位编辑权限，仅可查看</text>
+      <view v-if="readonly" class="readonly-tip bg-brand-light" >
+        <text class="readonly-tip-text text-brand" >无点位编辑权限，仅可查看</text>
       </view>
 
       <!-- 基础信息 -->
-      <view class="card" :style="{ backgroundColor: colors.bgCard }">
-        <text class="sec-title" :style="{ color: colors.textPrimary }">基础信息</text>
+      <view class="card bg-card" >
+        <text class="sec-title text-main" >基础信息</text>
 
-        <text class="label" :style="{ color: colors.textRegular }">所属小区 *</text>
+        <text class="label text-regular" >所属小区 *</text>
         <picker :range="communityNames" :value="communityIndex" :disabled="readonly" @change="onCommunityChange">
-          <view class="field" :style="{ borderColor: colors.border }">
-            <text class="field-text" :style="{ color: communityId == '' ? colors.textSecondary : colors.textPrimary }">
+          <view class="field border-default" >
+            <text class="field-text"  :class="(communityId == '' ? 'text-secondary' : 'text-main')">
               {{ communityId == '' ? '请选择小区' : communityName }}
             </text>
-            <text class="field-arrow" :style="{ color: colors.textSecondary }">▾</text>
+            <text class="field-arrow text-secondary" >▾</text>
           </view>
         </picker>
 
-        <text class="label" :style="{ color: colors.textRegular }">楼栋（选填）</text>
+        <text class="label text-regular" >楼栋（选填）</text>
         <picker :range="buildingNames" :value="buildingIndex" :disabled="readonly || communityId == ''" @change="onBuildingChange">
-          <view class="field" :style="{ borderColor: colors.border }">
-            <text class="field-text" :style="{ color: buildingId == '' ? colors.textSecondary : colors.textPrimary }">
+          <view class="field border-default" >
+            <text class="field-text"  :class="(buildingId == '' ? 'text-secondary' : 'text-main')">
               {{ communityId == '' ? '请先选择小区' : (buildingId == '' ? '不分区/整小区' : buildingName) }}
             </text>
-            <text class="field-arrow" :style="{ color: colors.textSecondary }">▾</text>
+            <text class="field-arrow text-secondary" >▾</text>
           </view>
         </picker>
 
-        <text class="label" :style="{ color: colors.textRegular }">点位名称 *</text>
+        <text class="label text-regular" >点位名称 *</text>
         <input
           v-model="name"
-          class="field-input"
-          :style="{ borderColor: colors.border, color: colors.textPrimary }"
+          class="field-input border-default text-main"
+          
           placeholder="如：1号楼配电房"
           :maxlength="50"
           :disabled="readonly"
         />
 
-        <text class="label" :style="{ color: colors.textRegular }">点位类型 *</text>
+        <text class="label text-regular" >点位类型 *</text>
         <picker :range="typeNames" :value="typeIndex" :disabled="readonly" @change="onTypeChange">
-          <view class="field" :style="{ borderColor: colors.border }">
-            <text class="field-text" :style="{ color: type == '' ? colors.textSecondary : colors.textPrimary }">
+          <view class="field border-default" >
+            <text class="field-text"  :class="(type == '' ? 'text-secondary' : 'text-main')">
               {{ type == '' ? '请选择类型' : typeName }}
             </text>
-            <text class="field-arrow" :style="{ color: colors.textSecondary }">▾</text>
+            <text class="field-arrow text-secondary" >▾</text>
           </view>
         </picker>
 
-        <text class="label" :style="{ color: colors.textRegular }">检查项模板（必选，可多选）</text>
-        <view class="field" :style="{ borderColor: colors.border }" @click="openTemplateSheet">
-          <text class="field-text" :style="{ color: templateIds.length == 0 ? colors.textSecondary : colors.textPrimary }">
+        <text class="label text-regular" >检查项模板（必选，可多选）</text>
+        <view class="field border-default"  @click="openTemplateSheet">
+          <text class="field-text"  :class="(templateIds.length == 0 ? 'text-secondary' : 'text-main')">
             {{ templateIds.length == 0 ? '请选择模板' : templateNamesText }}
           </text>
-          <text class="field-arrow" :style="{ color: colors.textSecondary }">▾</text>
+          <text class="field-arrow text-secondary" >▾</text>
         </view>
-        <text class="cred-tip" :style="{ color: colors.textSecondary }">检查项 = 所选模板的并集，可多选组合</text>
+        <text class="cred-tip text-secondary" >检查项 = 所选模板的并集，可多选组合</text>
 
-        <text class="label" :style="{ color: colors.textRegular }">备注（选填）</text>
+        <text class="label text-regular" >备注（选填）</text>
         <textarea
           v-model="remark"
-          class="field-textarea"
-          :style="{ borderColor: colors.border, color: colors.textPrimary }"
+          class="field-textarea border-default text-main"
+          
           placeholder="补充说明"
           :maxlength="200"
           :disabled="readonly"
@@ -83,45 +83,45 @@
       </view>
 
       <!-- 坐标与围栏 -->
-      <view class="card" :style="{ backgroundColor: colors.bgCard }">
-        <text class="sec-title" :style="{ color: colors.textPrimary }">坐标与围栏</text>
+      <view class="card bg-card" >
+        <text class="sec-title text-main" >坐标与围栏</text>
 
-        <view v-if="!readonly" class="btn-outline" :style="{ borderColor: colors.primary }" @click="locate">
-          <text class="btn-outline-text" :style="{ color: colors.primary }">{{ locating ? '定位中…' : '获取当前位置' }}</text>
-        </view>
+        <button v-if="!readonly" plain="true" class="btn-outline" hover-class="hover-dim" @click="locate">
+          <text class="btn-outline-text">{{ locating ? '定位中…' : '获取当前位置' }}</text>
+        </button>
 
         <view v-if="hasLocation" class="loc-info">
-          <text class="loc-text" :style="{ color: colors.textRegular }">经度 {{ lngText }}，纬度 {{ latText }}</text>
-          <text v-if="accuracy > 0" class="loc-acc" :style="{ color: accuracy > 50 ? colors.danger : colors.textSecondary }">
+          <text class="loc-text text-regular" >经度 {{ lngText }}，纬度 {{ latText }}</text>
+          <text v-if="accuracy > 0" class="loc-acc"  :class="(accuracy > 50 ? 'text-danger' : 'text-secondary')">
             定位精度约 {{ accuracy }} m{{ accuracy > 50 ? '，定位精度较差，请靠近点位重试' : '' }}
           </text>
         </view>
-        <text v-else class="loc-empty" :style="{ color: colors.textSecondary }">尚未录入坐标（选填），可定位或手动输入；开启围栏时补录坐标后方生效</text>
+        <text v-else class="loc-empty text-secondary" >尚未录入坐标（选填），可定位或手动输入；开启围栏时补录坐标后方生效</text>
 
         <view v-if="!readonly" class="loc-manual">
           <input
             v-model="lngText"
-            class="field-input loc-input"
-            :style="{ borderColor: colors.border, color: colors.textPrimary }"
+            class="field-input loc-input border-default text-main"
+            
             placeholder="经度"
             type="digit"
           />
           <input
             v-model="latText"
-            class="field-input loc-input loc-input-r"
-            :style="{ borderColor: colors.border, color: colors.textPrimary }"
+            class="field-input loc-input loc-input-r border-default text-main"
+            
             placeholder="纬度"
             type="digit"
           />
         </view>
 
         <view class="fence-row">
-          <text class="label fence-label" :style="{ color: colors.textRegular }">电子围栏校验</text>
-          <switch :checked="fenceOn" :disabled="readonly" :color="colors.primary" @change="fenceOn = $event.detail.value" />
+          <text class="label fence-label text-regular" >电子围栏校验</text>
+          <switch :checked="fenceOn" :disabled="readonly" :color="'#2B5AED'" @change="fenceOn = $event.detail.value" />
         </view>
-        <text v-if="!fenceOn" class="cred-tip" :style="{ color: colors.textSecondary }">关闭后不校验到场位置（扫码/NFC 仍可凭证打卡）</text>
+        <text v-if="!fenceOn" class="cred-tip text-secondary" >关闭后不校验到场位置（扫码/NFC 仍可凭证打卡）</text>
         <view v-if="fenceOn" class="fence-row">
-          <text class="label fence-label" :style="{ color: colors.textRegular }">围栏半径：{{ fenceRadius }} m</text>
+          <text class="label fence-label text-regular" >围栏半径：{{ fenceRadius }} m</text>
           <view class="fence-slider-wrap">
             <slider
               :value="fenceRadius"
@@ -130,7 +130,7 @@
               :step="10"
               :disabled="readonly"
               class="fence-slider"
-              :activeColor="colors.primary"
+              :activeColor="'#2B5AED'"
               @changing="onFenceChanging"
               @change="onFenceChange"
             />
@@ -139,119 +139,113 @@
       </view>
 
       <!-- 凭证方式 -->
-      <view class="card" :style="{ backgroundColor: colors.bgCard }">
-        <text class="sec-title" :style="{ color: colors.textPrimary }">打卡凭证</text>
+      <view class="card bg-card" >
+        <text class="sec-title text-main" >打卡凭证</text>
         <view class="cred-row">
           <view
             v-for="c in credentialOptions"
             :key="c.value"
             class="cred-item"
             :style="credential == c.value
-              ? { backgroundColor: colors.primaryLight, borderColor: colors.primary }
-              : { backgroundColor: colors.bgCard, borderColor: colors.border }"
+              ? { backgroundColor: '#EAEFFF', borderColor: '#2B5AED' }
+              : { backgroundColor: '#FFFFFF', borderColor: '#E5E6EB' }"
             @click="onCredentialChange(c.value)"
           >
-            <text class="cred-text" :style="{ color: credential == c.value ? colors.primary : colors.textRegular }">{{ c.label }}</text>
+            <text class="cred-text"  :class="(credential == c.value ? 'text-brand' : 'text-regular')">{{ c.label }}</text>
           </view>
         </view>
-        <text v-if="credential == 'none'" class="cred-tip" :style="{ color: colors.textSecondary }">不需要凭证的点位建议开启电子围栏校验，否则不做任何到场核验</text>
+        <text v-if="credential == 'none'" class="cred-tip text-secondary" >不需要凭证的点位建议开启电子围栏校验，否则不做任何到场核验</text>
 
         <!-- NFC 区（凭证含 NFC 时显示） -->
         <template v-if="credential == 'nfc' || credential == 'any'">
-          <view class="nfc-box" :style="{ borderTopColor: colors.border }">
-            <text class="label" :style="{ color: colors.textRegular }">NFC 卡号{{ credential == 'nfc' ? ' *' : '（选填）' }}</text>
+          <view class="nfc-box border-default" >
+            <text class="label text-regular" >NFC 卡号{{ credential == 'nfc' ? ' *' : '（选填）' }}</text>
             <view class="nfc-row">
               <input
                 v-model="nfcId"
-                class="field-input nfc-input"
-                :style="{ borderColor: colors.border, color: colors.textPrimary }"
+                class="field-input nfc-input border-default text-main"
+                
                 placeholder="读取或手动输入卡号"
                 :disabled="readonly"
               />
-              <view v-if="!readonly && nfcSupported" class="btn-mini" :style="{ borderColor: colors.primary }" @click="readCard">
-                <text class="btn-mini-text" :style="{ color: colors.primary }">读卡号</text>
-              </view>
+              <button v-if="!readonly && nfcSupported" plain="true" class="btn-mini btn-outline" hover-class="hover-dim" @click="readCard">
+                <text class="btn-mini-text">读卡号</text>
+              </button>
             </view>
             <!-- 卡内已写入的点位编号（读卡后显示；与本点位编号不一致时警示） -->
             <text
               v-if="cardCodeInfo != ''"
               class="cred-tip"
-              :style="{ color: cardCodeWarn ? colors.danger : colors.textSecondary }"
+               :class="(cardCodeWarn ? 'text-danger' : 'text-secondary')"
             >{{ cardCodeInfo }}</text>
 
             <!-- 写卡：编辑模式直接可写；新增模式提交后方可写 -->
             <template v-if="!readonly">
-              <view v-if="isEdit && nfcSupported" class="btn-outline nfc-write" :style="{ borderColor: colors.primary }" @click="writeCard">
-                <text class="btn-outline-text" :style="{ color: colors.primary }">写入点位编号到卡（{{ qrcodeNo }}）</text>
-              </view>
-              <text v-else-if="!isEdit" class="cred-tip" :style="{ color: colors.textSecondary }">提交创建生成编号后，可写入编号到 NFC 卡</text>
-              <text v-if="!nfcSupported" class="cred-tip" :style="{ color: colors.textSecondary }">当前端不支持 NFC，可手动输入卡号</text>
+              <button v-if="isEdit && nfcSupported" plain="true" class="btn-outline nfc-write" hover-class="hover-dim" @click="writeCard">
+                <text class="btn-outline-text">写入点位编号到卡（{{ qrcodeNo }}）</text>
+              </button>
+              <text v-else-if="!isEdit" class="cred-tip text-secondary" >提交创建生成编号后，可写入编号到 NFC 卡</text>
+              <text v-if="!nfcSupported" class="cred-tip text-secondary" >当前端不支持 NFC，可手动输入卡号</text>
             </template>
           </view>
         </template>
       </view>
 
       <!-- 编号展示 + 启用状态（编辑模式） -->
-      <view v-if="isEdit" class="card" :style="{ backgroundColor: colors.bgCard }">
-        <text class="info-line" :style="{ color: colors.textRegular }">点位编号：{{ qrcodeNo }}</text>
-        <text class="info-line" :style="{ color: colors.textSecondary }">编号由系统生成，不可修改</text>
+      <view v-if="isEdit" class="card bg-card" >
+        <text class="info-line text-regular" >点位编号：{{ qrcodeNo }}</text>
+        <text class="info-line text-secondary" >编号由系统生成，不可修改</text>
         <view class="fence-row status-row">
-          <text class="label fence-label" :style="{ color: colors.textRegular }">启用状态</text>
-          <switch :checked="status == 1" :disabled="readonly" :color="colors.primary" @change="onStatusChange" />
+          <text class="label fence-label text-regular" >启用状态</text>
+          <switch :checked="status == 1" :disabled="readonly" :color="'#2B5AED'" @change="onStatusChange" />
         </view>
-        <text class="cred-tip" :style="{ color: colors.textSecondary }">停用后巡检员不可打卡该点位，已关联任务也不再下发</text>
+        <text class="cred-tip text-secondary" >停用后巡检员不可打卡该点位，已关联任务也不再下发</text>
       </view>
 
       <!-- 提交 -->
-      <view
+      <button
         v-if="!readonly"
+        plain="true"
         class="btn-primary"
-        :style="{ backgroundColor: submitting ? colors.info : colors.primary }"
+        :class="(submitting ? 'btn-disabled' : 'btn-primary')"
+        hover-class="hover-dim"
         @click="submit"
       >
-        <text class="btn-primary-text" :style="{ color: colors.white }">{{ submitting ? '提交中…' : (isEdit ? '保存' : '创建点位') }}</text>
-      </view>
+        <text class="btn-primary-text">{{ submitting ? '提交中…' : (isEdit ? '保存' : '创建点位') }}</text>
+      </button>
       <view class="bottom-space"></view>
     </view>
 
-    <!-- 模板多选弹层（自绘底部面板 + 复选列表，替代单选 picker；勾选即生效，「完成」关闭） -->
-    <view v-if="tplSheetShow" class="tpl-mask" :style="{ backgroundColor: colors.mask }" @click="closeTemplateSheet">
-      <view class="tpl-panel" :style="{ backgroundColor: colors.bgCard }" @click.stop="noop">
-        <view class="tpl-head" :style="{ borderBottomColor: colors.border }">
-          <text class="tpl-head-text" :style="{ color: colors.textSecondary }">选择检查项模板（可多选）</text>
+    <!-- 模板多选弹层（AppBottomSheet→uni-popup 底部面板 + 复选列表；勾选即生效，「完成」关闭） -->
+    <AppBottomSheet :visible="tplSheetShow" @close="closeTemplateSheet">
+      <view class="tpl-panel bg-card" >
+        <view class="tpl-head border-default" >
+          <text class="tpl-head-text text-secondary" >选择检查项模板（可多选）</text>
         </view>
         <scroll-view scroll-y class="tpl-list">
-          <view
-            v-for="t in templates"
-            :key="t.id"
-            class="tpl-item"
-            :style="{ borderBottomColor: colors.border }"
-            @click="toggleTemplate(t.id)"
-          >
-            <text class="tpl-item-name" :style="{ color: colors.textPrimary }">{{ t.name }}</text>
-            <view
-              class="tpl-check"
-              :style="templateIds.indexOf(t.id) >= 0
-                ? { backgroundColor: colors.primary, borderColor: colors.primary }
-                : { borderColor: colors.border }"
-            >
-              <text v-if="templateIds.indexOf(t.id) >= 0" class="tpl-check-mark" :style="{ color: colors.white }">✓</text>
-            </view>
-          </view>
-          <view v-if="templates.length == 0" class="tpl-empty">
-            <text class="tpl-empty-text" :style="{ color: colors.textSecondary }">暂无启用的模板</text>
+          <uni-data-checkbox
+            v-if="templates.length > 0"
+            multiple
+            mode="list"
+            :localdata="templateItems"
+            :modelValue="templateIds"
+            :disabled="readonly"
+            @change="onTemplatesChange"
+          />
+          <view v-else class="tpl-empty">
+            <text class="tpl-empty-text text-secondary" >暂无启用的模板</text>
           </view>
         </scroll-view>
-        <view class="tpl-actions" :style="{ borderTopColor: colors.border }">
-          <view class="tpl-clear" :style="{ borderColor: colors.border }" hover-class="hover-dim" @click="clearTemplates">
-            <text class="tpl-clear-text" :style="{ color: colors.textRegular }">清空</text>
+        <view class="tpl-actions border-default" >
+          <view class="tpl-clear border-default"  hover-class="hover-dim" @click="clearTemplates">
+            <text class="tpl-clear-text text-regular" >清空</text>
           </view>
-          <view class="tpl-done" :style="{ backgroundColor: colors.primary }" hover-class="hover-dim" @click="closeTemplateSheet">
-            <text class="tpl-done-text" :style="{ color: colors.white }">完成（已选 {{ templateIds.length }} 项）</text>
+          <view class="tpl-done bg-brand"  hover-class="hover-dim" @click="closeTemplateSheet">
+            <text class="tpl-done-text text-white" >完成（已选 {{ templateIds.length }} 项）</text>
           </view>
         </view>
       </view>
-    </view>
+    </AppBottomSheet>
 
     <!-- 创建成功弹窗（自绘，替代原生 showModal）：可直接进入写卡流程（本页转编辑模式） -->
     <AppDialog
@@ -270,7 +264,7 @@
 
 <script lang="ts">
 import { toastErr } from '@/utils/ui'
-import { Colors, ColorTokens } from '@/utils/theme'
+
 import {
   apiCommunityTree,
   apiTemplateList,
@@ -287,9 +281,9 @@ import { useAuthStore } from '@/stores/auth'
 import { isNfcSupported, readCardInfoOnce, writePointCode, toastNfcUnavailable } from '@/utils/nfc'
 import { getLocationGcj02 } from '@/utils/geo'
 import AppDialog from '@/components/AppDialog.vue'
+import AppBottomSheet from '@/components/AppBottomSheet.vue'
 
 type FormData = {
-  colors: ColorTokens
   isEdit: boolean
   pointId: string
   qrcodeNo: string
@@ -327,10 +321,9 @@ type FormData = {
 }
 
 export default {
-  components: { AppDialog },
+  components: { AppDialog, AppBottomSheet },
   data(): FormData {
     return {
-      colors: Colors,
       isEdit: false,
       pointId: '',
       qrcodeNo: '',
@@ -419,6 +412,10 @@ export default {
     typeName(): string {
       const t = this.typeOptionsView.find((x) => x.value == this.type)
       return t != null ? t.label : ''
+    },
+    /** 模板下拉项（uni-data-checkbox localdata 形态；value=模板 id） */
+    templateItems(): Array<{ text: string; value: string }> {
+      return this.templates.map((t) => ({ text: t.name, value: t.id }))
     },
     /** 已选模板名拼接展示（未知 id 兜底显示原值） */
     templateNamesText(): string {
@@ -517,20 +514,16 @@ export default {
     closeTemplateSheet() {
       this.tplSheetShow = false
     },
-    toggleTemplate(id: string) {
+    /** 模板勾选（uni-data-checkbox change，整体值直写；勾选即生效） */
+    onTemplatesChange(e: { detail: { value: string[] } }) {
       if (this.readonly) return
-      const i = this.templateIds.indexOf(id)
-      if (i >= 0) {
-        this.templateIds.splice(i, 1)
-      } else {
-        this.templateIds.push(id)
-      }
+      const v = e != null && e.detail != null && Array.isArray(e.detail.value) ? e.detail.value : []
+      this.templateIds = v
     },
     clearTemplates() {
       if (this.readonly) return
       this.templateIds = []
     },
-    noop() {},
     onStatusChange(e: any) {
       this.status = e.detail.value ? 1 : 0
     },
@@ -968,15 +961,6 @@ export default {
   margin-top: 24rpx;
 }
 
-.tpl-mask {
-  position: fixed;
-  left: 0;
-  top: 0;
-  right: 0;
-  bottom: 0;
-  z-index: 1000;
-  justify-content: flex-end;
-}
 
 .tpl-panel {
   width: 100%;
@@ -1002,35 +986,9 @@ export default {
   max-height: 720rpx;
 }
 
-.tpl-item {
-  height: 104rpx;
-  flex-direction: row;
-  align-items: center;
-  justify-content: space-between;
-  padding: 0 32rpx;
-  border-bottom-width: 1rpx;
-  border-bottom-style: solid;
-}
 
-.tpl-item-name {
-  font-size: 30rpx;
-  flex: 1;
-}
 
-.tpl-check {
-  width: 40rpx;
-  height: 40rpx;
-  border-width: 2rpx;
-  border-style: solid;
-  border-radius: 8rpx;
-  align-items: center;
-  justify-content: center;
-}
 
-.tpl-check-mark {
-  font-size: 26rpx;
-  line-height: 36rpx;
-}
 
 .tpl-empty {
   height: 160rpx;

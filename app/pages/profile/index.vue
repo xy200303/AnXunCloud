@@ -1,83 +1,79 @@
 <template>
-  <view class="page" :style="{ backgroundColor: colors.bgPage }">
+  <view class="page bg-page" >
     <!-- 用户卡片（点头像更换） -->
-    <view class="card" :style="{ backgroundColor: colors.bgCard }">
-      <view class="avatar" :style="{ backgroundColor: colors.primaryLight }" @click="changeAvatar">
+    <view class="card bg-card" >
+      <view class="avatar bg-brand-light"  @click="changeAvatar">
         <image v-if="avatarUrl != ''" class="avatar-img" :src="avatarUrl" mode="aspectFill" />
-        <text v-else class="avatar-text" :style="{ color: colors.primary }">{{ avatarText }}</text>
+        <text v-else class="avatar-text text-brand" >{{ avatarText }}</text>
       </view>
       <view class="user-meta">
-        <text class="user-name" :style="{ color: colors.textPrimary }">{{ name }}</text>
-        <text class="user-role" :style="{ color: colors.textSecondary }">{{ postText }}</text>
-        <text v-if="orgText != ''" class="user-role" :style="{ color: colors.textSecondary }">{{ orgText }}</text>
+        <text class="user-name text-main" >{{ name }}</text>
+        <text class="user-role text-secondary" >{{ postText }}</text>
+        <text v-if="orgText != ''" class="user-role text-secondary" >{{ orgText }}</text>
       </view>
     </view>
 
-    <!-- 管理功能（按权限点显隐；全部无权限时整个区块不显示） -->
-    <view v-if="showAdmin" class="card menu-card" :style="{ backgroundColor: colors.bgCard }">
-      <text class="menu-group-title" :style="{ color: colors.textSecondary }">管理功能</text>
-      <view v-if="isSuperAdmin"  hover-class="hover-dim" class="row" @click="switchTenant">
-        <text  hover-class="hover-dim" class="row-text" :style="{ color: colors.textRegular }">当前公司</text>
-        <text  hover-class="hover-dim" class="row-arrow" :style="{ color: colors.primary }">{{ currentTenantName }} ></text>
-      </view>
-      <view v-if="canDashboard"  hover-class="hover-dim" class="row" @click="goAdmin('/pages/admin/dashboard')">
-        <text  hover-class="hover-dim" class="row-text" :style="{ color: colors.textRegular }">今日看板</text>
-        <text  hover-class="hover-dim" class="row-arrow" :style="{ color: colors.textSecondary }">></text>
-      </view>
-      <view v-if="canReview"  hover-class="hover-dim" class="row" @click="goAdmin('/pages/admin/review')">
-        <text  hover-class="hover-dim" class="row-text" :style="{ color: colors.textRegular }">打卡审核</text>
-        <text  hover-class="hover-dim" class="row-arrow" :style="{ color: colors.textSecondary }">></text>
-      </view>
-      <view v-if="canPointManage"  hover-class="hover-dim" class="row" @click="goAdmin('/pages/admin/points')">
-        <text  hover-class="hover-dim" class="row-text" :style="{ color: colors.textRegular }">点位管理</text>
-        <text  hover-class="hover-dim" class="row-arrow" :style="{ color: colors.textSecondary }">></text>
-      </view>
-      <view v-if="canEquipment"  hover-class="hover-dim" class="row" @click="goAdmin('/pages/equipment/index')">
-        <text  hover-class="hover-dim" class="row-text" :style="{ color: colors.textRegular }">设备台账</text>
-        <view class="row-right">
-          <text v-if="equipmentDueCount > 0" class="row-badge" :style="{ backgroundColor: colors.danger, color: colors.white }">{{ equipmentDueCount > 99 ? '99+' : equipmentDueCount }}</text>
-          <text  hover-class="hover-dim" class="row-arrow" :style="{ color: colors.textSecondary }">></text>
-        </view>
-      </view>
-      <view v-if="canEquipmentConfirm"  hover-class="hover-dim" class="row" @click="goAdmin('/pages/equipment/confirm')">
-        <text  hover-class="hover-dim" class="row-text" :style="{ color: colors.textRegular }">维保确认</text>
-        <view class="row-right">
-          <text v-if="equipmentPendingCount > 0" class="row-badge" :style="{ backgroundColor: colors.danger, color: colors.white }">{{ equipmentPendingCount > 99 ? '99+' : equipmentPendingCount }}</text>
-          <text  hover-class="hover-dim" class="row-arrow" :style="{ color: colors.textSecondary }">></text>
-        </view>
-      </view>
+    <!-- 管理功能（按权限点显隐；全部无权限时整个区块不显示）：官方 uni-list 列表行 + uni-badge 角标 -->
+    <view v-if="showAdmin" class="card menu-card bg-card" >
+      <text class="menu-group-title text-secondary" >管理功能</text>
+      <uni-list :border="false">
+        <uni-list-item v-if="isSuperAdmin" title="当前公司" :right-text="currentTenantName" clickable show-arrow @click="switchTenant" />
+        <uni-list-item v-if="canDashboard" title="今日看板" clickable show-arrow @click="goAdmin('/pages/admin/dashboard')" />
+        <uni-list-item v-if="canReview" title="打卡审核" clickable show-arrow @click="goAdmin('/pages/admin/review')" />
+        <uni-list-item v-if="canPointManage" title="点位管理" clickable show-arrow @click="goAdmin('/pages/admin/points')" />
+        <uni-list-item
+          v-if="canEquipment"
+          title="设备台账"
+          clickable
+          show-arrow
+          :show-badge="equipmentDueCount > 0"
+          :badge-text="equipmentDueCount + ''"
+          badge-type="error"
+          @click="goAdmin('/pages/equipment/index')"
+        />
+        <uni-list-item
+          v-if="canEquipmentConfirm"
+          title="维保确认"
+          clickable
+          show-arrow
+          :show-badge="equipmentPendingCount > 0"
+          :badge-text="equipmentPendingCount + ''"
+          badge-type="error"
+          @click="goAdmin('/pages/equipment/confirm')"
+        />
+      </uni-list>
     </view>
 
     <!-- 功能入口 -->
-    <view class="card menu-card" :style="{ backgroundColor: colors.bgCard }">
-      <view  hover-class="hover-dim" class="row" @click="openSignaturePad">
-        <text  hover-class="hover-dim" class="row-text" :style="{ color: colors.textRegular }">手写签名</text>
-        <text  hover-class="hover-dim" class="row-arrow" :style="{ color: colors.textSecondary }">{{ signatureText }} ></text>
-      </view>
-      <view  hover-class="hover-dim" class="row" @click="goPassword">
-        <text  hover-class="hover-dim" class="row-text" :style="{ color: colors.textRegular }">修改密码</text>
-        <text  hover-class="hover-dim" class="row-arrow" :style="{ color: colors.textSecondary }">></text>
-      </view>
-      <view  hover-class="hover-dim" class="row" @click="goAbout">
-        <text  hover-class="hover-dim" class="row-text" :style="{ color: colors.textRegular }">关于安巡云</text>
-        <text  hover-class="hover-dim" class="row-arrow" :style="{ color: colors.textSecondary }">v{{ appVersion }} ></text>
-      </view>
+    <view class="card menu-card bg-card" >
+      <uni-list :border="false">
+        <uni-list-item title="手写签名" :right-text="signatureText" clickable show-arrow @click="openSignaturePad" />
+        <uni-list-item title="修改密码" clickable show-arrow @click="goPassword" />
+        <uni-list-item title="关于安巡云" :right-text="'v' + appVersion" clickable show-arrow @click="goAbout" />
+      </uni-list>
     </view>
 
     <!-- 切换账号：退出当前账号回登录页，已保存的账号可一键登录（微信风格，与退出登录上下排列） -->
-    <view hover-class="hover-dim" class="btn-block" :style="{ backgroundColor: colors.bgCard }" @click="onSwitchAccount">
-      <text hover-class="hover-dim" class="btn-block-text" :style="{ color: colors.textPrimary }">切换账号</text>
-    </view>
+    <button plain="true" hover-class="hover-dim" class="btn-block btn-outline" @click="onSwitchAccount">
+      <text class="btn-block-text">切换账号</text>
+    </button>
 
     <!-- 退出登录（danger 独立区块，二次确认） -->
-    <view  hover-class="hover-dim" class="btn-block" :style="{ backgroundColor: colors.bgCard }" @click="onLogout">
-      <text  hover-class="hover-dim" class="btn-block-text" :style="{ color: colors.danger }">退出登录</text>
-    </view>
+    <button plain="true" hover-class="hover-dim" class="btn-block btn-outline-danger" @click="onLogout">
+      <text class="btn-block-text">退出登录</text>
+    </button>
 
     <!-- 手写签名板（个人中心配置入口：保存即写入签章资产，下次签字直接用） -->
     <SignaturePad ref="pad" :show-save-option="false" @save="onPadSave" />
 
     <!-- 切换公司面板 / 退出登录确认（自绘，替代原生 showActionSheet/showModal） -->
+    <AppActionSheet
+      :visible="avatarSheetShow"
+      title="更换头像"
+      :items="['拍摄', '从相册选择']"
+      @update:visible="avatarSheetShow = $event"
+      @select="onAvatarSourceSelect"
+    />
     <AppActionSheet
       :visible="tenantSheetShow"
       title="切换公司"
@@ -112,7 +108,7 @@
 
 <script lang="ts">
 import { toastErr } from '@/utils/ui'
-import { Colors, ColorTokens } from '@/utils/theme'
+
 import { APP_VERSION } from '@/utils/appVersion'
 import { apiUploadLocal, apiUpdateProfile, apiTenants, apiEquipmentDue, apiMaintenancePending } from '@/services/api'
 import { withFileToken } from '@/utils/fileurl'
@@ -124,7 +120,6 @@ import AppDialog from '@/components/AppDialog.vue'
 import AppActionSheet from '@/components/AppActionSheet.vue'
 
 type ProfileData = {
-  colors: ColorTokens
   /** 安装包版本号（App 端取 plus.runtime，其他端回落默认值） */
   appVersion: string
   /** 设备台账角标：待维保台数（临期+逾期） */
@@ -133,6 +128,8 @@ type ProfileData = {
   equipmentPendingCount: number
   /** 切换公司面板：待选租户列表（面板选择时按下标回取） */
   tenantSheetShow: boolean
+  /** 头像来源选择面板 */
+  avatarSheetShow: boolean
   tenantList: Array<{ id: string; name: string }>
   /** 退出登录确认弹窗 */
   logoutDlgShow: boolean
@@ -144,11 +141,11 @@ export default {
   components: { SignaturePad, AppDialog, AppActionSheet },
   data(): ProfileData {
     return {
-      colors: Colors,
       appVersion: APP_VERSION,
       equipmentDueCount: 0,
       equipmentPendingCount: 0,
       tenantSheetShow: false,
+      avatarSheetShow: false,
       tenantList: [],
       logoutDlgShow: false,
       switchDlgShow: false
@@ -314,12 +311,18 @@ export default {
     goAbout() {
       uni.navigateTo({ url: '/pages/profile/about' })
     },
-    /** 更换头像：选图 → 上传（scene=avatar）→ PUT /profile 写 avatar → 刷新资料 */
+    /** 更换头像：底部面板选来源（拍摄/相册，替代系统来源框，观感与 uni-popup 统一）→ 单来源选图 → 上传（scene=avatar）→ PUT /profile 写 avatar → 刷新资料 */
     changeAvatar() {
+      this.avatarSheetShow = true
+    },
+    onAvatarSourceSelect(idx: number) {
+      this.chooseAvatar(idx == 0 ? ['camera'] : ['album'])
+    },
+    chooseAvatar(sourceType: string[]) {
       uni.chooseImage({
         count: 1,
         sizeType: ['compressed'],
-        sourceType: ['album', 'camera'],
+        sourceType: sourceType,
         success: (res) => {
           const path = res.tempFilePaths[0]
           uni.showLoading({ title: '上传中…', mask: true })
@@ -433,38 +436,19 @@ export default {
   margin-top: 8rpx;
 }
 
-.row {
-  min-height: 104rpx;
-  flex-direction: row;
-  align-items: center;
-  justify-content: space-between;
-}
-
 .menu-group-title {
   font-size: 24rpx;
   padding-top: 16rpx;
 }
 
-.row-text {
-  font-size: 30rpx;
+/* 菜单列表行字号放大（uni-list-item 内置 $uni-font-size-base=14px 偏小；年龄偏大用户可读性优先） */
+.menu-card :deep(.uni-list-item__content-title) {
+  font-size: 34rpx;
 }
 
-.row-arrow {
-  font-size: 26rpx;
-}
-
-.row-right {
-  flex-direction: row;
-  align-items: center;
-}
-
-/* 入口角标（待维保/待确认数） */
-.row-badge {
-  font-size: 22rpx;
-  border-radius: 20rpx;
-  padding: 2rpx 14rpx;
-  margin-right: 12rpx;
-  overflow: hidden;
+.menu-card :deep(.uni-list-item__content-note),
+.menu-card :deep(.uni-list-item__extra-text) {
+  font-size: 28rpx;
 }
 
 .btn-block {

@@ -1,6 +1,6 @@
 <template>
-  <view class="page" :style="{ backgroundColor: colors.bgPage }">
-    <AppSegmentTabs :items="tabs" :value="status" :colors="colors" @change="switchStatus" />
+  <view class="page bg-page" >
+    <AppSegmentTabs :items="tabs" :value="status" @change="switchStatus" />
 
     <AppListShell
       :loading="loading"
@@ -10,7 +10,7 @@
       :show-skeleton="list.length == 0"
       :empty-title="emptyTitle"
       empty-sub="下拉可刷新"
-      :colors="colors"
+     
       @retry="reload"
     >
 
@@ -20,47 +20,47 @@
       <view
         v-for="r in list"
         :key="r.id"
-        class="card"
-        :style="{ backgroundColor: colors.bgCard }"
+        class="card bg-card"
+        
         @click="openDetail(r)"
       >
         <view class="card-head">
-          <text class="card-title" :style="{ color: colors.textPrimary }">{{ r.point_name }}</text>
-          <text class="card-status" :style="{ color: r.result == 'abnormal' ? colors.danger : colors.success }">
+          <text class="card-title text-main" >{{ r.point_name }}</text>
+          <text class="card-status"  :class="(r.result == 'abnormal' ? 'text-danger' : 'text-success')">
             {{ r.result == 'abnormal' ? '异常' : '正常' }}
           </text>
         </view>
-        <text class="card-sub" :style="{ color: colors.textSecondary }">{{ r.community_name }} · {{ r.inspector_name }}</text>
+        <text class="card-sub text-secondary" >{{ r.community_name }} · {{ r.inspector_name }}</text>
         <view class="card-foot">
           <view class="foot-tags">
-            <text class="tag" :style="{ color: colors.textSecondary, borderColor: colors.border }">{{ typeTextOf(r.checkin_type) }}</text>
-            <text v-if="r.is_suspect" class="tag" :style="{ color: colors.warning, borderColor: colors.warning }">疑似作弊</text>
-            <text v-if="status == 'pending' && r.can_audit === false" class="tag" :style="{ color: colors.textSecondary, borderColor: colors.border }">待授权人处理</text>
+            <uni-tag :text="typeTextOf(r.checkin_type)" :inverted="true" size="small" :custom-style="'color:#86909C;border-color:#E5E6EB;margin-right:16rpx;margin-bottom:8rpx'" />
+            <uni-tag v-if="r.is_suspect" text="疑似作弊" :inverted="true" size="small" :custom-style="'color:#ED7B2F;border-color:#ED7B2F;margin-right:16rpx;margin-bottom:8rpx'" />
+            <uni-tag v-if="status == 'pending' && r.can_audit === false" text="待授权人处理" :inverted="true" size="small" :custom-style="'color:#86909C;border-color:#E5E6EB;margin-right:16rpx;margin-bottom:8rpx'" />
           </view>
-          <text class="card-time" :style="{ color: colors.textSecondary }">{{ r.checkin_time }}</text>
+          <text class="card-time text-secondary" >{{ r.checkin_time }}</text>
         </view>
       </view>
 
     </view>
     </template>
     <template #footer>
-      <AppListFooter :loading-more="loadingMore" :no-more="noMore" :visible="list.length > 0" :colors="colors" />
+      <AppListFooter :loading-more="loadingMore" :no-more="noMore" :visible="list.length > 0" />
     </template>
     </AppListShell>
 
     <!-- 详情弹层 -->
     <AppBottomSheet
       :visible="detail != null"
-      :mask-color="colors.mask"
-      :background-color="colors.bgPage"
+      :mask-color="'rgba(0, 0, 0, 0.45)'"
+      :background-color="'#F5F6F8'"
       height="80%"
       @close="closeDetail"
     >
       <template v-if="detail != null">
         <scroll-view scroll-y class="sheet-scroll">
           <view class="sheet-head">
-            <text class="sheet-title" :style="{ color: colors.textPrimary }">{{ detail.point_name }}</text>
-            <text class="sheet-close" :style="{ color: colors.textSecondary }" @click="closeDetail">×</text>
+            <text class="sheet-title text-main" >{{ detail.point_name }}</text>
+            <text class="sheet-close text-secondary"  @click="closeDetail">×</text>
           </view>
 
           <!-- 详情主体：与独立详情页共用 CheckinDetailView（ReviewRecord 结构对齐其 props，可直接传入） -->
@@ -68,34 +68,34 @@
         </scroll-view>
 
         <!-- 待审核操作：不在当前环节授权名单内的只给说明，不让点了再报错 -->
-        <view v-if="detail.audit_status == 'pending' && detail.can_audit !== false" class="sheet-actions" :style="{ backgroundColor: colors.bgCard, borderTopColor: colors.border }">
-          <view class="btn-half" :style="{ borderColor: colors.danger }" @click="onRejectTap">
-            <text class="btn-half-text" :style="{ color: colors.danger }">驳回</text>
-          </view>
-          <view class="btn-half btn-half-solid" :style="{ backgroundColor: colors.success }" @click="onPass">
-            <text class="btn-half-text" :style="{ color: colors.white }">通过</text>
-          </view>
+        <view v-if="detail.audit_status == 'pending' && detail.can_audit !== false" class="sheet-actions bg-card border-default" >
+          <button plain="true" class="btn-half btn-danger" hover-class="hover-dim" @click="onRejectTap">
+            <text class="btn-half-text">驳回</text>
+          </button>
+          <button plain="true" class="btn-half btn-success" hover-class="hover-dim" @click="onPass">
+            <text class="btn-half-text">通过</text>
+          </button>
         </view>
-        <view v-else-if="detail.audit_status == 'pending'" class="sheet-actions" :style="{ backgroundColor: colors.bgCard, borderTopColor: colors.border }">
-          <text class="no-auth-text" :style="{ color: colors.textSecondary }">当前环节「{{ detail.current_step_name || '审核' }}」· 你不在授权名单内，待授权人处理</text>
+        <view v-else-if="detail.audit_status == 'pending'" class="sheet-actions bg-card border-default" >
+          <text class="no-auth-text text-secondary" >当前环节「{{ detail.current_step_name || '审核' }}」· 你不在授权名单内，待授权人处理</text>
         </view>
       </template>
     </AppBottomSheet>
 
     <!-- 驳回原因弹层 -->
-    <view v-if="rejecting" class="mask mask-center" :style="{ backgroundColor: colors.mask }" @click="rejecting = false">
-      <view class="dialog" :style="{ backgroundColor: colors.bgCard }" @click.stop="">
-        <text class="dialog-title" :style="{ color: colors.textPrimary }">驳回原因（必填）</text>
+    <view v-if="rejecting" class="mask mask-center bg-mask"  @click="rejecting = false">
+      <view class="dialog bg-card"  @click.stop="">
+        <text class="dialog-title text-main" >驳回原因（必填）</text>
         <textarea
           v-model="rejectReason"
-          class="dialog-input"
-          :style="{ borderColor: colors.border, color: colors.textPrimary }"
+          class="dialog-input border-default text-main"
+          
           placeholder="请填写驳回原因"
           :maxlength="200"
         />
         <view class="dialog-actions">
-          <text class="dialog-btn" :style="{ color: colors.textSecondary }" @click="rejecting = false">取消</text>
-          <text class="dialog-btn" :style="{ color: colors.danger }" @click="onRejectConfirm">确认驳回</text>
+          <text class="dialog-btn text-secondary"  @click="rejecting = false">取消</text>
+          <text class="dialog-btn text-danger"  @click="onRejectConfirm">确认驳回</text>
         </view>
       </view>
     </view>
@@ -116,7 +116,7 @@
 
 <script lang="ts">
 import { toastErr } from '@/utils/ui'
-import { Colors, ColorTokens } from '@/utils/theme'
+
 import { apiReviewRecords, apiReviewPass, apiReviewReject, ReviewRecord } from '@/services/api'
 import AppBottomSheet from '@/components/AppBottomSheet.vue'
 import AppListShell from '@/components/AppListShell.vue'
@@ -128,7 +128,6 @@ import CheckinDetailView from '@/components/CheckinDetailView.vue'
 const PAGE_SIZE = 20
 
 type ReviewData = {
-  colors: ColorTokens
   status: string
   tabs: Array<{ label: string; value: string }>
   loading: boolean
@@ -159,7 +158,6 @@ export default {
   components: { AppBottomSheet, AppListShell, AppListFooter, AppSegmentTabs, AppDialog, CheckinDetailView },
   data(): ReviewData {
     return {
-      colors: Colors,
       status: 'pending',
       tabs: [
         { label: '待审核', value: 'pending' },
@@ -367,33 +365,15 @@ export default {
   flex-direction: row;
 }
 
-.tag {
-  font-size: 22rpx;
-  border-width: 2rpx;
-  border-style: solid;
-  border-radius: 12rpx; /* Radius.tag */
-  padding: 4rpx 16rpx;
-  margin-right: 16rpx;
-}
 
 .card-time {
   font-size: 24rpx;
 }
 
-/* 详情弹层 */
-.mask {
-  position: fixed;
-  left: 0;
-  top: 0;
-  right: 0;
-  bottom: 0;
-  justify-content: flex-end;
-  z-index: 99;
-}
 
 .sheet-scroll {
-  flex: 1;
-  min-height: 0;
+  /* 半屏 maxHeight 80vh：扣除头部与底部操作栏，滚动区显式定高（uvue 下 flex:1 不收敛会溢出） */
+  height: 56vh;
   padding: 24rpx;
 }
 

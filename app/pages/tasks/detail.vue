@@ -1,84 +1,89 @@
 <template>
-  <view class="page" :style="{ backgroundColor: colors.bgPage }">
+  <view class="page bg-page" >
     <!-- 骨架屏 -->
     <view v-if="loading" class="skeleton">
-      <view class="sk-block" :style="{ backgroundColor: colors.border }"></view>
-      <view class="sk-block" :style="{ backgroundColor: colors.border }"></view>
-      <view class="sk-block sk-short" :style="{ backgroundColor: colors.border }"></view>
+      <view class="sk-block bg-border" ></view>
+      <view class="sk-block bg-border" ></view>
+      <view class="sk-block sk-short bg-border" ></view>
     </view>
 
     <!-- 空态 -->
     <view v-else-if="loaded && points.length == 0" class="empty">
-      <text class="empty-title" :style="{ color: colors.textRegular }">这个任务还没配点位</text>
-      <text class="empty-sub" :style="{ color: colors.textSecondary }">请联系主管检查计划路线</text>
+      <text class="empty-title text-regular" >这个任务还没配点位</text>
+      <text class="empty-sub text-secondary" >请联系主管检查计划路线</text>
     </view>
 
     <!-- 任务明细 -->
     <view v-else-if="loaded" class="content">
-      <!-- 任务信息卡 -->
-      <view class="card" :style="{ backgroundColor: colors.bgCard }">
+      <!-- 任务信息卡（§18.2 容器官方化 uni-card + uni-tag 徽标） -->
+      <uni-card :is-shadow="true" :border="false" margin="0 0 24rpx 0" padding="32rpx" spacing="0">
         <view class="card-head">
-          <text class="card-title" :style="{ color: colors.textPrimary }">{{ planName }}</text>
-          <text class="card-tag" :style="{ color: statusColor }">{{ statusText }}</text>
+          <text class="card-title text-main" >{{ planName }}</text>
+          <uni-tag :text="statusText" :inverted="true" size="small" :custom-style="'color:' + statusColor + ';border-color:' + statusColor" />
         </view>
         <view class="card-sub-row">
-          <text v-if="patrolText != ''" class="type-tag" :style="{ color: colors.primary, borderColor: colors.primary }">{{ patrolText }}</text>
-          <text class="card-sub" :style="{ color: colors.textSecondary }">{{ communityName }}</text>
+          <uni-tag v-if="patrolText != ''" :text="patrolText" :inverted="true" size="small" :custom-style="'color:#2B5AED;border-color:#2B5AED;margin-right:16rpx'" />
+          <text class="card-sub text-secondary" >{{ communityName }}</text>
         </view>
-        <text class="card-sub" :style="{ color: colors.textSecondary }">{{ taskDate }} · {{ roundName != '' ? roundName + ' ' : '' }}{{ timeWindow }}{{ dueText != '' ? ' · ' + dueText : '' }}</text>
-        <view class="progress" :style="{ backgroundColor: colors.border }">
-          <view class="progress-inner" :style="{ width: progressWidth, backgroundColor: colors.primary }"></view>
+        <text class="card-sub text-secondary" >{{ taskDate }} · {{ roundName != '' ? roundName + ' ' : '' }}{{ timeWindow }}{{ dueText != '' ? ' · ' + dueText : '' }}</text>
+        <view class="progress bg-border" >
+          <view class="progress-inner bg-brand" :style="{ width: progressWidth }"></view>
         </view>
-        <text class="card-progress-text" :style="{ color: colors.textPrimary }">已完成 {{ donePoints }} / {{ totalPoints }} 点位</text>
-      </view>
+        <text class="card-progress-text text-main" >已完成 {{ donePoints }} / {{ totalPoints }} 点位</text>
+      </uni-card>
 
       <!-- 连续巡检入口（AI 启用进向导；未启用进手动表单；有本地快照时显示继续巡检） -->
-      <view v-if="hasUnchecked"  hover-class="hover-dim" class="quick-btn" :style="{ backgroundColor: colors.success }" @click="startQuick">
-        <text  hover-class="hover-dim" class="quick-btn-text" :style="{ color: colors.white }">{{ quickBtnText }}</text>
-      </view>
+      <button v-if="hasUnchecked" plain="true" hover-class="hover-dim" class="quick-btn btn-success" @click="startQuick">
+        <text class="quick-btn-text">{{ quickBtnText }}</text>
+      </button>
 
-      <!-- 点位列表（未打卡置顶，已打卡沉底；组内保持 sort 顺序；分块渲染，触底加载更多） -->
-      <view
-        v-for="p in visiblePoints"
-        :key="p.point_id"
-         hover-class="hover-dim" class="card point-row"
-        :style="{ backgroundColor: colors.bgCard }"
-        @click="onPointTap(p)"
-      >
-        <view class="point-main">
-          <text class="point-sort" :style="{ color: colors.white, backgroundColor: colors.primary }">{{ p.sort }}</text>
-          <view class="point-texts">
-            <text class="point-name" :style="{ color: colors.textPrimary }">{{ p.point_name }}</text>
-            <text class="point-building" :style="{ color: colors.textSecondary }">{{ p.building_name || '未分区' }}</text>
-          </view>
-        </view>
-        <view class="point-side">
-          <text class="point-cred" :style="{ color: colors.textSecondary }">{{ p.credential_text }}</text>
-          <view class="point-status-row">
-            <view class="point-dot" :style="{ backgroundColor: p.status_color }"></view>
-            <text class="point-status" :style="{ color: p.status_color }">{{ p.status_text }}</text>
-          </view>
-        </view>
-      </view>
+      <!-- 点位列表（§18.2 uni-list 标准行：左序号 + 标题/分区 + 右凭证与状态徽标；
+           未打卡置顶，已打卡沉底；组内保持 sort 顺序；分块渲染，触底加载更多） -->
+      <uni-list class="point-list bg-card" >
+        <uni-list-item
+          v-for="p in visiblePoints"
+          :key="p.point_id"
+          :title="p.point_name"
+          :note="p.building_name || '未分区'"
+          clickable
+          @click="onPointTap(p)"
+        >
+          <template #header>
+            <view class="point-sort-wrap">
+              <view class="point-sort text-white bg-brand" >{{ p.sort }}</view>
+            </view>
+          </template>
+          <template #footer>
+            <view class="point-side">
+              <text class="point-cred text-secondary" >{{ p.credential_text }}</text>
+              <uni-tag :text="p.status_text" :inverted="true" size="small" :custom-style="'color:' + p.status_color + ';border-color:' + p.status_color" />
+            </view>
+          </template>
+        </uni-list-item>
+      </uni-list>
 
       <!-- 手动模式入口已移至向导内「手动填写本点位」（按点位进入，不再从首项开始） -->
-      <view v-if="visiblePoints.length < sortedPoints.length" class="load-more">
-        <text class="load-more-text" :style="{ color: colors.textSecondary }">上拉加载更多（{{ visiblePoints.length }}/{{ sortedPoints.length }}）</text>
-      </view>
+      <uni-load-more
+        v-if="visiblePoints.length < sortedPoints.length"
+        status="more"
+        :show-icon="false"
+        :content-text="{ contentdown: '上拉加载更多（' + visiblePoints.length + '/' + sortedPoints.length + '）' }"
+        :color="'#86909C'"
+      />
       <view class="bottom-space"></view>
     </view>
 
     <!-- 加载失败 -->
     <view v-else class="empty">
-      <text class="empty-title" :style="{ color: colors.textRegular }">{{ errorMsg }}</text>
-      <text class="empty-retry" :style="{ color: colors.primary }" @click="load">重试</text>
+      <text class="empty-title text-regular" >{{ errorMsg }}</text>
+      <text class="empty-retry text-brand"  @click="load">重试</text>
     </view>
   </view>
 </template>
 
 <script lang="ts">
 import { toastErr } from '@/utils/ui'
-import { Colors, ColorTokens } from '@/utils/theme'
+
 import { apiTaskDetail, apiItemDrafts, ItemDraft, TaskPoint } from '@/services/api'
 import { offlinePointSet } from '@/utils/offline'
 
@@ -101,7 +106,6 @@ type PointView = {
 }
 
 type DetailData = {
-  colors: ColorTokens
   taskId: string
   loading: boolean
   loaded: boolean
@@ -138,10 +142,10 @@ function statusTextOf(s: string): string {
 }
 
 function statusColorOf(s: string): string {
-  if (s == 'doing') return Colors.primary
-  if (s == 'done') return Colors.success
-  if (s == 'overdue') return Colors.danger
-  return Colors.warning
+  if (s == 'doing') return '#2B5AED'
+  if (s == 'done') return '#2BA471'
+  if (s == 'overdue') return '#D54941'
+  return '#ED7B2F'
 }
 
 function credentialTextOf(c: string): string {
@@ -173,18 +177,18 @@ function toPointView(p: TaskPoint, draftStats: Record<string, DraftStat>, offlin
   const ck = p.my_checkin
   const offlinePending = ck == null && offlineSet[p.point_id] == true
   let statusText = '待打卡'
-  let statusColor = Colors.info
+  let statusColor = '#909399'
   if (offlinePending) {
     // 本地离线队列有待补传：优先标注，防止用户再打一次卡造成旧离线数据覆盖新在线记录
     statusText = '离线待补传'
-    statusColor = Colors.warning
+    statusColor = '#ED7B2F'
   } else if (ck != null) {
     if (ck.result == 'abnormal') {
       statusText = '异常'
-      statusColor = Colors.danger
+      statusColor = '#D54941'
     } else {
       statusText = '正常'
-      statusColor = Colors.success
+      statusColor = '#2BA471'
     }
   } else {
     const stat = draftStats[p.point_id]
@@ -192,11 +196,11 @@ function toPointView(p: TaskPoint, draftStats: Record<string, DraftStat>, offlin
     if (stat != null && stat.stage == 'recognizing') {
       // 有照片在 AI 识别队列中
       statusText = total > 0 ? 'AI 检查中 ' + stat.done + '/' + total + ' 项' : 'AI 检查中'
-      statusColor = Colors.primary
+      statusColor = '#2B5AED'
     } else if (stat != null && stat.stage == 'doing') {
       // 已拍/已答但无识别中项（待收尾提交）
       statusText = total > 0 ? '巡检中 ' + stat.done + '/' + total + ' 项' : '巡检中'
-      statusColor = Colors.warning
+      statusColor = '#ED7B2F'
     }
   }
   return {
@@ -217,7 +221,6 @@ function toPointView(p: TaskPoint, draftStats: Record<string, DraftStat>, offlin
 export default {
   data(): DetailData {
     return {
-      colors: Colors,
       taskId: '',
       loading: true,
       loaded: false,
@@ -435,11 +438,6 @@ export default {
   padding: 16rpx 32rpx;
 }
 
-.card {
-  border-radius: 24rpx; /* Radius.card */
-  padding: 32rpx;
-  margin-bottom: 24rpx;
-}
 
 .card-head {
   flex-direction: row;
@@ -453,10 +451,6 @@ export default {
   flex: 1;
 }
 
-.card-tag {
-  font-size: 26rpx;
-  margin-left: 16rpx;
-}
 
 .card-sub {
   font-size: 26rpx;
@@ -473,14 +467,6 @@ export default {
   margin-top: 0;
 }
 
-.type-tag {
-  font-size: 22rpx;
-  border-width: 2rpx;
-  border-style: solid;
-  border-radius: 12rpx; /* Radius.tag */
-  padding: 4rpx 16rpx;
-  margin-right: 16rpx;
-}
 
 .progress {
   height: 16rpx;
@@ -513,29 +499,17 @@ export default {
   font-weight: 700;
 }
 
-.load-more {
-  text-align: center;
-  padding: 20rpx 0;
-}
 
-.load-more-text {
-  font-size: 24rpx;
-}
 
 .bottom-space {
   height: 64rpx;
 }
 
-.point-row {
-  flex-direction: row;
-  justify-content: space-between;
-  align-items: center;
-}
 
-.point-main {
-  flex-direction: row;
-  align-items: center;
-  flex: 1;
+
+.point-sort-wrap {
+  margin-right: 24rpx;
+  justify-content: center;
 }
 
 .point-sort {
@@ -543,23 +517,16 @@ export default {
   height: 48rpx;
   border-radius: 24rpx;
   font-size: 26rpx;
-  text-align: center;
-  line-height: 48rpx;
-  margin-right: 24rpx;
+  align-items: center;
+  justify-content: center;
 }
 
-.point-texts {
-  flex: 1;
-}
 
-.point-name {
-  font-size: 32rpx;
-  font-weight: 600;
-}
 
-.point-building {
-  font-size: 24rpx;
-  margin-top: 4rpx;
+
+.point-list {
+  border-radius: 24rpx;
+  overflow: hidden;
 }
 
 .point-side {
@@ -571,21 +538,6 @@ export default {
   font-size: 24rpx;
 }
 
-.point-status-row {
-  flex-direction: row;
-  align-items: center;
-  margin-top: 8rpx;
-}
 
-.point-dot {
-  width: 20rpx;
-  height: 20rpx;
-  border-radius: 10rpx;
-  margin-right: 10rpx;
-}
 
-.point-status {
-  font-size: 32rpx;
-  font-weight: 600;
-}
 </style>

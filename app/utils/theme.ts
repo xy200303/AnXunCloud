@@ -1,46 +1,10 @@
 /**
- * 设计令牌（唯一来源）——对应《移动端四端UI-UX设计方案》§二，750 设计稿基准。
+ * 设计令牌（布局类）——对应《移动端四端UI-UX设计方案》§二，750 设计稿基准。
  *
- * 使用方式：
- * - 颜色一律在模板里通过 :style 绑定引用本文件常量，页面 style 块内不写死色值；
- *   布局尺寸值同理尽量引用本文件。
- * - App.vue 全局样式与 pages.json 中的色值与本文件保持一致（修改时同步）。
+ * 颜色令牌已废除：颜色唯一来源为 app/uni.scss 的 $uni-* 变量（uni-ui 官方换色机制）；
+ * 模板用 App.vue 全局工具类（text-/bg-/border- 前缀），组件 scss 内直接用 $uni-* 变量。
+ * 布局尺寸值（字号/圆角/尺寸/阴影）保留在本文件。
  */
-export type ColorTokens = {
-  primary: string
-  primaryLight: string
-  success: string
-  warning: string
-  danger: string
-  info: string
-  bgPage: string
-  bgCard: string
-  textPrimary: string
-  textRegular: string
-  textSecondary: string
-  border: string
-  white: string
-  /** 弹层遮罩 45% 黑 */
-  mask: string
-}
-
-export const Colors: ColorTokens = {
-  primary: '#2B5AED',
-  primaryLight: '#EAEFFF',
-  success: '#2BA471',
-  warning: '#ED7B2F',
-  danger: '#D54941',
-  info: '#909399',
-  bgPage: '#F5F6F8',
-  bgCard: '#FFFFFF',
-  textPrimary: '#1F2329',
-  textRegular: '#4E5969',
-  textSecondary: '#86909C',
-  border: '#E5E6EB',
-  white: '#FFFFFF',
-  /** 弹层遮罩 45% 黑 */
-  mask: 'rgba(0, 0, 0, 0.45)'
-}
 
 /** 字号（750 基准，单位 rpx） */
 export type FontSizeTokens = {

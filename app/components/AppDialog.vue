@@ -1,42 +1,48 @@
 <template>
-  <!-- 通用确认/提示弹窗（自绘，替代 uni.showModal）：与维保提交结果弹窗同口径，
-       圆形状态图标 + 标题 + 说明 + 胶囊按钮；editable 时带输入框（驳回原因场景） -->
-  <view v-if="visible" class="dlg-mask" :style="{ backgroundColor: colors.mask }" @click="onMaskTap">
-    <view class="dlg-card" :style="{ backgroundColor: colors.bgCard }" @click.stop="noop">
+  <!-- 通用确认/提示弹窗：内部基于 uni-popup（type=center），遮罩/动画交给官方；
+       圆形状态图标 + 标题 + 说明 + 胶囊按钮；editable 时带输入框（驳回原因场景）。对外 props/事件接口不变 -->
+  <uni-popup
+    ref="popup"
+    type="center"
+    :mask-background-color="'rgba(0, 0, 0, 0.45)'"
+    :is-mask-click="maskClosable"
+    border-radius="28rpx"
+    @maskClick="onMaskTap"
+  >
+    <view class="dlg-card bg-card" >
       <view v-if="kind != ''" class="dlg-icon" :style="{ backgroundColor: kindColor }">
-        <text class="dlg-icon-text" :style="{ color: colors.white }">{{ kindIcon }}</text>
+        <text class="dlg-icon-text text-white" >{{ kindIcon }}</text>
       </view>
-      <text class="dlg-title" :style="{ color: colors.textPrimary }">{{ title }}</text>
-      <text v-if="content != ''" class="dlg-content" :style="{ color: colors.textRegular }">{{ content }}</text>
+      <text class="dlg-title text-main" >{{ title }}</text>
+      <text v-if="content != ''" class="dlg-content text-regular" >{{ content }}</text>
       <input
         v-if="editable"
-        class="dlg-input"
-        :style="{ borderColor: colors.border, color: colors.textPrimary, backgroundColor: colors.bgPage }"
+        class="dlg-input border-default text-main bg-page"
+        
         v-model="inputValue"
         :placeholder="placeholder"
-        :placeholder-style="'color:' + colors.textSecondary"
+        :placeholder-style="'color:' + '#86909C'"
       />
       <!-- cancelText 为空：单按钮整宽胶囊；非空：左取消（灰底）右确认（实色） -->
-      <view v-if="cancelText == ''" hover-class="hover-dim" class="dlg-btn" :style="{ backgroundColor: kindColor }" @click="onConfirm">
-        <text class="dlg-btn-text" :style="{ color: colors.white }">{{ confirmText }}</text>
-      </view>
+      <button v-if="cancelText == ''" plain="true" hover-class="hover-dim" class="dlg-btn" :class="kindBtnClass" @click="onConfirm">
+        <text class="dlg-btn-text">{{ confirmText }}</text>
+      </button>
       <view v-else class="dlg-btns">
-        <view hover-class="hover-dim" class="dlg-btn dlg-btn-half" :style="{ backgroundColor: colors.bgPage }" @click="onCancel">
-          <text class="dlg-btn-text" :style="{ color: colors.textRegular }">{{ cancelText }}</text>
-        </view>
-        <view hover-class="hover-dim" class="dlg-btn dlg-btn-half" :style="{ backgroundColor: kindColor }" @click="onConfirm">
-          <text class="dlg-btn-text" :style="{ color: colors.white }">{{ confirmText }}</text>
-        </view>
+        <button plain="true" hover-class="hover-dim" class="dlg-btn dlg-btn-half bg-page" @click="onCancel">
+          <text class="dlg-btn-text text-regular">{{ cancelText }}</text>
+        </button>
+        <button plain="true" hover-class="hover-dim" class="dlg-btn dlg-btn-half" :class="kindBtnClass" @click="onConfirm">
+          <text class="dlg-btn-text">{{ confirmText }}</text>
+        </button>
       </view>
     </view>
-  </view>
+  </uni-popup>
 </template>
 
 <script lang="ts">
-import { Colors, ColorTokens } from '@/utils/theme'
+
 
 type DialogData = {
-  colors: ColorTokens
   /** editable 输入值（每次打开回填 defaultValue） */
   inputValue: string
 }
@@ -58,16 +64,22 @@ export default {
   emits: ['confirm', 'cancel', 'update:visible'],
   data(): DialogData {
     return {
-      colors: Colors,
       inputValue: ''
     }
   },
   computed: {
+    /** kind → 全局按钮工具类（确认键；图标圆底色仍用 kindColor） */
+    kindBtnClass(): string {
+      if (this.kind == 'success') return 'btn-success'
+      if (this.kind == 'warning') return 'btn-warning'
+      if (this.kind == 'danger') return 'btn-danger'
+      return 'btn-primary'
+    },
     kindColor(): string {
-      if (this.kind == 'success') return this.colors.success
-      if (this.kind == 'warning') return this.colors.warning
-      if (this.kind == 'danger') return this.colors.danger
-      return this.colors.primary
+      if (this.kind == 'success') return '#2BA471'
+      if (this.kind == 'warning') return '#ED7B2F'
+      if (this.kind == 'danger') return '#D54941'
+      return '#2B5AED'
     },
     kindIcon(): string {
       if (this.kind == 'success') return '✓'
@@ -79,11 +91,22 @@ export default {
   watch: {
     // 每次打开回填默认值，避免串用上一次输入
     visible(v: boolean) {
+      const popup: any = this.$refs.popup
+      if (popup != null) {
+        if (v) popup.open()
+        else popup.close()
+      }
       if (v) this.inputValue = this.defaultValue
     }
   },
+  mounted() {
+    if (this.visible) {
+      this.inputValue = this.defaultValue
+      const popup: any = this.$refs.popup
+      if (popup != null) popup.open()
+    }
+  },
   methods: {
-    noop() {},
     onMaskTap() {
       if (this.maskClosable) this.onCancel()
     },
@@ -100,18 +123,6 @@ export default {
 </script>
 
 <style scoped>
-.dlg-mask {
-  position: fixed;
-  left: 0;
-  top: 0;
-  right: 0;
-  bottom: 0;
-  z-index: 1000;
-  justify-content: center;
-  align-items: center;
-  animation: dlg-fade-in 180ms ease-out;
-}
-
 .dlg-card {
   width: 600rpx;
   border-radius: 28rpx;
@@ -186,10 +197,5 @@ export default {
 
 .dlg-btn-half + .dlg-btn-half {
   margin-left: 24rpx;
-}
-
-@keyframes dlg-fade-in {
-  from { opacity: 0; }
-  to { opacity: 1; }
 }
 </style>

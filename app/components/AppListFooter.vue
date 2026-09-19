@@ -1,11 +1,15 @@
 <template>
-  <view v-if="visible && (loadingMore || noMore)" class="app-list-footer">
-    <text class="app-list-footer-text" :style="{ color: colors.textSecondary }">{{ loadingMore ? loadingText : noMoreText }}</text>
-  </view>
+  <!-- 列表底部加载态：内部基于 uni-load-more（官方 loading 图标 + 文案），对外 props 接口不变 -->
+  <uni-load-more
+    v-if="visible && (loadingMore || noMore)"
+    :status="loadingMore ? 'loading' : 'noMore'"
+    :content-text="{ contentrefresh: loadingText, contentnomore: noMoreText }"
+    :color="'#86909C'"
+  />
 </template>
 
 <script lang="ts">
-import { Colors, ColorTokens } from '@/utils/theme'
+
 
 export default {
   props: {
@@ -14,20 +18,6 @@ export default {
     visible: { type: Boolean, default: true },
     loadingText: { type: String, default: '加载中…' },
     noMoreText: { type: String, default: '没有更多了' },
-    colors: { type: Object, default: () => Colors as ColorTokens }
   }
 }
 </script>
-
-<style scoped>
-.app-list-footer {
-  min-height: 72rpx;
-  align-items: center;
-  justify-content: center;
-  padding: 16rpx 24rpx 32rpx;
-}
-
-.app-list-footer-text {
-  font-size: 24rpx;
-}
-</style>

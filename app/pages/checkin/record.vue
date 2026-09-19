@@ -1,59 +1,57 @@
 <template>
-  <view class="page" :style="{ backgroundColor: colors.bgPage }">
+  <view class="page bg-page" >
     <!-- 加载中 / 失败 -->
     <view v-if="loading" class="hint">
-      <text class="hint-text" :style="{ color: colors.textSecondary }">加载中…</text>
+      <uni-load-more status="loading" :content-text="{ contentrefresh: '加载中…' }" :color="'#86909C'" />
     </view>
     <view v-else-if="!loaded" class="hint">
-      <text class="hint-text" :style="{ color: colors.textRegular }">{{ errorMsg }}</text>
-      <text class="hint-retry" :style="{ color: colors.primary }" @click="load">重试</text>
+      <text class="hint-text text-regular" >{{ errorMsg }}</text>
+      <text class="hint-retry text-brand"  @click="load">重试</text>
     </view>
 
     <block v-else>
-      <!-- 头部：点位 + 结果 + 元信息 -->
-      <view class="card" :style="{ backgroundColor: colors.bgCard, boxShadow: shadow }">
+      <!-- 头部：点位 + 结果 + 元信息（§18.3 uni-card 分组容器） -->
+      <uni-card :is-shadow="true" :border="false" margin="0 0 24rpx 0" padding="28rpx 32rpx" spacing="0">
         <view class="head-row">
-          <text class="point-name" :style="{ color: colors.textPrimary }">{{ pointName }}</text>
-          <text
-            class="result-badge"
-            :style="{
-              color: result == 'abnormal' ? colors.danger : colors.success,
-              backgroundColor: result == 'abnormal' ? '#FDECEC' : '#E7F6EF'
-            }"
-          >{{ result == 'abnormal' ? '⚠ 有异常' : '✓ 正常' }}</text>
+          <text class="point-name text-main" >{{ pointName }}</text>
+          <!-- 记录级结论徽章：官方 uni-tag（custom-style 对齐原浅底深字配色） -->
+          <uni-tag
+            :text="result == 'abnormal' ? '⚠ 有异常' : '✓ 正常'"
+            :custom-style="result == 'abnormal' ? 'color:#D54941;background-color:#FDECEC;border-color:transparent' : 'color:#2BA471;background-color:#E7F6EF;border-color:transparent'"
+          />
         </view>
-        <text v-if="buildingName != ''" class="head-sub" :style="{ color: colors.textSecondary }">{{ buildingName }}</text>
+        <text v-if="buildingName != ''" class="head-sub text-secondary" >{{ buildingName }}</text>
         <!-- 审核状态（提交后可见：打回红条带原因并引导修改；其余一行状态） -->
         <view v-if="auditStatus == 'rejected'" class="audit-bar" :style="{ backgroundColor: '#FDECEC' }">
-          <text class="audit-bar-text" :style="{ color: colors.danger }">审核未通过{{ auditRemark != '' ? '：' + auditRemark : '' }}。{{ canModify ? '请修改后重新提交' : '如需重巡请联系主管' }}</text>
+          <text class="audit-bar-text text-danger" >审核未通过{{ auditRemark != '' ? '：' + auditRemark : '' }}。{{ canModify ? '请修改后重新提交' : '如需重巡请联系主管' }}</text>
         </view>
         <view v-else-if="auditStatus != ''" class="meta-row">
-          <text class="meta-label" :style="{ color: colors.textSecondary }">审核状态</text>
-          <text class="meta-value" :style="{ color: auditStatus == 'pass' || auditStatus == 'auto_pass' ? colors.success : colors.warning }">{{ auditStatusText }}</text>
+          <text class="meta-label text-secondary" >审核状态</text>
+          <text class="meta-value"  :class="(auditStatus == 'pass' || auditStatus == 'auto_pass' ? 'text-success' : 'text-warning')">{{ auditStatusText }}</text>
         </view>
         <view class="meta-row">
-          <text class="meta-label" :style="{ color: colors.textSecondary }">打卡时间</text>
-          <text class="meta-value" :style="{ color: colors.textRegular }">{{ checkinTime }}</text>
+          <text class="meta-label text-secondary" >打卡时间</text>
+          <uni-dateformat class="meta-value text-regular"  :date="checkinTime" format="yyyy-MM-dd hh:mm:ss" />
         </view>
         <view class="meta-row">
-          <text class="meta-label" :style="{ color: colors.textSecondary }">打卡方式</text>
-          <text class="meta-value" :style="{ color: colors.textRegular }">{{ checkinTypeText }}</text>
+          <text class="meta-label text-secondary" >打卡方式</text>
+          <text class="meta-value text-regular" >{{ checkinTypeText }}</text>
         </view>
         <view v-if="distance != null" class="meta-row">
-          <text class="meta-label" :style="{ color: colors.textSecondary }">距点位</text>
-          <text class="meta-value" :style="{ color: colors.textRegular }">{{ distance }} 米</text>
+          <text class="meta-label text-secondary" >距点位</text>
+          <text class="meta-value text-regular" >{{ distance }} 米</text>
         </view>
         <view v-if="altitude != null || accuracy != null" class="meta-row">
-          <text class="meta-label" :style="{ color: colors.textSecondary }">定位信息</text>
-          <text class="meta-value" :style="{ color: colors.textRegular }">{{ locInfoText }}</text>
+          <text class="meta-label text-secondary" >定位信息</text>
+          <text class="meta-value text-regular" >{{ locInfoText }}</text>
         </view>
-      </view>
+      </uni-card>
 
-      <!-- 逐项明细 -->
-      <view v-for="(it, i) in items" :key="i" class="card" :style="{ backgroundColor: colors.bgCard, boxShadow: shadow }">
+      <!-- 逐项明细（§18.3 uni-card 分组 + uni-tag 三态徽标） -->
+      <uni-card v-for="(it, i) in items" :key="it.name" :is-shadow="true" :border="false" margin="0 0 24rpx 0" padding="28rpx 32rpx" spacing="0">
         <view class="item-head">
-          <text class="item-name" :style="{ color: colors.textPrimary }">{{ it.name }}</text>
-          <text class="item-result" :style="{ color: colors[itemResultColorKeyOf(it.result)] }">{{ itemResultTextOf(it.result, it.exception_type) }}</text>
+          <text class="item-name text-main" >{{ it.name }}</text>
+          <uni-tag :text="itemResultTextOf(it.result, it.exception_type)" :type="itemResultTagType(it.result)" :inverted="true" size="small" />
         </view>
         <image
           v-if="it.photo_urls != null && it.photo_urls.length > 0"
@@ -63,22 +61,22 @@
           lazy-load
           @click="preview(it)"
         />
-        <text v-if="it.ai_reason != null && it.ai_reason != ''" class="item-ai" :style="{ color: colors.textSecondary }">{{ it.ai_reason }}</text>
-        <text v-if="it.note != null && it.note != ''" class="item-note" :style="{ color: colors.textRegular }">备注：{{ it.note }}</text>
-      </view>
-      <view v-if="items.length == 0" class="card" :style="{ backgroundColor: colors.bgCard, boxShadow: shadow }">
-        <text class="hint-text" :style="{ color: colors.textSecondary }">这次是纯打卡，没有检查项</text>
-      </view>
+        <text v-if="it.ai_reason != null && it.ai_reason != ''" class="item-ai text-secondary" >{{ it.ai_reason }}</text>
+        <text v-if="it.note != null && it.note != ''" class="item-note text-regular" >备注：{{ it.note }}</text>
+      </uni-card>
+      <uni-card v-if="items.length == 0" :is-shadow="true" :border="false" margin="0 0 24rpx 0" padding="28rpx 32rpx" spacing="0">
+        <text class="hint-text text-secondary" >这次是纯打卡，没有检查项</text>
+      </uni-card>
 
       <!-- 修改入口（提交即封存：可改时绿色大按钮，不可改时置灰写明原因） -->
       <view class="bottom">
-        <view v-if="canModify" class="btn-big" hover-class="hover-dim" :style="{ backgroundColor: colors.primary }" @click="goModify">
-          <text class="btn-big-text" :style="{ color: colors.white }">修改本次打卡</text>
-        </view>
-        <view v-else class="btn-big" :style="{ backgroundColor: colors.border }">
-          <text class="btn-big-text" :style="{ color: colors.textSecondary }">{{ lockReason }}</text>
-        </view>
-        <text v-if="canModify" class="bottom-tip" :style="{ color: colors.textSecondary }">修改需要重新拍照，提交后覆盖原记录</text>
+        <button v-if="canModify" plain="true" class="btn-big btn-primary" hover-class="hover-dim" @click="goModify">
+          <text class="btn-big-text">修改本次打卡</text>
+        </button>
+        <button v-else plain="true" class="btn-big btn-disabled">
+          <text class="btn-big-text">{{ lockReason }}</text>
+        </button>
+        <text v-if="canModify" class="bottom-tip text-secondary" >修改需要重新拍照，提交后覆盖原记录</text>
       </view>
     </block>
   </view>
@@ -86,15 +84,13 @@
 
 <script lang="ts">
 import { toastErr } from '@/utils/ui'
-import { Colors, ColorTokens, ShadowCard } from '@/utils/theme'
+
 import { apiTaskDetail, apiCheckinItems, CheckinItemAI } from '@/services/api'
 import { checkinTypeTextOf, itemResultTextOf, itemResultColorKeyOf } from '@/utils/format'
 
 export default {
   data() {
     return {
-      colors: Colors,
-      shadow: ShadowCard,
       taskId: '',
       pointId: '',
       loading: true,
@@ -155,6 +151,11 @@ export default {
   methods: {
     itemResultTextOf: itemResultTextOf,
     itemResultColorKeyOf: itemResultColorKeyOf,
+    /** 三态 → uni-tag type（uni-tag 用 error 命名，色系 danger 映射） */
+    itemResultTagType(result: string): 'success' | 'warning' | 'error' {
+      const k = itemResultColorKeyOf(result)
+      return k == 'danger' ? 'error' : k
+    },
     load() {
       if (this.taskId == '' || this.pointId == '') {
         this.loading = false
@@ -232,11 +233,6 @@ export default {
   font-size: 30rpx;
 }
 
-.card {
-  border-radius: 24rpx;
-  padding: 28rpx;
-  margin-bottom: 24rpx;
-}
 
 .head-row {
   flex-direction: row;
@@ -260,13 +256,6 @@ export default {
   font-size: 36rpx;
   font-weight: 600;
   flex: 1;
-}
-
-.result-badge {
-  font-size: 26rpx;
-  font-weight: 600;
-  padding: 8rpx 20rpx;
-  border-radius: 999rpx;
 }
 
 .head-sub {
@@ -300,10 +289,6 @@ export default {
   flex: 1;
 }
 
-.item-result {
-  font-size: 28rpx;
-  font-weight: 600;
-}
 
 .item-photo {
   width: 100%;

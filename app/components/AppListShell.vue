@@ -8,7 +8,7 @@
     :empty-sub="emptySub"
     :retry-text="retryText"
     :show-skeleton="showSkeleton"
-    :colors="colors"
+   
     @retry="$emit('retry')"
   />
   <slot v-if="loaded && !empty" />
@@ -16,7 +16,7 @@
 </template>
 
 <script lang="ts">
-import { Colors, ColorTokens } from '@/utils/theme'
+
 import AppLoadState from '@/components/AppLoadState.vue'
 
 export default {
@@ -30,7 +30,6 @@ export default {
     emptySub: { type: String, default: '' },
     retryText: { type: String, default: '重试' },
     showSkeleton: { type: Boolean, default: true },
-    colors: { type: Object, default: () => Colors as ColorTokens }
   },
   emits: ['retry']
 }

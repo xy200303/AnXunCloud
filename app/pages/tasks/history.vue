@@ -1,73 +1,77 @@
 <template>
-  <view class="page" :style="{ backgroundColor: colors.bgPage }">
-    <!-- 日期导航：居中紧凑一组——左右翻日，点日期开系统选择器（最晚到今天） -->
-    <view class="date-bar" :style="{ backgroundColor: colors.bgCard }">
-      <view  hover-class="hover-dim" class="date-arrow" :style="{ backgroundColor: colors.bgPage }" @click="shiftDay(-1)">
-        <text  hover-class="hover-dim" class="date-arrow-text" :style="{ color: colors.primary }">‹</text>
+  <view class="page bg-page" >
+    <!-- 日期导航：居中紧凑一组——左右翻日（uni-icons），点日期开系统选择器（最晚到今天） -->
+    <view class="date-bar bg-card" >
+      <view  hover-class="hover-dim" class="date-arrow bg-page"  @click="shiftDay(-1)">
+        <uni-icons type="left" size="20" :color="'#2B5AED'" />
       </view>
       <picker mode="date" :value="date" :end="today" @change="onDatePick">
         <view class="date-mid">
-          <text class="date-text" :style="{ color: colors.textPrimary }">{{ date }}</text>
-          <text class="date-week" :style="{ color: colors.textSecondary }">{{ weekText }}</text>
+          <text class="date-text text-main" >{{ date }}</text>
+          <text class="date-week text-secondary" >{{ weekText }}</text>
         </view>
       </picker>
-      <view  hover-class="hover-dim" class="date-arrow" :style="{ backgroundColor: canNext ? colors.bgPage : colors.border }" @click="shiftDay(1)">
-        <text  hover-class="hover-dim" class="date-arrow-text" :style="{ color: canNext ? colors.primary : colors.textSecondary }">›</text>
+      <view  hover-class="hover-dim" class="date-arrow"  :class="(canNext ? 'bg-page' : 'bg-border')" @click="shiftDay(1)">
+        <uni-icons type="right" size="20" :color="canNext ? '#2B5AED' : '#86909C'" />
       </view>
     </view>
 
     <!-- 骨架屏 -->
     <view v-if="loading" class="skeleton">
-      <view class="sk-block" :style="{ backgroundColor: colors.border }"></view>
-      <view class="sk-block" :style="{ backgroundColor: colors.border }"></view>
+      <view class="sk-block bg-border" ></view>
+      <view class="sk-block bg-border" ></view>
     </view>
 
     <!-- 空态 -->
     <view v-else-if="loaded && tasks.length == 0" class="empty">
-      <text class="empty-title" :style="{ color: colors.textRegular }">这天没有任务</text>
-      <text class="empty-sub" :style="{ color: colors.textSecondary }">换个日期看看</text>
+      <text class="empty-title text-regular" >这天没有任务</text>
+      <text class="empty-sub text-secondary" >换个日期看看</text>
     </view>
 
     <!-- 任务列表 -->
     <view v-else-if="loaded" class="content">
       <view class="summary">
-        <text class="summary-progress" :style="{ color: colors.primary }">{{ donePoints }}/{{ totalPoints }} 点位</text>
+        <text class="summary-progress text-brand" >{{ donePoints }}/{{ totalPoints }} 点位</text>
       </view>
-      <view
+      <!-- 任务卡（§18.2 容器官方化 uni-card + uni-tag 徽标；进度条为业务呈现保留） -->
+      <uni-card
         v-for="t in tasks"
         :key="t.id"
-         hover-class="hover-dim" class="card"
-        :style="{ backgroundColor: colors.bgCard }"
+        :is-shadow="true"
+        :border="false"
+        margin="0 0 24rpx 0"
+        padding="28rpx 32rpx"
+        spacing="0"
         @click="goDetail(t.id)"
       >
         <view class="card-head">
-          <text class="card-title" :style="{ color: colors.textPrimary }">{{ t.community_name }} · {{ t.plan_name }}</text>
-          <text class="card-tag" :style="{ color: statusColorOf(t.status) }">{{ statusTextOf(t.status) }}</text>
+          <text class="card-title text-main" >{{ t.community_name }} · {{ t.plan_name }}</text>
+          <uni-tag :text="statusTextOf(t.status)" :inverted="true" size="small" :custom-style="'color:' + statusColorOf(t.status) + ';border-color:' + statusColorOf(t.status)" />
         </view>
         <view class="card-sub-row">
-          <text v-if="t.round_name != ''" class="type-tag" :style="{ color: colors.warning, borderColor: colors.warning }">{{ t.round_name }}</text>
-          <text v-if="patrolLabelOf(t) != ''" class="type-tag" :style="{ color: colors.primary, borderColor: colors.primary }">{{ patrolLabelOf(t) }}</text>
-          <text class="card-sub" :style="{ color: colors.textSecondary }">{{ t.time_window != '' ? t.time_window : (t.round_name != '' ? '不限时段' : '') }}</text>
+          <uni-tag v-if="t.round_name != ''" :text="t.round_name" :inverted="true" size="small" :custom-style="'color:#ED7B2F;border-color:#ED7B2F;margin-right:16rpx'" />
+          <uni-tag v-if="patrolLabelOf(t) != ''" :text="patrolLabelOf(t)" :inverted="true" size="small" :custom-style="'color:#2B5AED;border-color:#2B5AED;margin-right:16rpx'" />
+          <text class="card-sub text-secondary" >{{ t.time_window != '' ? t.time_window : (t.round_name != '' ? '不限时段' : '') }}</text>
         </view>
-        <view class="progress" :style="{ backgroundColor: colors.border }">
-          <view class="progress-inner" :style="{ width: t.progress + '%', backgroundColor: t.status == 'overdue' ? colors.danger : colors.primary }"></view>
+        <view class="progress bg-border" >
+          <view class="progress-inner"  :class="(t.status == 'overdue' ? 'bg-danger' : 'bg-brand')":style="{ width: t.progress + '%' }"></view>
         </view>
-        <text class="card-progress-text" :style="{ color: colors.textRegular }">{{ t.done_points }}/{{ t.total_points }} 点位</text>
-        <text v-if="t.status == 'overdue' && t.done_points < t.total_points" class="makeup-tip" :style="{ color: colors.warning }">逾期未完成，可进入补拍</text>
-      </view>
+        <text class="card-progress-text text-regular" >{{ t.done_points }}/{{ t.total_points }} 点位</text>
+        <text v-if="t.status == 'overdue' && t.done_points < t.total_points" class="makeup-tip text-warning" >逾期未完成，可进入补拍</text>
+      </uni-card>
     </view>
 
     <!-- 加载失败 -->
     <view v-else class="empty">
-      <text class="empty-title" :style="{ color: colors.textRegular }">{{ errorMsg }}</text>
-      <text class="empty-retry" :style="{ color: colors.primary }" @click="load">重试</text>
+      <text class="empty-title text-regular" >{{ errorMsg }}</text>
+      <text class="empty-retry text-brand"  @click="load">重试</text>
     </view>
   </view>
 </template>
 
 <script lang="ts">
 import { toastErr } from '@/utils/ui'
-import { Colors, ColorTokens } from '@/utils/theme'
+
 import { apiTasksHistory, TodayTask } from '@/services/api'
 
 /** 巡查类型文案（内置回落：后端未透传 patrol_type_label 时使用） */
@@ -87,10 +91,10 @@ function statusTextOf(s: string): string {
 }
 
 function statusColorOf(s: string): string {
-  if (s == 'doing') return Colors.primary
-  if (s == 'done') return Colors.success
-  if (s == 'overdue') return Colors.danger
-  return Colors.warning
+  if (s == 'doing') return '#2B5AED'
+  if (s == 'done') return '#2BA471'
+  if (s == 'overdue') return '#D54941'
+  return '#ED7B2F'
 }
 
 function pad2(n: number): string {
@@ -105,7 +109,6 @@ function fmtDate(d: Date): string {
 const WEEK_NAMES = ['周日', '周一', '周二', '周三', '周四', '周五', '周六']
 
 type HistoryData = {
-  colors: ColorTokens
   /** 当前查看日期 YYYY-MM-DD（默认昨天，最晚今天） */
   date: string
   today: string
@@ -122,7 +125,6 @@ export default {
     const now = new Date()
     const yesterday = new Date(now.getTime() - 86400000)
     return {
-      colors: Colors,
       date: fmtDate(yesterday),
       today: fmtDate(now),
       loading: true,
@@ -225,12 +227,6 @@ export default {
   justify-content: center;
 }
 
-.date-arrow-text {
-  font-size: 40rpx;
-  font-weight: 600;
-  line-height: 56rpx;
-  text-align: center;
-}
 
 .date-mid {
   align-items: center;
@@ -292,11 +288,6 @@ export default {
   font-weight: 600;
 }
 
-.card {
-  border-radius: 24rpx;
-  padding: 28rpx;
-  margin-bottom: 24rpx;
-}
 
 .card-head {
   display: flex;
@@ -312,9 +303,6 @@ export default {
   margin-right: 16rpx;
 }
 
-.card-tag {
-  font-size: 26rpx;
-}
 
 .card-sub-row {
   display: flex;
@@ -323,14 +311,6 @@ export default {
   margin-top: 12rpx;
 }
 
-.type-tag {
-  font-size: 22rpx;
-  border-width: 1rpx;
-  border-style: solid;
-  border-radius: 8rpx;
-  padding: 2rpx 12rpx;
-  margin-right: 12rpx;
-}
 
 .card-sub {
   font-size: 26rpx;

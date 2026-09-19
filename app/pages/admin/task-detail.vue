@@ -1,96 +1,93 @@
 <template>
-  <view class="page" :style="{ backgroundColor: colors.bgPage }">
+  <view class="page bg-page" >
     <!-- 骨架屏 -->
     <view v-if="loading" class="skeleton">
-      <view class="sk-block" :style="{ backgroundColor: colors.border }"></view>
-      <view class="sk-block" :style="{ backgroundColor: colors.border }"></view>
-      <view class="sk-block sk-short" :style="{ backgroundColor: colors.border }"></view>
+      <view class="sk-block bg-border" ></view>
+      <view class="sk-block bg-border" ></view>
+      <view class="sk-block sk-short bg-border" ></view>
     </view>
 
     <!-- 空态 -->
     <view v-else-if="loaded && points.length == 0" class="empty">
-      <text class="empty-title" :style="{ color: colors.textRegular }">该任务暂无点位</text>
-      <text class="empty-sub" :style="{ color: colors.textSecondary }">请联系主管检查计划路线</text>
+      <text class="empty-title text-regular" >该任务暂无点位</text>
+      <text class="empty-sub text-secondary" >请联系主管检查计划路线</text>
     </view>
 
     <!-- 任务明细 -->
     <view v-else-if="loaded" class="content">
       <!-- 任务信息卡 -->
-      <view class="card" :style="{ backgroundColor: colors.bgCard }">
+      <view class="card bg-card" >
         <view class="card-head">
-          <text class="card-title" :style="{ color: colors.textPrimary }">{{ planName }}</text>
-          <text class="card-tag" :style="{ color: statusColor }">{{ statusText }}</text>
+          <text class="card-title text-main" >{{ planName }}</text>
+          <uni-tag :text="statusText" :inverted="true" size="small" :custom-style="'color:' + statusColor + ';border-color:' + statusColor" />
         </view>
-        <text class="card-sub" :style="{ color: colors.textSecondary }">{{ communityName }} · {{ inspectorName }}</text>
-        <text class="card-sub" :style="{ color: colors.textSecondary }">{{ taskDate }}<text v-if="timeWindow != ''"> · {{ timeWindow }}</text></text>
-        <view class="progress" :style="{ backgroundColor: colors.border }">
+        <text class="card-sub text-secondary" >{{ communityName }} · {{ inspectorName }}</text>
+        <text class="card-sub text-secondary" >{{ taskDate }}<text v-if="timeWindow != ''"> · {{ timeWindow }}</text></text>
+        <view class="progress bg-border" >
           <view class="progress-inner" :style="{ width: progressWidth, backgroundColor: statusColor }"></view>
         </view>
-        <text class="card-progress-text" :style="{ color: colors.textRegular }">{{ donePoints }}/{{ totalPoints }} 点位</text>
+        <text class="card-progress-text text-regular" >{{ donePoints }}/{{ totalPoints }} 点位</text>
       </view>
 
       <!-- 状态过滤条（数字来自全量统计，不随分页变化） -->
+      <!-- 状态过滤条（数字来自全量统计，不随分页变化；官方 uni-tag，计数告警色语义保留） -->
       <view class="filter-bar">
-        <view
+        <uni-tag
           v-for="f in filters"
           :key="f.key"
-          class="filter-chip"
-          hover-class="hover-dim"
-          :style="{
-            backgroundColor: filterKey == f.key ? colors.primary : colors.bgCard,
-            borderColor: filterKey == f.key ? colors.primary : colors.border
-          }"
+          :text="f.count > 0 ? f.label + ' ' + f.count : f.label"
+          :inverted="true"
+          :custom-style="filterChipStyle(f)"
           @click="filterKey = f.key"
-        >
-          <text
-            class="filter-chip-text"
-            :style="{ color: filterKey == f.key ? colors.white : (f.key == 'abnormal' && f.count > 0 ? colors.danger : (f.key == 'suspect' && f.count > 0 ? colors.warning : colors.textRegular)) }"
-          >{{ f.label }}<text v-if="f.count > 0"> {{ f.count }}</text></text>
-        </view>
+        />
       </view>
 
       <!-- 点位状态列表 -->
       <view
         v-for="p in filteredPoints"
         :key="p.point_id"
-        class="card point-row"
+        class="card point-row bg-card"
         hover-class="hover-dim"
-        :style="{ backgroundColor: colors.bgCard }"
+        
         @click="onPointTap(p)"
       >
         <view class="point-main">
-          <text class="point-sort" :style="{ color: colors.white, backgroundColor: p.status_color }">{{ p.sort }}</text>
+          <text class="point-sort text-white" :style="{ backgroundColor: p.status_color }">{{ p.sort }}</text>
           <view class="point-texts">
-            <text class="point-name" :style="{ color: colors.textPrimary }">{{ p.point_name }}</text>
-            <text class="point-building" :style="{ color: colors.textSecondary }">{{ p.building_name || '未分区' }}</text>
+            <text class="point-name text-main" >{{ p.point_name }}</text>
+            <text class="point-building text-secondary" >{{ p.building_name || '未分区' }}</text>
           </view>
         </view>
         <view class="point-side">
-          <text class="point-cred" :style="{ color: colors.textSecondary }">{{ p.credential_text }}</text>
+          <text class="point-cred text-secondary" >{{ p.credential_text }}</text>
           <text class="point-status" :style="{ color: p.status_color }">{{ p.status_text }}</text>
         </view>
       </view>
 
       <!-- 过滤后为空 / 加载更多 -->
       <view v-if="filteredPoints.length == 0" class="empty">
-        <text class="empty-title" :style="{ color: colors.textSecondary }">这类点位一个都没有</text>
+        <text class="empty-title text-secondary" >这类点位一个都没有</text>
       </view>
-      <text v-else-if="loadingMore" class="more-text" :style="{ color: colors.textSecondary }">加载中…</text>
-      <text v-else-if="points.length < pointsTotal" class="more-text" :style="{ color: colors.textSecondary }">上滑加载更多（{{ points.length }}/{{ pointsTotal }}）</text>
-      <text v-else-if="pointsTotal > 0" class="more-text" :style="{ color: colors.textSecondary }">全部 {{ pointsTotal }} 个点位都在这了</text>
+      <uni-load-more
+        v-else-if="loadingMore || points.length < pointsTotal || pointsTotal > 0"
+        :status="loadingMore ? 'loading' : points.length < pointsTotal ? 'more' : 'noMore'"
+        :show-icon="false"
+        :content-text="{ contentdown: '上滑加载更多（' + points.length + '/' + pointsTotal + '）', contentrefresh: '加载中…', contentnomore: '全部 ' + pointsTotal + ' 个点位都在这了' }"
+        :color="'#86909C'"
+      />
     </view>
 
     <!-- 加载失败 -->
     <view v-else class="empty">
-      <text class="empty-title" :style="{ color: colors.textRegular }">{{ errorMsg }}</text>
-      <text class="empty-retry" :style="{ color: colors.primary }" @click="load">重试</text>
+      <text class="empty-title text-regular" >{{ errorMsg }}</text>
+      <text class="empty-retry text-brand"  @click="load">重试</text>
     </view>
   </view>
 </template>
 
 <script lang="ts">
 import { toastErr } from '@/utils/ui'
-import { Colors, ColorTokens } from '@/utils/theme'
+
 import { apiTaskMonitorDetail, MonitorTaskPoint } from '@/services/api'
 
 /** 点位行视图模型：文案/颜色在数据层预计算 */
@@ -108,7 +105,6 @@ type PointView = {
 }
 
 type DetailData = {
-  colors: ColorTokens
   taskId: string
   loading: boolean
   loaded: boolean
@@ -139,10 +135,10 @@ function statusTextOf(s: string): string {
 }
 
 function statusColorOf(s: string): string {
-  if (s == 'doing') return Colors.primary
-  if (s == 'done') return Colors.success
-  if (s == 'overdue') return Colors.danger
-  return Colors.warning
+  if (s == 'doing') return '#2B5AED'
+  if (s == 'done') return '#2BA471'
+  if (s == 'overdue') return '#D54941'
+  return '#ED7B2F'
 }
 
 function credentialTextOf(c: string): string {
@@ -155,21 +151,21 @@ function credentialTextOf(c: string): string {
 function toPointView(p: MonitorTaskPoint): PointView {
   const ck = p.checkin
   let statusText = '待打卡'
-  let statusColor = Colors.info
+  let statusColor = '#909399'
   if (ck != null) {
     if (ck.result == 'abnormal') {
       statusText = '异常'
-      statusColor = Colors.danger
+      statusColor = '#D54941'
     } else if (ck.is_suspect) {
       statusText = '疑似作弊'
-      statusColor = Colors.warning
+      statusColor = '#ED7B2F'
     } else {
       statusText = '已打卡'
-      statusColor = Colors.success
+      statusColor = '#2BA471'
     }
   } else if (p.status == 'doing') {
     statusText = '巡检中'
-    statusColor = Colors.primary
+    statusColor = '#2B5AED'
   }
   return {
     point_id: p.point_id,
@@ -187,7 +183,6 @@ function toPointView(p: MonitorTaskPoint): PointView {
 export default {
   data(): DetailData {
     return {
-      colors: Colors,
       taskId: '',
       loading: true,
       loaded: false,
@@ -242,6 +237,12 @@ export default {
     this.loadMore()
   },
   methods: {
+    /** 筛选 chip 样式字符串（uni-tag customStyle 为 String 类型；选中实心品牌色，未选按异常级别给计数色） */
+    filterChipStyle(f: { key: string; label: string; count: number }): string {
+      if (this.filterKey == f.key) return 'background-color:#2B5AED;border-color:#2B5AED;color:#FFFFFF;margin-right:20rpx'
+      const c = f.key == 'abnormal' && f.count > 0 ? '#D54941' : f.key == 'suspect' && f.count > 0 ? '#ED7B2F' : '#4E5969'
+      return 'background-color:#FFFFFF;border-color:#E5E6EB;color:' + c + ';margin-right:20rpx'
+    },
     load() {
       if (this.taskId == '') {
         this.loading = false
@@ -364,10 +365,6 @@ export default {
   flex: 1;
 }
 
-.card-tag {
-  font-size: 26rpx;
-  margin-left: 16rpx;
-}
 
 .card-sub {
   font-size: 26rpx;
@@ -398,24 +395,8 @@ export default {
   margin-bottom: 20rpx;
 }
 
-.filter-chip {
-  border-radius: 999rpx;
-  border-width: 1rpx;
-  border-style: solid;
-  padding: 10rpx 26rpx;
-  margin-right: 16rpx;
-  margin-bottom: 12rpx;
-}
 
-.filter-chip-text {
-  font-size: 26rpx;
-}
 
-.more-text {
-  font-size: 24rpx;
-  text-align: center;
-  padding: 24rpx 0 32rpx;
-}
 
 .point-row {
   flex-direction: row;

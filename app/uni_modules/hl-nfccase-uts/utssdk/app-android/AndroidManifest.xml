@@ -32,6 +32,29 @@
                 <category android:name="android.intent.category.DEFAULT" />
             </intent-filter>
 
+            <!--
+              点位标签首条 NDEF 记录是 https://pi.hbuer.com/p/{code}。
+              显式声明 NDEF URI 后，系统在 App 外碰卡时会把安巡云加入候选应用；
+              用户选择安巡云后由分发 Activity 缓存标签，前端再定位到巡检点位。
+            -->
+            <intent-filter android:priority="1000">
+                <action android:name="android.nfc.action.NDEF_DISCOVERED" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data
+                    android:scheme="https"
+                    android:host="pi.hbuer.com"
+                    android:pathPrefix="/p/" />
+            </intent-filter>
+
+            <intent-filter android:priority="1000">
+                <action android:name="android.nfc.action.NDEF_DISCOVERED" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data
+                    android:scheme="http"
+                    android:host="pi.hbuer.com"
+                    android:pathPrefix="/p/" />
+            </intent-filter>
+
             <meta-data
                 android:name="android.nfc.action.TECH_DISCOVERED"
                 android:resource="@xml/hl_nfc_tech_filter" />

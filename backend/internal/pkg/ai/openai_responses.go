@@ -26,13 +26,17 @@ func (c *Client) callOpenAIResponses(ctx context.Context, httpc *http.Client, ba
 		"instructions":      c.rules(), // 官方字段：等价于 system 消息
 		"input":             []map[string]any{{"role": "user", "content": content}},
 		"max_output_tokens": 1024,
+		// 结构化输出：json_schema 强约束审核结论结构（语义校验仍由 parseReview 兜底）
+		"text": map[string]any{"format": map[string]any{
+			"type": "json_schema", "name": "review", "schema": reviewSchemaOpenAI(),
+		}},
 	}
 	if c.cfgBool("ai.disable_thinking", true) {
 		payload["reasoning"] = map[string]any{"effort": "minimal"} // 关思考提速（Responses API）
 	}
-	respBody, err := postJSON(ctx, httpc, baseURL+"/responses", map[string]string{
+	respBody, err := postWithStructuredFallback(ctx, httpc, baseURL+"/responses", map[string]string{
 		"Authorization": "Bearer " + strings.TrimSpace(apiKey),
-	}, payload)
+	}, payload, func() { delete(payload, "text") })
 	if err != nil {
 		return nil, err
 	}

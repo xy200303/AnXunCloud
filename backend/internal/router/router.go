@@ -396,6 +396,7 @@ func New(cfg *config.Config, db *gorm.DB, rdb *redis.Client) (*gin.Engine, *insp
 			mpAuth.GET("/points/by-code/:code", mpCtl.PointByCode)
 			mpAuth.GET("/points/nearby", mpCtl.NearbyPoints)
 			mpAuth.GET("/equipment/due", maintCtl.MpDueDevices)        // 设备台账：我的待维保列表（临期+逾期）
+			mpAuth.GET("/equipment/list", equipmentCtl.MpList)         // 维保选设备：租户内在用设备分页（巡检员本职，无需 equipment:list 权限）
 			mpAuth.POST("/equipment/maintenance", maintCtl.MpRegister) // 维保登记（一键+一拍，pending 待经理确认）
 			mpAuth.GET("/equipment/maintenance-mine", maintCtl.Mine)   // 我的提交（全部状态，最新在前）
 			mpAuth.PUT("/equipment/maintenance/:id", maintCtl.Update)  // 待确认登记修改（限本人，重走 AI 核验）

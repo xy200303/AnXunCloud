@@ -55,6 +55,17 @@ func (ctl *EquipmentController) List(c *gin.Context) {
 	write(c, page, be)
 }
 
+// MpList GET /mp/equipment/list（巡检员维保选设备：租户内在用设备分页，无需 equipment:list 管理端权限）
+func (ctl *EquipmentController) MpList(c *gin.Context) {
+	var q dto.MpEquipmentListQuery
+	if be := bind.Query(c, &q); be != nil {
+		response.Fail(c, be)
+		return
+	}
+	page, be := ctl.equipment.MpList(c, &q)
+	write(c, page, be)
+}
+
 // Detail GET /equipment/:id
 func (ctl *EquipmentController) Detail(c *gin.Context) {
 	id, be := pathID(c)

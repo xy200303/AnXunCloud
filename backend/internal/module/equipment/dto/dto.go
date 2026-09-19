@@ -10,11 +10,19 @@ type ListQuery struct {
 	response.PageQuery
 	Type        string `form:"type"`
 	CommunityID string `form:"community_id"`
-	PointID     string `form:"point_id"` // 按关联点位反查（一点多具；点位详情「关联设备」区块用）
-	Status      string `form:"status"`    // in_service/maintaining/stopped/scrapped
-	DueState    string `form:"due_state"` // normal/warning/overdue/none（无到期日）
+	PointID     string `form:"point_id"`   // 按关联点位反查（一点多具；点位详情「关联设备」区块用）
+	Status      string `form:"status"`     // in_service/maintaining/stopped/scrapped
+	DueState    string `form:"due_state"`  // normal/warning/overdue/none（无到期日）
 	BindState   string `form:"bind_state"` // bound=已绑定点位 / unbound=未绑定
-	Keyword     string `form:"keyword"`   // 设备编号或名称模糊
+	Keyword     string `form:"keyword"`    // 设备编号或名称模糊
+}
+
+// MpEquipmentListQuery mp 端维保选设备查询（巡检员本职入口，无需 equipment:list 管理端权限）：
+// keyword 设备编号/名称模糊；due_state 到期状态筛选（口径同管理端 ListQuery）。
+type MpEquipmentListQuery struct {
+	response.PageQuery
+	Keyword  string `form:"keyword"`
+	DueState string `form:"due_state"` // normal/warning/overdue/none/scrap/label_missing（同管理端口径）
 }
 
 // SaveReq 设备新增/修改请求。
@@ -106,10 +114,10 @@ type ConfirmListQuery struct {
 type MaintRecordQuery struct {
 	response.PageQuery
 	CommunityID   string `form:"community_id"`
-	ConfirmStatus string `form:"confirm_status"`                // pending/confirmed/rejected
-	Keyword       string `form:"keyword"`                       // 设备编号/名称模糊
-	StartDate     string `form:"start_date"`                    // 维保日期起（YYYY-MM-DD）
-	EndDate       string `form:"end_date"`                      // 维保日期止（YYYY-MM-DD）
+	ConfirmStatus string `form:"confirm_status"`                                 // pending/confirmed/rejected
+	Keyword       string `form:"keyword"`                                        // 设备编号/名称模糊
+	StartDate     string `form:"start_date"`                                     // 维保日期起（YYYY-MM-DD）
+	EndDate       string `form:"end_date"`                                       // 维保日期止（YYYY-MM-DD）
 	LabelMissing  string `form:"label_missing" binding:"omitempty,oneof=1 true"` // 1/true=仅标签缺失登记
 }
 
@@ -117,10 +125,10 @@ type MaintRecordQuery struct {
 
 // ImportResult 台账导入结果（同编号按更新处理，幂等可重导）。
 type ImportResult struct {
-	Total        int          `json:"total"`
-	CreatedCount int          `json:"created_count"`
-	UpdatedCount int          `json:"updated_count"`
-	FailCount    int          `json:"fail_count"`
+	Total        int `json:"total"`
+	CreatedCount int `json:"created_count"`
+	UpdatedCount int `json:"updated_count"`
+	FailCount    int `json:"fail_count"`
 	// AutoBound 自动推理绑定点位的条数（歧义/无对应不逐条报，计数即可）
 	AutoBound   int          `json:"auto_bound"`
 	FailDetails []ImportFail `json:"fail_details"`

@@ -32,14 +32,21 @@ func (c *Client) callGemini(ctx context.Context, httpc *http.Client, baseURL, ap
 		"system_instruction": map[string]any{"parts": []map[string]any{{"text": c.rules()}}},
 		"contents":           []map[string]any{{"role": "user", "parts": parts}},
 	}
-	if c.cfgBool("ai.disable_thinking", true) {
-		payload["generationConfig"] = map[string]any{
-			"thinkingConfig": map[string]any{"thinkingBudget": 0}, // 关思考提速（Gemini 2.x）
-		}
+	// 结构化输出：responseMimeType + responseSchema（Gemini 方言，type 大写；语义校验仍由 parseReview 兜底）
+	genCfg := map[string]any{
+		"responseMimeType": "application/json",
+		"responseSchema":   reviewSchemaGemini(),
 	}
-	respBody, err := postJSON(ctx, httpc, baseURL+"/models/"+model+":generateContent", map[string]string{
+	if c.cfgBool("ai.disable_thinking", true) {
+		genCfg["thinkingConfig"] = map[string]any{"thinkingBudget": 0} // 关思考提速（Gemini 2.x）
+	}
+	payload["generationConfig"] = genCfg
+	respBody, err := postWithStructuredFallback(ctx, httpc, baseURL+"/models/"+model+":generateContent", map[string]string{
 		"x-goog-api-key": strings.TrimSpace(apiKey),
-	}, payload)
+	}, payload, func() {
+		delete(genCfg, "responseMimeType")
+		delete(genCfg, "responseSchema")
+	})
 	if err != nil {
 		return nil, err
 	}

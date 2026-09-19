@@ -12,7 +12,7 @@ type MPRefreshReq struct {
 
 // CheckinItemReq 打卡逐项检查结果提交项。
 // result 显式三态（服务端只校验不折算）：normal 正常 / abnormal 异常 / escaped 无法检查
-// （逃生：exception_type 必填，device_missing/unable_to_capture/camera_broken；label_missing 仅抽查合成项）。
+// （逃生：exception_type 必填，device_missing/unable_to_capture/camera_broken/ai_failed；label_missing 仅抽查合成项）。
 type CheckinItemReq struct {
 	Name   string `json:"name" binding:"required"`
 	Result string `json:"result" binding:"required,oneof=normal abnormal escaped"`
@@ -92,14 +92,15 @@ type ManualItemDraftReq struct {
 }
 
 // PhotoItemAbnormalDraftReq 拍照项异常逃生入口：设备不存在/无法拍摄/相机故障时落逃生草稿（draft_kind=escape）。
-// 佐证分流：device_missing 必带 1 张佐证照片；unable_to_capture/camera_broken 免佐证（无法拍摄还要照片是矛盾的）。
+// 佐证分流：device_missing 必带 1 张佐证照片；unable_to_capture/camera_broken 免佐证（无法拍摄还要照片是矛盾的）；
+// ai_failed（跳过识别，人工现场确认）保留已拍照片，按 device_missing 同口径须带照片。
 type PhotoItemAbnormalDraftReq struct {
 	TaskID        string   `json:"task_id" binding:"required"`
 	PointID       string   `json:"point_id" binding:"required"`
 	Name          string   `json:"name" binding:"required"` // 检查项名（须为该点位模板的拍照项）
 	FileIDs       []string `json:"file_ids" binding:"omitempty,max=1"`
 	Note          string   `json:"note"`
-	ExceptionType string   `json:"exception_type" binding:"required,oneof=device_missing unable_to_capture camera_broken"`
+	ExceptionType string   `json:"exception_type" binding:"required,oneof=device_missing unable_to_capture camera_broken ai_failed"`
 	// ShootLng/ShootLat/ShootAt 佐证照片拍摄时空信息（可选，防作弊时空一致性判定；shoot_at 为 YYYY-MM-DD HH:mm:ss，解析失败存 NULL）
 	ShootLng *float64 `json:"shoot_lng"`
 	ShootLat *float64 `json:"shoot_lat"`

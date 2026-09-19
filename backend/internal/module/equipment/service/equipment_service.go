@@ -223,28 +223,67 @@ func (s *EquipmentService) filtered(c *gin.Context, q *dto.ListQuery) *gorm.DB {
 		kw := "%" + q.Keyword + "%"
 		db = db.Where("code LIKE ? OR name LIKE ?", kw, kw)
 	}
-	// due_state 筛选：warn_days 逐设备取 COALESCE(warn_days, 全局配置)；
-	// scrap=报废日已过 / label_missing=标签缺失（两个 v1.7 特殊态优先于到期判定）
-	if q.DueState != "" {
-		globalWarn := cfgInt(s.db, "equipment.expire_warn_days", 30)
-		today := timefmt.Day(time.Now()).Format("2006-01-02")
-		warnExpr := "COALESCE(warn_days, ?)"
-		switch q.DueState {
-		case DueLabelMissing:
-			db = db.Where("label_missing = ?", true)
-		case DueScrap:
-			db = db.Where("scrap_date IS NOT NULL AND scrap_date <= ? AND status = ?", today, model.StatusInService)
-		case DueNone:
-			db = db.Where("next_due_date IS NULL")
-		case DueOverdue:
-			db = db.Where("next_due_date IS NOT NULL AND next_due_date < ?", today)
-		case DueWarning:
-			db = db.Where("next_due_date >= ? AND next_due_date <= ?::date + ("+warnExpr+")", today, today, globalWarn)
-		case DueNormal:
-			db = db.Where("next_due_date > ?::date + ("+warnExpr+")", today, globalWarn)
-		}
-	}
+	db = s.dueStateFilter(db, q.DueState)
 	return middleware.ApplyCommunityFilter(db, c, "community_id")
+}
+
+// dueStateFilter due_state 到期状态筛选（warn_days 逐设备取 COALESCE(warn_days, 全局配置)；
+// scrap=报废日已过 / label_missing=标签缺失（两个 v1.7 特殊态优先于到期判定））。管理端列表与 mp 选设备共用。
+func (s *EquipmentService) dueStateFilter(db *gorm.DB, dueState string) *gorm.DB {
+	if dueState == "" {
+		return db
+	}
+	globalWarn := cfgInt(s.db, "equipment.expire_warn_days", 30)
+	today := timefmt.Day(time.Now()).Format("2006-01-02")
+	warnExpr := "COALESCE(warn_days, ?)"
+	switch dueState {
+	case DueLabelMissing:
+		db = db.Where("label_missing = ?", true)
+	case DueScrap:
+		db = db.Where("scrap_date IS NOT NULL AND scrap_date <= ? AND status = ?", today, model.StatusInService)
+	case DueNone:
+		db = db.Where("next_due_date IS NULL")
+	case DueOverdue:
+		db = db.Where("next_due_date IS NOT NULL AND next_due_date < ?", today)
+	case DueWarning:
+		db = db.Where("next_due_date >= ? AND next_due_date <= ?::date + ("+warnExpr+")", today, today, globalWarn)
+	case DueNormal:
+		db = db.Where("next_due_date > ?::date + ("+warnExpr+")", today, globalWarn)
+	}
+	return db
+}
+
+// MpList mp 端维保选设备列表（GET /mp/equipment/list）：巡检员登记维保选设备是本职，不需要 equipment:list 管理端权限。
+// 数据范围与 MpDueDevices 同口径：租户上下文（TenantScopeOrDefault；一线巡检员 self 档不适用小区过滤——
+// ApplyCommunityFilter 对 self 档会清空结果），仅列在用设备；keyword 编号/名称模糊 + due_state 筛选（同管理端口径）。
+func (s *EquipmentService) MpList(c *gin.Context, q *dto.MpEquipmentListQuery) (*response.Page, *errs.Error) {
+	tid, be := middleware.TenantScopeOrDefault(c, s.db)
+	if be != nil {
+		return nil, be
+	}
+	db := s.db.Model(&model.Equipment{}).Where("status = ?", model.StatusInService)
+	if tid != "" {
+		db = db.Where("tenant_id = ?", tid)
+	}
+	if kw := strings.TrimSpace(q.Keyword); kw != "" {
+		like := "%" + kw + "%"
+		db = db.Where("code LIKE ? OR name LIKE ?", like, like)
+	}
+	db = s.dueStateFilter(db, q.DueState)
+	var total int64
+	if err := db.Count(&total).Error; err != nil {
+		return nil, errs.ErrInternal
+	}
+	// 选择器场景收窄分页上限（50），先 cap 再 Normalize 保证 offset 口径一致
+	if q.PageSize > 50 {
+		q.PageSize = 50
+	}
+	offset, limit := q.Normalize()
+	var rows []model.Equipment
+	if err := db.Order("next_due_date ASC NULLS LAST, created_at DESC").Offset(offset).Limit(limit).Find(&rows).Error; err != nil {
+		return nil, errs.ErrInternal
+	}
+	return &response.Page{List: s.toItems(rows), Total: total, Page: q.Page, PageSize: q.PageSize}, nil
 }
 
 // toItems 列表项装配：小区/楼栋/点位名、类型 label、due_state。

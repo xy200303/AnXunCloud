@@ -383,15 +383,22 @@ func judgeInstruction(jt string, cfg map[string]any) string {
 	return ""
 }
 
-// jsonRe 从模型输出中提取首个 JSON 对象（容错 Markdown 代码块/前后杂文本）。
+// jsonRe 兜底提取：从模型文本输出中定位首个 JSON 对象（容错 Markdown 代码块/前后杂文本）。
+// 结构化输出（json_schema/tool_use）已是主路径，正则提取仅作降级后的兜底。
 var jsonRe = regexp.MustCompile(`\{[\s\S]*\}`)
 
-// parseReview 解析模型输出；模型必须返回完整的质量与逐项结论。
+// parseReview 结构化输出时代的校验层 + 兜底提取：先从文本中提取 JSON（降级路径），再按协议校验。
 func parseReview(content string) (*ReviewResult, error) {
 	m := jsonRe.FindString(content)
 	if m == "" {
 		return nil, fmt.Errorf("输出中未找到 JSON: %s", strutil.Truncate(content, 200))
 	}
+	return validateReviewJSON([]byte(m))
+}
+
+// validateReviewJSON 审核协议语义校验（verdict 枚举、quality 必填、tag 归一）：
+// 结构化输出（json_schema/tool_use input）与文本提取共用同一校验层。
+func validateReviewJSON(raw []byte) (*ReviewResult, error) {
 	var v struct {
 		Quality *struct {
 			Pass  *bool  `json:"pass"`
@@ -407,18 +414,17 @@ func parseReview(content string) (*ReviewResult, error) {
 			AbnormalTags []string `json:"abnormal_tags"`
 		} `json:"items"`
 	}
-	if err := json.Unmarshal([]byte(m), &v); err != nil {
+	if err := json.Unmarshal(raw, &v); err != nil {
 		return nil, fmt.Errorf("JSON 解析失败: %w", err)
 	}
 	if v.Quality == nil || v.Quality.Pass == nil {
 		return nil, fmt.Errorf("缺少 quality 质量结论")
 	}
-	if v.Verdict != VerdictPass && v.Verdict != VerdictReview {
+	if v.Verdict != VerdictPass && v.Verdict != VerdictReview && v.Verdict != VerdictAbnormal {
 		return nil, fmt.Errorf("非法 verdict: %q", v.Verdict)
 	}
-	if len(v.Items) == 0 {
-		return nil, fmt.Errorf("缺少 items 逐项结论")
-	}
+	// items 允许为空（prompt 本就说"无法逐项判断时可省略"）：逐项任务由 worker 回落整体 Verdict；
+	// 空 items 判失败会让"模型存疑省略 items"被误判成识别失败
 	res := &ReviewResult{Verdict: v.Verdict, Reason: v.Reason, Quality: QualityResult{Pass: *v.Quality.Pass, Issue: v.Quality.Issue}}
 	for _, it := range v.Items {
 		name := strings.TrimSpace(it.Name)

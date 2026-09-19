@@ -467,6 +467,8 @@ func exceptionTypeCN(t string) string {
 		return "无法拍摄"
 	case "camera_broken":
 		return "相机故障"
+	case "ai_failed":
+		return "AI 识别失败（人工现场确认）"
 	case "label_missing":
 		return "标签磨损无法辨认"
 	}

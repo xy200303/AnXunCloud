@@ -17,13 +17,15 @@ func (c *Client) callOpenAIChat(ctx context.Context, httpc *http.Client, baseURL
 		"model":      model,
 		"messages":   c.buildMessages(input),
 		"max_tokens": 1024,
+		// 结构化输出：json_object 约束合法 JSON（兼容性最好的方言；语义校验仍由 parseReview 兜底）
+		"response_format": map[string]any{"type": "json_object"},
 	}
 	if c.cfgBool("ai.disable_thinking", true) {
 		payload["enable_thinking"] = false // 关思考提速（通义/DashScope 等兼容网关生效，不识别的网关忽略）
 	}
-	respBody, err := postJSON(ctx, httpc, baseURL+"/chat/completions", map[string]string{
+	respBody, err := postWithStructuredFallback(ctx, httpc, baseURL+"/chat/completions", map[string]string{
 		"Authorization": "Bearer " + strings.TrimSpace(apiKey),
-	}, payload)
+	}, payload, func() { delete(payload, "response_format") })
 	if err != nil {
 		return nil, err
 	}

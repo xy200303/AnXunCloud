@@ -663,5 +663,5 @@ func pointTemplateIDs(db *gorm.DB, pointID string) []string {
 func validItemExceptionType(exceptionType string) bool {
 	// label_missing 仅标签抽查合成项可用（模板项逃生校验在 SavePhotoItemAbnormalDraft 拦截）
 	return exceptionType == "device_missing" || exceptionType == "unable_to_capture" ||
-		exceptionType == "camera_broken" || exceptionType == "label_missing"
+		exceptionType == "camera_broken" || exceptionType == "label_missing" || exceptionType == "ai_failed"
 }

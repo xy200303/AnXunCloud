@@ -37,8 +37,14 @@ func TestParseReviewRequiresCompleteContract(t *testing.T) {
 	if _, err := parseReview(`{"verdict":"pass","reason":"照片清晰","items":[{"name":"检查项","verdict":"pass"}]}`); err == nil {
 		t.Fatal("缺少质量结论应报错")
 	}
-	if _, err := parseReview(`{"quality":{"pass":true},"verdict":"pass","reason":"照片清晰"}`); err == nil {
-		t.Fatal("缺少逐项结论应报错")
+	// items 可省略/为空（prompt 允许"无法逐项判断时省略"）：逐项任务由 worker 回落整体 verdict
+	if _, err := parseReview(`{"quality":{"pass":true},"verdict":"review","reason":"存疑"}`); err != nil {
+		t.Fatalf("空 items 不应报错: %v", err)
+	}
+	// 整体 verdict 允许 abnormal（逐项任务的整体结论回落值）
+	res, err := parseReview(`{"quality":{"pass":true},"verdict":"abnormal","reason":"灭火器过期","items":[]}`)
+	if err != nil || res.Verdict != VerdictAbnormal {
+		t.Fatalf("整体 abnormal 应放行: res=%v err=%v", res, err)
 	}
 }
 

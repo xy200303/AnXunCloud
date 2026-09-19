@@ -18,6 +18,7 @@ import {
   clearSessionStorage
 } from '@/utils/storage'
 import { currentTenantId } from '@/stores/tenant'
+import { reLaunchToLogin } from '@/utils/nav'
 
 // ---- baseURL：按端 + 环境切换 ------------------------------------------------
 // 本地默认 dev；当前开发/测试与正式 API 域名一致，保留 prod 开关便于后续环境拆分。
@@ -134,7 +135,7 @@ export function forceLogoutToLogin(msg?: string): void {
   clearAuthStorage()
   clearSessionStorage() // 会话数据（离线队列/草稿等）一并清除，防共用设备串户
   uni.showToast({ title: msg != null && msg != '' ? msg : '登录已失效，请重新登录', icon: 'none' })
-  uni.reLaunch({ url: '/pages/login/index' })
+  reLaunchToLogin()
   // reLaunch 完成后解锁，避免并发请求重复跳转/连弹 toast
   setTimeout(() => {
     loggingOut = false

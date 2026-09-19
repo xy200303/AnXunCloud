@@ -71,6 +71,7 @@ import {
   saveSwitchAccounts,
   upsertSwitchAccount
 } from '@/utils/storage'
+import { reLaunchToLogin } from '@/utils/nav'
 import AppDialog from '@/components/AppDialog.vue'
 
 type SwitchData = {
@@ -125,7 +126,7 @@ export default {
     },
     /** 返回/添加账号：去登录页（本页由 reLaunch 打开，无返回栈） */
     goLogin() {
-      uni.reLaunch({ url: '/pages/login/index' })
+      reLaunchToLogin()
     },
     toggleManage() {
       this.managing = !this.managing
@@ -152,7 +153,7 @@ export default {
         .catch((e: Error) => {
           this.loginKey = ''
           // 凭据失效（如密码已改）：回登录页并回填账号，手动重登后自动更新凭据
-          uni.reLaunch({ url: '/pages/login/index?username=' + encodeURIComponent(acc.username) + '&err=' + encodeURIComponent(e.message) })
+          reLaunchToLogin('/pages/login/index?username=' + encodeURIComponent(acc.username) + '&err=' + encodeURIComponent(e.message))
         })
     },
     onDeleteTap(idx: number) {

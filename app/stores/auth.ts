@@ -16,6 +16,7 @@ import {
   clearSessionStorage
 } from '@/utils/storage'
 import { bindPushDevice, unbindPushDevice, syncBadge, setAppBadge } from '@/utils/push'
+import { reLaunchToLogin } from '@/utils/nav'
 import { useTenantStore } from '@/stores/tenant'
 
 function loadCachedUser(): UserInfo | null {
@@ -111,7 +112,7 @@ export const useAuthStore = defineStore('auth', {
     },
     resetToLogin(redirectUrl?: string) {
       this.clearLocalSession()
-      uni.reLaunch({ url: redirectUrl != null && redirectUrl != '' ? redirectUrl : '/pages/login/index' })
+      reLaunchToLogin(redirectUrl != null && redirectUrl != '' ? redirectUrl : undefined)
     }
   }
 })

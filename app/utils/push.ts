@@ -27,6 +27,7 @@ declare const plus: any
 
 import { apiBindPushDevice, apiUnbindPushDevice, apiMessages } from '@/services/api'
 import { getAccessToken } from '@/utils/storage'
+import { reLaunchToLogin } from '@/utils/nav'
 
 // ---- CID 获取与绑定 ---------------------------------------------------------------
 
@@ -154,7 +155,7 @@ function parsePayload(raw: any): PushPayload | null {
  */
 export function routePushMessage(payload: PushPayload | null): void {
   if (getAccessToken() == '') {
-    uni.reLaunch({ url: '/pages/login/index' })
+    reLaunchToLogin()
     return
   }
   const type = payload != null && payload.type != null ? payload.type : ''

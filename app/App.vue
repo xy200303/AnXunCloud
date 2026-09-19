@@ -6,6 +6,7 @@ import { launchCheckinScan, resolvePointCode } from '@/utils/scan'
 import { startGlobalListener, platformOf } from '@/utils/nfc'
 import { syncOfflineCheckins } from '@/utils/offline'
 import { initPushClickListener, bindPushDevice, syncBadge } from '@/utils/push'
+import { reLaunchToLogin } from '@/utils/nav'
 
 function routeNfcCard(cardId: string) {
   // 打卡页（连续巡检向导/手动表单）暴露了 onGlobalNfc 则交给页面处理：
@@ -41,7 +42,7 @@ export default {
     })
     // 登录守卫：无 token 直接进登录页（登录页 navigationStyle: custom）
     if (getAccessToken() == '') {
-      uni.reLaunch({ url: '/pages/login/index' })
+      reLaunchToLogin()
     }
     // 网络恢复监听：断网重连后自动补传离线打卡（技术方案 §5.7）
     uni.onNetworkStatusChange((res) => {

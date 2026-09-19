@@ -100,6 +100,25 @@ func (ctl *ReportController) Rebuild(c *gin.Context) {
 	response.OKMsg(c, "已按当前模板重新生成", nil)
 }
 
+// Void POST /reports/:id/void（作废归档：记录保留，原因必填；作废后同期间可重新生成新报告）
+func (ctl *ReportController) Void(c *gin.Context) {
+	id, be := pathID(c)
+	if be != nil {
+		response.Fail(c, be)
+		return
+	}
+	var req dto.VoidReq
+	if be := bind.JSON(c, &req); be != nil {
+		response.Fail(c, be)
+		return
+	}
+	if be := ctl.svc.Void(c, id, req.Reason); be != nil {
+		response.Fail(c, be)
+		return
+	}
+	response.OKMsg(c, "已作废", nil)
+}
+
 // SignCandidates GET /reports/sign-candidates?community_id=[&patrol_type=][&period=YYYY-MM]（生成报告时的动态审核链候选人；period 用于预览「巡检员确认」环节的当月任务巡检员）
 func (ctl *ReportController) SignCandidates(c *gin.Context) {
 	communityID := c.Query("community_id")

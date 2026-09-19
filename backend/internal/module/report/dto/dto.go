@@ -50,6 +50,11 @@ type SignReq struct {
 	ProxyFor        string `json:"proxy_for"`
 }
 
+// VoidReq 报告作废请求（归档留痕：记录保留，reason 必填）。
+type VoidReq struct {
+	Reason string `json:"reason" binding:"required,max=512"`
+}
+
 // ReportPlanReq 报告生成计划创建/更新请求。
 // cycle_config 按 cycle_type 取：monthly={day:1~28}；weekly={weekday:1~7（1=周一）}；daily={}。
 type ReportPlanReq struct {

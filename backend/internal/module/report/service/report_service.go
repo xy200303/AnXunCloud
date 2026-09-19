@@ -591,14 +591,14 @@ func (s *ReportService) List(c *gin.Context, q *dto.ReportListQuery) (*response.
 			db = db.Where(`status = ? AND review_current_ids @> ?::jsonb`, model.StatusPendingReview, j)
 		}
 	}
-	// 我签过的：任意审核步骤签署留痕含当前用户。1/true 含已归档（签完不消失，可回看完整报告）；
-	// doing 只取流程未走完的（App「进行中」选项卡）。
+	// 我签过的：任意审核步骤签署留痕含当前用户。1/true 含已归档与已作废（签完不消失，可回看完整报告）；
+	// doing 只取审核流程进行中的（pending_review；已归档/已作废都不算进行中，App「进行中」选项卡）。
 	if q.SignedMine != "" {
 		if identity := middleware.CurrentIdentity(c); identity != nil {
 			uid := identity.UserID
 			signedCond := `review_steps @> ?::jsonb`
 			if q.SignedMine == "doing" {
-				db = db.Where(`status <> 'approved' AND `+signedCond, fmt.Sprintf(`[{"signed":[{"user_id":"%s"}]}]`, uid))
+				db = db.Where(`status = 'pending_review' AND `+signedCond, fmt.Sprintf(`[{"signed":[{"user_id":"%s"}]}]`, uid))
 			} else if q.SignedMine == "1" || q.SignedMine == "true" {
 				db = db.Where(`status = 'approved' OR `+signedCond, fmt.Sprintf(`[{"signed":[{"user_id":"%s"}]}]`, uid))
 			}
@@ -682,6 +682,15 @@ func (s *ReportService) Detail(c *gin.Context, id string) (gin.H, *errs.Error) {
 			fileURL = s.store.URL(f.StorageKey)
 		}
 	}
+	// 作废留痕（作废人姓名一次反查）
+	voidedByName := ""
+	if r.VoidedBy != nil && *r.VoidedBy != "" {
+		voidedByName = s.userNamesOf(map[string]bool{*r.VoidedBy: true})[*r.VoidedBy]
+	}
+	var voidedAt any
+	if r.VoidedAt != nil {
+		voidedAt = timefmt.T(*r.VoidedAt)
+	}
 	return gin.H{
 		"id": r.ID, "community_id": r.CommunityID, "community_name": s.commName(r.CommunityID),
 		"period": r.Period, "title": r.Title, "status": r.Status, "stats": r.Stats,
@@ -694,11 +703,47 @@ func (s *ReportService) Detail(c *gin.Context, id string) (gin.H, *errs.Error) {
 		"review_step":        r.ReviewStep,
 		"review_current_ids": r.ReviewCurrentIDs,
 		"reject_reason":      r.RejectReason,
+		"void_reason":        r.VoidReason,
+		"voided_by":          r.VoidedBy,
+		"voided_by_name":     voidedByName,
+		"voided_at":          voidedAt,
 		"file_id":            fileID,
 		"file_url":           fileURL,
 		"created_at":         timefmt.T(r.CreatedAt),
 		"updated_at":         timefmt.T(r.UpdatedAt),
 	}, nil
+}
+
+// Void 作废报告（归档留痕）：记录保留（签字流/统计不删），status 置 voided 终态。
+// 作废后不可再签/重算；同期间重新生成走 createReport 判重排除 voided，落新行。
+// 并发安全：Updates 带 status <> 'voided' 条件，不命中说明已被并发作废。
+func (s *ReportService) Void(c *gin.Context, id, reason string) *errs.Error {
+	r, be := s.getWithScope(c, id)
+	if be != nil {
+		return be
+	}
+	if r.Status == model.StatusVoided {
+		return errs.ErrReportStatusNotAllowed.WithMsg("报告已作废")
+	}
+	var operator string
+	if identity := middleware.CurrentIdentity(c); identity != nil {
+		operator = identity.UserID
+	}
+	now := time.Now()
+	tx := s.db.Model(&model.InspectionReport{}).Where("id = ? AND status <> ?", id, model.StatusVoided).
+		Updates(map[string]any{
+			"status":      model.StatusVoided,
+			"void_reason": reason,
+			"voided_by":   operator,
+			"voided_at":   now,
+		})
+	if tx.Error != nil {
+		return errs.ErrInternal
+	}
+	if tx.RowsAffected == 0 {
+		return errs.ErrReportStatusNotAllowed.WithMsg("报告已作废")
+	}
+	return nil
 }
 
 // Generate 手动生成/重算报告（approved 不可重算；已存在则重算 stats 并重置签字流程）。
@@ -780,9 +825,10 @@ func (s *ReportService) createReport(communityID, patrolType string, start, end 
 	endOfDay := end.Add(-time.Second)
 
 	var r model.InspectionReport
-	// 判重/重算按 community_id+period+patrol_type（COALESCE 归一，综合月报 NULL/'' 等价，与唯一索引一致）
-	dedupWhere := s.db.Where("community_id = ? AND period = ? AND COALESCE(patrol_type, '') = ?",
-		communityID, label, patrolType)
+	// 判重/重算按 community_id+period+patrol_type（COALESCE 归一，综合月报 NULL/'' 等价，与唯一索引一致）；
+	// 已作废报告排除在判重外（作废留痕不复活，同期间重新生成新行，与 uk_inspection_report 部分索引口径一致）
+	dedupWhere := s.db.Where("community_id = ? AND period = ? AND COALESCE(patrol_type, '') = ? AND status <> ?",
+		communityID, label, patrolType, model.StatusVoided)
 	err := dedupWhere.First(&r).Error
 	if err == nil {
 		return s.recalcReport(&r, title, initialStatus, initialStep, inspectionPlanID, reportPlanID,

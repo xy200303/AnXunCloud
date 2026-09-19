@@ -370,6 +370,7 @@ func New(cfg *config.Config, db *gorm.DB, rdb *redis.Client) (*gin.Engine, *insp
 			reports.DELETE("/plans/:id", middleware.RequirePerm("report:generate"), middleware.OperLog(db, "report", "plan_delete"), reportCtl.DeleteReportPlan)
 			reports.POST("/plans/:id/run", middleware.RequirePerm("report:generate"), middleware.OperLog(db, "report", "plan_run"), reportCtl.RunReportPlanNow)
 			reports.POST("/:id/rebuild", middleware.RequirePerm("report:generate"), middleware.OperLog(db, "report", "rebuild"), reportCtl.Rebuild)
+			reports.POST("/:id/void", middleware.RequirePerm("report:generate"), middleware.OperLog(db, "report", "void"), reportCtl.Void)
 			reports.GET("/sign-candidates", middleware.RequirePerm("report:generate"), reportCtl.SignCandidates)
 			reports.GET("/:id/records", middleware.RequirePerm("report:list"), reportCtl.PagedRecords)
 			reports.GET("/:id", middleware.RequirePerm("report:list"), reportCtl.Detail)

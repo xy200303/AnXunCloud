@@ -9,10 +9,11 @@ import (
 	"anxuncloud/internal/pkg/types"
 )
 
-// 报告状态：pending_review → approved。
+// 报告状态：pending_review → approved；voided=作废终态（归档留痕，记录保留不可再签/重算）。
 const (
 	StatusPendingReview = "pending_review"
 	StatusApproved      = "approved"
+	StatusVoided        = "voided"
 )
 
 // InspectionReport 月度巡检报告（动态审核链 + PDF 归档）。
@@ -40,11 +41,15 @@ type InspectionReport struct {
 	ReviewStep       int                         `gorm:"default:0" json:"review_step"`
 	ReviewCurrentIDs types.IDArray               `gorm:"type:jsonb;default:'[]'" json:"review_current_ids"`
 	RejectReason     string                      `gorm:"size:512" json:"reject_reason"`
-	SealFileID       string                      `gorm:"type:uuid;default:null" json:"seal_file_id"`
-	FileID           string                      `gorm:"type:uuid;default:null" json:"file_id"`
-	CreatedAt        time.Time                   `json:"created_at"`
-	UpdatedAt        time.Time                   `json:"updated_at"`
-	DeletedAt        gorm.DeletedAt              `json:"-"`
+	// 作废留痕（status=voided 时有值；void_reason 必填）
+	VoidReason string         `gorm:"size:512" json:"void_reason"`
+	VoidedBy   *string        `gorm:"type:uuid" json:"voided_by"`
+	VoidedAt   *time.Time     `json:"voided_at"`
+	SealFileID string         `gorm:"type:uuid;default:null" json:"seal_file_id"`
+	FileID     string         `gorm:"type:uuid;default:null" json:"file_id"`
+	CreatedAt  time.Time      `json:"created_at"`
+	UpdatedAt  time.Time      `json:"updated_at"`
+	DeletedAt  gorm.DeletedAt `json:"-"`
 }
 
 func (InspectionReport) TableName() string { return "inspection_report" }

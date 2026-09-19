@@ -932,8 +932,9 @@ func (s *ReportService) SignCandidates(c *gin.Context, communityID, patrolType, 
 			return []sysmodel.SysUser{}, nil
 		}
 		var users []sysmodel.SysUser
+		// IDArray 实现了 driver.Valuer，直接作查询参数会被当成单值生成 "IN $n" 非法 SQL，须转裸 []string
 		if err := s.db.Select("id", "name").
-			Where("tenant_id = ? AND status = ? AND id IN ?", *tenantID, sysmodel.StatusEnabled, ids).
+			Where("tenant_id = ? AND status = ? AND id IN ?", *tenantID, sysmodel.StatusEnabled, []string(ids)).
 			Order("id ASC").Find(&users).Error; err != nil {
 			return nil, errs.ErrInternal
 		}

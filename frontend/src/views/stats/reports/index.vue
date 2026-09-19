@@ -69,10 +69,11 @@
           <template #default="{ row }">{{ row.review_steps?.map((x: any) => x.name).join(' → ') || '无需审核' }}</template>
         </el-table-column>
         <el-table-column prop="created_at" label="生成时间" width="160" />
-        <el-table-column label="操作" width="150" fixed="right">
+        <el-table-column label="操作" width="230" fixed="right">
           <template #default="{ row }">
             <el-button link type="primary" @click="openDetail(row)">详情</el-button>
             <el-button v-perms="'report:download'" link type="primary" @click="handleDownload(row)">下载PDF</el-button>
+            <el-button v-if="row.status !== 'voided'" v-perms="'report:generate'" link type="danger" @click="handleVoid(row)">作废</el-button>
           </template>
         </el-table-column>
         <template #empty>
@@ -112,6 +113,15 @@
             :closable="false"
             class="reject-alert"
             :title="`最近驳回原因：${detail.reject_reason}`"
+          />
+
+          <!-- 作废留痕（归档记录保留） -->
+          <el-alert
+            v-if="detail.status === 'voided'"
+            type="info"
+            :closable="false"
+            class="reject-alert"
+            :title="`已作废：${detail.void_reason || '—'}（操作人：${detail.voided_by_name || '—'}，${detail.voided_at || '—'}）`"
           />
 
           <el-descriptions :column="2" border size="small">
@@ -358,6 +368,7 @@ import {
   generateReport,
   getSignCandidates,
   signStep,
+  voidReport,
   type ReportItem,
   type ReportDetail,
   type ReportRecord,
@@ -395,7 +406,7 @@ const { loading, list, total, query, fetchList, handleSearch, handleReset } = us
 const { communities, loading: communitiesLoading } = useCommunities()
 
 const statusOptions: { label: string; value: ReportStatus }[] = [
-  { label: '待审核', value: 'pending_review' }, { label: '已通过', value: 'approved' }
+{ label: '待审核', value: 'pending_review' }, { label: '已通过', value: 'approved' }, { label: '已作废', value: 'voided' }
 ]
 
 // 状态标签：pending_* 流程中-橙 / approved 已通过-绿
@@ -403,6 +414,7 @@ function statusTag(s: string): { label: string; type: 'info' | 'warning' | 'succ
   return (
     {
       pending_review: { label: '待审核', type: 'warning' },
+      voided: { label: '已作废', type: 'info' },
       approved: { label: '已通过', type: 'success' }
     }[s] || { label: s || '--', type: 'info' }
   ) as { label: string; type: 'info' | 'warning' | 'success' | 'danger' }
@@ -618,6 +630,29 @@ async function handleReject() {
     // 拦截器已提示
   } finally {
     signing.value = false
+  }
+}
+
+// ===== 作废（归档留痕） =====
+async function handleVoid(row: ReportItem) {
+  let reason = ''
+  try {
+    const res = await ElMessageBox.prompt('作废后报告仅保留记录（不可再签字/重算），同期间可重新生成新报告。请输入作废原因', '作废报告', {
+      confirmButtonText: '确认作废',
+      cancelButtonText: '取消',
+      inputPlaceholder: '如：期间口径错误，需重新生成',
+      inputValidator: (v: string) => (v && v.trim() ? true : '作废原因不能为空')
+    })
+    reason = res.value.trim()
+  } catch {
+    return
+  }
+  try {
+    await voidReport(row.id, reason)
+    ElMessage.success('已作废，记录保留')
+    await fetchList()
+  } catch {
+    // 拦截器已提示
   }
 }
 

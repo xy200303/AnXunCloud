@@ -1,7 +1,7 @@
 // 月度巡检工作报告接口（动态审核链 + PDF 归档）
 import { request, type PageResult } from '@/utils/request'
 
-export type ReportStatus = 'pending_review' | 'approved'
+export type ReportStatus = 'pending_review' | 'approved' | 'voided'
 // 签字留痕（对齐后端 types.SignEntry；proxy_* 三字段同时非空表示代签）
 export interface ReportSignEntry {
   user_id: string
@@ -86,6 +86,11 @@ export interface ReportDetail {
   review_step: number
   review_current_ids: string[]
   reject_reason: string
+  // 作废留痕（status=voided 时有值）
+  void_reason: string
+  voided_by: string | null
+  voided_by_name: string
+  voided_at: string | null
   file_id: string
   file_url: string | null
   created_at: string
@@ -158,4 +163,9 @@ export interface SignBody {
 
 export function signStep(id: string, step: number, data: SignBody) {
   return request<{ status: ReportStatus; review_step: number }>({ url: `/reports/${id}/sign-step/${step}`, method: 'post', data })
+}
+
+// 作废报告（归档留痕：记录保留不可再签/重算，原因必填；作废后同期间可重新生成新报告）
+export function voidReport(id: string, reason: string) {
+  return request<null>({ url: `/reports/${id}/void`, method: 'post', data: { reason } })
 }

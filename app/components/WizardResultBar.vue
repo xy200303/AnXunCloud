@@ -12,12 +12,7 @@
       :color="line.fg"
       :background-color="line.bg"
     />
-    <uni-tag
-      v-else
-      :text="line.text"
-      :type="line.tagType"
-      :custom-style="'width:100%;text-align:center;padding:18rpx 24rpx;border-radius:16rpx;font-size:30rpx;font-weight:600;display:flex;justify-content:center'"
-    />
+    <wd-tag v-else :type="line.tagType" :custom-style="'width:100%;text-align:center;padding:18rpx 24rpx;border-radius:16rpx;font-size:30rpx;font-weight:600;display:flex;justify-content:center'">{{ line.text }}</wd-tag>
   </view>
 </template>
 

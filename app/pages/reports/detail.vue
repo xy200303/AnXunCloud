@@ -5,10 +5,7 @@
       <view class="card bg-card" >
         <text class="title text-main" >{{ d.title }}</text>
         <text class="sub text-secondary" >{{ d.community_name }} · {{ d.period }} · 生成于 {{ d.created_at }}</text>
-        <uni-tag
-          :text="statusLabel(d.status)"
-          :custom-style="d.status === 'approved' ? 'background-color:#E8F7EE;color:#2BA471;border-color:transparent' : (d.status === 'voided' ? 'background-color:#F2F3F5;color:#86909C;border-color:transparent' : 'background-color:#FDF3E5;color:#ED7B2F;border-color:transparent')"
-        />
+        <wd-tag :custom-style="d.status === 'approved' ? 'background-color:#E8F7EE;color:#2BA471;border-color:transparent' : (d.status === 'voided' ? 'background-color:#F2F3F5;color:#86909C;border-color:transparent' : 'background-color:#FDF3E5;color:#ED7B2F;border-color:transparent')">{{ statusLabel(d.status) }}</wd-tag>
         <view v-if="d.reject_reason != ''" class="reject-bar" :style="{ backgroundColor: '#FEF0EF' }">
           <text class="reject-text text-danger" >最近驳回原因：{{ d.reject_reason }}</text>
         </view>
@@ -77,21 +74,11 @@
       <text class="empty-title text-regular" >{{ errorMsg }}</text>
       <text class="empty-retry text-brand"  @click="load">重试</text>
     </view>
-    <uni-load-more v-else status="loading" :content-text="{ contentrefresh: '加载中…' }" :color="'#86909C'" />
+    <wd-loadmore v-else state="loading" loading-text="加载中…" />
 
     <!-- 驳回原因弹窗（AppDialog editable；确认带回输入值，空值不提交） -->
-    <AppDialog
-      :visible="rejectDlgShow"
-      kind="danger"
-      title="驳回报告"
-      :editable="true"
-      placeholder="请输入驳回原因"
-      :default-value="rejectReason"
-      confirm-text="驳回"
-      cancel-text="取消"
-      @update:visible="rejectDlgShow = $event"
-      @confirm="onRejectConfirm"
-    />
+    <!-- 对话框宿主（驳回报告=prompt 必填，useDialog 函数式） -->
+    <wd-dialog />
 
     <!-- 手写签名板（未配置签名时签字现场手写；勾选「保存」则写入签章资产下次直接用） -->
     <SignaturePad ref="pad" :show-save-option="true" @save="onPadSave" />
@@ -102,12 +89,16 @@
 import { apiReportDetail, apiSignStep, apiUploadLocal, apiUpdateProfile, openReportPdf, type ReportDetail, type ReportSignReq } from '@/services/api'
 import { useAuthStore } from '@/stores/auth'
 
-import AppDialog from '@/components/AppDialog.vue'
+import { useDialog } from '@/uni_modules/wot-ui/composables'
 import SignaturePad from '@/components/SignaturePad.vue'
 
 export default {
-  components: { AppDialog, SignaturePad },
-  data() { return { d: null as ReportDetail | null, busy: false, reportId: '', errorMsg: '', rejectDlgShow: false, rejectReason: '' } },
+  components: { SignaturePad },
+  setup() {
+    const dlg = useDialog()
+    return { dlg }
+  },
+  data() { return { d: null as ReportDetail | null, busy: false, reportId: '', errorMsg: '' } },
   computed: {
     currentStep(): any { return this.d?.review_steps?.[this.d.review_step] },
     canSign(): boolean {
@@ -191,12 +182,22 @@ export default {
           uni.showToast({ title: e.message || '签名上传失败', icon: 'none' })
         })
     },
-    reject() { this.rejectReason = ''; this.rejectDlgShow = true },
+    reject() {
+      // wd-dialog prompt：必填，校验不过不关弹窗
+      this.dlg.prompt({
+        title: '驳回报告',
+        confirmButtonText: '驳回',
+        confirmButtonProps: { type: 'error' },
+        inputProps: { placeholder: '请输入驳回原因', maxlength: 200 },
+        inputPattern: /\S+/,
+        inputError: '请填写驳回原因'
+      }).then((res) => {
+        this.onRejectConfirm(String(res.value != null ? res.value : ''))
+      }).catch(() => {})
+    },
     onRejectConfirm(reason: string) {
-      this.rejectReason = reason
       const v = (reason || '').trim()
-      // 空值不触发提交：提示并保持弹窗打开（update:visible 先置关，此处再开回）
-      if (v == '') { uni.showToast({ title: '请填写驳回原因', icon: 'none' }); this.rejectDlgShow = true; return }
+      if (v == '') return
       this.submit({ action: 'reject', reason: v }, '已驳回')
     },
     // 完整 PDF：ticket → pdf.js 内嵌渲染（App 端）/ 下载后系统打开（其他端），见 api.openReportPdf

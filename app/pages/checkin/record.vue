@@ -2,7 +2,7 @@
   <view class="page bg-page" >
     <!-- 加载中 / 失败 -->
     <view v-if="loading" class="hint">
-      <uni-load-more status="loading" :content-text="{ contentrefresh: '加载中…' }" :color="'#86909C'" />
+      <wd-loadmore state="loading" loading-text="加载中…" />
     </view>
     <view v-else-if="!loaded" class="hint">
       <text class="hint-text text-regular" >{{ errorMsg }}</text>
@@ -11,14 +11,11 @@
 
     <block v-else>
       <!-- 头部：点位 + 结果 + 元信息（§18.3 uni-card 分组容器） -->
-      <uni-card :is-shadow="true" :border="false" margin="0 0 24rpx 0" padding="28rpx 32rpx" spacing="0">
+      <wd-card>
         <view class="head-row">
           <text class="point-name text-main" >{{ pointName }}</text>
           <!-- 记录级结论徽章：官方 uni-tag（custom-style 对齐原浅底深字配色） -->
-          <uni-tag
-            :text="result == 'abnormal' ? '⚠ 有异常' : '✓ 正常'"
-            :custom-style="result == 'abnormal' ? 'color:#D54941;background-color:#FDECEC;border-color:transparent' : 'color:#2BA471;background-color:#E7F6EF;border-color:transparent'"
-          />
+          <wd-tag :custom-style="result == 'abnormal' ? 'color:#D54941;background-color:#FDECEC;border-color:transparent' : 'color:#2BA471;background-color:#E7F6EF;border-color:transparent'">{{ result == 'abnormal' ? '⚠ 有异常' : '✓ 正常' }}</wd-tag>
         </view>
         <text v-if="buildingName != ''" class="head-sub text-secondary" >{{ buildingName }}</text>
         <!-- 审核状态（提交后可见：打回红条带原因并引导修改；其余一行状态） -->
@@ -45,13 +42,13 @@
           <text class="meta-label text-secondary" >定位信息</text>
           <text class="meta-value text-regular" >{{ locInfoText }}</text>
         </view>
-      </uni-card>
+      </wd-card>
 
       <!-- 逐项明细（§18.3 uni-card 分组 + uni-tag 三态徽标） -->
-      <uni-card v-for="(it, i) in items" :key="it.name" :is-shadow="true" :border="false" margin="0 0 24rpx 0" padding="28rpx 32rpx" spacing="0">
+      <wd-card v-for="(it, i) in items" :key="it.name">
         <view class="item-head">
           <text class="item-name text-main" >{{ it.name }}</text>
-          <uni-tag :text="itemResultTextOf(it.result, it.exception_type)" :type="itemResultTagType(it.result)" :inverted="true" size="small" />
+          <wd-tag :type="itemResultTagType(it.result)" variant="plain" size="small">{{ itemResultTextOf(it.result, it.exception_type) }}</wd-tag>
         </view>
         <image
           v-if="it.photo_urls != null && it.photo_urls.length > 0"
@@ -63,10 +60,10 @@
         />
         <text v-if="it.ai_reason != null && it.ai_reason != ''" class="item-ai text-secondary" >{{ it.ai_reason }}</text>
         <text v-if="it.note != null && it.note != ''" class="item-note text-regular" >备注：{{ it.note }}</text>
-      </uni-card>
-      <uni-card v-if="items.length == 0" :is-shadow="true" :border="false" margin="0 0 24rpx 0" padding="28rpx 32rpx" spacing="0">
+      </wd-card>
+      <wd-card v-if="items.length == 0">
         <text class="hint-text text-secondary" >这次是纯打卡，没有检查项</text>
-      </uni-card>
+      </wd-card>
 
       <!-- 修改入口（提交即封存：可改时绿色大按钮，不可改时置灰写明原因） -->
       <view class="bottom">
@@ -152,7 +149,7 @@ export default {
     itemResultTextOf: itemResultTextOf,
     itemResultColorKeyOf: itemResultColorKeyOf,
     /** 三态 → uni-tag type（uni-tag 用 error 命名，色系 danger 映射） */
-    itemResultTagType(result: string): 'success' | 'warning' | 'error' {
+    itemResultTagType(result: string): 'success' | 'warning' | 'danger' {
       const k = itemResultColorKeyOf(result)
       return k == 'danger' ? 'error' : k
     },

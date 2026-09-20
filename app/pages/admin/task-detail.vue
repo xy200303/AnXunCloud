@@ -19,7 +19,7 @@
       <view class="card bg-card" >
         <view class="card-head">
           <text class="card-title text-main" >{{ planName }}</text>
-          <uni-tag :text="statusText" :inverted="true" size="small" :custom-style="'color:' + statusColor + ';border-color:' + statusColor" />
+          <wd-tag variant="plain" size="small" :custom-style="'color:' + statusColor + ';border-color:' + statusColor">{{ statusText }}</wd-tag>
         </view>
         <text class="card-sub text-secondary" >{{ communityName }} · {{ inspectorName }}</text>
         <text class="card-sub text-secondary" >{{ taskDate }}<text v-if="timeWindow != ''"> · {{ timeWindow }}</text></text>
@@ -32,14 +32,7 @@
       <!-- 状态过滤条（数字来自全量统计，不随分页变化） -->
       <!-- 状态过滤条（数字来自全量统计，不随分页变化；官方 uni-tag，计数告警色语义保留） -->
       <view class="filter-bar">
-        <uni-tag
-          v-for="f in filters"
-          :key="f.key"
-          :text="f.count > 0 ? f.label + ' ' + f.count : f.label"
-          :inverted="true"
-          :custom-style="filterChipStyle(f)"
-          @click="filterKey = f.key"
-        />
+        <wd-tag v-for="f in filters" :key="f.key" :variant="(true) ? 'plain' : 'dark'" :custom-style="filterChipStyle(f)" @click="filterKey = f.key">{{ f.count > 0 ? f.label + ' ' + f.count : f.label }}</wd-tag>
       </view>
 
       <!-- 点位状态列表 -->
@@ -68,13 +61,11 @@
       <view v-if="filteredPoints.length == 0" class="empty">
         <text class="empty-title text-secondary" >这类点位一个都没有</text>
       </view>
-      <uni-load-more
-        v-else-if="loadingMore || points.length < pointsTotal || pointsTotal > 0"
-        :status="loadingMore ? 'loading' : points.length < pointsTotal ? 'more' : 'noMore'"
-        :show-icon="false"
-        :content-text="{ contentdown: '上滑加载更多（' + points.length + '/' + pointsTotal + '）', contentrefresh: '加载中…', contentnomore: '全部 ' + pointsTotal + ' 个点位都在这了' }"
-        :color="'#86909C'"
-      />
+      <template v-else-if="loadingMore || points.length < pointsTotal || pointsTotal > 0">
+        <wd-loadmore v-if="loadingMore" state="loading" loading-text="加载中…" />
+        <view v-else-if="points.length < pointsTotal" class="more-hint text-secondary">上滑加载更多（{{ points.length }}/{{ pointsTotal }}）</view>
+        <wd-loadmore v-else state="finished" :finished-text="'全部 ' + pointsTotal + ' 个点位都在这了'" />
+      </template>
     </view>
 
     <!-- 加载失败 -->
@@ -308,6 +299,12 @@ export default {
 </script>
 
 <style scoped>
+.more-hint {
+  text-align: center;
+  font-size: 26rpx;
+  padding: 24rpx 0;
+}
+
 .page {
   flex: 1;
   padding: 24rpx;

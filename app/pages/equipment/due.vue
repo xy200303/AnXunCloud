@@ -47,7 +47,7 @@
           </view>
           <text class="card-sub text-secondary" >编号：{{ e.code }}</text>
           <view class="card-foot">
-            <uni-tag :text="e.type_label != '' ? e.type_label : e.type" :inverted="true" size="small" :custom-style="'color:#86909C;border-color:#E5E6EB;margin-right:16rpx'" />
+            <wd-tag variant="plain" size="small" :custom-style="'color:#86909C;border-color:#E5E6EB;margin-right:16rpx'">{{ e.type_label != '' ? e.type_label : e.type }}</wd-tag>
             <text class="card-loc text-secondary" >{{ locationText(e) }}</text>
           </view>
         </view>

@@ -2,7 +2,7 @@
   <view class="page bg-page" :style="{ paddingTop: statusPadTop }">
     <!-- 自定义导航栏（左侧返回登录页，右侧管理/完成切换删除模式） -->
     <view class="nav">
-      <view class="nav-back" @click="goLogin"><uni-icons type="back" size="24" :color="'#1F2329'" /></view>
+      <view class="nav-back" @click="goLogin"><wd-icon name="caret-left" size="24px" color="#1F2329" /></view>
       <text class="nav-manage text-main"  @click="toggleManage">{{ managing ? '完成' : '管理' }}</text>
     </view>
 
@@ -30,7 +30,7 @@
         </template>
         <template #footer>
           <view>
-            <uni-tag v-if="idx == 0 && !managing" text="最近使用" type="success" :inverted="true" size="small" />
+            <wd-tag v-if="idx == 0 && !managing" type="success" variant="plain" size="small">最近使用</wd-tag>
             <text v-if="managing" class="acc-del text-danger"  @click.stop="onDeleteTap(idx)">删除</text>
           </view>
         </template>
@@ -40,7 +40,7 @@
       <uni-list-item title="添加账号" clickable show-arrow @click="goLogin">
         <template #header>
           <view class="acc-avatar acc-add border-default" >
-            <uni-icons type="plusempty" size="22" :color="'#86909C'" />
+            <wd-icon name="plus" size="22px" color="#86909C" />
           </view>
         </template>
       </uni-list-item>
@@ -49,16 +49,8 @@
     <text v-if="errorMsg != ''" class="error text-danger" >{{ errorMsg }}</text>
 
     <!-- 删除确认 -->
-    <AppDialog
-      :visible="delDlgShow"
-      kind="danger"
-      title="删除账号"
-      :content="delDlgContent"
-      confirm-text="删除"
-      cancel-text="取消"
-      @update:visible="delDlgShow = $event"
-      @confirm="onDeleteConfirm"
-    />
+    <!-- 确认对话框宿主（useDialog 函数式调用） -->
+    <wd-dialog />
   </view>
 </template>
 
@@ -72,7 +64,7 @@ import {
   upsertSwitchAccount
 } from '@/utils/storage'
 import { reLaunchToLogin } from '@/utils/nav'
-import AppDialog from '@/components/AppDialog.vue'
+import { useDialog } from '@/uni_modules/wot-ui/composables'
 
 type SwitchData = {
   statusBarH: number
@@ -82,12 +74,14 @@ type SwitchData = {
   /** 正在一键登录的账号 key（username:tenant_code），空 = 无 */
   loginKey: string
   errorMsg: string
-  delDlgShow: boolean
   delIndex: number
 }
 
 export default {
-  components: { AppDialog },
+  setup() {
+    const dlg = useDialog()
+    return { dlg }
+  },
   data(): SwitchData {
     return {
       statusBarH: 20,
@@ -95,7 +89,6 @@ export default {
       managing: false,
       loginKey: '',
       errorMsg: '',
-      delDlgShow: false,
       delIndex: -1
     }
   },
@@ -158,7 +151,14 @@ export default {
     },
     onDeleteTap(idx: number) {
       this.delIndex = idx
-      this.delDlgShow = true
+      this.dlg.confirm({
+        title: '删除账号',
+        msg: this.delDlgContent,
+        confirmButtonText: '删除',
+        confirmButtonProps: { type: 'danger' }
+      }).then(() => {
+        this.onDeleteConfirm()
+      }).catch(() => {})
     },
     onDeleteConfirm() {
       if (this.delIndex < 0) return

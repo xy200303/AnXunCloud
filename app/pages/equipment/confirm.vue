@@ -25,13 +25,10 @@
           <view class="card-head">
             <view class="card-title-row">
               <!-- 多选框 -->
-              <uni-icons
-                class="check-icon"
-                :type="selected[m.id] ? 'checkbox-filled' : 'circle'"
-                size="22"
-                :color="selected[m.id] ? '#2B5AED' : '#E5E6EB'"
-                @click.stop="toggleSelect(m.id)"
-              />
+              <!-- 多选框（wd-checkbox 受控；外层 view 截停冒泡，防触发卡片 openDetail） -->
+              <view class="check-icon" @click.stop>
+                <wd-checkbox :model-value="!!selected[m.id]" checked-color="#2B5AED" @change="toggleSelect(m.id)" />
+              </view>
               <text class="card-title text-main" >{{ m.equipment_name }}</text>
             </view>
             <text v-if="m.ai_verdict == 'review'" class="card-status text-danger" >AI 存疑</text>
@@ -117,32 +114,8 @@
       </button>
     </view>
 
-    <!-- 驳回原因弹窗（AppDialog editable 多行；确认带回输入值，空值/失败不关窗且保留已填内容） -->
-    <AppDialog
-      :visible="rejecting"
-      kind="danger"
-      title="驳回原因（必填）"
-      :editable="true"
-      :multiline="true"
-      placeholder="如：照片为旧标签，请重新拍摄"
-      :default-value="rejectReason"
-      confirm-text="确认驳回"
-      cancel-text="取消"
-      @update:visible="rejecting = $event"
-      @confirm="onRejectConfirm"
-    />
-
-    <!-- 确认通过弹窗（自绘，替代原生 showModal）：单条/批量共用，ids 在打开时暂存 -->
-    <AppDialog
-      :visible="confirmDlgShow"
-      kind="primary"
-      title="确认通过"
-      :content="'确认通过 ' + confirmIds.length + ' 条维保登记？确认后台账即时生效（回写最近维保日期并重算到期日）。'"
-      confirm-text="通过"
-      cancel-text="取消"
-      @update:visible="confirmDlgShow = $event"
-      @confirm="onConfirmOk"
-    />
+    <!-- 对话框宿主（驳回原因=prompt 多行必填 / 确认通过=confirm，均 useDialog 函数式） -->
+    <wd-dialog />
   </view>
 </template>
 
@@ -157,7 +130,7 @@ import { toAbsUrl } from '@/utils/url'
 import AppListShell from '@/components/AppListShell.vue'
 import AppListFooter from '@/components/AppListFooter.vue'
 import AppBottomSheet from '@/components/AppBottomSheet.vue'
-import AppDialog from '@/components/AppDialog.vue'
+import { useDialog } from '@/uni_modules/wot-ui/composables'
 
 const PAGE_SIZE = 20
 
@@ -174,17 +147,18 @@ type ConfirmData = {
   /** 详情弹层当前记录（null = 关闭） */
   detail: MaintenanceItem | null
   maintTypeOptions: DictOption[]
-  rejecting: boolean
-  rejectReason: string
   rejectTarget: MaintenanceItem | null
   acting: boolean
   /** 确认通过弹窗：待确认 id 集合（单条/批量共用） */
-  confirmDlgShow: boolean
   confirmIds: string[]
 }
 
 export default {
-  components: { AppListShell, AppListFooter, AppBottomSheet, AppDialog },
+  components: { AppListShell, AppListFooter, AppBottomSheet },
+  setup() {
+    const dlg = useDialog()
+    return { dlg }
+  },
   data(): ConfirmData {
     return {
       loading: true,
@@ -197,11 +171,8 @@ export default {
       selected: {},
       detail: null,
       maintTypeOptions: [] as DictOption[],
-      rejecting: false,
-      rejectReason: '',
       rejectTarget: null,
       acting: false,
-      confirmDlgShow: false,
       confirmIds: [] as string[]
     }
   },
@@ -295,7 +266,13 @@ export default {
     doConfirm(ids: string[]) {
       if (this.acting || ids.length == 0) return
       this.confirmIds = ids
-      this.confirmDlgShow = true
+      this.dlg.confirm({
+        title: '确认通过',
+        msg: '确认通过 ' + ids.length + ' 条维保登记？确认后台账即时生效（回写最近维保日期并重算到期日）。',
+        confirmButtonText: '通过'
+      }).then(() => {
+        this.onConfirmOk()
+      }).catch(() => {})
     },
     onConfirmOk() {
       const ids = this.confirmIds
@@ -330,31 +307,31 @@ export default {
     onRejectTap() {
       if (this.detail == null) return
       this.rejectTarget = this.detail
-      this.rejectReason = ''
-      this.rejecting = true
+      // wd-dialog prompt：多行必填，校验不过不关弹窗（已填内容不丢）
+      this.dlg.prompt({
+        title: '驳回原因（必填）',
+        confirmButtonText: '确认驳回',
+        confirmButtonProps: { type: 'danger' },
+        textareaProps: { placeholder: '如：照片为旧标签，请重新拍摄', maxlength: 200 },
+        inputPattern: /\S+/,
+        inputError: '请填写驳回原因'
+      }).then((res) => {
+        this.onRejectConfirm(String(res.value != null ? res.value : ''))
+      }).catch(() => {})
     },
     onRejectConfirm(reason: string) {
       if (this.rejectTarget == null || this.acting) return
-      this.rejectReason = reason
       const v = (reason || '').trim()
-      // 空值不提交：提示并开回弹窗（AppDialog confirm 时已先置关）
-      if (v == '') {
-        uni.showToast({ title: '请填写驳回原因', icon: 'none' })
-        this.rejecting = true
-        return
-      }
+      if (v == '') return
       const id = this.rejectTarget.id
       this.acting = true
       apiMaintenanceReject(id, v)
         .then(() => {
           uni.showToast({ title: '已驳回，已通知登记人', icon: 'none' })
-          this.rejecting = false
           this.reload()
         })
         .catch((e: Error) => {
           uni.showToast({ title: e.message, icon: 'none' })
-          // 失败开回弹窗：default-value 回填 rejectReason，已填理由不丢
-          this.rejecting = true
         })
         .finally(() => {
           this.acting = false

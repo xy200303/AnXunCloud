@@ -1,7 +1,7 @@
 <template>
   <!-- 逐项卡片（方案 §三统一布局；§18.1 容器官方化 uni-card）：引导语大字号 + 项名小字灰 + PhotoSlot + ResultBar + 观察点行 + 类型差异区。
        自身无推进/作答按钮——主操作全部在底部操作栏（WizardBottomBar）。 -->
-  <uni-card :is-shadow="true" :border="false" margin="0 0 24rpx 0" padding="0" spacing="0">
+  <wd-card custom-style="--wot-card-content-padding: 0">
     <view class="item-card">
     <!-- 合成项（台账有效期/标签抽查）保持原标题+要求文案；拍照/感官项以引导语为主标题 -->
     <template v-if="equipJudge != null || isSpot">
@@ -85,21 +85,14 @@
       </uni-list>
       <!-- 已勾选异常观察点红芯片回显（官方 uni-tag 实心 error；点入口行可改） -->
       <view v-if="item.abnormal_tags.length > 0" class="tag-row">
-        <uni-tag
-          v-for="(t, ti) in item.abnormal_tags"
-          :key="ti"
-          :text="'✕ ' + t"
-          type="error"
-          :circle="true"
-          :custom-style="'margin-right:16rpx;margin-bottom:12rpx'"
-        />
+        <wd-tag v-for="(t, ti) in item.abnormal_tags" :key="ti" type="danger" :round="true" :custom-style="'margin-right:16rpx;margin-bottom:12rpx'">{{ '✕ ' + t }}</wd-tag>
       </view>
 
       <!-- 差异区：抽查合成项 AI 读数一行小字 -->
       <text v-if="isSpot && spotReadingText != ''" class="reading-line text-secondary" >{{ spotReadingText }}</text>
     </template>
     </view>
-  </uni-card>
+  </wd-card>
 </template>
 
 <script lang="ts">

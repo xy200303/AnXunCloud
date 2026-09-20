@@ -13,94 +13,65 @@
       </view>
     </view>
 
-    <!-- 管理功能（按权限点显隐；全部无权限时整个区块不显示）：官方 uni-list 列表行 + uni-badge 角标 -->
+    <!-- 管理功能（按权限点显隐；全部无权限时整个区块不显示）：wot wd-cell 列表行 + wd-badge 角标 -->
     <view v-if="showAdmin" class="card menu-card bg-card" >
       <text class="menu-group-title text-secondary" >管理功能</text>
-      <uni-list :border="false">
-        <uni-list-item v-if="isSuperAdmin" title="当前公司" :right-text="currentTenantName" clickable show-arrow @click="switchTenant" />
-        <uni-list-item v-if="canDashboard" title="今日看板" clickable show-arrow @click="goAdmin('/pages/admin/dashboard')" />
-        <uni-list-item v-if="canReview" title="打卡审核" clickable show-arrow @click="goAdmin('/pages/admin/review')" />
-        <uni-list-item v-if="canPointManage" title="点位管理" clickable show-arrow @click="goAdmin('/pages/admin/points')" />
-        <uni-list-item
-          v-if="canEquipment"
-          title="设备台账"
-          clickable
-          show-arrow
-          :show-badge="equipmentDueCount > 0"
-          :badge-text="equipmentDueCount + ''"
-          badge-type="error"
-          @click="goAdmin('/pages/equipment/index')"
-        />
-        <uni-list-item
-          v-if="canEquipmentConfirm"
-          title="维保确认"
-          clickable
-          show-arrow
-          :show-badge="equipmentPendingCount > 0"
-          :badge-text="equipmentPendingCount + ''"
-          badge-type="error"
-          @click="goAdmin('/pages/equipment/confirm')"
-        />
-      </uni-list>
+      <wd-cell-group border>
+        <wd-cell v-if="isSuperAdmin" title="当前公司" :value="currentTenantName" is-link clickable @click="switchTenant" />
+        <wd-cell v-if="canDashboard" title="今日看板" is-link clickable @click="goAdmin('/pages/admin/dashboard')" />
+        <wd-cell v-if="canReview" title="打卡审核" is-link clickable @click="goAdmin('/pages/admin/review')" />
+        <wd-cell v-if="canPointManage" title="点位管理" is-link clickable @click="goAdmin('/pages/admin/points')" />
+        <wd-cell v-if="canEquipment" is-link clickable @click="goAdmin('/pages/equipment/index')">
+          <template #title>
+            <wd-badge :value="equipmentDueCount" type="danger" :hidden="equipmentDueCount <= 0">
+              <text class="cell-title">设备台账</text>
+            </wd-badge>
+          </template>
+        </wd-cell>
+        <wd-cell v-if="canEquipmentConfirm" is-link clickable @click="goAdmin('/pages/equipment/confirm')">
+          <template #title>
+            <wd-badge :value="equipmentPendingCount" type="danger" :hidden="equipmentPendingCount <= 0">
+              <text class="cell-title">维保确认</text>
+            </wd-badge>
+          </template>
+        </wd-cell>
+      </wd-cell-group>
     </view>
 
     <!-- 功能入口 -->
     <view class="card menu-card bg-card" >
-      <uni-list :border="false">
-        <uni-list-item title="手写签名" :right-text="signatureText" clickable show-arrow @click="openSignaturePad" />
-        <uni-list-item title="修改密码" clickable show-arrow @click="goPassword" />
-        <uni-list-item title="关于安巡云" :right-text="'v' + appVersion" clickable show-arrow @click="goAbout" />
-      </uni-list>
+      <wd-cell-group border>
+        <wd-cell title="手写签名" :value="signatureText" is-link clickable @click="openSignaturePad" />
+        <wd-cell title="修改密码" is-link clickable @click="goPassword" />
+        <wd-cell title="关于安巡云" :value="'v' + appVersion" is-link clickable @click="goAbout" />
+      </wd-cell-group>
     </view>
 
     <!-- 切换账号：退出当前账号回登录页，已保存的账号可一键登录（微信风格，与退出登录上下排列） -->
-    <button plain="true" hover-class="hover-dim" class="btn-block btn-outline" @click="onSwitchAccount">
-      <text class="btn-block-text">切换账号</text>
-    </button>
+    <wd-button block plain size="large" custom-class="btn-block-wd" @click="onSwitchAccount">切换账号</wd-button>
 
     <!-- 退出登录（danger 独立区块，二次确认） -->
-    <button plain="true" hover-class="hover-dim" class="btn-block btn-outline-danger" @click="onLogout">
-      <text class="btn-block-text">退出登录</text>
-    </button>
+    <wd-button block plain type="error" size="large" custom-class="btn-block-wd" @click="onLogout">退出登录</wd-button>
 
     <!-- 手写签名板（个人中心配置入口：保存即写入签章资产，下次签字直接用） -->
     <SignaturePad ref="pad" :show-save-option="false" @save="onPadSave" />
 
-    <!-- 切换公司面板 / 退出登录确认（自绘，替代原生 showActionSheet/showModal） -->
-    <AppActionSheet
-      :visible="avatarSheetShow"
+    <!-- 切换公司面板 / 头像来源面板（wd-action-sheet，选中即关） / 确认对话框（useDialog 函数式） -->
+    <wd-action-sheet
+      v-model="avatarSheetShow"
       title="更换头像"
-      :items="['拍摄', '从相册选择']"
-      @update:visible="avatarSheetShow = $event"
+      :actions="[{ name: '拍摄' }, { name: '从相册选择' }]"
+      cancel-text="取消"
       @select="onAvatarSourceSelect"
     />
-    <AppActionSheet
-      :visible="tenantSheetShow"
+    <wd-action-sheet
+      v-model="tenantSheetShow"
       title="切换公司"
-      :items="tenantNames"
-      @update:visible="tenantSheetShow = $event"
+      :actions="tenantActions"
+      cancel-text="取消"
       @select="onTenantSelect"
     />
-    <AppDialog
-      :visible="switchDlgShow"
-      kind="primary"
-      title="切换账号"
-      content="将退出当前账号并进入账号选择页，已保存的账号可一键登录。"
-      confirm-text="切换"
-      cancel-text="取消"
-      @update:visible="switchDlgShow = $event"
-      @confirm="onSwitchConfirm"
-    />
-    <AppDialog
-      :visible="logoutDlgShow"
-      kind="danger"
-      title="退出登录"
-      content="确定要退出当前账号吗？"
-      confirm-text="退出"
-      cancel-text="取消"
-      @update:visible="logoutDlgShow = $event"
-      @confirm="onLogoutConfirm"
-    />
+    <wd-dialog />
 
     <view class="tabbar-space"></view>
   </view>
@@ -116,8 +87,7 @@ import { useAuthStore } from '@/stores/auth'
 import { useTenantStore } from '@/stores/tenant'
 import { toAbsUrl } from '@/utils/url'
 import SignaturePad from '@/components/SignaturePad.vue'
-import AppDialog from '@/components/AppDialog.vue'
-import AppActionSheet from '@/components/AppActionSheet.vue'
+import { useDialog } from '@/uni_modules/wot-ui/composables'
 
 type ProfileData = {
   /** 安装包版本号（App 端取 plus.runtime，其他端回落默认值） */
@@ -131,14 +101,15 @@ type ProfileData = {
   /** 头像来源选择面板 */
   avatarSheetShow: boolean
   tenantList: Array<{ id: string; name: string }>
-  /** 退出登录确认弹窗 */
-  logoutDlgShow: boolean
-  /** 切换账号确认弹窗 */
-  switchDlgShow: boolean
 }
 
 export default {
-  components: { SignaturePad, AppDialog, AppActionSheet },
+  components: { SignaturePad },
+  setup() {
+    // wot 确认对话框（函数式调用，Promise 化；页面须挂一个 <wd-dialog /> 宿主）
+    const dlg = useDialog()
+    return { dlg }
+  },
   data(): ProfileData {
     return {
       appVersion: APP_VERSION,
@@ -146,9 +117,7 @@ export default {
       equipmentPendingCount: 0,
       tenantSheetShow: false,
       avatarSheetShow: false,
-      tenantList: [],
-      logoutDlgShow: false,
-      switchDlgShow: false
+      tenantList: []
     }
   },
   onLoad() {
@@ -244,9 +213,9 @@ export default {
       const t = useTenantStore().tenantName
       return t != '' ? t : '默认租户'
     },
-    /** 切换公司面板的选项文案 */
-    tenantNames(): string[] {
-      return this.tenantList.map((t) => t.name)
+    /** 切换公司面板的选项 */
+    tenantActions(): Array<{ name: string }> {
+      return this.tenantList.map((t) => ({ name: t.name }))
     }
   },
   onShow() {
@@ -278,10 +247,13 @@ export default {
     },
     /** 切换账号：确认后退出当前账号，回落到账号选择页（已保存账号一键登录） */
     onSwitchAccount() {
-      this.switchDlgShow = true
-    },
-    onSwitchConfirm() {
-      useAuthStore().logout('/pages/login/switch')
+      this.dlg.confirm({
+        title: '切换账号',
+        msg: '将退出当前账号并进入账号选择页，已保存的账号可一键登录。',
+        confirmButtonText: '切换'
+      }).then(() => {
+        useAuthStore().logout('/pages/login/switch')
+      }).catch(() => {})
     },
     /** 超管切换「当前公司」：拉租户列表 → 底部面板选择 → 写租户上下文（后续请求按所选租户隔离） */
     switchTenant() {
@@ -301,8 +273,8 @@ export default {
           uni.showToast({ title: e.message, icon: 'none' })
         })
     },
-    onTenantSelect(idx: number) {
-      const t = this.tenantList[idx]
+    onTenantSelect(e: { item: { name: string }; index: number }) {
+      const t = this.tenantList[e.index]
       if (t == null) return
       useTenantStore().set(t.id, t.name)
       uni.showToast({ title: '已切换到「' + t.name + '」', icon: 'none' })
@@ -315,8 +287,8 @@ export default {
     changeAvatar() {
       this.avatarSheetShow = true
     },
-    onAvatarSourceSelect(idx: number) {
-      this.chooseAvatar(idx == 0 ? ['camera'] : ['album'])
+    onAvatarSourceSelect(e: { index: number }) {
+      this.chooseAvatar(e.index == 0 ? ['camera'] : ['album'])
     },
     chooseAvatar(sourceType: string[]) {
       uni.chooseImage({
@@ -370,10 +342,14 @@ export default {
         })
     },
     onLogout() {
-      this.logoutDlgShow = true
-    },
-    onLogoutConfirm() {
-      useAuthStore().logout()
+      this.dlg.confirm({
+        title: '退出登录',
+        msg: '确定要退出当前账号吗？',
+        confirmButtonText: '退出',
+        confirmButtonProps: { type: 'danger' }
+      }).then(() => {
+        useAuthStore().logout()
+      }).catch(() => {})
     }
   }
 }
@@ -441,27 +417,19 @@ export default {
   padding-top: 16rpx;
 }
 
-/* 菜单列表行字号放大（uni-list-item 内置 $uni-font-size-base=14px 偏小；年龄偏大用户可读性优先） */
-.menu-card :deep(.uni-list-item__content-title) {
+/* 菜单列表行字号放大（年龄偏大用户可读性优先；wd-cell 默认 14px 偏小） */
+.menu-card :deep(.wd-cell__title),
+.menu-card .cell-title {
   font-size: 34rpx;
 }
 
-.menu-card :deep(.uni-list-item__content-note),
-.menu-card :deep(.uni-list-item__extra-text) {
+.menu-card :deep(.wd-cell__value) {
   font-size: 28rpx;
 }
 
-.btn-block {
-  height: 104rpx;
-  border-radius: 20rpx;
-  align-items: center;
-  justify-content: center;
+/* wd-button 大号块状按钮（custom-class 落在组件根节点） */
+.btn-block-wd {
   margin-bottom: 24rpx;
-}
-
-.btn-block-text {
-  font-size: 34rpx;
-  font-weight: 600;
 }
 
 .tabbar-space {

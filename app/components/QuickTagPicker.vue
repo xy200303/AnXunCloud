@@ -1,22 +1,20 @@
 <template>
-  <!-- 观察点多选半屏（方案 §八；§19 官方化：checklist = uni-data-checkbox multiple mode=list，
-       勾选色对齐 $uni-error 保异常语义）：底部滑出勾选异常；withNote=true 时为「有异常」半屏（观察点+备注+确认）。
+  <!-- 观察点多选半屏（方案 §八；checklist = wd-checkbox-group，勾选色 #D54941 保异常语义）：
+       底部滑出勾选异常；withNote=true 时为「有异常」半屏（观察点+备注+确认）。
        对外 props/事件不变（toggle 仍按单个 tag 抛出，由 change 差集换算） -->
   <AppBottomSheet :visible="visible" @close="$emit('update:visible', false)">
     <view class="tp">
       <text class="tp-title text-main">{{ title }}</text>
       <text v-if="tags.length > 0" class="tp-sub text-secondary">默认全部正常，有异常的观察点勾上</text>
       <scroll-view scroll-y enhanced :show-scrollbar="false" class="tp-list" :style="{ height: listHeight }">
-        <uni-data-checkbox
+        <wd-checkbox-group
           v-if="tags.length > 0"
-          multiple
-          mode="list"
-          :localdata="checkItems"
-          :modelValue="selected"
-          selectedColor="#D54941"
-          selectedTextColor="#D54941"
-          @change="onChecksChange"
-        />
+          :model-value="selected"
+          checked-color="#D54941"
+          @update:model-value="onChecksChange"
+        >
+          <wd-checkbox v-for="t in tags" :key="t" :value="t" custom-class="tp-check">{{ t }}</wd-checkbox>
+        </wd-checkbox-group>
         <view v-else class="tp-empty">
           <text class="tp-empty-text text-secondary">该项没有配置观察点</text>
         </view>
@@ -61,10 +59,6 @@ export default {
   },
   emits: ['update:visible', 'toggle', 'update:note', 'confirm'],
   computed: {
-    /** string[] 观察点 → uni-data-checkbox localdata 形态（text/value 同名） */
-    checkItems(): Array<{ text: string; value: string }> {
-      return this.tags.map((t) => ({ text: t, value: t }))
-    },
     /** 列表定高（scroll-view 必须显式高度才有原生滚动，max-height 会被内容撑开导致滚动卡顿/失效）：
      *  每行约 104rpx + 边框，超过 480rpx 时内部滚动 */
     listHeight(): string {
@@ -73,9 +67,9 @@ export default {
     }
   },
   methods: {
-    /** uni-data-checkbox 整体值变化 → 与当前勾选求差集，按单 tag 逐个抛 toggle（父级接口不变） */
-    onChecksChange(e: { detail: { value: string[] } }) {
-      const next = e != null && e.detail != null && Array.isArray(e.detail.value) ? e.detail.value : []
+    /** wd-checkbox-group 整体值变化 → 与当前勾选求差集，按单 tag 逐个抛 toggle（父级接口不变） */
+    onChecksChange(val: Array<string | number | boolean>) {
+      const next = Array.isArray(val) ? val.map(String) : []
       const cur = this.selected
       next.filter((t) => cur.indexOf(t) < 0).forEach((t) => this.$emit('toggle', t))
       cur.filter((t) => next.indexOf(t) < 0).forEach((t) => this.$emit('toggle', t))

@@ -56,23 +56,15 @@
            §18.2 容器官方化：uni-card + uni-tag 徽标；进度条为业务呈现保留 -->
       <view v-for="row in displayRows" :key="row.key">
         <text v-if="row.task == null" class="group-title text-secondary" >{{ row.header }}</text>
-        <uni-card
-          v-else
-          :is-shadow="true"
-          :border="false"
-          margin="0 0 24rpx 0"
-          padding="28rpx 32rpx"
-          spacing="0"
-          @click="goDetail(row.task.id)"
-        >
+        <wd-card v-else @click="goDetail(row.task.id)">
           <view hover-class="hover-dim" class="card-head">
             <text hover-class="hover-dim" class="card-title text-main" >{{ row.task.community_name }} · {{ row.task.plan_name }}</text>
-            <uni-tag :text="row.task.status_text" :inverted="true" size="small" :custom-style="'color:' + row.task.status_color + ';border-color:' + row.task.status_color" />
+            <wd-tag variant="plain" size="small" :custom-style="'color:' + row.task.status_color + ';border-color:' + row.task.status_color">{{ row.task.status_text }}</wd-tag>
           </view>
           <view hover-class="hover-dim" class="card-sub-row">
-            <uni-tag v-if="row.task.round_name != ''" :text="row.task.round_name" :inverted="true" size="small" :custom-style="'color:#ED7B2F;border-color:#ED7B2F;margin-right:16rpx'" />
-            <uni-tag v-if="row.task.patrol_text != ''" :text="row.task.patrol_text" :inverted="true" size="small" :custom-style="'color:#2B5AED;border-color:#2B5AED;margin-right:16rpx'" />
-            <uni-tag v-if="row.task.due_text != ''" :text="row.task.due_text" :inverted="true" size="small" :custom-style="row.task.due_urgent ? 'color:#ED7B2F;border-color:#ED7B2F;margin-right:16rpx' : 'color:#909399;border-color:#909399;margin-right:16rpx'" />
+            <wd-tag v-if="row.task.round_name != ''" variant="plain" size="small" :custom-style="'color:#ED7B2F;border-color:#ED7B2F;margin-right:16rpx'">{{ row.task.round_name }}</wd-tag>
+            <wd-tag v-if="row.task.patrol_text != ''" variant="plain" size="small" :custom-style="'color:#2B5AED;border-color:#2B5AED;margin-right:16rpx'">{{ row.task.patrol_text }}</wd-tag>
+            <wd-tag v-if="row.task.due_text != ''" variant="plain" size="small" :custom-style="row.task.due_urgent ? 'color:#ED7B2F;border-color:#ED7B2F;margin-right:16rpx' : 'color:#909399;border-color:#909399;margin-right:16rpx'">{{ row.task.due_text }}</wd-tag>
             <text hover-class="hover-dim" class="card-sub text-secondary" >{{ row.task.time_window != '' ? row.task.time_window : (row.task.round_name != '' ? '不限时段' : '') }}</text>
           </view>
           <view class="progress bg-border" >
@@ -82,7 +74,7 @@
             ></view>
           </view>
           <text hover-class="hover-dim" class="card-progress-text text-regular" >{{ row.task.done_points }}/{{ row.task.total_points }} 点位</text>
-        </uni-card>
+        </wd-card>
       </view>
     </view>
 
@@ -107,19 +99,8 @@
 
     <view class="tabbar-space"></view>
 
-    <!-- 维保启动提醒弹窗（每天第一次进本页且有待维保设备时弹出；AppDialog 双按钮） -->
-    <AppDialog
-      :visible="dueTipVisible"
-      kind="warning"
-      title="维保提醒"
-      :content="dueTipText"
-      confirm-text="去处理"
-      cancel-text="知道了"
-      :mask-closable="true"
-      @update:visible="dueTipVisible = $event"
-      @confirm="goEquipmentDue"
-      @cancel="closeDueTip"
-    />
+    <!-- 确认对话框宿主（维保启动提醒走 useDialog 函数式调用） -->
+    <wd-dialog />
 
     <!-- 版本更新弹窗（启动自动检查；强制更新不可跳过） -->
     <UpdateDialog ref="updDialog" />
@@ -136,7 +117,7 @@ import { useAuthStore } from '@/stores/auth'
 import { doNfc } from '@/utils/scan'
 import { fetchLatestRelease } from '@/utils/update'
 import AppChipScroller from '@/components/AppChipScroller.vue'
-import AppDialog from '@/components/AppDialog.vue'
+import { useDialog } from '@/uni_modules/wot-ui/composables'
 import UpdateDialog from '@/components/UpdateDialog.vue'
 
 /** 维保提醒「每日一次」存储键 */
@@ -223,7 +204,6 @@ type TodayData = {
   /** 最早逾期天数（0 = 无逾期，仅临期） */
   dueMaxOverdue: number
   /** 启动提醒弹窗 */
-  dueTipVisible: boolean
   dueTipText: string
 }
 
@@ -275,7 +255,11 @@ function toTaskView(t: TodayTask): TaskView {
 }
 
 export default {
-  components: { AppChipScroller, AppDialog, UpdateDialog },
+  components: { AppChipScroller, UpdateDialog },
+  setup() {
+    const dlg = useDialog()
+    return { dlg }
+  },
   data(): TodayData {
     return {
       loading: true,
@@ -292,7 +276,6 @@ export default {
       menuOpen: false,
       dueCount: 0,
       dueMaxOverdue: 0,
-      dueTipVisible: false,
       dueTipText: '',
       // 「+」菜单项（数据驱动，加功能加一行；维保登记是主动上报入口，巡楼发现该维保的设备随时登记）
       plusItems: [
@@ -455,16 +438,20 @@ export default {
           this.dueTipText = maxOverdue > 0
             ? list.length + ' 台设备待维保，最早已逾期 ' + maxOverdue + ' 天，请尽快处理'
             : list.length + ' 台设备临近维保期，请安排维保'
-          this.dueTipVisible = true
+          this.dlg.confirm({
+            title: '维保提醒',
+            msg: this.dueTipText,
+            confirmButtonText: '去处理',
+            cancelButtonText: '知道了',
+            closeOnClickModal: true
+          }).then(() => {
+            this.goEquipmentDue()
+          }).catch(() => {})
         })
         .catch((_e: any) => {})
     },
-    closeDueTip() {
-      this.dueTipVisible = false
-    },
     /** 待办卡片/弹窗「去处理」：跳维保待办页选设备模式（点卡片直达维保拍照页；有逾期按已逾期筛选，否则按临期） */
     goEquipmentDue() {
-      this.dueTipVisible = false
       uni.navigateTo({
         url: '/pages/equipment/due?mode=pick&due_state=' + (this.dueMaxOverdue > 0 ? 'overdue' : 'warning')
       })

@@ -3,7 +3,7 @@
     <!-- 日期导航：居中紧凑一组——左右翻日（uni-icons），点日期开系统选择器（最晚到今天） -->
     <view class="date-bar bg-card" >
       <view  hover-class="hover-dim" class="date-arrow bg-page"  @click="shiftDay(-1)">
-        <uni-icons type="left" size="20" :color="'#2B5AED'" />
+        <wd-icon name="caret-left" size="20px" color="#2B5AED" />
       </view>
       <picker mode="date" :value="date" :end="today" @change="onDatePick">
         <view class="date-mid">
@@ -12,7 +12,7 @@
         </view>
       </picker>
       <view  hover-class="hover-dim" class="date-arrow"  :class="(canNext ? 'bg-page' : 'bg-border')" @click="shiftDay(1)">
-        <uni-icons type="right" size="20" :color="canNext ? '#2B5AED' : '#86909C'" />
+        <wd-icon name="caret-right" size="20px" :color="canNext ? '#2B5AED' : '#86909C'" />
       </view>
     </view>
 
@@ -34,23 +34,14 @@
         <text class="summary-progress text-brand" >{{ donePoints }}/{{ totalPoints }} 点位</text>
       </view>
       <!-- 任务卡（§18.2 容器官方化 uni-card + uni-tag 徽标；进度条为业务呈现保留） -->
-      <uni-card
-        v-for="t in tasks"
-        :key="t.id"
-        :is-shadow="true"
-        :border="false"
-        margin="0 0 24rpx 0"
-        padding="28rpx 32rpx"
-        spacing="0"
-        @click="goDetail(t.id)"
-      >
+      <wd-card v-for="t in tasks" :key="t.id" @click="goDetail(t.id)">
         <view class="card-head">
           <text class="card-title text-main" >{{ t.community_name }} · {{ t.plan_name }}</text>
-          <uni-tag :text="statusTextOf(t.status)" :inverted="true" size="small" :custom-style="'color:' + statusColorOf(t.status) + ';border-color:' + statusColorOf(t.status)" />
+          <wd-tag variant="plain" size="small" :custom-style="'color:' + statusColorOf(t.status) + ';border-color:' + statusColorOf(t.status)">{{ statusTextOf(t.status) }}</wd-tag>
         </view>
         <view class="card-sub-row">
-          <uni-tag v-if="t.round_name != ''" :text="t.round_name" :inverted="true" size="small" :custom-style="'color:#ED7B2F;border-color:#ED7B2F;margin-right:16rpx'" />
-          <uni-tag v-if="patrolLabelOf(t) != ''" :text="patrolLabelOf(t)" :inverted="true" size="small" :custom-style="'color:#2B5AED;border-color:#2B5AED;margin-right:16rpx'" />
+          <wd-tag v-if="t.round_name != ''" variant="plain" size="small" :custom-style="'color:#ED7B2F;border-color:#ED7B2F;margin-right:16rpx'">{{ t.round_name }}</wd-tag>
+          <wd-tag v-if="patrolLabelOf(t) != ''" variant="plain" size="small" :custom-style="'color:#2B5AED;border-color:#2B5AED;margin-right:16rpx'">{{ patrolLabelOf(t) }}</wd-tag>
           <text class="card-sub text-secondary" >{{ t.time_window != '' ? t.time_window : (t.round_name != '' ? '不限时段' : '') }}</text>
         </view>
         <view class="progress bg-border" >
@@ -58,7 +49,7 @@
         </view>
         <text class="card-progress-text text-regular" >{{ t.done_points }}/{{ t.total_points }} 点位</text>
         <text v-if="t.status == 'overdue' && t.done_points < t.total_points" class="makeup-tip text-warning" >逾期未完成，可进入补拍</text>
-      </uni-card>
+      </wd-card>
     </view>
 
     <!-- 加载失败 -->

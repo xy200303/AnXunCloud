@@ -56,11 +56,11 @@
         </text>
         <view class="card-foot">
           <view class="foot-tags">
-            <uni-tag v-if="p.status != 1" text="停用" :inverted="true" size="small" :custom-style="'color:#909399;border-color:#909399;margin-right:16rpx;margin-bottom:8rpx'" />
-            <uni-tag :text="p.type_label != '' ? p.type_label : p.type" :inverted="true" size="small" :custom-style="'color:#86909C;border-color:#E5E6EB;margin-right:16rpx;margin-bottom:8rpx'" />
-            <uni-tag :text="p.credential_text" :inverted="true" size="small" :custom-style="'color:#2B5AED;border-color:#2B5AED;margin-right:16rpx;margin-bottom:8rpx'" />
-            <uni-tag v-if="p.template_text != ''" :text="p.template_text" :inverted="true" size="small" :custom-style="'color:#86909C;border-color:#E5E6EB;margin-right:16rpx;margin-bottom:8rpx'" />
-            <uni-tag v-if="p.fence_text != ''" :text="p.fence_text" :inverted="true" size="small" :custom-style="'color:#86909C;border-color:#E5E6EB;margin-right:16rpx;margin-bottom:8rpx'" />
+            <wd-tag v-if="p.status != 1" variant="plain" size="small" :custom-style="'color:#909399;border-color:#909399;margin-right:16rpx;margin-bottom:8rpx'">停用</wd-tag>
+            <wd-tag variant="plain" size="small" :custom-style="'color:#86909C;border-color:#E5E6EB;margin-right:16rpx;margin-bottom:8rpx'">{{ p.type_label != '' ? p.type_label : p.type }}</wd-tag>
+            <wd-tag variant="plain" size="small" :custom-style="'color:#2B5AED;border-color:#2B5AED;margin-right:16rpx;margin-bottom:8rpx'">{{ p.credential_text }}</wd-tag>
+            <wd-tag v-if="p.template_text != ''" variant="plain" size="small" :custom-style="'color:#86909C;border-color:#E5E6EB;margin-right:16rpx;margin-bottom:8rpx'">{{ p.template_text }}</wd-tag>
+            <wd-tag v-if="p.fence_text != ''" variant="plain" size="small" :custom-style="'color:#86909C;border-color:#E5E6EB;margin-right:16rpx;margin-bottom:8rpx'">{{ p.fence_text }}</wd-tag>
           </view>
         </view>
         <text v-if="p.coord_missing" class="card-hint text-danger" >点进详情可现场定位补录</text>

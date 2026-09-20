@@ -62,8 +62,8 @@
           <text class="card-sub text-secondary" >编号：{{ e.code }}</text>
           <view class="card-foot">
             <view class="foot-tags">
-              <uni-tag :text="e.type_label != '' ? e.type_label : e.type" :inverted="true" size="small" :custom-style="'color:#86909C;border-color:#E5E6EB;margin-right:16rpx;margin-bottom:8rpx'" />
-              <uni-tag v-if="e.status != 'in_service'" :text="e.status_label" :inverted="true" size="small" :custom-style="'color:#909399;border-color:#909399;margin-right:16rpx;margin-bottom:8rpx'" />
+              <wd-tag variant="plain" size="small" :custom-style="'color:#86909C;border-color:#E5E6EB;margin-right:16rpx;margin-bottom:8rpx'">{{ e.type_label != '' ? e.type_label : e.type }}</wd-tag>
+              <wd-tag v-if="e.status != 'in_service'" variant="plain" size="small" :custom-style="'color:#909399;border-color:#909399;margin-right:16rpx;margin-bottom:8rpx'">{{ e.status_label }}</wd-tag>
             </view>
             <text class="card-loc text-secondary" >{{ locationText(e) }}</text>
           </view>

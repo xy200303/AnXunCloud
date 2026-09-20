@@ -2,7 +2,7 @@
   <view class="page bg-page" >
     <!-- 加载中 / 失败 -->
     <view v-if="loading" class="hint">
-      <uni-load-more status="loading" :content-text="{ contentrefresh: '加载中…' }" :color="'#86909C'" />
+      <wd-loadmore state="loading" loading-text="加载中…" />
     </view>
     <view v-else-if="!loaded" class="hint">
       <text class="hint-text text-regular" >{{ errorMsg }}</text>

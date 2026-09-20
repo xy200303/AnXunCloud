@@ -1,16 +1,14 @@
 <template>
-  <!-- 列表底部加载态：内部基于 uni-load-more（官方 loading 图标 + 文案），对外 props 接口不变 -->
-  <uni-load-more
+  <!-- 列表底部加载态：内部基于 wd-loadmore，对外 props 接口不变 -->
+  <wd-loadmore
     v-if="visible && (loadingMore || noMore)"
-    :status="loadingMore ? 'loading' : 'noMore'"
-    :content-text="{ contentrefresh: loadingText, contentnomore: noMoreText }"
-    :color="'#86909C'"
+    :state="loadingMore ? 'loading' : 'finished'"
+    :loading-text="loadingText"
+    :finished-text="noMoreText"
   />
 </template>
 
 <script lang="ts">
-
-
 export default {
   props: {
     loadingMore: { type: Boolean, default: false },

@@ -1,11 +1,13 @@
 <template>
-  <!-- 底部动作面板：内部基于 uni-popup（type=bottom），遮罩/动画/安全区交给官方；
+  <!-- 底部动作面板：内部基于 wd-popup（position=bottom），遮罩/动画/安全区交给 wot；
        微信式列表 + 独立取消行，遮罩点击即取消。对外 props/事件接口不变 -->
-  <uni-popup
-    ref="popup"
-    type="bottom"
-    :mask-background-color="'rgba(0, 0, 0, 0.45)'"
-    @maskClick="onCancel"
+  <wd-popup
+    :model-value="visible"
+    position="bottom"
+    :modal-style="'background: ' + maskColor"
+    :safe-area-inset-bottom="true"
+    custom-style="border-radius: 24rpx 24rpx 0 0; overflow: hidden;"
+    @close="onCancel"
   >
     <view class="sheet-panel">
       <view class="sheet-body bg-card" >
@@ -29,41 +31,19 @@
         <text class="sheet-row-text text-regular" >{{ cancelText }}</text>
       </view>
     </view>
-  </uni-popup>
+  </wd-popup>
 </template>
 
 <script lang="ts">
-
-
-type SheetData = {
-}
-
 export default {
   props: {
     visible: { type: Boolean, default: false },
     title: { type: String, default: '' },
     items: { type: Array, default: () => [] as string[] },
-    cancelText: { type: String, default: '取消' }
+    cancelText: { type: String, default: '取消' },
+    maskColor: { type: String, default: 'rgba(0, 0, 0, 0.45)' }
   },
   emits: ['select', 'cancel', 'update:visible'],
-  data(): SheetData {
-    return {
-    }
-  },
-  watch: {
-    visible(v: boolean) {
-      const popup: any = this.$refs.popup
-      if (popup == null) return
-      if (v) popup.open()
-      else popup.close()
-    }
-  },
-  mounted() {
-    if (this.visible) {
-      const popup: any = this.$refs.popup
-      if (popup != null) popup.open()
-    }
-  },
   methods: {
     onSelect(idx: number) {
       this.$emit('update:visible', false)

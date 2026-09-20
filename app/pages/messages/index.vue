@@ -34,7 +34,7 @@
       >
         <view class="msg-main">
           <view class="msg-head">
-            <uni-tag :text="typeTextOf(m.type)" size="small" :custom-style="'background-color:' + typeColorOf(m.type) + ';color:#ffffff;border-color:' + typeColorOf(m.type) + ';margin-right:16rpx'" />
+            <wd-tag size="small" :custom-style="'background-color:' + typeColorOf(m.type) + ';color:#ffffff;border-color:' + typeColorOf(m.type) + ';margin-right:16rpx'">{{ typeTextOf(m.type) }}</wd-tag>
             <text class="msg-title text-main" >{{ m.title }}</text>
             <uni-badge v-if="!m.is_read" :is-dot="true" type="error" :custom-style="{ marginLeft: '16rpx' }" />
           </view>
@@ -58,7 +58,7 @@
           <text class="notice-close text-secondary"  @click="noticeShow = false">关闭</text>
         </view>
         <scroll-view scroll-y class="notice-scroll">
-          <uni-load-more v-if="noticeLoading" status="loading" :content-text="{ contentrefresh: '加载中…' }" :color="'#86909C'" />
+          <wd-loadmore v-if="noticeLoading" state="loading" loading-text="加载中…" />
           <view v-else-if="notices.length == 0" class="notice-empty">
             <text  class="text-secondary">暂时没有公告</text>
           </view>
@@ -76,12 +76,8 @@
     <view class="tabbar-space"></view>
 
     <!-- 消息详情查看弹窗（无跳转映射时展示完整内容；自绘，替代原生 showModal） -->
-    <AppDialog
-      :visible="msgDlg.show"
-      :title="msgDlg.title"
-      :content="msgDlg.content"
-      @update:visible="msgDlg.show = $event"
-    />
+    <!-- 消息内容对话框宿主（useDialog 函数式调用） -->
+    <wd-dialog />
   </view>
 </template>
 
@@ -94,7 +90,7 @@ import { useAuthStore } from '@/stores/auth'
 import { syncBadge } from '@/utils/push'
 import AppListShell from '@/components/AppListShell.vue'
 import AppListFooter from '@/components/AppListFooter.vue'
-import AppDialog from '@/components/AppDialog.vue'
+import { useDialog } from '@/uni_modules/wot-ui/composables'
 import AppBottomSheet from '@/components/AppBottomSheet.vue'
 
 const PAGE_SIZE = 20
@@ -114,7 +110,6 @@ type MessagesData = {
   noticeLoadedAt: number
   lastLoadedAt: number
   /** 消息详情查看弹窗（无图标单按钮） */
-  msgDlg: { show: boolean; title: string; content: string }
 }
 
 /** 消息类型展示（对齐后端 SysMessage 写入点：report 月报 / checkin_audit 打卡审核 / task 任务（派单/逾期） / announcement 公告 / equipment_maint_pending 维保待确认） */
@@ -139,7 +134,11 @@ function typeColorOf(t: string): string {
 }
 
 export default {
-  components: { AppListShell, AppListFooter, AppDialog, AppBottomSheet },
+  components: { AppListShell, AppListFooter, AppBottomSheet },
+  setup() {
+    const dlg = useDialog()
+    return { dlg }
+  },
   data(): MessagesData {
     return {
       loading: true,
@@ -155,7 +154,6 @@ export default {
       notices: [] as AnnouncementItem[],
       noticeLoadedAt: 0,
       lastLoadedAt: 0,
-      msgDlg: { show: false, title: '', content: '' }
     }
   },
   onLoad() {
@@ -284,7 +282,7 @@ export default {
         if (biz != null && biz != '') {
           // 名单/权限可能在消息投递后变化：无审核权限时不跳进错误页，直接看消息内容
           if (!useAuthStore().hasPerm('inspection:checkin:review')) {
-            this.msgDlg = { show: true, title: m.title, content: m.content }
+            this.dlg.alert({ title: m.title, msg: m.content }).catch(() => {})
             return
           }
           uni.navigateTo({ url: '/pages/admin/review?id=' + encodeURIComponent(biz) })

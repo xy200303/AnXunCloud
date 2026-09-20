@@ -7,7 +7,7 @@
 
     <!-- 定位中（§18.6 统一 uni-load-more 加载态） -->
     <view v-if="loading" class="center-box">
-      <uni-load-more status="loading" :content-text="{ contentrefresh: '正在获取位置…' }" :color="'#86909C'" />
+      <wd-loadmore state="loading" loading-text="正在获取位置…" />
     </view>
 
     <!-- 定位/加载失败 -->
@@ -40,8 +40,8 @@
           </template>
           <template #footer>
             <view>
-              <uni-tag v-if="p.checked" text="已打卡" type="success" :inverted="true" size="small" />
-              <uni-tag v-else :text="credentialTextOf(p.credential, p.require_fence)" type="warning" :inverted="true" size="small" />
+              <wd-tag v-if="p.checked" type="success" variant="plain" size="small">已打卡</wd-tag>
+              <wd-tag v-else type="warning" variant="plain" size="small">{{ credentialTextOf(p.credential, p.require_fence) }}</wd-tag>
             </view>
           </template>
         </uni-list-item>

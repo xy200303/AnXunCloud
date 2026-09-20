@@ -98,21 +98,38 @@ page {
  * 经典版 view 渲染为 block，这里全局补齐，避免每个容器重复声明 display:flex。
  * H5 端标签被编译为 uni-* 自定义元素，且 uni-h5 组件样式（uni-view{display:block} 等）
  * 按组件懒加载注入、顺序在全局样式之后，故用 uni-app 前缀提高优先级（与 uvue.css 同写法）。
+ * wot-ui 内部节点（类名全部 wd- 前缀）排除在外：其组件依赖 flex 默认 row 方向，
+ * 全局 flex-direction:column 会把 wd-cell 等内部横排布局压成竖排。
  */
-view,
-scroll-view,
-swiper,
-swiper-item,
-uni-app uni-view,
-uni-app uni-scroll-view,
-uni-app uni-swiper,
-uni-app uni-swiper-item {
+view:not([class*="wd-"]),
+scroll-view:not([class*="wd-"]),
+swiper:not([class*="wd-"]),
+swiper-item:not([class*="wd-"]),
+uni-app uni-view:not([class*="wd-"]),
+uni-app uni-scroll-view:not([class*="wd-"]),
+uni-app uni-swiper:not([class*="wd-"]),
+uni-app uni-swiper-item:not([class*="wd-"]) {
   display: flex;
   flex-direction: column;
   box-sizing: border-box;
 }
 
 /* ===== 颜色工具类（替代已废除的 theme.ts Colors 令牌；模板 :class 使用） ===== */
+/* wot-ui 品牌主题：组件内样式为 var(--wot-*, 默认蓝)，此处按 uni.scss 品牌令牌覆盖 */
+page {
+  --wot-primary-1: #EAEFFF;
+  --wot-primary-2: #D5E2FF;
+  --wot-primary-6: #2B5AED;
+  --wot-primary-7: #1E46C8;
+  --wot-success-main: #2BA471;
+  --wot-warning-main: #ED7B2F;
+  --wot-danger-main: #D54941;
+  /* wd-card 容器口径：页面有 padding 故横向 margin 归 0，纵向间距 24rpx，内容 28/32 */
+  --wot-card-margin-horizontal: 0;
+  --wot-card-margin-bottom: 24rpx;
+  --wot-card-content-padding: 28rpx 32rpx;
+}
+
 /* 文字色 */
 .text-main { color: $uni-main-color; }
 .text-regular { color: $uni-base-color; }

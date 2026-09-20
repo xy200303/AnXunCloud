@@ -248,17 +248,8 @@
     </AppBottomSheet>
 
     <!-- 创建成功弹窗（自绘，替代原生 showModal）：可直接进入写卡流程（本页转编辑模式） -->
-    <AppDialog
-      :visible="createdDlg.show"
-      kind="success"
-      title="创建成功"
-      :content="'点位已创建，编号 ' + createdDlg.qrcodeNo"
-      confirm-text="立即写卡"
-      cancel-text="完成返回"
-      @update:visible="createdDlg.show = $event"
-      @confirm="onCreatedConfirm"
-      @cancel="onCreatedCancel"
-    />
+    <!-- 对话框宿主（创建成功引导写卡=confirm，useDialog 函数式） -->
+    <wd-dialog />
   </view>
 </template>
 
@@ -280,7 +271,7 @@ import {
 import { useAuthStore } from '@/stores/auth'
 import { isNfcSupported, readCardInfoOnce, writePointCode, toastNfcUnavailable } from '@/utils/nfc'
 import { getLocationGcj02 } from '@/utils/geo'
-import AppDialog from '@/components/AppDialog.vue'
+import { useDialog } from '@/uni_modules/wot-ui/composables'
 import AppBottomSheet from '@/components/AppBottomSheet.vue'
 
 type FormData = {
@@ -317,11 +308,15 @@ type FormData = {
   /** 新增提交成功后转编辑态（立即写卡流程），本次会话不按 update 权限切只读 */
   justCreated: boolean
   /** 创建成功弹窗：暂存新点位 id/编号供「立即写卡」转编辑态 */
-  createdDlg: { show: boolean; id: string; qrcodeNo: string }
+  createdInfo: { id: string; qrcodeNo: string }
 }
 
 export default {
-  components: { AppDialog, AppBottomSheet },
+  components: { AppBottomSheet },
+  setup() {
+    const dlg = useDialog()
+    return { dlg }
+  },
   data(): FormData {
     return {
       isEdit: false,
@@ -359,7 +354,7 @@ export default {
       cardCodeWarn: false,
       submitting: false,
       justCreated: false,
-      createdDlg: { show: false, id: '', qrcodeNo: '' }
+      createdInfo: { id: '', qrcodeNo: '' }
     }
   },
   computed: {
@@ -692,7 +687,18 @@ export default {
           const needNfc = payload.credential == 'nfc' || payload.credential == 'any'
           if (needNfc && this.nfcSupported) {
             // 编号创建后才生成：弹窗提示并可直接进入写卡流程（本页转编辑模式）
-            this.createdDlg = { show: true, id: res.id, qrcodeNo: res.qrcode_no }
+            this.createdInfo = { id: res.id, qrcodeNo: res.qrcode_no }
+            this.dlg.confirm({
+              title: '创建成功',
+              msg: '点位已创建，编号 ' + res.qrcode_no,
+              confirmButtonText: '立即写卡',
+              cancelButtonText: '完成返回',
+              confirmButtonProps: { type: 'success' }
+            }).then(() => {
+              this.onCreatedConfirm()
+            }).catch(() => {
+              this.onCreatedCancel()
+            })
           } else {
             setTimeout(() => {
               uni.navigateBack()
@@ -710,8 +716,8 @@ export default {
     onCreatedConfirm() {
       this.isEdit = true
       this.justCreated = true
-      this.pointId = this.createdDlg.id
-      this.qrcodeNo = this.createdDlg.qrcodeNo
+      this.pointId = this.createdInfo.id
+      this.qrcodeNo = this.createdInfo.qrcodeNo
       uni.setNavigationBarTitle({ title: '点位编辑' })
     },
     onCreatedCancel() {

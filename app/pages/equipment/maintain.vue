@@ -8,7 +8,7 @@
     <!-- 裸进兜底（无设备参数/编辑参数）：引导先选设备，防深链空表单 -->
     <view v-else-if="bareEntry" class="content">
       <view class="item-card bg-card bare-card">
-        <uni-icons type="gear" size="48" color="#2B5AED" />
+        <wd-icon name="settings" size="48px" color="#2B5AED" />
         <text class="bare-title text-main">维保登记需要先选择设备</text>
         <text class="bare-sub text-secondary">从设备台账里挑一台要维保的设备，再拍新标签提交</text>
         <button plain="true" class="btn-primary btn-big bare-btn" hover-class="hover-dim" @click="goPickEquipment">去选择设备</button>
@@ -80,26 +80,8 @@
       <view class="bottom-space"></view>
     </view>
 
-    <!-- 提交结果弹窗（AppDialog：圆形状态图标 + 标题 + 说明 + 胶囊按钮；结果必须被看到，确认后才退出） -->
-    <AppDialog
-      :visible="resultDlg.show"
-      :kind="resultDlg.kind == 'fail' ? 'danger' : resultDlg.kind == 'pending' ? 'primary' : 'success'"
-      :title="resultDlg.title"
-      :content="resultDlg.content"
-      @update:visible="resultDlg.show = $event"
-      @confirm="onResultConfirm"
-    />
-    <!-- 删除照片确认（自绘弹窗，与结果弹窗同口径） -->
-    <AppDialog
-      :visible="delDlg.show"
-      kind="danger"
-      title="删除照片"
-      content="确定删除这张照片吗？"
-      confirm-text="删除"
-      cancel-text="取消"
-      @update:visible="delDlg.show = $event"
-      @confirm="onDelPhotoConfirm"
-    />
+    <!-- 对话框宿主（结果提示=alert 带状态图标 / 删除照片=confirm，均 useDialog 函数式） -->
+    <wd-dialog />
   </view>
 </template>
 
@@ -110,7 +92,7 @@ import { compressForUpload } from '@/utils/image'
 import { toAbsUrl } from '@/utils/url'
 import { MAINTAIN_EDIT_KEY } from '@/utils/storage'
 import { toastErr } from '@/utils/ui'
-import AppDialog from '@/components/AppDialog.vue'
+import { useDialog } from '@/uni_modules/wot-ui/composables'
 
 type MaintainEditDraft = {
   id: string
@@ -142,14 +124,18 @@ type MaintainData = {
   imgError: boolean
   submitting: boolean
   uploading: boolean
-  /** 提交结果弹窗（AppDialog）：kind 决定图标/颜色（ok=success / pending=primary / fail=danger）；成功类确认后退出，失败类留在原地 */
-  resultDlg: { show: boolean; kind: 'ok' | 'pending' | 'fail'; title: string; content: string }
+  /** 提交结果：kind 决定图标/颜色（ok=success / pending=primary / fail=danger）；成功类确认后退出，失败类留在原地 */
+  resultKind: 'ok' | 'pending' | 'fail'
+  /** 删除照片目标下标（-1 = 无） */
   /** 删除照片确认弹窗：idx 为待删照片下标 */
-  delDlg: { show: boolean; idx: number }
+  delIdx: number
 }
 
 export default {
-  components: { AppDialog },
+  setup() {
+    const dlg = useDialog()
+    return { dlg }
+  },
   data(): MaintainData {
     return {
       equipmentId: '',
@@ -163,8 +149,8 @@ export default {
       imgError: false,
       submitting: false,
       uploading: false,
-      resultDlg: { show: false, kind: 'ok', title: '', content: '' },
-      delDlg: { show: false, idx: -1 }
+      resultKind: 'ok',
+      delIdx: -1
     }
   },
   computed: {
@@ -283,15 +269,19 @@ export default {
       uni.previewImage({ urls: this.photos, current: idx })
     },
     removePhoto(idx: number) {
-      this.delDlg = { show: true, idx: idx }
-    },
-    onDelPhotoConfirm() {
-      const idx = this.delDlg.idx
-      if (idx >= 0) {
-        this.photos.splice(idx, 1)
-        this.fileIds.splice(idx, 1)
-      }
-      this.delDlg.idx = -1
+      this.delIdx = idx
+      this.dlg.confirm({
+        title: '删除照片',
+        msg: '确定删除这张照片吗？',
+        confirmButtonText: '删除',
+        confirmButtonProps: { type: 'danger' }
+      }).then(() => {
+        if (this.delIdx >= 0) {
+          this.photos.splice(this.delIdx, 1)
+          this.fileIds.splice(this.delIdx, 1)
+        }
+        this.delIdx = -1
+      }).catch(() => {})
     },
     submit() {
       if (this.submitting || this.uploading) return
@@ -351,15 +341,17 @@ export default {
     },
     /** 打开结果弹窗：ok=绿勾（已生效）/pending=蓝点（待经理确认）/fail=红叉（留在原地可重试） */
     openResult(kind: 'ok' | 'pending' | 'fail', title: string, content: string) {
-      this.resultDlg = { show: true, kind, title, content }
-    },
-    /** 结果弹窗确认：成功类退出本页；失败类仅关闭，照片保留可重试 */
-    onResultConfirm() {
-      const kind = this.resultDlg.kind
-      this.resultDlg.show = false
-      if (kind != 'fail') {
-        uni.navigateBack()
-      }
+      this.resultKind = kind
+      const icon = kind == 'ok' ? 'check-circle-fill' : kind == 'pending' ? 'info-circle-fill' : 'close-circle-fill'
+      const iconColor = kind == 'ok' ? '#2BA471' : kind == 'pending' ? '#2B5AED' : '#D54941'
+      this.dlg.alert({ title: title, msg: content, icon: icon, iconColor: iconColor })
+        .then(() => {
+          // 成功类确认后退出本页；失败类仅关闭，照片保留可重试
+          if (this.resultKind != 'fail') {
+            uni.navigateBack()
+          }
+        })
+        .catch(() => {})
     }
   }
 }

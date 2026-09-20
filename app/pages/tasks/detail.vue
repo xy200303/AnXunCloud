@@ -16,13 +16,13 @@
     <!-- 任务明细 -->
     <view v-else-if="loaded" class="content">
       <!-- 任务信息卡（§18.2 容器官方化 uni-card + uni-tag 徽标） -->
-      <uni-card :is-shadow="true" :border="false" margin="0 0 24rpx 0" padding="32rpx" spacing="0">
+      <wd-card custom-style="--wot-card-content-padding: 32rpx">
         <view class="card-head">
           <text class="card-title text-main" >{{ planName }}</text>
-          <uni-tag :text="statusText" :inverted="true" size="small" :custom-style="'color:' + statusColor + ';border-color:' + statusColor" />
+          <wd-tag variant="plain" size="small" :custom-style="'color:' + statusColor + ';border-color:' + statusColor">{{ statusText }}</wd-tag>
         </view>
         <view class="card-sub-row">
-          <uni-tag v-if="patrolText != ''" :text="patrolText" :inverted="true" size="small" :custom-style="'color:#2B5AED;border-color:#2B5AED;margin-right:16rpx'" />
+          <wd-tag v-if="patrolText != ''" variant="plain" size="small" :custom-style="'color:#2B5AED;border-color:#2B5AED;margin-right:16rpx'">{{ patrolText }}</wd-tag>
           <text class="card-sub text-secondary" >{{ communityName }}</text>
         </view>
         <text class="card-sub text-secondary" >{{ taskDate }} · {{ roundName != '' ? roundName + ' ' : '' }}{{ timeWindow }}{{ dueText != '' ? ' · ' + dueText : '' }}</text>
@@ -30,7 +30,7 @@
           <view class="progress-inner bg-brand" :style="{ width: progressWidth }"></view>
         </view>
         <text class="card-progress-text text-main" >已完成 {{ donePoints }} / {{ totalPoints }} 点位</text>
-      </uni-card>
+      </wd-card>
 
       <!-- 连续巡检入口（AI 启用进向导；未启用进手动表单；有本地快照时显示继续巡检） -->
       <button v-if="hasUnchecked" plain="true" hover-class="hover-dim" class="quick-btn btn-success" @click="startQuick">
@@ -56,20 +56,17 @@
           <template #footer>
             <view class="point-side">
               <text class="point-cred text-secondary" >{{ p.credential_text }}</text>
-              <uni-tag :text="p.status_text" :inverted="true" size="small" :custom-style="'color:' + p.status_color + ';border-color:' + p.status_color" />
+              <wd-tag variant="plain" size="small" :custom-style="'color:' + p.status_color + ';border-color:' + p.status_color">{{ p.status_text }}</wd-tag>
             </view>
           </template>
         </uni-list-item>
       </uni-list>
 
       <!-- 手动模式入口已移至向导内「手动填写本点位」（按点位进入，不再从首项开始） -->
-      <uni-load-more
+      <view
         v-if="visiblePoints.length < sortedPoints.length"
-        status="more"
-        :show-icon="false"
-        :content-text="{ contentdown: '上拉加载更多（' + visiblePoints.length + '/' + sortedPoints.length + '）' }"
-        :color="'#86909C'"
-      />
+        class="more-hint text-secondary"
+      >上拉加载更多（{{ visiblePoints.length }}/{{ sortedPoints.length }}）</view>
       <view class="bottom-space"></view>
     </view>
 
@@ -399,6 +396,12 @@ export default {
 </script>
 
 <style scoped>
+.more-hint {
+  text-align: center;
+  font-size: 26rpx;
+  padding: 24rpx 0;
+}
+
 .page {
   flex: 1;
   padding: 24rpx;

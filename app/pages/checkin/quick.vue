@@ -4,12 +4,12 @@
     <view class="navbar bg-brand" :style="{ paddingTop: statusBarHeight + 'px' }">
       <view class="navbar-row">
         <view hover-class="hover-dim" class="navbar-side" @click="onBackTap">
-          <uni-icons type="back" size="24" :color="'#FFFFFF'" />
+          <wd-icon name="caret-left" size="24px" color="#FFFFFF" />
         </view>
         <text class="navbar-title text-white" >{{ manualMode ? '手动巡检' : '连续巡检' }}</text>
         <view class="navbar-side navbar-right">
           <view v-if="showEscapeEntry" hover-class="hover-dim" class="navbar-help" @click="onEscapeTap">
-            <uni-icons type="help-filled" size="24" :color="'#FFFFFF'" />
+            <wd-icon name="question-circle-fill" size="24px" color="#FFFFFF" />
           </view>
         </view>
       </view>
@@ -172,26 +172,8 @@
       @update:visible="escapeSheetShow = $event"
       @select="onEscapeSheetSelect"
     />
-    <AppDialog
-      :visible="escapeDlgShow"
-      kind="warning"
-      title="上报无法检查"
-      :content="'请拍摄现场佐证照片后提交“' + escapeTypeText(escapeType) + '”。'"
-      confirm-text="拍摄佐证"
-      cancel-text="取消"
-      @update:visible="escapeDlgShow = $event"
-      @confirm="onEscapeDlgConfirm"
-    />
-    <!-- 记录已归档提示（自绘，替代原生 showModal）：确认后退出向导 -->
-    <AppDialog
-      :visible="lockedDlgShow"
-      kind="warning"
-      title="提示"
-      content="该记录已归档，不可修改"
-      confirm-text="知道了"
-      @update:visible="lockedDlgShow = $event"
-      @confirm="exitWizard"
-    />
+    <!-- 对话框宿主（逃生佐证=confirm / 已归档提示=alert，均 useDialog 函数式） -->
+    <wd-dialog />
 
     <!-- 观察点下拉多选半屏（勾选异常观察点） -->
     <QuickTagPicker
@@ -258,7 +240,7 @@ import QuickCredentialCard from '@/components/QuickCredentialCard.vue'
 import QuickGateCard from '@/components/QuickGateCard.vue'
 import WizardBottomBar from '@/components/WizardBottomBar.vue'
 import QuickTagPicker from '@/components/QuickTagPicker.vue'
-import AppDialog from '@/components/AppDialog.vue'
+import { useDialog } from '@/uni_modules/wot-ui/composables'
 import AppActionSheet from '@/components/AppActionSheet.vue'
 
 /** 向导阶段：cred 凭证 / items 逐项 / gate 提交本点位 / retake 补拍 / pointDone 点位完成 / taskDone 任务完成 */
@@ -372,8 +354,6 @@ type QuickData = {
   forceExit: boolean
   /** 逃生入口：异常类型面板 / 佐证确认弹窗状态 */
   escapeSheetShow: boolean
-  escapeDlgShow: boolean
-  lockedDlgShow: boolean
   /** 面板选择确认期间暂存的当前项与异常类型 */
   escapeItem: WizardItemSnap | null
   escapeType: string
@@ -461,7 +441,11 @@ function freshPoint(p: TaskPoint): WizardPointSnap {
 }
 
 export default {
-  components: { QuickItemCard, QuickIssuePanel, QuickCredentialCard, QuickGateCard, WizardBottomBar, QuickTagPicker, AppDialog, AppActionSheet },
+  components: { QuickItemCard, QuickIssuePanel, QuickCredentialCard, QuickGateCard, WizardBottomBar, QuickTagPicker, AppActionSheet },
+  setup() {
+    const dlg = useDialog()
+    return { dlg }
+  },
   data(): QuickData {
     return {
       shadow: ShadowCard,
@@ -513,9 +497,7 @@ export default {
       captureToken: 0,
       forceExit: false,
       escapeSheetShow: false,
-      escapeDlgShow: false,
       /** 记录已归档提示弹窗（确认后退出向导） */
-      lockedDlgShow: false,
       escapeItem: null,
       escapeType: '',
       credFlash: false,
@@ -1388,7 +1370,14 @@ export default {
         if (it != null) this.reportEscapeNoPhoto(it, this.escapeType)
         return
       }
-      this.escapeDlgShow = true
+      this.dlg.confirm({
+        title: '上报无法检查',
+        msg: '请拍摄现场佐证照片后提交“' + this.escapeTypeText(this.escapeType) + '”。',
+        confirmButtonText: '拍摄佐证',
+        confirmButtonProps: { type: 'warning' }
+      }).then(() => {
+        this.onEscapeDlgConfirm()
+      }).catch(() => {})
     },
     /** 无佐证逃生（现场无法拍摄/相机故障）：直接落逃生草稿并本地落定 escaped（非异常，不进异常处置/统计），自动下一项 */
     reportEscapeNoPhoto(it: WizardItemSnap, exceptionType: 'unable_to_capture' | 'camera_broken') {
@@ -2326,7 +2315,14 @@ export default {
           this.overlayMsg = ''
           const code = e != null && typeof e.code == 'number' ? e.code : 0
           if (code == CODE_CHECKIN_LOCKED) {
-            this.lockedDlgShow = true
+            this.dlg.alert({
+              title: '提示',
+              msg: '该记录已归档，不可修改',
+              confirmButtonText: '知道了',
+              confirmButtonProps: { type: 'warning' }
+            }).then(() => {
+              this.exitWizard()
+            }).catch(() => {})
             return
           }
           if (code == CODE_AI_DISABLED) {

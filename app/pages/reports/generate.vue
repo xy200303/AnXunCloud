@@ -27,14 +27,7 @@
       <text class="label text-regular" >明细范围</text>
       <!-- 明细范围 chip：官方 uni-tag（选中实心品牌色 / 未选灰底描边），点击语义不变 -->
       <view class="mode-row">
-        <uni-tag
-          v-for="m in detailModes"
-          :key="m.value"
-          :text="m.label"
-          :inverted="true"
-          :custom-style="detailMode == m.value ? 'background-color:#2B5AED;border-color:#2B5AED;color:#FFFFFF;margin-right:20rpx' : 'background-color:#F5F6F8;border-color:#E5E6EB;color:#4E5969;margin-right:20rpx'"
-          @click="detailMode = m.value"
-        />
+        <wd-tag v-for="m in detailModes" :key="m.value" variant="plain" :custom-style="detailMode == m.value ? 'background-color:#2B5AED;border-color:#2B5AED;color:#FFFFFF;margin-right:20rpx' : 'background-color:#F5F6F8;border-color:#E5E6EB;color:#4E5969;margin-right:20rpx'" @click="detailMode = m.value">{{ m.label }}</wd-tag>
       </view>
       <text class="tip text-secondary" >点位量大时选「仅异常点位」，报告页数更少（汇总统计不受影响）</text>
 

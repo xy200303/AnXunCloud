@@ -75,25 +75,17 @@
       </view>
 
       <!-- 加载更多状态 -->
-      <uni-load-more
+      <wd-loadmore
         v-if="tasks.length > 0 && (loadingMore || noMore)"
-        :status="loadingMore ? 'loading' : 'noMore'"
-        :content-text="{ contentrefresh: '加载中…', contentnomore: '没有更多了' }"
-        :color="'#86909C'"
+        :state="loadingMore ? 'loading' : 'finished'"
+        loading-text="加载中…"
+        finished-text="没有更多了"
       />
     </view>
 
     <!-- 催办确认（自绘，替代原生 showModal） -->
-    <AppDialog
-      :visible="remindDlgShow"
-      kind="primary"
-      title="任务催办"
-      :content="remindTask != null ? '给 ' + remindTask.inspector_name + ' 发送「' + remindTask.plan_name + '」的催办提醒？' : ''"
-      confirm-text="催办"
-      cancel-text="取消"
-      @update:visible="remindDlgShow = $event"
-      @confirm="onRemindConfirm"
-    />
+    <!-- 确认对话框宿主（useDialog 函数式调用） -->
+    <wd-dialog />
   </view>
 </template>
 
@@ -102,7 +94,7 @@ import { toastErr } from '@/utils/ui'
 
 import { apiAdminDashboard, apiTaskMonitorList, apiTaskRemind, DashboardData, MonitorTask } from '@/services/api'
 import AppSegmentTabs from '@/components/AppSegmentTabs.vue'
-import AppDialog from '@/components/AppDialog.vue'
+import { useDialog } from '@/uni_modules/wot-ui/composables'
 
 const PAGE_SIZE = 20
 
@@ -125,7 +117,6 @@ type BoardData = {
   tasks: TaskView[]
   reminding: boolean
   /** 催办确认弹窗：待催办任务在打开时暂存 */
-  remindDlgShow: boolean
   remindTask: TaskView | null
 }
 
@@ -159,7 +150,11 @@ function toTaskView(t: MonitorTask): TaskView {
 }
 
 export default {
-  components: { AppSegmentTabs, AppDialog },
+  components: { AppSegmentTabs },
+  setup() {
+    const dlg = useDialog()
+    return { dlg }
+  },
   data(): BoardData {
     return {
       board: emptyBoard(),
@@ -177,7 +172,6 @@ export default {
       total: 0,
       tasks: [] as TaskView[],
       reminding: false,
-      remindDlgShow: false,
       remindTask: null
     }
   },
@@ -271,7 +265,13 @@ export default {
     onRemind(t: TaskView) {
       if (this.reminding) return
       this.remindTask = t
-      this.remindDlgShow = true
+      this.dlg.confirm({
+        title: '任务催办',
+        msg: '给 ' + t.inspector_name + ' 发送「' + t.plan_name + '」的催办提醒？',
+        confirmButtonText: '催办'
+      }).then(() => {
+        this.onRemindConfirm()
+      }).catch(() => {})
     },
     onRemindConfirm() {
       const t = this.remindTask

@@ -1,17 +1,16 @@
 <template>
-  <!-- 横向筛选 chips（选项较多/动态数量场景；内芯 = scroll-view + uni-tag，选中实心品牌色）。
-       对外 props/事件不变；≤4 个固定选项的筛选请用 uni-segmented-control -->
+  <!-- 横向筛选 chips（选项较多/动态数量场景；内芯 = scroll-view + wd-tag，选中品牌色）。
+       对外 props/事件不变；≤4 个固定选项的筛选请用 AppSegmentTabs -->
   <scroll-view scroll-x class="app-chip-scroller" :show-scrollbar="false">
     <view class="app-chip-row">
-      <uni-tag
+      <wd-tag
         v-for="item in items"
         :key="item.value"
-        :text="item.label"
-        :inverted="value != item.value"
-        :circle="true"
-        :custom-style="value == item.value ? 'background-color:#EAEFFF;border-color:#2B5AED;color:#2B5AED;margin-right:16rpx;white-space:nowrap' : 'background-color:#FFFFFF;border-color:#E5E6EB;color:#86909C;margin-right:16rpx;white-space:nowrap'"
+        :type="value == item.value ? 'primary' : 'default'"
+        round
+        custom-class="app-chip"
         @click="$emit('change', item.value)"
-      />
+      >{{ item.label }}</wd-tag>
     </view>
   </scroll-view>
 </template>
@@ -38,5 +37,10 @@ export default {
   flex-direction: row;
   align-items: center;
   padding: 4rpx 0 12rpx;
+}
+
+.app-chip {
+  margin-right: 16rpx;
+  white-space: nowrap;
 }
 </style>

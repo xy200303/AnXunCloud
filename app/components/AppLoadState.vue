@@ -7,8 +7,8 @@
       
     ></view>
   </view>
-  <!-- 加载中（非骨架场景）：官方 uni-load-more 转圈态 -->
-  <uni-load-more v-else-if="loading" status="loading" :content-text="{ contentrefresh: '加载中…' }" :color="'#86909C'" />
+  <!-- 加载中（非骨架场景）：wd-loadmore 转圈态 -->
+  <wd-loadmore v-else-if="loading" state="loading" loading-text="加载中…" />
   <view v-else-if="!loaded && error != ''" class="app-load-state app-load-state-empty">
     <text class="app-load-title text-regular" >{{ error }}</text>
     <view class="app-load-action" hover-class="hover-dim" @click="$emit('retry')">

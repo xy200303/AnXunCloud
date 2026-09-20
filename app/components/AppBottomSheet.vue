@@ -1,11 +1,12 @@
 <template>
-  <!-- 底部半屏弹层：内部基于 uni-popup（type=bottom），遮罩/动画/底部安全区交给官方；对外 props/事件接口不变 -->
-  <uni-popup
-    ref="popup"
-    type="bottom"
-    :mask-background-color="maskColor"
-    border-radius="24rpx 24rpx 0 0"
-    @maskClick="$emit('close')"
+  <!-- 底部半屏弹层：内部基于 wd-popup（position=bottom），遮罩/动画/底部安全区交给 wot；对外 props/事件接口不变 -->
+  <wd-popup
+    :model-value="visible"
+    position="bottom"
+    :modal-style="'background: ' + maskColor"
+    :safe-area-inset-bottom="true"
+    custom-style="border-radius: 24rpx 24rpx 0 0; overflow: hidden;"
+    @close="$emit('close')"
   >
     <view
       class="app-bottom-sheet"
@@ -13,7 +14,7 @@
     >
       <slot />
     </view>
-  </uni-popup>
+  </wd-popup>
 </template>
 
 <script lang="ts">
@@ -25,21 +26,7 @@ export default {
     height: { type: String, default: 'auto' },
     maxHeight: { type: String, default: '80vh' }
   },
-  emits: ['close'],
-  watch: {
-    visible(v: boolean) {
-      const popup: any = this.$refs.popup
-      if (popup == null) return
-      if (v) popup.open()
-      else popup.close()
-    }
-  },
-  mounted() {
-    if (this.visible) {
-      const popup: any = this.$refs.popup
-      if (popup != null) popup.open()
-    }
-  }
+  emits: ['close']
 }
 </script>
 

@@ -9,14 +9,11 @@
     </view>
 
     <!-- 头部：点位 + 结果 + 元信息（§18.3 uni-card 分组容器） -->
-    <uni-card :is-shadow="true" :border="false" margin="0 0 24rpx 0" padding="28rpx" spacing="0">
+    <wd-card custom-style="--wot-card-content-padding: 28rpx">
       <view class="head-row">
         <text class="point-name text-main" >{{ record.point_name }}</text>
         <!-- 记录级结论徽章：官方 uni-tag（custom-style 对齐原浅底深字配色） -->
-        <uni-tag
-          :text="record.result == 'abnormal' ? '⚠ 有异常' : '✓ 正常'"
-          :custom-style="record.result == 'abnormal' ? 'color:#D54941;background-color:#FDECEC;border-color:transparent' : 'color:#2BA471;background-color:#E7F6EF;border-color:transparent'"
-        />
+        <wd-tag :custom-style="record.result == 'abnormal' ? 'color:#D54941;background-color:#FDECEC;border-color:transparent' : 'color:#2BA471;background-color:#E7F6EF;border-color:transparent'">{{ record.result == 'abnormal' ? '⚠ 有异常' : '✓ 正常' }}</wd-tag>
       </view>
       <text class="head-sub text-secondary" >{{ headSub }}</text>
       <view v-if="record.checkin_time != null && record.checkin_time != ''" class="meta-row">
@@ -32,33 +29,24 @@
         <text class="meta-value text-regular" >{{ record.distance_to_point }} 米</text>
       </view>
       <text v-if="record.remark != null && record.remark != ''" class="remark text-regular" >备注：{{ record.remark }}</text>
-    </uni-card>
+    </wd-card>
 
     <!-- AI 审核结论（有才显示） -->
-    <uni-card v-if="record.ai_verdict != null && record.ai_verdict != ''" :is-shadow="true" :border="false" margin="0 0 24rpx 0" padding="28rpx" spacing="0">
+    <wd-card v-if="record.ai_verdict != null && record.ai_verdict != ''" custom-style="--wot-card-content-padding: 28rpx">
       <text class="sec-title text-main" >AI 审核结论</text>
       <text class="info-line text-regular" >结论：{{ record.ai_verdict }}</text>
       <text v-if="record.ai_reason != null && record.ai_reason != ''" class="info-line text-secondary" >{{ record.ai_reason }}</text>
-    </uni-card>
+    </wd-card>
 
     <!-- 检查项逐项明细 -->
-    <uni-card v-for="(it, i) in items" :key="it.name" :is-shadow="true" :border="false" margin="0 0 24rpx 0" padding="28rpx" spacing="0">
+    <wd-card v-for="(it, i) in items" :key="it.name" custom-style="--wot-card-content-padding: 28rpx">
       <view class="item-head">
         <text class="item-name text-main" >{{ it.name }}</text>
-        <uni-tag :text="itemResultTextOf(it.result ?? '', it.exception_type)" :type="itemResultTagType(it)" :inverted="true" size="small" />
+        <wd-tag :type="itemResultTagType(it)" variant="plain" size="small">{{ itemResultTextOf(it.result ?? '', it.exception_type) }}</wd-tag>
       </view>
       <!-- 观察点 tag 快照：异常 tag 红色实心，正常 tag 灰色空心（官方 uni-tag） -->
       <view v-if="it.tags != null && it.tags.length > 0" class="tag-row">
-        <uni-tag
-          v-for="(t, ti) in it.tags"
-          :key="ti"
-          :text="t"
-          size="small"
-          :circle="true"
-          :type="isAbnTag(it, t) ? 'error' : 'default'"
-          :inverted="!isAbnTag(it, t)"
-          :custom-style="isAbnTag(it, t) ? 'margin-right:16rpx;margin-bottom:12rpx' : 'color:#86909C;border-color:#E5E6EB;margin-right:16rpx;margin-bottom:12rpx'"
-        />
+        <wd-tag v-for="(t, ti) in it.tags" :key="ti" size="small" :round="true" :type="isAbnTag(it, t) ? 'danger' : 'default'" :variant="(!isAbnTag(it, t)) ? 'plain' : 'dark'" :custom-style="isAbnTag(it, t) ? 'margin-right:16rpx;margin-bottom:12rpx' : 'color:#86909C;border-color:#E5E6EB;margin-right:16rpx;margin-bottom:12rpx'">{{ t }}</wd-tag>
       </view>
       <text v-if="it.note != null && it.note != ''" class="item-note text-regular" >备注：{{ it.note }}</text>
       <view v-if="itemPhotoList(it).length > 0" class="photos">
@@ -75,13 +63,13 @@
       <text v-else class="no-photo text-secondary" >无照片</text>
       <text v-if="it.ai_reason != null && it.ai_reason != ''" class="item-ai text-secondary" >AI：{{ it.ai_reason }}</text>
 
-    </uni-card>
-    <uni-card v-if="items.length == 0" :is-shadow="true" :border="false" margin="0 0 24rpx 0" padding="28rpx" spacing="0">
+    </wd-card>
+    <wd-card v-if="items.length == 0" custom-style="--wot-card-content-padding: 28rpx">
       <text class="no-photo text-secondary" >这次是纯打卡，没有检查项</text>
-    </uni-card>
+    </wd-card>
 
     <!-- 整单现场照片墙 -->
-    <uni-card v-if="recordPhotoList.length > 0" :is-shadow="true" :border="false" margin="0 0 24rpx 0" padding="28rpx" spacing="0">
+    <wd-card v-if="recordPhotoList.length > 0" custom-style="--wot-card-content-padding: 28rpx">
       <text class="sec-title text-main" >现场照片</text>
       <view class="photos">
         <image
@@ -94,10 +82,10 @@
           @click="preview(recordPhotoList, pi)"
         />
       </view>
-    </uni-card>
+    </wd-card>
 
     <!-- 审核状态与审核意见 -->
-    <uni-card v-if="record.audit_status != null && record.audit_status != ''" :is-shadow="true" :border="false" margin="0 0 24rpx 0" padding="28rpx" spacing="0">
+    <wd-card v-if="record.audit_status != null && record.audit_status != ''" custom-style="--wot-card-content-padding: 28rpx">
       <text class="sec-title text-main" >审核结果</text>
       <text class="info-line" :style="{ color: auditColor }">{{ auditText }}<text v-if="record.audit_at != null && record.audit_at != ''"> · {{ record.audit_at }}</text></text>
       <text
@@ -105,7 +93,7 @@
         class="info-line"
          :class="(record.audit_status == 'rejected' ? 'text-danger' : 'text-secondary')"
       >意见：{{ record.audit_remark }}</text>
-    </uni-card>
+    </wd-card>
   </view>
 </template>
 
@@ -217,7 +205,7 @@ export default {
   methods: {
     itemResultTextOf: itemResultTextOf,
     /** 三态 → uni-tag type（uni-tag 用 error 命名，danger 色系映射） */
-    itemResultTagType(it: CheckinDetailItem): 'success' | 'warning' | 'error' {
+    itemResultTagType(it: CheckinDetailItem): 'success' | 'warning' | 'danger' {
       const k = itemResultColorKeyOf(it.result ?? '')
       return k == 'danger' ? 'error' : k
     },

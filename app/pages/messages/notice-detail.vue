@@ -53,7 +53,7 @@
           
           @click="copyFileLink(f)"
         >
-          <uni-tag :text="f.extText" size="small" :custom-style="'background-color:#EAEFFF;color:#2B5AED;border-color:transparent;margin-right:16rpx'" />
+          <wd-tag size="small" :custom-style="'background-color:#EAEFFF;color:#2B5AED;border-color:transparent;margin-right:16rpx'">{{ f.extText }}</wd-tag>
           <text class="file-name text-regular" >{{ f.name }}</text>
         </view>
       </view>

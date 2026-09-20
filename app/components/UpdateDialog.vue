@@ -1,7 +1,7 @@
 <template>
-  <!-- 版本更新弹窗：内部基于 uni-popup（type=center，遮罩不可点关——强制更新无关闭入口，弱更新走「以后再说」）
+  <!-- 版本更新弹窗：内部基于 wd-popup（居中，遮罩不可点关——强制更新无关闭入口，弱更新走「以后再说」）
        安装包按版本缓存：同版本再次弹窗直接「立即安装」，不重复下载 -->
-  <uni-popup ref="popup" type="center" :is-mask-click="false" mask-background-color="rgba(0, 0, 0, 0.55)" border-radius="28rpx">
+  <wd-popup :model-value="visible" position="center" :close-on-click-modal="false" modal-style="background: rgba(0, 0, 0, 0.55)" custom-style="border-radius: 28rpx; overflow: hidden;">
     <view class="upd-dialog bg-card" >
       <!-- 顶部横幅 -->
       <view class="upd-banner bg-brand" >
@@ -44,15 +44,9 @@
       </view>
     </view>
 
-    <!-- 安装失败提示（自绘，替代原生 showModal） -->
-    <AppDialog
-      :visible="errDlgShow"
-      kind="warning"
-      title="无法自动安装"
-      :content="errDlgContent"
-      @update:visible="errDlgShow = $event"
-    />
-  </uni-popup>
+    <!-- 安装失败提示（wd-dialog 函数式） -->
+    <wd-dialog />
+  </wd-popup>
 </template>
 
 <script lang="ts">
@@ -61,7 +55,7 @@ import { getPublicOrigin } from '@/services/request'
 import { LatestRelease } from '@/utils/update'
 import { platformOf } from '@/utils/nfc'
 import { KEY_UPDATE_PKG_CACHE } from '@/utils/storage'
-import AppDialog from '@/components/AppDialog.vue'
+import { useDialog } from '@/uni_modules/wot-ui/composables'
 
 /** 安装包本地缓存键：{version, path}——按版本匹配，同版本直接安装不重下（集中注册表见 utils/storage.ts） */
 const CACHE_KEY = KEY_UPDATE_PKG_CACHE
@@ -76,30 +70,21 @@ type UpdData = {
   progress: number
   /** 可直接安装的本地包路径（phase=ready 时有效） */
   cachedPath: string
-  /** 安装失败提示弹窗 */
-  errDlgShow: boolean
-  errDlgContent: string
 }
 
 export default {
-  components: { AppDialog },
+  setup() {
+    // 安装失败提示（wd-dialog 函数式；宿主 <wd-dialog /> 在本组件模板内）
+    const dlg = useDialog()
+    return { dlg }
+  },
   data(): UpdData {
     return {
       visible: false,
       info: null,
       phase: 'idle',
       progress: 0,
-      cachedPath: '',
-      errDlgShow: false,
-      errDlgContent: ''
-    }
-  },
-  watch: {
-    visible(v: boolean) {
-      const popup: any = this.$refs.popup
-      if (popup == null) return
-      if (v) popup.open()
-      else popup.close()
+      cachedPath: ''
     }
   },
   computed: {
@@ -201,8 +186,7 @@ export default {
         {},
         () => {},
         () => {
-          this.errDlgContent = '请前往官网下载页手动安装：' + getPublicOrigin() + '/download'
-          this.errDlgShow = true
+          this.dlg.alert({ title: '无法自动安装', msg: '请前往官网下载页手动安装：' + getPublicOrigin() + '/download' }).catch(() => {})
         }
       )
       // #endif

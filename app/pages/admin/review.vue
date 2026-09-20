@@ -33,9 +33,9 @@
         <text class="card-sub text-secondary" >{{ r.community_name }} · {{ r.inspector_name }}</text>
         <view class="card-foot">
           <view class="foot-tags">
-            <uni-tag :text="typeTextOf(r.checkin_type)" :inverted="true" size="small" :custom-style="'color:#86909C;border-color:#E5E6EB;margin-right:16rpx;margin-bottom:8rpx'" />
-            <uni-tag v-if="r.is_suspect" text="疑似作弊" :inverted="true" size="small" :custom-style="'color:#ED7B2F;border-color:#ED7B2F;margin-right:16rpx;margin-bottom:8rpx'" />
-            <uni-tag v-if="status == 'pending' && r.can_audit === false" text="待授权人处理" :inverted="true" size="small" :custom-style="'color:#86909C;border-color:#E5E6EB;margin-right:16rpx;margin-bottom:8rpx'" />
+            <wd-tag variant="plain" size="small" :custom-style="'color:#86909C;border-color:#E5E6EB;margin-right:16rpx;margin-bottom:8rpx'">{{ typeTextOf(r.checkin_type) }}</wd-tag>
+            <wd-tag v-if="r.is_suspect" variant="plain" size="small" :custom-style="'color:#ED7B2F;border-color:#ED7B2F;margin-right:16rpx;margin-bottom:8rpx'">疑似作弊</wd-tag>
+            <wd-tag v-if="status == 'pending' && r.can_audit === false" variant="plain" size="small" :custom-style="'color:#86909C;border-color:#E5E6EB;margin-right:16rpx;margin-bottom:8rpx'">待授权人处理</wd-tag>
           </view>
           <text class="card-time text-secondary" >{{ r.checkin_time }}</text>
         </view>
@@ -82,32 +82,8 @@
       </template>
     </AppBottomSheet>
 
-    <!-- 驳回原因弹窗（AppDialog editable 多行；确认带回输入值，空值/失败不关窗且保留已填内容） -->
-    <AppDialog
-      :visible="rejecting"
-      kind="danger"
-      title="驳回原因（必填）"
-      :editable="true"
-      :multiline="true"
-      placeholder="请填写驳回原因"
-      :default-value="rejectReason"
-      confirm-text="确认驳回"
-      cancel-text="取消"
-      @update:visible="rejecting = $event"
-      @confirm="onRejectConfirm"
-    />
-
-    <!-- 审核通过确认（自绘，替代原生 showModal） -->
-    <AppDialog
-      :visible="passDlgShow"
-      kind="success"
-      title="审核通过"
-      content="确认该打卡记录审核通过？"
-      confirm-text="通过"
-      cancel-text="取消"
-      @update:visible="passDlgShow = $event"
-      @confirm="onPassConfirm"
-    />
+    <!-- 对话框宿主（驳回原因=prompt 多行必填 / 审核通过=confirm，均 useDialog 函数式） -->
+    <wd-dialog />
   </view>
 </template>
 
@@ -119,7 +95,7 @@ import AppBottomSheet from '@/components/AppBottomSheet.vue'
 import AppListShell from '@/components/AppListShell.vue'
 import AppSegmentTabs from '@/components/AppSegmentTabs.vue'
 import AppListFooter from '@/components/AppListFooter.vue'
-import AppDialog from '@/components/AppDialog.vue'
+import { useDialog } from '@/uni_modules/wot-ui/composables'
 import CheckinDetailView from '@/components/CheckinDetailView.vue'
 
 const PAGE_SIZE = 20
@@ -135,13 +111,10 @@ type ReviewData = {
   total: number
   list: ReviewRecord[]
   detail: ReviewRecord | null
-  rejecting: boolean
-  rejectReason: string
   acting: boolean
   /** 消息深链带入的记录 ID：首屏加载后自动打开该记录详情 */
   focusId: string
   /** 审核通过确认弹窗 */
-  passDlgShow: boolean
 }
 
 function typeTextOf(t: string): string {
@@ -152,7 +125,11 @@ function typeTextOf(t: string): string {
 }
 
 export default {
-  components: { AppBottomSheet, AppListShell, AppListFooter, AppSegmentTabs, AppDialog, CheckinDetailView },
+  components: { AppBottomSheet, AppListShell, AppListFooter, AppSegmentTabs, CheckinDetailView },
+  setup() {
+    const dlg = useDialog()
+    return { dlg }
+  },
   data(): ReviewData {
     return {
       status: 'pending',
@@ -169,11 +146,8 @@ export default {
       total: 0,
       list: [] as ReviewRecord[],
       detail: null,
-      rejecting: false,
-      rejectReason: '',
       acting: false,
       focusId: '',
-      passDlgShow: false
     }
   },
   computed: {
@@ -260,12 +234,17 @@ export default {
     },
     closeDetail() {
       this.detail = null
-      this.rejecting = false
-      this.rejectReason = ''
     },
     onPass() {
       if (this.detail == null || this.acting) return
-      this.passDlgShow = true
+      this.dlg.confirm({
+        title: '审核通过',
+        msg: '确认该打卡记录审核通过？',
+        confirmButtonText: '通过',
+        confirmButtonProps: { type: 'success' }
+      }).then(() => {
+        this.onPassConfirm()
+      }).catch(() => {})
     },
     onPassConfirm() {
       if (this.detail == null || this.acting) return
@@ -285,19 +264,22 @@ export default {
         })
     },
     onRejectTap() {
-      this.rejectReason = ''
-      this.rejecting = true
+      // wd-dialog prompt：多行必填，校验不过不关弹窗（已填内容不丢）
+      this.dlg.prompt({
+        title: '驳回原因（必填）',
+        confirmButtonText: '确认驳回',
+        confirmButtonProps: { type: 'danger' },
+        textareaProps: { placeholder: '请填写驳回原因', maxlength: 200 },
+        inputPattern: /\S+/,
+        inputError: '请填写驳回原因'
+      }).then((res) => {
+        this.onRejectConfirm(String(res.value != null ? res.value : ''))
+      }).catch(() => {})
     },
     onRejectConfirm(reason: string) {
       if (this.detail == null || this.acting) return
-      this.rejectReason = reason
       const v = (reason || '').trim()
-      // 空值不提交：提示并开回弹窗（AppDialog confirm 时已先置关）
-      if (v == '') {
-        uni.showToast({ title: '请填写驳回原因', icon: 'none' })
-        this.rejecting = true
-        return
-      }
+      if (v == '') return
       const id = this.detail.id
       this.acting = true
       apiReviewReject(id, v)
@@ -308,8 +290,6 @@ export default {
         })
         .catch((e: Error) => {
           uni.showToast({ title: e.message, icon: 'none' })
-          // 失败开回弹窗：default-value 回填 rejectReason，已填理由不丢
-          this.rejecting = true
         })
         .finally(() => {
           this.acting = false
@@ -432,5 +412,4 @@ export default {
   font-weight: 600;
 }
 
-/* 驳回原因对话框（AppDialog 承载，样式见 components/AppDialog.vue） */
 </style>

@@ -53,7 +53,7 @@
       </view>
 
       <!-- 轮次任务按「窗口开始时刻」分组（带组头）；非轮次任务为平铺列表（展示不变）。
-           §18.2 容器官方化：uni-card + uni-tag 徽标；进度条为业务呈现保留 -->
+           Wot Card + Wot Tag 徽标；进度条为业务呈现保留 -->
       <view v-for="row in displayRows" :key="row.key">
         <text v-if="row.task == null" class="group-title text-secondary" >{{ row.header }}</text>
         <wd-card v-else @click="goDetail(row.task.id)">
@@ -99,8 +99,8 @@
 
     <view class="tabbar-space"></view>
 
-    <!-- 确认对话框宿主（维保启动提醒走 useDialog 函数式调用） -->
-    <wd-dialog />
+    <!-- 确认对话框宿主（维保启动提醒走 useAppDialog 函数式调用） -->
+    <wd-dialog root-portal />
 
     <!-- 版本更新弹窗（启动自动检查；强制更新不可跳过） -->
     <UpdateDialog ref="updDialog" />
@@ -117,7 +117,7 @@ import { useAuthStore } from '@/stores/auth'
 import { doNfc } from '@/utils/scan'
 import { fetchLatestRelease } from '@/utils/update'
 import AppChipScroller from '@/components/AppChipScroller.vue'
-import { useDialog } from '@/uni_modules/wot-ui/composables'
+import { useAppDialog } from '@/utils/dialog'
 import UpdateDialog from '@/components/UpdateDialog.vue'
 
 /** 维保提醒「每日一次」存储键 */
@@ -257,7 +257,7 @@ function toTaskView(t: TodayTask): TaskView {
 export default {
   components: { AppChipScroller, UpdateDialog },
   setup() {
-    const dlg = useDialog()
+    const dlg = useAppDialog()
     return { dlg }
   },
   data(): TodayData {

@@ -14,7 +14,7 @@
         <view class="card bg-card" >
           <view class="card-head">
             <view class="card-title-row">
-              <uni-badge :is-dot="true" :custom-style="{ backgroundColor: dueColorOf(detail.due_state), marginRight: '12rpx' }" />
+              <wd-badge is-dot :bg-color="dueColorOf(detail.due_state)" custom-style="margin-right:12rpx" />
               <text class="card-title text-main" >{{ detail.name }}</text>
             </view>
             <text class="card-status" :style="{ color: dueColorOf(detail.due_state) }">{{ dueText }}</text>
@@ -49,7 +49,7 @@
           </view>
           <view v-for="m in history" :key="m.id" class="history-item">
             <view class="history-rail">
-              <uni-badge :is-dot="true" :custom-style="{ backgroundColor: confirmColorOf(m.confirm_status), marginRight: '12rpx' }" />
+              <wd-badge is-dot :bg-color="confirmColorOf(m.confirm_status)" custom-style="margin-right:12rpx" />
               <view class="history-line-rail bg-border" ></view>
             </view>
             <view class="history-body">

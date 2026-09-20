@@ -2,13 +2,7 @@
   <view class="page bg-page" >
     <!-- 状态筛选 chips（客户端过滤：一次拉最近 100 条） -->
     <view class="filter-bar bg-card border-default" >
-      <uni-segmented-control
-        :values="statusChips.map((c) => c.label)"
-        :current="statusTabIdx"
-        style-type="button"
-        active-color="#2B5AED"
-        @clickItem="onStatusTab"
-      />
+      <AppSegmentTabs :items="statusChips" :value="statusFilter" @change="onStatusTab" />
     </view>
 
     <AppListShell
@@ -24,7 +18,7 @@
     >
       <template #default>
       <view class="content">
-        <view v-for="m in filtered" :key="m.id" class="card bg-card" >
+        <view v-for="m in visibleList" :key="m.id" class="card bg-card" >
           <view class="card-head">
             <text class="card-title text-main" >{{ m.equipment_name }}</text>
             <text class="card-status" :style="{ color: statusColor(m.confirm_status) }">{{ statusText(m.confirm_status) }}</text>
@@ -76,6 +70,7 @@
             {{ m.confirmed_by_name ? '经理 ' + m.confirmed_by_name + ' 已确认，台账已更新' : '系统核对通过，台账已更新' }}
           </text>
         </view>
+        <text v-if="hasMore" class="load-tip text-secondary">继续上滑加载更多</text>
       </view>
       </template>
     </AppListShell>
@@ -89,6 +84,7 @@ import { toAbsUrl } from '@/utils/url'
 import { MAINTAIN_EDIT_KEY } from '@/utils/storage'
 import { toastErr } from '@/utils/ui'
 import AppListShell from '@/components/AppListShell.vue'
+import AppSegmentTabs from '@/components/AppSegmentTabs.vue'
 
 type PageData = {
   statusFilter: string
@@ -96,17 +92,22 @@ type PageData = {
   loaded: boolean
   errorMsg: string
   list: MaintenanceItem[]
+  visibleCount: number
 }
 
+const INITIAL_RENDER_COUNT = 20
+const RENDER_BATCH_SIZE = 20
+
 export default {
-  components: { AppListShell },
+  components: { AppListShell, AppSegmentTabs },
   data(): PageData {
     return {
       statusFilter: '',
       loading: true,
       loaded: false,
       errorMsg: '',
-      list: [] as MaintenanceItem[]
+      list: [] as MaintenanceItem[],
+      visibleCount: INITIAL_RENDER_COUNT
     }
   },
   computed: {
@@ -118,14 +119,15 @@ export default {
         { value: 'rejected', label: '已驳回' }
       ]
     },
-    /** 分段器当前下标（statusChips 下标 ↔ statusFilter 值换算） */
-    statusTabIdx(): number {
-      const i = this.statusChips.findIndex((c) => c.value == this.statusFilter)
-      return i >= 0 ? i : 0
-    },
     filtered(): MaintenanceItem[] {
       if (this.statusFilter == '') return this.list
       return this.list.filter((m) => m.confirm_status == this.statusFilter)
+    },
+    visibleList(): MaintenanceItem[] {
+      return this.filtered.slice(0, this.visibleCount)
+    },
+    hasMore(): boolean {
+      return this.visibleCount < this.filtered.length
     }
   },
   onLoad() {
@@ -138,10 +140,13 @@ export default {
   onPullDownRefresh() {
     this.load()
   },
+  onReachBottom() {
+    if (this.hasMore) this.visibleCount += RENDER_BATCH_SIZE
+  },
   methods: {
-    onStatusTab(e: { currentIndex: number }) {
-      const c = this.statusChips[e.currentIndex]
-      if (c != null) this.statusFilter = c.value
+    onStatusTab(value: string) {
+      this.statusFilter = value
+      this.visibleCount = INITIAL_RENDER_COUNT
     },
     toAbsUrl,
     statusText(s: string): string {
@@ -159,6 +164,7 @@ export default {
       apiMaintenanceMine(1, 100)
         .then((p) => {
           this.list = p.list
+          this.visibleCount = INITIAL_RENDER_COUNT
           this.loading = false
           this.loaded = true
           uni.stopPullDownRefresh()
@@ -212,6 +218,10 @@ export default {
   padding: 16rpx 24rpx 24rpx;
   border-bottom-width: 1rpx;
   border-bottom-style: solid;
+}
+
+.filter-bar :deep(.app-segment-tabs) {
+  margin-bottom: 0;
 }
 
 .content {
@@ -296,5 +306,11 @@ export default {
 .done-line {
   font-size: 24rpx;
   margin-top: 16rpx;
+}
+
+.load-tip {
+  font-size: 24rpx;
+  text-align: center;
+  padding: 8rpx 0 32rpx;
 }
 </style>

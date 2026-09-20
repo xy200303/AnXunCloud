@@ -8,10 +8,10 @@
     <!-- 登录表单 -->
     <view class="form">
       <view class="input-wrap bg-card border-default" >
-        <uni-easyinput v-model="username" placeholder="账号" :input-border="false" :primary-color="'#2B5AED'" />
+        <wd-input v-model="username" placeholder="账号" clearable custom-style="width:100%" />
       </view>
       <view class="input-wrap bg-card border-default" >
-        <uni-easyinput v-model="password" type="password" placeholder="密码" :input-border="false" :clearable="false" :primary-color="'#2B5AED'" />
+        <wd-input v-model="password" show-password placeholder="密码" custom-style="width:100%" />
       </view>
       <!-- 公司选择：仅当用户名存在于多家公司（后端 40109）时显示，选项来自 40109 响应的 tenants -->
       <AppPickerField v-if="needTenantCode" class="tenant-field" :range="tenantNames" :value="tenantIndex" placeholder="请选择所属公司" :large="true" @change="onLoginTenantPick" />

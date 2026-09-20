@@ -10,17 +10,17 @@
       <text class="title text-main" >轻触头像以切换账号</text>
     </view>
 
-    <!-- 账号列表（§18.4 uni-list 标准行：头像 + 名称/用户名 + 右侧状态；删除模式右侧出「删除」） -->
-    <uni-list class="list bg-card" :style="{ borderRadius: '24rpx' }">
-      <uni-list-item
+    <!-- 账号列表：头像 + 名称/用户名 + 右侧状态；删除模式右侧出「删除」 -->
+    <wd-cell-group custom-class="list" border>
+      <wd-cell
         v-for="(acc, idx) in accounts"
         :key="acc.username + ':' + acc.tenant_code"
         :title="acc.remark != '' ? acc.remark : acc.username"
-        :note="acc.username"
+        :label="acc.username"
         clickable
         @click="onAccountTap(idx)"
       >
-        <template #header>
+        <template #prefix>
           <view class="acc-avatar bg-brand-light" >
             <text class="acc-avatar-text text-brand" >{{ avatarText(acc) }}</text>
             <view v-if="loginKey == acc.username + ':' + acc.tenant_code" class="acc-loading bg-mask" >
@@ -28,29 +28,29 @@
             </view>
           </view>
         </template>
-        <template #footer>
+        <template #suffix>
           <view>
             <wd-tag v-if="idx == 0 && !managing" type="success" variant="plain" size="small">最近使用</wd-tag>
             <text v-if="managing" class="acc-del text-danger"  @click.stop="onDeleteTap(idx)">删除</text>
           </view>
         </template>
-      </uni-list-item>
+      </wd-cell>
 
       <!-- 添加账号：去登录页手动登录 -->
-      <uni-list-item title="添加账号" clickable show-arrow @click="goLogin">
-        <template #header>
+      <wd-cell title="添加账号" clickable is-link @click="goLogin">
+        <template #prefix>
           <view class="acc-avatar acc-add border-default" >
             <wd-icon name="plus" size="22px" color="#86909C" />
           </view>
         </template>
-      </uni-list-item>
-    </uni-list>
+      </wd-cell>
+    </wd-cell-group>
 
     <text v-if="errorMsg != ''" class="error text-danger" >{{ errorMsg }}</text>
 
     <!-- 删除确认 -->
-    <!-- 确认对话框宿主（useDialog 函数式调用） -->
-    <wd-dialog />
+    <!-- 确认对话框宿主（useAppDialog 函数式调用） -->
+    <wd-dialog root-portal />
   </view>
 </template>
 
@@ -64,7 +64,7 @@ import {
   upsertSwitchAccount
 } from '@/utils/storage'
 import { reLaunchToLogin } from '@/utils/nav'
-import { useDialog } from '@/uni_modules/wot-ui/composables'
+import { useAppDialog } from '@/utils/dialog'
 
 type SwitchData = {
   statusBarH: number
@@ -79,7 +79,7 @@ type SwitchData = {
 
 export default {
   setup() {
-    const dlg = useDialog()
+    const dlg = useAppDialog()
     return { dlg }
   },
   data(): SwitchData {

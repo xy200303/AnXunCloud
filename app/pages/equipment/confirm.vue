@@ -114,8 +114,8 @@
       </button>
     </view>
 
-    <!-- 对话框宿主（驳回原因=prompt 多行必填 / 确认通过=confirm，均 useDialog 函数式） -->
-    <wd-dialog />
+    <!-- 对话框宿主（驳回原因=prompt 多行必填 / 确认通过=confirm，均 useAppDialog 函数式） -->
+    <wd-dialog root-portal />
   </view>
 </template>
 
@@ -130,7 +130,7 @@ import { toAbsUrl } from '@/utils/url'
 import AppListShell from '@/components/AppListShell.vue'
 import AppListFooter from '@/components/AppListFooter.vue'
 import AppBottomSheet from '@/components/AppBottomSheet.vue'
-import { useDialog } from '@/uni_modules/wot-ui/composables'
+import { useAppDialog } from '@/utils/dialog'
 
 const PAGE_SIZE = 20
 
@@ -156,7 +156,7 @@ type ConfirmData = {
 export default {
   components: { AppListShell, AppListFooter, AppBottomSheet },
   setup() {
-    const dlg = useDialog()
+    const dlg = useAppDialog()
     return { dlg }
   },
   data(): ConfirmData {
@@ -508,5 +508,4 @@ export default {
   font-weight: 600;
 }
 
-/* 驳回原因弹窗（AppDialog 承载，样式见 components/AppDialog.vue） */
 </style>

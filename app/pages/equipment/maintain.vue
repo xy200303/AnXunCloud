@@ -80,8 +80,8 @@
       <view class="bottom-space"></view>
     </view>
 
-    <!-- 对话框宿主（结果提示=alert 带状态图标 / 删除照片=confirm，均 useDialog 函数式） -->
-    <wd-dialog />
+    <!-- 对话框宿主（结果提示=alert 带状态图标 / 删除照片=confirm，均 useAppDialog 函数式） -->
+    <wd-dialog root-portal />
   </view>
 </template>
 
@@ -92,7 +92,7 @@ import { compressForUpload } from '@/utils/image'
 import { toAbsUrl } from '@/utils/url'
 import { MAINTAIN_EDIT_KEY } from '@/utils/storage'
 import { toastErr } from '@/utils/ui'
-import { useDialog } from '@/uni_modules/wot-ui/composables'
+import { useAppDialog } from '@/utils/dialog'
 
 type MaintainEditDraft = {
   id: string
@@ -133,7 +133,7 @@ type MaintainData = {
 
 export default {
   setup() {
-    const dlg = useDialog()
+    const dlg = useAppDialog()
     return { dlg }
   },
   data(): MaintainData {

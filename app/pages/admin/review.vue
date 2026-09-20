@@ -82,8 +82,8 @@
       </template>
     </AppBottomSheet>
 
-    <!-- 对话框宿主（驳回原因=prompt 多行必填 / 审核通过=confirm，均 useDialog 函数式） -->
-    <wd-dialog />
+    <!-- 对话框宿主（驳回原因=prompt 多行必填 / 审核通过=confirm，均 useAppDialog 函数式） -->
+    <wd-dialog root-portal />
   </view>
 </template>
 
@@ -95,7 +95,7 @@ import AppBottomSheet from '@/components/AppBottomSheet.vue'
 import AppListShell from '@/components/AppListShell.vue'
 import AppSegmentTabs from '@/components/AppSegmentTabs.vue'
 import AppListFooter from '@/components/AppListFooter.vue'
-import { useDialog } from '@/uni_modules/wot-ui/composables'
+import { useAppDialog } from '@/utils/dialog'
 import CheckinDetailView from '@/components/CheckinDetailView.vue'
 
 const PAGE_SIZE = 20
@@ -127,7 +127,7 @@ function typeTextOf(t: string): string {
 export default {
   components: { AppBottomSheet, AppListShell, AppListFooter, AppSegmentTabs, CheckinDetailView },
   setup() {
-    const dlg = useDialog()
+    const dlg = useAppDialog()
     return { dlg }
   },
   data(): ReviewData {

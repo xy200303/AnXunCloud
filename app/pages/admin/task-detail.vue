@@ -30,7 +30,7 @@
       </view>
 
       <!-- 状态过滤条（数字来自全量统计，不随分页变化） -->
-      <!-- 状态过滤条（数字来自全量统计，不随分页变化；官方 uni-tag，计数告警色语义保留） -->
+      <!-- 状态过滤条（数字来自全量统计，不随分页变化；Wot Tag 保留计数告警色语义） -->
       <view class="filter-bar">
         <wd-tag v-for="f in filters" :key="f.key" :variant="(true) ? 'plain' : 'dark'" :custom-style="filterChipStyle(f)" @click="filterKey = f.key">{{ f.count > 0 ? f.label + ' ' + f.count : f.label }}</wd-tag>
       </view>
@@ -228,7 +228,7 @@ export default {
     this.loadMore()
   },
   methods: {
-    /** 筛选 chip 样式字符串（uni-tag customStyle 为 String 类型；选中实心品牌色，未选按异常级别给计数色） */
+    /** 筛选标签样式字符串（Wot Tag customStyle 为 String 类型；选中实心品牌色，未选按异常级别给计数色） */
     filterChipStyle(f: { key: string; label: string; count: number }): string {
       if (this.filterKey == f.key) return 'background-color:#2B5AED;border-color:#2B5AED;color:#FFFFFF;margin-right:20rpx'
       const c = f.key == 'abnormal' && f.count > 0 ? '#D54941' : f.key == 'suspect' && f.count > 0 ? '#ED7B2F' : '#4E5969'

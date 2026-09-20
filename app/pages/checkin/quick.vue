@@ -172,8 +172,8 @@
       @update:visible="escapeSheetShow = $event"
       @select="onEscapeSheetSelect"
     />
-    <!-- 对话框宿主（逃生佐证=confirm / 已归档提示=alert，均 useDialog 函数式） -->
-    <wd-dialog />
+    <!-- 对话框宿主（逃生佐证=confirm / 已归档提示=alert，均 useAppDialog 函数式） -->
+    <wd-dialog root-portal />
 
     <!-- 观察点下拉多选半屏（勾选异常观察点） -->
     <QuickTagPicker
@@ -240,7 +240,7 @@ import QuickCredentialCard from '@/components/QuickCredentialCard.vue'
 import QuickGateCard from '@/components/QuickGateCard.vue'
 import WizardBottomBar from '@/components/WizardBottomBar.vue'
 import QuickTagPicker from '@/components/QuickTagPicker.vue'
-import { useDialog } from '@/uni_modules/wot-ui/composables'
+import { useAppDialog } from '@/utils/dialog'
 import AppActionSheet from '@/components/AppActionSheet.vue'
 
 /** 向导阶段：cred 凭证 / items 逐项 / gate 提交本点位 / retake 补拍 / pointDone 点位完成 / taskDone 任务完成 */
@@ -443,7 +443,7 @@ function freshPoint(p: TaskPoint): WizardPointSnap {
 export default {
   components: { QuickItemCard, QuickIssuePanel, QuickCredentialCard, QuickGateCard, WizardBottomBar, QuickTagPicker, AppActionSheet },
   setup() {
-    const dlg = useDialog()
+    const dlg = useAppDialog()
     return { dlg }
   },
   data(): QuickData {

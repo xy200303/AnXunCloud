@@ -56,9 +56,11 @@
     <!-- 手写签名板（个人中心配置入口：保存即写入签章资产，下次签字直接用） -->
     <SignaturePad ref="pad" :show-save-option="false" @save="onPadSave" />
 
-    <!-- 切换公司面板 / 头像来源面板（wd-action-sheet，选中即关） / 确认对话框（useDialog 函数式） -->
+    <!-- 切换公司面板 / 头像来源面板（wd-action-sheet，选中即关） / 确认对话框（useAppDialog 函数式） -->
     <wd-action-sheet
       v-model="avatarSheetShow"
+      :z-index="1050"
+      root-portal
       title="更换头像"
       :actions="[{ name: '拍摄' }, { name: '从相册选择' }]"
       cancel-text="取消"
@@ -66,12 +68,14 @@
     />
     <wd-action-sheet
       v-model="tenantSheetShow"
+      :z-index="1050"
+      root-portal
       title="切换公司"
       :actions="tenantActions"
       cancel-text="取消"
       @select="onTenantSelect"
     />
-    <wd-dialog />
+    <wd-dialog root-portal />
 
     <view class="tabbar-space"></view>
   </view>
@@ -87,7 +91,7 @@ import { useAuthStore } from '@/stores/auth'
 import { useTenantStore } from '@/stores/tenant'
 import { toAbsUrl } from '@/utils/url'
 import SignaturePad from '@/components/SignaturePad.vue'
-import { useDialog } from '@/uni_modules/wot-ui/composables'
+import { useAppDialog } from '@/utils/dialog'
 
 type ProfileData = {
   /** 安装包版本号（App 端取 plus.runtime，其他端回落默认值） */
@@ -106,8 +110,8 @@ type ProfileData = {
 export default {
   components: { SignaturePad },
   setup() {
-    // wot 确认对话框（函数式调用，Promise 化；页面须挂一个 <wd-dialog /> 宿主）
-    const dlg = useDialog()
+    // Wot 确认对话框（函数式调用，Promise 化；页面须挂一个 <wd-dialog /> 宿主）
+    const dlg = useAppDialog()
     return { dlg }
   },
   data(): ProfileData {

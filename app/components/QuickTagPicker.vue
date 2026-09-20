@@ -13,7 +13,7 @@
           checked-color="#D54941"
           @update:model-value="onChecksChange"
         >
-          <wd-checkbox v-for="t in tags" :key="t" :value="t" custom-class="tp-check">{{ t }}</wd-checkbox>
+          <wd-checkbox v-for="t in tags" :key="t" :name="t" custom-class="tp-check">{{ t }}</wd-checkbox>
         </wd-checkbox-group>
         <view v-else class="tp-empty">
           <text class="tp-empty-text text-secondary">该项没有配置观察点</text>
@@ -101,6 +101,17 @@ export default {
 
 .tp-list {
   margin-top: 24rpx;
+}
+
+:deep(.tp-check) {
+  min-height: 96rpx;
+  padding: 0 8rpx;
+  border-bottom: 1rpx solid #E5E6EB;
+  box-sizing: border-box;
+}
+
+:deep(.tp-check:last-child) {
+  border-bottom-width: 0;
 }
 
 .tp-empty {

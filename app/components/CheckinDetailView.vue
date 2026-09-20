@@ -8,17 +8,17 @@
       <text class="suspect-text text-warning" >⚠ 疑似异常打卡：{{ suspectText }}</text>
     </view>
 
-    <!-- 头部：点位 + 结果 + 元信息（§18.3 uni-card 分组容器） -->
+    <!-- 头部：点位 + 结果 + 元信息（Wot Card 分组容器） -->
     <wd-card custom-style="--wot-card-content-padding: 28rpx">
       <view class="head-row">
         <text class="point-name text-main" >{{ record.point_name }}</text>
-        <!-- 记录级结论徽章：官方 uni-tag（custom-style 对齐原浅底深字配色） -->
+        <!-- 记录级结论徽章：Wot Tag 对齐原浅底深字配色 -->
         <wd-tag :custom-style="record.result == 'abnormal' ? 'color:#D54941;background-color:#FDECEC;border-color:transparent' : 'color:#2BA471;background-color:#E7F6EF;border-color:transparent'">{{ record.result == 'abnormal' ? '⚠ 有异常' : '✓ 正常' }}</wd-tag>
       </view>
       <text class="head-sub text-secondary" >{{ headSub }}</text>
       <view v-if="record.checkin_time != null && record.checkin_time != ''" class="meta-row">
         <text class="meta-label text-secondary" >打卡时间</text>
-        <uni-dateformat class="meta-value text-regular"  :date="record.checkin_time" format="yyyy-MM-dd hh:mm:ss" />
+        <text class="meta-value text-regular">{{ formatDateTime(record.checkin_time) }}</text>
       </view>
       <view v-if="record.checkin_type != null && record.checkin_type != ''" class="meta-row">
         <text class="meta-label text-secondary" >打卡方式</text>
@@ -44,20 +44,20 @@
         <text class="item-name text-main" >{{ it.name }}</text>
         <wd-tag :type="itemResultTagType(it)" variant="plain" size="small">{{ itemResultTextOf(it.result ?? '', it.exception_type) }}</wd-tag>
       </view>
-      <!-- 观察点 tag 快照：异常 tag 红色实心，正常 tag 灰色空心（官方 uni-tag） -->
+      <!-- 观察点标签快照：异常红色实心，正常灰色空心 -->
       <view v-if="it.tags != null && it.tags.length > 0" class="tag-row">
         <wd-tag v-for="(t, ti) in it.tags" :key="ti" size="small" :round="true" :type="isAbnTag(it, t) ? 'danger' : 'default'" :variant="(!isAbnTag(it, t)) ? 'plain' : 'dark'" :custom-style="isAbnTag(it, t) ? 'margin-right:16rpx;margin-bottom:12rpx' : 'color:#86909C;border-color:#E5E6EB;margin-right:16rpx;margin-bottom:12rpx'">{{ t }}</wd-tag>
       </view>
       <text v-if="it.note != null && it.note != ''" class="item-note text-regular" >备注：{{ it.note }}</text>
-      <view v-if="itemPhotoList(it).length > 0" class="photos">
+      <view v-if="it.photo_urls.length > 0" class="photos">
         <image
-          v-for="(u, pi) in itemPhotoList(it)"
+          v-for="(u, pi) in it.photo_urls"
           :key="pi"
           class="photo"
           :src="u"
           mode="aspectFill"
           lazy-load
-          @click="preview(itemPhotoList(it), pi)"
+          @click="preview(it.photo_urls, pi)"
         />
       </view>
       <text v-else class="no-photo text-secondary" >无照片</text>
@@ -100,7 +100,7 @@
 <script lang="ts">
 
 import { toAbsUrl } from '@/utils/url'
-import { checkinTypeTextOf, itemResultTextOf, itemResultColorKeyOf } from '@/utils/format'
+import { checkinTypeTextOf, formatDateTime, itemResultTextOf, itemResultColorKeyOf } from '@/utils/format'
 
 /** 整单照片（对齐后端 photos 数组元素：优先水印图） */
 export type CheckinDetailPhoto = {
@@ -123,6 +123,10 @@ export type CheckinDetailItem = {
   tags?: string[]
   /** 异常观察点 tag 列表（红色高亮展示） */
   abnormal_tags?: string[]
+}
+
+type CheckinDetailItemView = Omit<CheckinDetailItem, 'photo_urls'> & {
+  photo_urls: string[]
 }
 
 /** 打卡详情视图数据（对齐 GET /inspection/checkins/:id 返回；审核列表记录在调用处补齐同名字段） */
@@ -173,8 +177,11 @@ export default {
     rec(): CheckinDetailRecord {
       return (this.record as CheckinDetailRecord | null) ?? { point_name: '', result: '' }
     },
-    items(): CheckinDetailItem[] {
-      return this.rec.check_items ?? []
+    items(): CheckinDetailItemView[] {
+      return (this.rec.check_items ?? []).map((item) => ({
+        ...item,
+        photo_urls: (item.photo_urls ?? []).map(toAbsUrl)
+      }))
     },
     headSub(): string {
       const parts = [this.rec.community_name, this.rec.inspector_name].filter((s) => s != null && s != '')
@@ -203,17 +210,14 @@ export default {
     }
   },
   methods: {
+    formatDateTime,
     itemResultTextOf: itemResultTextOf,
-    /** 三态 → uni-tag type（uni-tag 用 error 命名，danger 色系映射） */
+    /** 三态 → Wot Tag type */
     itemResultTagType(it: CheckinDetailItem): 'success' | 'warning' | 'danger' {
-      const k = itemResultColorKeyOf(it.result ?? '')
-      return k == 'danger' ? 'error' : k
+      return itemResultColorKeyOf(it.result ?? '')
     },
     isAbnTag(it: CheckinDetailItem, t: string): boolean {
       return it.abnormal_tags != null && it.abnormal_tags.indexOf(t) >= 0
-    },
-    itemPhotoList(it: CheckinDetailItem): string[] {
-      return (it.photo_urls ?? []).map(toAbsUrl)
     },
     preview(urls: string[], idx: number) {
       if (urls.length == 0) return
@@ -301,7 +305,7 @@ export default {
 }
 
 
-/* 观察点 tag 快照行（芯片为 uni-tag） */
+/* 观察点标签快照行 */
 .tag-row {
   flex-direction: row;
   flex-wrap: wrap;

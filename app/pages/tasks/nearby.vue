@@ -22,30 +22,30 @@
       <text class="center-sub text-secondary" >或点位还没有坐标（可在电脑端导入时留空，现场到点位编辑「获取当前位置」补齐）</text>
     </view>
 
-    <!-- 点位列表（§18.2 uni-list 标准行：左距离圆徽标 + 标题/分区·计划 + 右状态徽标） -->
+    <!-- 点位列表：左距离圆徽标 + 标题/分区·计划 + 右状态徽标 -->
     <view v-else-if="loaded" class="content">
-      <uni-list class="point-list bg-card" >
-        <uni-list-item
+      <wd-cell-group custom-class="point-list" border>
+        <wd-cell
           v-for="(p, i) in list"
           :key="p.task_id + '-' + p.point_id"
           :title="p.point_name"
-          :note="(p.building_name || '未分区') + ' · ' + p.plan_name"
+          :label="(p.building_name || '未分区') + ' · ' + p.plan_name"
           clickable
           @click="onTap(p)"
         >
-          <template #header>
+          <template #prefix>
             <view class="dist-badge" :style="{ backgroundColor: p.checked ? '#E5E6EB' : (p.distance <= 50 ? '#2BA471' : '#2B5AED') }">
               <text class="dist-text text-white" >{{ p.distance }}m</text>
             </view>
           </template>
-          <template #footer>
+          <template #suffix>
             <view>
               <wd-tag v-if="p.checked" type="success" variant="plain" size="small">已打卡</wd-tag>
               <wd-tag v-else type="warning" variant="plain" size="small">{{ credentialTextOf(p.credential, p.require_fence) }}</wd-tag>
             </view>
           </template>
-        </uni-list-item>
-      </uni-list>
+        </wd-cell>
+      </wd-cell-group>
       <text class="foot-note text-secondary" >仅显示最近 {{ list.length }} 个点位 · 下拉可刷新距离</text>
     </view>
   </view>

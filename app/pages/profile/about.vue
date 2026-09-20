@@ -12,12 +12,12 @@
       <text class="intro text-regular" >安巡云是面向物业巡检场景的数字化管理平台：扫码 / NFC / GPS 围栏三重到点校验，拍照留证、AI 审核、月度报告电子签，让每一次巡检都有据可查。</text>
     </view>
 
-    <!-- 链接区：官方 uni-list 列表行 -->
+    <!-- 链接区 -->
     <view class="card menu-card bg-card" >
-      <uni-list :border="false">
-        <uni-list-item title="官网 / 下载页" :right-text="siteUrl" clickable @click="copySite" />
-        <uni-list-item title="检查更新" :right-text="'当前 v' + version" clickable show-arrow @click="checkUpdate" />
-      </uni-list>
+      <wd-cell-group border>
+        <wd-cell title="官网 / 下载页" :value="siteUrl" clickable @click="copySite" />
+        <wd-cell title="检查更新" :value="'当前 v' + version" clickable is-link @click="checkUpdate" />
+      </wd-cell-group>
     </view>
 
     <!-- 版本更新弹窗（手动检查） -->

@@ -14,7 +14,7 @@
       <wd-card>
         <view class="head-row">
           <text class="point-name text-main" >{{ pointName }}</text>
-          <!-- 记录级结论徽章：官方 uni-tag（custom-style 对齐原浅底深字配色） -->
+          <!-- 记录级结论徽章：Wot Tag 对齐原浅底深字配色 -->
           <wd-tag :custom-style="result == 'abnormal' ? 'color:#D54941;background-color:#FDECEC;border-color:transparent' : 'color:#2BA471;background-color:#E7F6EF;border-color:transparent'">{{ result == 'abnormal' ? '⚠ 有异常' : '✓ 正常' }}</wd-tag>
         </view>
         <text v-if="buildingName != ''" class="head-sub text-secondary" >{{ buildingName }}</text>
@@ -28,7 +28,7 @@
         </view>
         <view class="meta-row">
           <text class="meta-label text-secondary" >打卡时间</text>
-          <uni-dateformat class="meta-value text-regular"  :date="checkinTime" format="yyyy-MM-dd hh:mm:ss" />
+          <text class="meta-value text-regular">{{ formatDateTime(checkinTime) }}</text>
         </view>
         <view class="meta-row">
           <text class="meta-label text-secondary" >打卡方式</text>
@@ -44,7 +44,7 @@
         </view>
       </wd-card>
 
-      <!-- 逐项明细（§18.3 uni-card 分组 + uni-tag 三态徽标） -->
+      <!-- 逐项明细：Wot Card 分组 + Wot Tag 三态徽标 -->
       <wd-card v-for="(it, i) in items" :key="it.name">
         <view class="item-head">
           <text class="item-name text-main" >{{ it.name }}</text>
@@ -83,7 +83,7 @@
 import { toastErr } from '@/utils/ui'
 
 import { apiTaskDetail, apiCheckinItems, CheckinItemAI } from '@/services/api'
-import { checkinTypeTextOf, itemResultTextOf, itemResultColorKeyOf } from '@/utils/format'
+import { checkinTypeTextOf, formatDateTime, itemResultTextOf, itemResultColorKeyOf } from '@/utils/format'
 
 export default {
   data() {
@@ -146,12 +146,12 @@ export default {
     if (this.loaded) this.load()
   },
   methods: {
+    formatDateTime,
     itemResultTextOf: itemResultTextOf,
     itemResultColorKeyOf: itemResultColorKeyOf,
-    /** 三态 → uni-tag type（uni-tag 用 error 命名，色系 danger 映射） */
+    /** 三态 → Wot Tag type */
     itemResultTagType(result: string): 'success' | 'warning' | 'danger' {
-      const k = itemResultColorKeyOf(result)
-      return k == 'danger' ? 'error' : k
+      return itemResultColorKeyOf(result)
     },
     load() {
       if (this.taskId == '' || this.pointId == '') {

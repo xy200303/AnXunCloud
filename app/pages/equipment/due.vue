@@ -2,13 +2,7 @@
   <view class="page bg-page" >
     <!-- 状态筛选 chips（客户端过滤：待维保列表一次拉全，上限 200 台） -->
     <view class="filter-bar bg-card border-default" >
-      <uni-segmented-control
-        :values="dueChips.map((c) => c.label)"
-        :current="dueTabIdx"
-        style-type="button"
-        active-color="#2B5AED"
-        @clickItem="onDueTab"
-      />
+      <AppSegmentTabs :items="dueChips" :value="dueFilter" @change="onDueTab" />
     </view>
 
     <!-- 我的提交入口：提交后设备从待办消失（有 pending 流水），这里给登记人查看/修改的固定入口 -->
@@ -31,7 +25,7 @@
       <template #default>
       <view class="content">
         <view
-          v-for="e in filtered"
+          v-for="e in visibleList"
           :key="e.id"
           hover-class="hover-dim"
           class="card bg-card"
@@ -40,7 +34,7 @@
         >
           <view class="card-head">
             <view class="card-title-row">
-              <uni-badge :is-dot="true" :custom-style="{ backgroundColor: dueColorOf(e.due_state), marginRight: '12rpx' }" />
+              <wd-badge is-dot :bg-color="dueColorOf(e.due_state)" custom-style="margin-right:12rpx" />
               <text class="card-title text-main" >{{ e.name }}</text>
             </view>
             <text class="card-status" :style="{ color: dueColorOf(e.due_state) }">{{ dueTextOf(e) }}</text>
@@ -51,6 +45,7 @@
             <text class="card-loc text-secondary" >{{ locationText(e) }}</text>
           </view>
         </view>
+        <text v-if="hasMore" class="load-tip text-secondary">继续上滑加载更多</text>
       </view>
       </template>
     </AppListShell>
@@ -62,6 +57,7 @@ import { toastErr } from '@/utils/ui'
 
 import { apiEquipmentDue, EquipmentListItem, EquipmentDueState } from '@/services/api'
 import AppListShell from '@/components/AppListShell.vue'
+import AppSegmentTabs from '@/components/AppSegmentTabs.vue'
 import { useAuthStore } from '@/stores/auth'
 
 type PageData = {
@@ -72,8 +68,12 @@ type PageData = {
   loaded: boolean
   errorMsg: string
   list: EquipmentListItem[]
+  visibleCount: number
   lastLoadedAt: number
 }
+
+const INITIAL_RENDER_COUNT = 20
+const RENDER_BATCH_SIZE = 20
 
 /** 状态灯颜色：与台账页同口径（warning 黄 / overdue、scrap 红 / 其他灰） */
 function dueColorOf(s: EquipmentDueState): string {
@@ -91,7 +91,7 @@ function todayZero(): number {
 }
 
 export default {
-  components: { AppListShell },
+  components: { AppListShell, AppSegmentTabs },
   data(): PageData {
     return {
       dueFilter: '',
@@ -100,6 +100,7 @@ export default {
       loaded: false,
       errorMsg: '',
       list: [] as EquipmentListItem[],
+      visibleCount: INITIAL_RENDER_COUNT,
       lastLoadedAt: 0
     }
   },
@@ -112,14 +113,15 @@ export default {
         { value: 'scrap', label: '应报废' }
       ]
     },
-    /** 分段器当前下标（dueChips 下标 ↔ dueFilter 值换算） */
-    dueTabIdx(): number {
-      const i = this.dueChips.findIndex((c) => c.value == this.dueFilter)
-      return i >= 0 ? i : 0
-    },
     filtered(): EquipmentListItem[] {
       if (this.dueFilter == '') return this.list
       return this.list.filter((e) => e.due_state == this.dueFilter)
+    },
+    visibleList(): EquipmentListItem[] {
+      return this.filtered.slice(0, this.visibleCount)
+    },
+    hasMore(): boolean {
+      return this.visibleCount < this.filtered.length
     }
   },
   onLoad(options: any) {
@@ -139,10 +141,13 @@ export default {
   onPullDownRefresh() {
     this.load()
   },
+  onReachBottom() {
+    if (this.hasMore) this.visibleCount += RENDER_BATCH_SIZE
+  },
   methods: {
-    onDueTab(e: { currentIndex: number }) {
-      const c = this.dueChips[e.currentIndex]
-      if (c != null) this.dueFilter = c.value
+    onDueTab(value: string) {
+      this.dueFilter = value
+      this.visibleCount = INITIAL_RENDER_COUNT
     },
     dueColorOf,
     /** 到期状态文案：逾期红字带天数（与台账页同口径） */
@@ -167,6 +172,7 @@ export default {
       apiEquipmentDue()
         .then((list) => {
           this.list = list
+          this.visibleCount = INITIAL_RENDER_COUNT
           this.loading = false
           this.loaded = true
           this.lastLoadedAt = Date.now()
@@ -214,6 +220,10 @@ export default {
   padding: 16rpx 24rpx 24rpx;
   border-bottom-width: 1rpx;
   border-bottom-style: solid;
+}
+
+.filter-bar :deep(.app-segment-tabs) {
+  margin-bottom: 0;
 }
 
 /* 我的提交入口条 */
@@ -287,5 +297,11 @@ export default {
   font-size: 24rpx;
   flex: 1;
   text-align: right;
+}
+
+.load-tip {
+  font-size: 24rpx;
+  text-align: center;
+  padding: 8rpx 0 32rpx;
 }
 </style>

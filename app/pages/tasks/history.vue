@@ -33,7 +33,7 @@
       <view class="summary">
         <text class="summary-progress text-brand" >{{ donePoints }}/{{ totalPoints }} 点位</text>
       </view>
-      <!-- 任务卡（§18.2 容器官方化 uni-card + uni-tag 徽标；进度条为业务呈现保留） -->
+      <!-- 任务卡（Wot Card + Wot Tag 徽标；进度条为业务呈现保留） -->
       <wd-card v-for="t in tasks" :key="t.id" @click="goDetail(t.id)">
         <view class="card-head">
           <text class="card-title text-main" >{{ t.community_name }} · {{ t.plan_name }}</text>

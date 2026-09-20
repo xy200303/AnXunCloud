@@ -15,7 +15,7 @@
 
     <!-- 任务明细 -->
     <view v-else-if="loaded" class="content">
-      <!-- 任务信息卡（§18.2 容器官方化 uni-card + uni-tag 徽标） -->
+      <!-- 任务信息卡（Wot Card + Wot Tag 徽标） -->
       <wd-card custom-style="--wot-card-content-padding: 32rpx">
         <view class="card-head">
           <text class="card-title text-main" >{{ planName }}</text>
@@ -37,30 +37,30 @@
         <text class="quick-btn-text">{{ quickBtnText }}</text>
       </button>
 
-      <!-- 点位列表（§18.2 uni-list 标准行：左序号 + 标题/分区 + 右凭证与状态徽标；
+      <!-- 点位列表：左序号 + 标题/分区 + 右凭证与状态徽标；
            未打卡置顶，已打卡沉底；组内保持 sort 顺序；分块渲染，触底加载更多） -->
-      <uni-list class="point-list bg-card" >
-        <uni-list-item
+      <wd-cell-group custom-class="point-list" border>
+        <wd-cell
           v-for="p in visiblePoints"
           :key="p.point_id"
           :title="p.point_name"
-          :note="p.building_name || '未分区'"
+          :label="p.building_name || '未分区'"
           clickable
           @click="onPointTap(p)"
         >
-          <template #header>
+          <template #prefix>
             <view class="point-sort-wrap">
               <view class="point-sort text-white bg-brand" >{{ p.sort }}</view>
             </view>
           </template>
-          <template #footer>
+          <template #suffix>
             <view class="point-side">
               <text class="point-cred text-secondary" >{{ p.credential_text }}</text>
               <wd-tag variant="plain" size="small" :custom-style="'color:' + p.status_color + ';border-color:' + p.status_color">{{ p.status_text }}</wd-tag>
             </view>
           </template>
-        </uni-list-item>
-      </uni-list>
+        </wd-cell>
+      </wd-cell-group>
 
       <!-- 手动模式入口已移至向导内「手动填写本点位」（按点位进入，不再从首项开始） -->
       <view

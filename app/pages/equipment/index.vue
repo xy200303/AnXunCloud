@@ -1,12 +1,11 @@
 <template>
   <view class="page bg-page" >
     <!-- 选择模式提示（维保登记入口跳入）：点设备行即选中去登记 -->
-    <uni-notice-bar
+    <wd-notice-bar
       v-if="pickMode"
       text="选择要维保的设备"
-      :single="true"
       :scrollable="false"
-      :show-icon="true"
+      prefix="info-circle"
       color="#2B5AED"
       background-color="#EAEFFF"
     />
@@ -54,7 +53,7 @@
         >
           <view class="card-head">
             <view class="card-title-row">
-              <uni-badge :is-dot="true" :custom-style="{ backgroundColor: dueColorOf(e.due_state), marginRight: '12rpx' }" />
+              <wd-badge is-dot :bg-color="dueColorOf(e.due_state)" custom-style="margin-right:12rpx" />
               <text class="card-title text-main" >{{ e.name }}</text>
             </view>
             <text class="card-status" :style="{ color: dueColorOf(e.due_state) }">{{ dueTextOf(e) }}</text>

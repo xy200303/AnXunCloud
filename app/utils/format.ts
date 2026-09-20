@@ -7,6 +7,31 @@ export function checkinTypeTextOf(t: string): string {
   return t
 }
 
+/** 日期时间展示（兼容 ISO 字符串、普通日期字符串与毫秒时间戳） */
+export function formatDateTime(value: string | number | Date | null | undefined): string {
+  if (value == null || value === '') return ''
+
+  let date: Date
+  if (value instanceof Date || typeof value == 'number') {
+    date = new Date(value)
+  } else if (/^\d+$/.test(value)) {
+    date = new Date(Number(value))
+  } else {
+    date = new Date(value.includes('T') ? value : value.replace(/-/g, '/'))
+  }
+  if (Number.isNaN(date.getTime())) return String(value)
+
+  const pad = (part: number) => String(part).padStart(2, '0')
+  return (
+    date.getFullYear() + '-' +
+    pad(date.getMonth() + 1) + '-' +
+    pad(date.getDate()) + ' ' +
+    pad(date.getHours()) + ':' +
+    pad(date.getMinutes()) + ':' +
+    pad(date.getSeconds())
+  )
+}
+
 /** 无法检查原因展示映射（exception_type：device_missing/unable_to_capture/camera_broken/ai_failed/label_missing；空=无原因） */
 export function itemExceptionTextOf(t: string): string {
   if (t == 'device_missing') return '设备不存在'

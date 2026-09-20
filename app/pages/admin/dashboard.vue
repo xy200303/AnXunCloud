@@ -84,8 +84,8 @@
     </view>
 
     <!-- 催办确认（自绘，替代原生 showModal） -->
-    <!-- 确认对话框宿主（useDialog 函数式调用） -->
-    <wd-dialog />
+    <!-- 确认对话框宿主（useAppDialog 函数式调用） -->
+    <wd-dialog root-portal />
   </view>
 </template>
 
@@ -94,7 +94,7 @@ import { toastErr } from '@/utils/ui'
 
 import { apiAdminDashboard, apiTaskMonitorList, apiTaskRemind, DashboardData, MonitorTask } from '@/services/api'
 import AppSegmentTabs from '@/components/AppSegmentTabs.vue'
-import { useDialog } from '@/uni_modules/wot-ui/composables'
+import { useAppDialog } from '@/utils/dialog'
 
 const PAGE_SIZE = 20
 
@@ -152,7 +152,7 @@ function toTaskView(t: MonitorTask): TaskView {
 export default {
   components: { AppSegmentTabs },
   setup() {
-    const dlg = useDialog()
+    const dlg = useAppDialog()
     return { dlg }
   },
   data(): BoardData {

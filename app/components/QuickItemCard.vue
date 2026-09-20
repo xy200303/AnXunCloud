@@ -71,19 +71,19 @@
        
       />
 
-      <!-- 观察点下拉多选入口行（§18.1 uni-list-item 标准行：左标题右值+箭头；无 tag 不渲染） -->
-      <uni-list v-if="item.tags.length > 0" :border="false" class="tag-entry border-default" >
-        <uni-list-item :title="'观察点（' + item.tags.length + '）'" clickable show-arrow @click="$emit('open-tags')">
-          <template #footer>
+      <!-- 观察点下拉多选入口行：左标题右值+箭头；无 tag 不渲染 -->
+      <wd-cell-group v-if="item.tags.length > 0" custom-class="tag-entry" border>
+        <wd-cell :title="'观察点（' + item.tags.length + '）'" clickable is-link @click="$emit('open-tags')">
+          <template #default>
             <view>
               <text class="tag-entry-val"  :class="(item.abnormal_tags.length == 0 ? 'text-success' : 'text-danger')">
                 {{ item.abnormal_tags.length == 0 ? '全部正常 ✓' : item.abnormal_tags.length + ' 项异常' }}
               </text>
             </view>
           </template>
-        </uni-list-item>
-      </uni-list>
-      <!-- 已勾选异常观察点红芯片回显（官方 uni-tag 实心 error；点入口行可改） -->
+        </wd-cell>
+      </wd-cell-group>
+      <!-- 已勾选异常观察点红芯片回显；点入口行可改 -->
       <view v-if="item.abnormal_tags.length > 0" class="tag-row">
         <wd-tag v-for="(t, ti) in item.abnormal_tags" :key="ti" type="danger" :round="true" :custom-style="'margin-right:16rpx;margin-bottom:12rpx'">{{ '✕ ' + t }}</wd-tag>
       </view>
@@ -248,7 +248,6 @@ export default {
 }
 
 /* 观察点入口行（微信列表行：左文右 ›） */
-/* 观察点入口行（容器为 uni-list/uni-list-item，保留下边框圆角外壳） */
 .tag-entry {
   width: 100%;
   border-width: 1rpx;
@@ -263,7 +262,7 @@ export default {
   font-weight: 600;
 }
 
-/* 异常观察点红芯片回显行（芯片为 uni-tag） */
+/* 异常观察点红色标签回显行 */
 .tag-row {
   width: 100%;
   flex-direction: row;

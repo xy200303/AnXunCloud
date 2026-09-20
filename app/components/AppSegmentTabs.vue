@@ -5,8 +5,11 @@
     custom-class="app-segment-tabs"
     :value="value"
     :options="items"
+    theme="outline"
     @change="onChange"
-  />
+  >
+    <template #label="{ option }">{{ option.label ?? option.value }}</template>
+  </wd-segmented>
 </template>
 
 <script lang="ts">
@@ -29,5 +32,10 @@ export default {
 <style scoped>
 .app-segment-tabs {
   margin-bottom: 24rpx;
+  --wot-segmented-outline-bg: #F5F6F8;
+  --wot-segmented-outline-border-color: transparent;
+  --wot-segmented-outline-item-bg-active: #FFFFFF;
+  --wot-segmented-outline-item-color-active: #2B5AED;
+  --wot-segmented-outline-radius: 12rpx;
 }
 </style>

@@ -76,9 +76,9 @@
     </view>
     <wd-loadmore v-else state="loading" loading-text="加载中…" />
 
-    <!-- 驳回原因弹窗（AppDialog editable；确认带回输入值，空值不提交） -->
-    <!-- 对话框宿主（驳回报告=prompt 必填，useDialog 函数式） -->
-    <wd-dialog />
+    <!-- 驳回原因弹窗：确认带回输入值，空值不提交 -->
+    <!-- 对话框宿主（驳回报告=prompt 必填，useAppDialog 函数式） -->
+    <wd-dialog root-portal />
 
     <!-- 手写签名板（未配置签名时签字现场手写；勾选「保存」则写入签章资产下次直接用） -->
     <SignaturePad ref="pad" :show-save-option="true" @save="onPadSave" />
@@ -89,13 +89,13 @@
 import { apiReportDetail, apiSignStep, apiUploadLocal, apiUpdateProfile, openReportPdf, type ReportDetail, type ReportSignReq } from '@/services/api'
 import { useAuthStore } from '@/stores/auth'
 
-import { useDialog } from '@/uni_modules/wot-ui/composables'
+import { useAppDialog } from '@/utils/dialog'
 import SignaturePad from '@/components/SignaturePad.vue'
 
 export default {
   components: { SignaturePad },
   setup() {
-    const dlg = useDialog()
+    const dlg = useAppDialog()
     return { dlg }
   },
   data() { return { d: null as ReportDetail | null, busy: false, reportId: '', errorMsg: '' } },

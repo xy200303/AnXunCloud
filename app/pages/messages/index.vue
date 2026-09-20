@@ -36,7 +36,7 @@
           <view class="msg-head">
             <wd-tag size="small" :custom-style="'background-color:' + typeColorOf(m.type) + ';color:#ffffff;border-color:' + typeColorOf(m.type) + ';margin-right:16rpx'">{{ typeTextOf(m.type) }}</wd-tag>
             <text class="msg-title text-main" >{{ m.title }}</text>
-            <uni-badge v-if="!m.is_read" :is-dot="true" type="error" :custom-style="{ marginLeft: '16rpx' }" />
+            <wd-badge v-if="!m.is_read" is-dot type="danger" custom-style="margin-left:16rpx" />
           </view>
           <text class="msg-content text-secondary" >{{ m.content }}</text>
           <text class="msg-time text-secondary" >{{ m.created_at }}</text>
@@ -76,8 +76,8 @@
     <view class="tabbar-space"></view>
 
     <!-- 消息详情查看弹窗（无跳转映射时展示完整内容；自绘，替代原生 showModal） -->
-    <!-- 消息内容对话框宿主（useDialog 函数式调用） -->
-    <wd-dialog />
+    <!-- 消息内容对话框宿主（useAppDialog 函数式调用） -->
+    <wd-dialog root-portal />
   </view>
 </template>
 
@@ -90,7 +90,7 @@ import { useAuthStore } from '@/stores/auth'
 import { syncBadge } from '@/utils/push'
 import AppListShell from '@/components/AppListShell.vue'
 import AppListFooter from '@/components/AppListFooter.vue'
-import { useDialog } from '@/uni_modules/wot-ui/composables'
+import { useAppDialog } from '@/utils/dialog'
 import AppBottomSheet from '@/components/AppBottomSheet.vue'
 
 const PAGE_SIZE = 20
@@ -136,7 +136,7 @@ function typeColorOf(t: string): string {
 export default {
   components: { AppListShell, AppListFooter, AppBottomSheet },
   setup() {
-    const dlg = useDialog()
+    const dlg = useAppDialog()
     return { dlg }
   },
   data(): MessagesData {

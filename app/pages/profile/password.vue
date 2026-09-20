@@ -3,15 +3,15 @@
     <view class="card bg-card" >
       <view class="field border-default" >
         <text class="field-label text-regular" >原密码</text>
-        <uni-easyinput class="field-input" v-model="oldPwd" type="password" placeholder="请输入当前密码" :maxlength="32" :input-border="false" :clearable="false" :primary-color="'#2B5AED'" />
+        <wd-input custom-class="field-input" v-model="oldPwd" show-password placeholder="请输入当前密码" :maxlength="32" compact />
       </view>
       <view class="field border-default" >
         <text class="field-label text-regular" >新密码</text>
-        <uni-easyinput class="field-input" v-model="newPwd" type="password" placeholder="8-32 位，含字母和数字" :maxlength="32" :input-border="false" :clearable="false" :primary-color="'#2B5AED'" />
+        <wd-input custom-class="field-input" v-model="newPwd" show-password placeholder="8-32 位，含字母和数字" :maxlength="32" compact />
       </view>
       <view class="field field-last">
         <text class="field-label text-regular" >确认新密码</text>
-        <uni-easyinput class="field-input" v-model="confirmPwd" type="password" placeholder="再输入一次新密码" :maxlength="32" :input-border="false" :clearable="false" :primary-color="'#2B5AED'" />
+        <wd-input custom-class="field-input" v-model="confirmPwd" show-password placeholder="再输入一次新密码" :maxlength="32" compact />
       </view>
     </view>
 

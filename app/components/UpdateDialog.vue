@@ -1,7 +1,7 @@
 <template>
   <!-- 版本更新弹窗：内部基于 wd-popup（居中，遮罩不可点关——强制更新无关闭入口，弱更新走「以后再说」）
        安装包按版本缓存：同版本再次弹窗直接「立即安装」，不重复下载 -->
-  <wd-popup :model-value="visible" position="center" :close-on-click-modal="false" modal-style="background: rgba(0, 0, 0, 0.55)" custom-style="border-radius: 28rpx; overflow: hidden;">
+  <wd-popup :model-value="visible" position="center" :z-index="1080" :root-portal="true" :close-on-click-modal="false" modal-style="background: rgba(0, 0, 0, 0.55)" custom-style="border-radius: 28rpx; overflow: hidden;">
     <view class="upd-dialog bg-card" >
       <!-- 顶部横幅 -->
       <view class="upd-banner bg-brand" >
@@ -45,7 +45,7 @@
     </view>
 
     <!-- 安装失败提示（wd-dialog 函数式） -->
-    <wd-dialog />
+    <wd-dialog root-portal />
   </wd-popup>
 </template>
 
@@ -55,7 +55,7 @@ import { getPublicOrigin } from '@/services/request'
 import { LatestRelease } from '@/utils/update'
 import { platformOf } from '@/utils/nfc'
 import { KEY_UPDATE_PKG_CACHE } from '@/utils/storage'
-import { useDialog } from '@/uni_modules/wot-ui/composables'
+import { useAppDialog } from '@/utils/dialog'
 
 /** 安装包本地缓存键：{version, path}——按版本匹配，同版本直接安装不重下（集中注册表见 utils/storage.ts） */
 const CACHE_KEY = KEY_UPDATE_PKG_CACHE
@@ -75,7 +75,7 @@ type UpdData = {
 export default {
   setup() {
     // 安装失败提示（wd-dialog 函数式；宿主 <wd-dialog /> 在本组件模板内）
-    const dlg = useDialog()
+    const dlg = useAppDialog()
     return { dlg }
   },
   data(): UpdData {

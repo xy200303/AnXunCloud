@@ -3,6 +3,8 @@
   <wd-popup
     :model-value="visible"
     position="bottom"
+    :z-index="1050"
+    :root-portal="true"
     :modal-style="'background: ' + maskColor"
     :safe-area-inset-bottom="true"
     custom-style="border-radius: 24rpx 24rpx 0 0; overflow: hidden;"

@@ -216,22 +216,29 @@
       <view class="bottom-space"></view>
     </view>
 
-    <!-- 模板多选弹层（AppBottomSheet→uni-popup 底部面板 + 复选列表；勾选即生效，「完成」关闭） -->
+    <!-- 模板多选弹层（Wot 底部面板 + 复选列表；勾选即生效，「完成」关闭） -->
     <AppBottomSheet :visible="tplSheetShow" @close="closeTemplateSheet">
       <view class="tpl-panel bg-card" >
         <view class="tpl-head border-default" >
           <text class="tpl-head-text text-secondary" >选择检查项模板（可多选）</text>
         </view>
-        <scroll-view scroll-y class="tpl-list">
-          <uni-data-checkbox
+        <scroll-view scroll-y :show-scrollbar="false" class="tpl-list" :style="{ height: templateListHeight }">
+          <wd-checkbox-group
             v-if="templates.length > 0"
-            multiple
-            mode="list"
-            :localdata="templateItems"
-            :modelValue="templateIds"
+            :model-value="templateIds"
             :disabled="readonly"
-            @change="onTemplatesChange"
-          />
+            checked-color="#2B5AED"
+            size="large"
+            custom-class="tpl-check-group"
+            @update:model-value="onTemplatesChange"
+          >
+            <wd-checkbox
+              v-for="template in templates"
+              :key="template.id"
+              :name="template.id"
+              custom-class="tpl-check"
+            >{{ template.name }}</wd-checkbox>
+          </wd-checkbox-group>
           <view v-else class="tpl-empty">
             <text class="tpl-empty-text text-secondary" >暂无启用的模板</text>
           </view>
@@ -248,8 +255,8 @@
     </AppBottomSheet>
 
     <!-- 创建成功弹窗（自绘，替代原生 showModal）：可直接进入写卡流程（本页转编辑模式） -->
-    <!-- 对话框宿主（创建成功引导写卡=confirm，useDialog 函数式） -->
-    <wd-dialog />
+    <!-- 对话框宿主（创建成功引导写卡=confirm，useAppDialog 函数式） -->
+    <wd-dialog root-portal />
   </view>
 </template>
 
@@ -271,7 +278,7 @@ import {
 import { useAuthStore } from '@/stores/auth'
 import { isNfcSupported, readCardInfoOnce, writePointCode, toastNfcUnavailable } from '@/utils/nfc'
 import { getLocationGcj02 } from '@/utils/geo'
-import { useDialog } from '@/uni_modules/wot-ui/composables'
+import { useAppDialog } from '@/utils/dialog'
 import AppBottomSheet from '@/components/AppBottomSheet.vue'
 
 type FormData = {
@@ -314,7 +321,7 @@ type FormData = {
 export default {
   components: { AppBottomSheet },
   setup() {
-    const dlg = useDialog()
+    const dlg = useAppDialog()
     return { dlg }
   },
   data(): FormData {
@@ -408,10 +415,6 @@ export default {
       const t = this.typeOptionsView.find((x) => x.value == this.type)
       return t != null ? t.label : ''
     },
-    /** 模板下拉项（uni-data-checkbox localdata 形态；value=模板 id） */
-    templateItems(): Array<{ text: string; value: string }> {
-      return this.templates.map((t) => ({ text: t.name, value: t.id }))
-    },
     /** 已选模板名拼接展示（未知 id 兜底显示原值） */
     templateNamesText(): string {
       const names: string[] = []
@@ -420,6 +423,11 @@ export default {
         names.push(t != null ? t.name : id)
       })
       return names.join('、')
+    },
+    /** scroll-view 使用显式高度，避免长列表撑开弹层导致滚动卡顿 */
+    templateListHeight(): string {
+      if (this.templates.length == 0) return '160rpx'
+      return Math.min(this.templates.length * 96, 720) + 'rpx'
     },
     hasLocation(): boolean {
       return this.lngText != '' && this.latText != '' && parseFloat(this.lngText) != 0 && parseFloat(this.latText) != 0
@@ -509,11 +517,10 @@ export default {
     closeTemplateSheet() {
       this.tplSheetShow = false
     },
-    /** 模板勾选（uni-data-checkbox change，整体值直写；勾选即生效） */
-    onTemplatesChange(e: { detail: { value: string[] } }) {
+    /** 模板勾选（Wot Checkbox Group 整体值直写；勾选即生效） */
+    onTemplatesChange(value: Array<string | number | boolean>) {
       if (this.readonly) return
-      const v = e != null && e.detail != null && Array.isArray(e.detail.value) ? e.detail.value : []
-      this.templateIds = v
+      this.templateIds = Array.isArray(value) ? value.map(String) : []
     },
     clearTemplates() {
       if (this.readonly) return
@@ -989,12 +996,23 @@ export default {
 }
 
 .tpl-list {
-  max-height: 720rpx;
+  width: 100%;
 }
 
+:deep(.tpl-check-group) {
+  width: 100%;
+}
 
+:deep(.tpl-check) {
+  min-height: 96rpx;
+  padding: 0 32rpx;
+  border-bottom: 1rpx solid #E5E6EB;
+  box-sizing: border-box;
+}
 
-
+:deep(.tpl-check:last-child) {
+  border-bottom-width: 0;
+}
 
 .tpl-empty {
   height: 160rpx;

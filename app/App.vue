@@ -128,6 +128,8 @@ page {
   --wot-card-margin-horizontal: 0;
   --wot-card-margin-bottom: 24rpx;
   --wot-card-content-padding: 28rpx 32rpx;
+  /* 卡片不做阴影过渡，减少交互时的合成与重绘开销；保留原有阴影视觉 */
+  --wot-card-transition: none;
 }
 
 /* 文字色 */
@@ -156,8 +158,7 @@ page {
 .bg-border { background-color: $uni-border-color; }
 .bg-mask { background-color: $uni-mask; }
 
-/* 通用全屏遮罩（自绘对话框用）：fixed 盖全屏 + flex 布局；
-   z-index 需高于 uni-popup（99，PC 端 999），否则弹层开在半屏下面"点了没反应" */
+/* 通用全屏遮罩（业务处理中状态）：fixed 盖全屏 + flex 布局 */
 .mask {
   position: fixed;
   left: 0;
@@ -180,12 +181,6 @@ page {
 .border-info { border-color: $uni-info; }
 .border-white { border-color: $uni-white; }
 .border-secondary { border-color: $uni-secondary-color; }
-
-/* uni-segmented-control（text 样式）未选中项官方件内部硬编码 #000，覆盖对齐 $uni-base-color；
-   选中项色值为组件内联样式（activeColor），不受影响 */
-uni-app .segmented-control--text .segmented-control__text {
-  color: $uni-base-color;
-}
 
 /* ===== 按钮官方化：内置 <button plain="true"> + 全局工具类（色值 = $uni-*） ===== */
 /* plain 按钮默认样式重置：去边框/背景/内边距，居中布局（与 view 的 flex 默认对齐） */

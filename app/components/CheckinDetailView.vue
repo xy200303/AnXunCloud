@@ -61,15 +61,15 @@
         />
       </view>
       <text v-if="it.note != null && it.note != ''" class="item-note text-regular" >备注：{{ it.note }}</text>
-      <view v-if="itemPhotoList(it).length > 0" class="photos">
+      <view v-if="it.photo_urls != null && it.photo_urls.length > 0" class="photos">
         <image
-          v-for="(u, pi) in itemPhotoList(it)"
+          v-for="(u, pi) in it.photo_urls"
           :key="pi"
           class="photo"
           :src="u"
           mode="aspectFill"
           lazy-load
-          @click="preview(itemPhotoList(it), pi)"
+          @click="preview(it.photo_urls, pi)"
         />
       </view>
       <text v-else class="no-photo text-secondary" >无照片</text>
@@ -186,7 +186,10 @@ export default {
       return (this.record as CheckinDetailRecord | null) ?? { point_name: '', result: '' }
     },
     items(): CheckinDetailItem[] {
-      return this.rec.check_items ?? []
+      return (this.rec.check_items ?? []).map((item) => ({
+        ...item,
+        photo_urls: (item.photo_urls ?? []).map(toAbsUrl)
+      }))
     },
     headSub(): string {
       const parts = [this.rec.community_name, this.rec.inspector_name].filter((s) => s != null && s != '')
@@ -223,9 +226,6 @@ export default {
     },
     isAbnTag(it: CheckinDetailItem, t: string): boolean {
       return it.abnormal_tags != null && it.abnormal_tags.indexOf(t) >= 0
-    },
-    itemPhotoList(it: CheckinDetailItem): string[] {
-      return (it.photo_urls ?? []).map(toAbsUrl)
     },
     preview(urls: string[], idx: number) {
       if (urls.length == 0) return

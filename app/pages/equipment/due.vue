@@ -31,7 +31,7 @@
       <template #default>
       <view class="content">
         <view
-          v-for="e in filtered"
+          v-for="e in visibleList"
           :key="e.id"
           hover-class="hover-dim"
           class="card bg-card"
@@ -51,6 +51,7 @@
             <text class="card-loc text-secondary" >{{ locationText(e) }}</text>
           </view>
         </view>
+        <text v-if="hasMore" class="load-tip text-secondary">继续上滑加载更多</text>
       </view>
       </template>
     </AppListShell>
@@ -72,8 +73,12 @@ type PageData = {
   loaded: boolean
   errorMsg: string
   list: EquipmentListItem[]
+  visibleCount: number
   lastLoadedAt: number
 }
+
+const INITIAL_RENDER_COUNT = 20
+const RENDER_BATCH_SIZE = 20
 
 /** 状态灯颜色：与台账页同口径（warning 黄 / overdue、scrap 红 / 其他灰） */
 function dueColorOf(s: EquipmentDueState): string {
@@ -100,6 +105,7 @@ export default {
       loaded: false,
       errorMsg: '',
       list: [] as EquipmentListItem[],
+      visibleCount: INITIAL_RENDER_COUNT,
       lastLoadedAt: 0
     }
   },
@@ -120,6 +126,12 @@ export default {
     filtered(): EquipmentListItem[] {
       if (this.dueFilter == '') return this.list
       return this.list.filter((e) => e.due_state == this.dueFilter)
+    },
+    visibleList(): EquipmentListItem[] {
+      return this.filtered.slice(0, this.visibleCount)
+    },
+    hasMore(): boolean {
+      return this.visibleCount < this.filtered.length
     }
   },
   onLoad(options: any) {
@@ -139,10 +151,16 @@ export default {
   onPullDownRefresh() {
     this.load()
   },
+  onReachBottom() {
+    if (this.hasMore) this.visibleCount += RENDER_BATCH_SIZE
+  },
   methods: {
     onDueTab(e: { currentIndex: number }) {
       const c = this.dueChips[e.currentIndex]
-      if (c != null) this.dueFilter = c.value
+      if (c != null) {
+        this.dueFilter = c.value
+        this.visibleCount = INITIAL_RENDER_COUNT
+      }
     },
     dueColorOf,
     /** 到期状态文案：逾期红字带天数（与台账页同口径） */
@@ -167,6 +185,7 @@ export default {
       apiEquipmentDue()
         .then((list) => {
           this.list = list
+          this.visibleCount = INITIAL_RENDER_COUNT
           this.loading = false
           this.loaded = true
           this.lastLoadedAt = Date.now()
@@ -287,5 +306,11 @@ export default {
   font-size: 24rpx;
   flex: 1;
   text-align: right;
+}
+
+.load-tip {
+  font-size: 24rpx;
+  text-align: center;
+  padding: 8rpx 0 32rpx;
 }
 </style>

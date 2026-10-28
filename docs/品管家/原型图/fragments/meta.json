@@ -1,0 +1,227 @@
+{
+  "01-AI助手": {
+    "title": "AI 助手",
+    "tab": "ai"
+  },
+  "02-主页": {
+    "title": "AI云管家",
+    "tab": "home",
+    "scan": true
+  },
+  "03-卷宗库": {
+    "title": "卷宗库",
+    "tab": "docs",
+    "scan": true
+  },
+  "04-社区": {
+    "title": "社区板块",
+    "tab": "sq",
+    "scan": true
+  },
+  "05-我的": {
+    "title": "我的",
+    "tab": "me",
+    "scan": true
+  },
+  "67-通知": {
+    "title": "通知",
+    "back": true
+  },
+  "68-通知详情": {
+    "title": "公告详情",
+    "back": true
+  },
+  "07-表单式巡检页": {
+    "title": "点位巡检",
+    "back": true,
+    "escape": true
+  },
+  "07b-表单-识别中": {
+    "title": "点位巡检",
+    "back": true,
+    "escape": true
+  },
+  "07c-表单-AI预选正常": {
+    "title": "点位巡检",
+    "back": true,
+    "escape": true
+  },
+  "07d-表单-AI判异常": {
+    "title": "点位巡检",
+    "back": true,
+    "escape": true
+  },
+  "07e-表单-人工改判": {
+    "title": "点位巡检",
+    "back": true,
+    "escape": true
+  },
+  "07f-表单-识别中提交": {
+    "title": "点位巡检",
+    "back": true,
+    "escape": true
+  },
+  "07g-表单-手动模式": {
+    "title": "点位巡检",
+    "back": true,
+    "escape": true
+  },
+  "07h-逃生面板": {
+    "title": "点位巡检",
+    "back": true,
+    "escape": true
+  },
+  "08-表单式巡检页-异常": {
+    "title": "点位巡检",
+    "back": true,
+    "escape": true
+  },
+  "09-工单池": {
+    "title": "工单池",
+    "back": true
+  },
+  "10-我的工单": {
+    "title": "我的工单",
+    "back": true
+  },
+  "55-我的任务-统一入口": {
+    "title": "我的任务",
+    "back": true
+  },
+  "56-项目摘要与管辖对比": {
+    "title": "项目摘要",
+    "back": true
+  },
+  "57-主管审核助手": {
+    "title": "审核助手",
+    "back": true
+  },
+  "58-巡检离线手套配置异常": {
+    "title": "现场保障",
+    "back": true
+  },
+  "11-工单复查": {
+    "title": "工单复查",
+    "back": true
+  },
+  "13-维保待办": {
+    "title": "维保待办",
+    "back": true
+  },
+  "14-维保登记": {
+    "title": "维保登记",
+    "back": true
+  },
+  "14b-维保登记-批量已拍": {
+    "title": "维保登记",
+    "back": true
+  },
+  "15-维保登记-已拍": {
+    "title": "维保登记",
+    "back": true
+  },
+  "16-维保确认": {
+    "title": "维保确认",
+    "back": true
+  },
+  "17-打卡审核": {
+    "title": "打卡审核",
+    "back": true
+  },
+  "18-打卡审核-详情": {
+    "title": "打卡审核",
+    "back": true
+  },
+  "19-生成报告": {
+    "title": "生成报告",
+    "back": true
+  },
+  "20-报告中心": {
+    "title": "品质报告",
+    "back": true
+  },
+  "21-报告签字": {
+    "title": "报告签字",
+    "back": true
+  },
+  "30-承接查验-批次列表": {
+    "title": "承接查验",
+    "back": true
+  },
+  "31-承接查验-批次详情": {
+    "title": "批次详情",
+    "back": true
+  },
+  "32-承接查验-清单查验": {
+    "title": "物业资料查验",
+    "back": true
+  },
+  "33-承接查验-矩阵查验": {
+    "title": "第2册·房屋本体",
+    "back": true
+  },
+  "34-承接查验-问题登记": {
+    "title": "问题清单",
+    "back": true
+  },
+  "35-承接查验-报告预览": {
+    "title": "查验报告",
+    "back": true
+  },
+  "61-承接-资料扫描预登记": {
+    "title": "资料扫描预登记",
+    "back": true
+  },
+  "44-报告导出-5册": {
+    "title": "报告详情",
+    "back": true
+  },
+  "45-巡检-AI失败人工核查": {
+    "title": "AI 失败处理",
+    "back": true
+  },
+  "46-巡检-审核驳回重提": {
+    "title": "巡检驳回修改",
+    "back": true
+  },
+  "47-批量作业-部分失败": {
+    "title": "批量处理结果",
+    "back": true
+  },
+  "48-报告-冻结审核归档": {
+    "title": "报告审核与归档",
+    "back": true
+  },
+  "49-维保-我的登记": {
+    "title": "我的维保登记",
+    "back": true
+  },
+  "50-维保-驳回修改重提": {
+    "title": "维保驳回修改",
+    "back": true
+  },
+  "51-承接-带遗留签署": {
+    "title": "遗留接受与签署",
+    "back": true
+  },
+  "52-承接-签后只读重签": {
+    "title": "归档与更正",
+    "back": true
+  },
+  "62-看板详情": {
+    "title": "看板",
+    "back": true
+  },
+  "65-更多功能": {
+    "title": "全部功能",
+    "back": true
+  },
+  "63-岗勤管理": {
+    "title": "岗勤管理",
+    "back": true
+  },
+  "69-卷宗库-分类": {
+    "title": "卷宗库 · 分类",
+    "back": true
+  }
+}

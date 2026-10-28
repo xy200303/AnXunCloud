@@ -99,7 +99,7 @@
 </template>
 
 <script lang="ts">
-import { apiReportDetail, apiSignStep, apiUploadLocal, apiUpdateProfile, openReportPdf, type ReportDetail, type ReportSignReq } from '@/services/api'
+import { apiReportDetail, apiSignStep, apiUploadLocal, apiUpdateProfile, openReportFile, type ReportDetail, type ReportSignReq } from '@/services/api'
 import { useAuthStore } from '@/stores/auth'
 
 import AppDialog from '@/components/AppDialog.vue'
@@ -199,8 +199,8 @@ export default {
       if (v == '') { uni.showToast({ title: '请填写驳回原因', icon: 'none' }); this.rejectDlgShow = true; return }
       this.submit({ action: 'reject', reason: v }, '已驳回')
     },
-    // 完整 PDF：ticket → pdf.js 内嵌渲染（App 端）/ 下载后系统打开（其他端），见 api.openReportPdf
-    openPdf() { if (this.reportId != '') openReportPdf(this.reportId) }
+    // 完整 PDF：ticket → pdf.js 内嵌渲染（App 端）/ 下载后系统打开（其他端），见 api.openReportFile
+    openPdf() { if (this.reportId != '') openReportFile(this.reportId) }
   }
 }
 </script>

@@ -290,7 +290,7 @@ export default {
       apiReportGenerate(payload)
         .then((res) => {
           this.submitting = false
-          uni.showToast({ title: res.regenerated ? '已重新生成' : '已生成', icon: 'success' })
+          uni.showToast({ title: '已生成，冻结文件生成中', icon: 'success' })
           setTimeout(() => {
             uni.navigateBack({ fail: () => uni.switchTab({ url: '/pages/reports/pending' }) })
           }, 600)

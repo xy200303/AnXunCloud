@@ -6,13 +6,35 @@
     <!-- 合成项（台账有效期/标签抽查）保持原标题+要求文案；拍照/感官项以引导语为主标题 -->
     <template v-if="equipJudge != null || isSpot">
       <text class="item-name text-main" >{{ item.name }}</text>
-      <text class="item-hint text-secondary" >{{ item.requirement != '' ? item.requirement : (isPhoto || manualMode ? '拍一张该项的照片' : '这项正常吗？') }}</text>
+      <text class="item-hint text-secondary" >{{ item.standard != '' ? item.standard : (isPhoto || manualMode ? '拍一张该项的照片' : '这项正常吗？') }}</text>
     </template>
     <template v-else>
       <text class="item-name text-main" >{{ cardTitle }}</text>
       <text class="item-sub text-secondary" >{{ item.name }}</text>
-      <text v-if="item.requirement != ''" class="item-req text-secondary" >{{ item.requirement }}</text>
+      <text v-if="item.standard != ''" class="item-req text-secondary" >{{ item.standard }}</text>
     </template>
+
+    <view v-if="equipJudge == null && item.value_type !== 'ok'" class="value-editor">
+      <view v-if="item.value_type === 'number'" class="number-editor">
+        <input class="value-input" type="digit" :value="item.value_num == null ? '' : String(item.value_num)" placeholder="请输入数值" @input="$emit('value-change', 'value_num', $event.detail.value)" />
+        <text class="value-unit">{{ item.unit }}</text>
+      </view>
+      <text v-if="outOfRange" class="value-error">超出允许范围 {{ item.value_min ?? '不限' }} ~ {{ item.value_max ?? '不限' }}</text>
+      <picker v-if="item.value_type === 'date'" mode="date" :value="item.value_date" @change="$emit('value-change', 'value_date', $event.detail.value)">
+        <view class="value-input">{{ item.value_date || '请选择日期' }}</view>
+      </picker>
+      <input v-if="item.value_type === 'text'" class="value-input" type="text" :value="item.value_text" placeholder="请输入内容" @input="$emit('value-change', 'value_text', $event.detail.value)" />
+      <view v-if="item.value_type === 'enum'" class="enum-editor">
+        <button
+          v-for="option in item.enum_options"
+          :key="option.value"
+          size="mini"
+          :class="['enum-option', item.value_text === option.value ? (option.result === 'normal' ? 'selected-normal' : 'selected-abnormal') : '']"
+          @click="$emit('value-change', 'value_text', option.value)"
+        >{{ option.label }}</button>
+      </view>
+    </view>
+    <textarea v-if="equipJudge == null && item.note_required" class="required-note" :value="item.note" placeholder="备注（必填）" @input="$emit('value-change', 'note', $event.detail.value)" />
 
     <!-- 台账有效期（equipment_validity）：一行小字状态 + （逾期/缺数据时）拍新标签多图槽（至多 3 张） -->
     <template v-if="equipJudge != null">
@@ -113,7 +135,7 @@ export default {
   props: {
     item: { type: Object as () => WizardItemSnap, required: true },
     isPhoto: { type: Boolean, default: true },
-    /** 台账有效期项的自动判定（judge_type=equipment_validity 时由父组件传入；null=非该类型） */
+    /** 台账有效期项的自动判定（builtin_kind=equipment_validity 时由父组件传入；null=非该类型） */
     equipJudge: { type: Object as () => EquipmentAutoJudge | null, default: null },
     /** 是否标签抽查合成项（equipment_date_spot；外观同普通拍照项，仅多读数一行小字） */
     isSpot: { type: Boolean, default: false },
@@ -129,7 +151,8 @@ export default {
     'retry-upload',
     'open-tags',
     'equip-label-photo',
-    'escape-undo'
+    'escape-undo',
+    'value-change'
   ],
   computed: {
     /** 卡片主标题：guide 非空用引导语；空兜底「拍「项名」照片」（无照片要求的项兜底「这项正常吗？」） */
@@ -175,6 +198,11 @@ export default {
       if (aj.status == 'no_data' || aj.status == 'label_missing') return '#909399'
       return '#2BA471'
     },
+    outOfRange(): boolean {
+      if (this.item.value_type !== 'number' || this.item.value_num == null) return false
+      return (this.item.value_min != null && this.item.value_num < this.item.value_min) ||
+        (this.item.value_max != null && this.item.value_num > this.item.value_max)
+    },
     escaped(): boolean {
       return (this.item.exception_type ?? '') != ''
     },
@@ -185,7 +213,7 @@ export default {
     },
     /** 必拍=灰占位不可点（拍照只走底栏大按钮）；选拍=列表行 */
     slotRequired(): boolean {
-      if (this.item.judge_type == 'manual') return false // 感官项恒选拍
+      if (!this.item.ai_enabled) return false
       if (this.manualMode) return (this.item.photo_required ?? '') == 'required'
       return true
     },
@@ -196,7 +224,7 @@ export default {
     },
     /** ResultBar：AI 档拍照项已拍/处理中且非逃生/待补传时展示 */
     showResult(): boolean {
-      if (this.manualMode || !this.isPhoto || this.escaped) return false
+      if (this.manualMode || !this.item.ai_enabled || !this.isPhoto || this.escaped) return false
       if ((this.item.pending_local ?? '') != '') return false
       return this.item.photos.length > 0 || this.item.status == 'recognizing'
     }
@@ -210,6 +238,17 @@ export default {
   padding: 48rpx 32rpx;
   width: 100%;
 }
+
+.value-editor { width: 100%; margin-top: 24rpx; }
+.number-editor { display: flex; align-items: center; gap: 16rpx; }
+.value-input { width: 100%; min-height: 88rpx; padding: 0 24rpx; border: 1rpx solid #dcdfe6; border-radius: 16rpx; box-sizing: border-box; font-size: 34rpx; background: #fff; }
+.value-unit { font-size: 34rpx; white-space: nowrap; }
+.required-note { width: 100%; min-height: 120rpx; margin-top: 20rpx; padding: 20rpx 24rpx; border: 1rpx solid #dcdfe6; border-radius: 16rpx; box-sizing: border-box; font-size: 32rpx; }
+.value-error { display: block; margin-top: 12rpx; color: #d54941; font-size: 30rpx; }
+.enum-editor { display: flex; flex-wrap: wrap; gap: 16rpx; }
+.enum-option { flex: 1; min-width: 160rpx; min-height: 88rpx; margin: 0; font-size: 32rpx; }
+.selected-normal { color: #fff; background: #2ba471; }
+.selected-abnormal { color: #fff; background: #d54941; }
 
 .item-name {
   font-size: 56rpx;

@@ -86,6 +86,7 @@
           @open-tags="tagPickerShow = true"
           @equip-label-photo="takeEquipLabelPhoto"
           @escape-undo="undoEscape"
+          @value-change="onValueChange"
         />
       </block>
 
@@ -240,6 +241,7 @@ import {
   CODE_AI_DISABLED,
   CODE_CHECKIN_LOCKED,
   CheckinReqPayload,
+  CheckItemTpl,
   EquipmentAutoJudge,
   ItemDraft,
   PointCredDraft,
@@ -251,7 +253,7 @@ import { extractPointCode, resolvePointCode } from '@/utils/scan'
 import { getLocationGcj02, getLocationCached } from '@/utils/geo'
 import { playVoice } from '@/utils/voice'
 import { compressForUpload } from '@/utils/image'
-import { WizardPointSnap, WizardItemSnap } from '@/utils/checkinWizard'
+import { WizardPointSnap, WizardItemSnap, itemRef, itemKey, isManualItem, isValidityItem, isSpotItem, isTypedValueItem } from '@/utils/checkinWizard'
 import QuickItemCard from '@/components/QuickItemCard.vue'
 import QuickIssuePanel from '@/components/QuickIssuePanel.vue'
 import QuickCredentialCard from '@/components/QuickCredentialCard.vue'
@@ -289,7 +291,7 @@ type BarCfg = {
   visible: boolean
   primaryText: string
   primaryKind: 'primary' | 'success' | 'danger' | 'disabled'
-  primaryAction: '' | 'take-photo' | 'next' | 'manual-ok' | 'submit' | 'skip-ai'
+  primaryAction: '' | 'take-photo' | 'next' | 'manual-ok' | 'submit' | 'skip-ai' | 'save-value'
   secondaryText: string
   secondaryKind: 'primary' | 'success' | 'danger' | 'disabled'
   secondaryAction: '' | 'manual-abnormal' | 'next'
@@ -406,38 +408,22 @@ function fmtDateTime(d: Date): string {
   )
 }
 
-/** 由点位模板生成向导项初始状态（台账有效期项按服务端 auto_judge 预置结论，巡检员不可改） */
-function freshItem(name: string, requirement: string, guide: string, judgeType: string, autoJudge: EquipmentAutoJudge | null, tags: string[], photoRequired: string): WizardItemSnap {
+function freshItem(item: CheckItemTpl): WizardItemSnap {
+  const autoJudge = item.auto_judge ?? null
   const it: WizardItemSnap = {
-    name: name,
-    requirement: requirement,
-    guide: guide,
-    judge_type: judgeType,
-    auto_judge: autoJudge,
-    tags: tags,
-    abnormal_tags: [],
-    photo_required: photoRequired,
-    photos: [],
-    file_ids: [],
-    exception_type: '',
-    file_id: '',
-    job_id: '',
-    status: 'todo',
-    verdict: '',
-    reason: '',
-    reading: '',
-    quality_pass: true,
-    quality_issue: '',
-    pass: true,
-    note: '',
+    ...itemRef(item), name: item.name, standard: item.standard, guide: item.guide || '',
+    value_type: item.value_type, unit: item.unit || '', value_min: item.value_min, value_max: item.value_max,
+    enum_options: item.enum_options || [], value_num: null, value_date: '', value_text: '',
+    note_required: item.note_required, ai_enabled: item.ai_enabled, builtin_kind: item.builtin_kind || '',
+    auto_judge: autoJudge, tags: item.tags || [], abnormal_tags: [], photo_required: item.photo_required,
+    photos: [], file_ids: [], exception_type: '', file_id: '', job_id: '', status: 'todo', verdict: '',
+    reason: '', reading: '', quality_pass: true, quality_issue: '', pass: true, note: ''
   }
-  // 台账有效期合成项（v1.6 逐台独立）：按服务端判定预置展示态，初始化即落定；
-  // 不上送、不参与人工分流（服务端提交时实时逐台判定，逾期记录级强制异常兜底）
-  if (judgeType == 'equipment_validity' && autoJudge != null) {
+  if (isValidityItem(it) && autoJudge != null) {
     it.status = 'done'
     if (autoJudge.status == 'overdue') {
       it.pass = false
-      it.verdict = 'abnormal' // 收尾统计可见异常台数；提交结果以服务端为准
+      it.verdict = 'abnormal'
       it.note = '设备维保逾期：编号 ' + autoJudge.equipment_code + ' 到期日 ' + autoJudge.next_due_date
       if (autoJudge.has_pending_register) it.note += '（已登记维保待确认）'
     } else {
@@ -449,14 +435,13 @@ function freshItem(name: string, requirement: string, guide: string, judgeType: 
   return it
 }
 
-/** 由点位模板生成向导点位初始状态 */
 function freshPoint(p: TaskPoint): WizardPointSnap {
   return {
     point_id: p.point_id,
     status: 'doing',
     scannedNo: '',
     nfcCardId: '',
-    items: (p.check_items || []).map((c) => freshItem(c.name, c.requirement, c.guide ?? '', c.judge_type, c.auto_judge ?? null, c.tags ?? [], c.photo_required ?? ''))
+    items: (p.check_items || []).map((item) => freshItem(item))
   }
 }
 
@@ -550,16 +535,15 @@ export default {
     },
     /** 当前项是否拍照项（manual 感官项与 equipment_validity 台账有效期项之外的类型，含标签抽查合成项；缺省按拍照项） */
     curItemIsPhoto(): boolean {
-      return this.curItem != null && this.curItem.judge_type != 'manual' && this.curItem.judge_type != 'equipment_validity'
+      return this.curItem != null && !isManualItem(this.curItem) && !isValidityItem(this.curItem)
     },
-    /** 当前项是否标签抽查合成项（交互同普通拍照项；仅逃生面板多「标签磨损无法辨认」与读数行展示用） */
     curItemIsSpot(): boolean {
-      return this.curItem != null && this.curItem.judge_type == 'equipment_date_spot'
+      return this.curItem != null && isSpotItem(this.curItem)
     },
     /** 当前台账有效期项的自动判定（非该类型/未关联台账为 null，走人工分支） */
     curEquipJudge(): EquipmentAutoJudge | null {
       const it = this.curItem
-      if (it == null || it.judge_type != 'equipment_validity') return null
+      if (it == null || !isValidityItem(it)) return null
       return it.auto_judge ?? null
     },
     curItemExceptionText(): string {
@@ -650,7 +634,7 @@ export default {
       if (wp == null) return r
       for (let i = 0; i < wp.items.length; i++) {
         const it = wp.items[i]
-        if ((it.pending_local ?? '') != '' || it.status == 'recognizing') r.processing += 1
+        if ((it.pending_local ?? '') != '' || it.status == 'recognizing' || it.status == 'todo') r.processing += 1
         else if ((it.exception_type ?? '') != '') r.escaped += 1
         else if (it.verdict == 'abnormal' || it.abnormal_tags.length > 0) r.abnormal += 1
         else r.done += 1
@@ -673,7 +657,7 @@ export default {
     showEscapeEntry(): boolean {
       if (this.phase != 'items' || this.curItem == null) return false
       if (this.overlayMsg != '' || this.submitting) return false
-      return this.curItem.judge_type != 'equipment_validity'
+      return !isValidityItem(this.curItem)
     },
     /** 手动模式入口：主推进阶段 + 非修改/手动档 + 有当前点位（修改模式点位已打卡；手动档已是手动） */
     /** 逐项步底栏档位切换链：AI 档/手动档双向可切（草稿在云端，互切不丢进度） */
@@ -720,21 +704,25 @@ export default {
         const escaped = (it.exception_type ?? '') != ''
         if (this.curEquipJudge != null) return single('下一项 ›', 'primary', 'next', prevOk)
         if (escaped) return single('下一项 ›', 'primary', 'next', prevOk)
+        if (isTypedValueItem(it)) {
+          if ((it.photo_required ?? '') == 'required' && it.file_ids.length == 0 && it.photos.length == 0) return single('📷 拍照片', 'primary', 'take-photo', prevOk)
+          if (it.status == 'done') return single('下一项 ›', 'primary', 'next', prevOk)
+          return single('保存并继续', 'primary', 'save-value', prevOk)
+        }
         if (this.manualMode) {
           // 手动档必拍项未拍：唯一拍照入口是底栏大按钮；已拍/选拍/免拍：作答双按钮
-          if (it.judge_type != 'manual' && (it.photo_required ?? '') == 'required' && it.file_ids.length == 0 && it.photos.length == 0) {
+          if (!isManualItem(it) && (it.photo_required ?? '') == 'required' && it.file_ids.length == 0 && it.photos.length == 0) {
             return single('📷 拍照片', 'primary', 'take-photo', prevOk)
           }
           if (it.status == 'done') return single('下一项 ›', 'primary', 'next', prevOk)
           return dual(prevOk)
         }
-        if (it.judge_type == 'manual') {
+        if (isManualItem(it)) {
           // 感官项：作答双按钮；已作答（回退查看）：下一项
           if (it.status == 'done') return single('下一项 ›', 'primary', 'next', prevOk)
           return dual(prevOk)
         }
-        // AI 档拍照/抽查项：未拍=拍照大按钮；已拍无停留态（拍完自动跳走），回退查看=下一项；
-        // 失败/不合格：重拍走照片槽「重新拍照」（唯一重拍入口），失败另给「跳过识别」次级按钮
+        if ((it.photo_required ?? '') == 'none' && it.status == 'todo') return dual(prevOk)
         if (it.status == 'failed') {
           return {
             visible: true, primaryText: '跳过识别', primaryKind: 'primary', primaryAction: 'skip-ai',
@@ -873,7 +861,7 @@ export default {
     },
     /** 普通模式：全部未打卡点位；逐项进度完全从云端草稿重建（本地不存快照） */
     initNormal() {
-      const rest = this.taskPoints.filter((p) => p.my_checkin == null)
+      const rest = this.taskPoints.filter((p) => p.my_checkin == null && p.status !== 'blocked_by_config')
       if (rest.length == 0) {
         this.loading = false
         this.errorMsg = '本任务已全部打卡'
@@ -959,8 +947,11 @@ export default {
      *  shoot_* 拍摄时空信息随草稿带回，再次保存坐标不丢 */
     applyPointDrafts(wp: WizardPointSnap, list: ItemDraft[]) {
       list.forEach((d) => {
-        const it = wp.items.find((x) => x.name == d.item_name)
+        const it = wp.items.find((x) => itemKey(x) == itemKey(d))
         if (it == null) return
+        it.value_num = d.value_num
+        it.value_date = d.value_date || ''
+        it.value_text = d.value_text || ''
         it.shoot_lng = d.shoot_lng
         it.shoot_lat = d.shoot_lat
         it.shoot_at = d.shoot_at
@@ -984,13 +975,13 @@ export default {
           // 台账有效期合成项无草稿，每次按服务端最新判定重建
           if (d.manual_pass == null) return
           // 必拍项的草稿没有照片 = 无效完成（老数据/异常残留），不恢复，保持待拍
-          if (it.judge_type != 'manual' && (it.photo_required ?? '') == 'required' && d.file_ids.length == 0) return
+          if (!isManualItem(it) && (it.photo_required ?? '') == 'required' && d.file_ids.length == 0) return
           it.pass = d.manual_pass
-          it.note = d.manual_pass ? '' : d.manual_note
+          it.note = d.manual_note
           it.verdict = d.manual_pass ? 'pass' : 'abnormal'
           it.status = 'done'
           // 非感官项的人工结论（手动档答过切回 AI 档）：标来源，提交时 ai_verdict 置空转人工复核（服务端校验同口径）
-          if (it.judge_type != 'manual') it.manual_confirmed = true
+          if (!isManualItem(it)) it.manual_confirmed = true
           return
         }
         // 识别草稿（draft_kind=ai）：照片 + AI 识别结论（异常观察点 tag 随草稿恢复；抽查项日期由服务端从 ai_reading 解析，前端不展示录入）
@@ -1339,11 +1330,11 @@ export default {
     takePhoto() {
       const it = this.curItem
       if (it == null || it.status == 'recognizing') return
-      if (it.judge_type == 'equipment_validity') {
+      if (isValidityItem(it)) {
         this.takeEquipLabelPhoto()
         return
       }
-      if (this.manualMode || it.judge_type == 'manual') {
+      if (this.manualMode || isManualItem(it)) {
         // 手动档/感官项：照片累加（≤3），上传同步完成（作答草稿需 file_id），不自动跳
         if (it.photos.length >= 3) {
           uni.showToast({ title: '照片至多 3 张', icon: 'none' })
@@ -1419,7 +1410,7 @@ export default {
       apiItemDraftPhotoAbnormal({
         task_id: this.taskId,
         point_id: wp.point_id,
-        name: it.name,
+        ...itemRef(it),
         note: it.reason,
         exception_type: exceptionType
       }).catch(() => {
@@ -1441,12 +1432,12 @@ export default {
       const shoot = this.pickShoot(it)
       if (exceptionType == 'label_missing') {
         if (this.manualMode) return Promise.resolve({ job_id: '' })
-        return apiAiItemJobCreate({ task_id: this.taskId, point_id: pointId, name: it.name, file_ids: [fileId], ...shoot })
+        return apiAiItemJobCreate({ task_id: this.taskId, point_id: pointId, ...itemRef(it), file_ids: [fileId], ...shoot })
       }
       return apiItemDraftPhotoAbnormal({
         task_id: this.taskId,
         point_id: pointId,
-        name: it.name,
+        ...itemRef(it),
         file_ids: fileId != '' ? [fileId] : undefined,
         note: this.escapeTypeText(exceptionType) + '，已上报',
         exception_type: exceptionType as 'device_missing' | 'unable_to_capture' | 'camera_broken',
@@ -1479,7 +1470,7 @@ export default {
       it.manual_confirmed = true
       if (wp != null) {
         apiItemDraftPhotoAbnormal({
-          task_id: this.taskId, point_id: wp.point_id, name: it.name,
+          task_id: this.taskId, point_id: wp.point_id, ...itemRef(it),
           file_ids: it.file_ids.slice(), note: it.reason, exception_type: 'ai_failed'
         }).catch(() => {})
       }
@@ -1648,7 +1639,7 @@ export default {
             return apiAiItemJobCreate({
               task_id: this.taskId,
               point_id: job.pointId,
-              name: it.name,
+              ...itemRef(it),
               file_ids: [r.file_id],
               ...this.pickShoot(it)
             }).then((j) => ({ fileId: r.file_id, url: r.url, jobId: j.job_id }))
@@ -1762,7 +1753,7 @@ export default {
           return apiAiItemJobCreate({
             task_id: this.taskId,
             point_id: pointId,
-            name: it.name,
+            ...itemRef(it),
             file_ids: [fileId],
             ...this.pickShoot(it)
           })
@@ -1851,7 +1842,7 @@ export default {
     /** 台账有效期合成项「已维保？拍新标签」（仅相机，至多 3 张）：照片即登记凭证，提交时服务端 AI 核对 */
     takeEquipLabelPhoto() {
       const it = this.curItem
-      if (it == null || it.judge_type != 'equipment_validity' || this.captureBusy || this.submitting) return
+      if (it == null || !isValidityItem(it) || this.captureBusy || this.submitting) return
       if (it.file_ids.length >= 3) {
         uni.showToast({ title: '新标签照片至多 3 张', icon: 'none' })
         return
@@ -1892,9 +1883,9 @@ export default {
     /** 该项可走「这项正常吗？」作答：感官项；或手动档的非台账项（必拍项须先拍照或逃生上报） */
     curItemManualAnswerable(it: WizardItemSnap | null, toastWhy: boolean): boolean {
       if (it == null || it.status == 'done') return false
-      if (it.judge_type == 'equipment_validity') return false
-      if (it.judge_type != 'manual' && !this.manualMode) return false
-      if (this.manualMode && it.judge_type != 'manual' && it.photo_required == 'required' && it.file_ids.length == 0 && (it.exception_type ?? '') == '') {
+      if (isValidityItem(it)) return false
+      if (!isManualItem(it) && !this.manualMode) return false
+      if (this.manualMode && !isManualItem(it) && it.photo_required == 'required' && it.file_ids.length == 0 && (it.exception_type ?? '') == '') {
         if (toastWhy) uni.showToast({ title: '请先拍 1 张该项照片', icon: 'none' })
         return false
       }
@@ -1932,15 +1923,75 @@ export default {
       this.saveManualDraft(item)
       this.nextStep()
     },
-    /** 手动项选择实时落云端草稿（含手动档拍照项的照片 file_ids 与异常观察点 tag；失败仅提示不阻断，下次进入以服务端为准） */
+    onValueChange(field: string, raw: any) {
+      const it = this.curItem
+      if (it == null) return
+      if (field === 'note') {
+        it.note = String(raw ?? '')
+        return
+      }
+      if (field === 'value_num') {
+        const text = String(raw ?? '').trim()
+        const parsed = Number(text)
+        it.value_num = text === '' || !Number.isFinite(parsed) ? null : parsed
+      } else if (field === 'value_date') {
+        it.value_date = String(raw ?? '')
+      } else if (field === 'value_text') {
+        it.value_text = String(raw ?? '').trim()
+        if (it.value_type === 'enum') {
+          const option = it.enum_options.find((entry) => entry.value === it.value_text)
+          if (option != null) {
+            it.pass = option.result === 'normal'
+            it.verdict = it.pass ? 'pass' : 'abnormal'
+          }
+        }
+      }
+      it.status = 'todo'
+      it.manual_confirmed = true
+    },
+    saveTypedValue() {
+      const it = this.curItem
+      if (it == null) return
+      let valid = true
+      if (it.value_type === 'number') {
+        valid = it.value_num != null
+        it.pass = valid && (it.value_min == null || it.value_num! >= it.value_min) && (it.value_max == null || it.value_num! <= it.value_max)
+      } else if (it.value_type === 'date') {
+        valid = /^\d{4}-\d{2}-\d{2}$/.test(it.value_date)
+        it.pass = true
+      } else if (it.value_type === 'text') {
+        valid = it.value_text.trim() !== ''
+        it.pass = true
+      } else if (it.value_type === 'enum') {
+        const option = it.enum_options.find((entry) => entry.value === it.value_text)
+        valid = option != null
+        it.pass = option?.result === 'normal'
+      }
+      if (!valid) {
+        uni.showToast({ title: '请完整填写当前检查项', icon: 'none' })
+        return
+      }
+      if (it.note_required && it.note.trim() === '') {
+        uni.showToast({ title: '当前检查项必须填写备注', icon: 'none' })
+        return
+      }
+      it.verdict = it.pass ? 'pass' : 'abnormal'
+      it.status = 'done'
+      it.manual_confirmed = true
+      this.saveManualDraft(it)
+      this.nextStep()
+    },
     saveManualDraft(it: WizardItemSnap) {
       const wp = this.curWizPoint
       if (wp == null) return
       apiItemDraftManual({
         task_id: this.taskId,
         point_id: wp.point_id,
-        name: it.name,
-        pass: it.pass,
+        ...itemRef(it),
+        result: it.pass ? 'normal' : 'abnormal',
+        value_num: it.value_num ?? undefined,
+        value_date: it.value_date || undefined,
+        value_text: it.value_text || undefined,
         note: it.note,
         file_ids: it.file_ids.length > 0 ? it.file_ids.slice() : undefined,
         abnormal_tags: it.abnormal_tags.length > 0 ? it.abnormal_tags.slice() : undefined,
@@ -2155,7 +2206,18 @@ export default {
       it.quality_pass = j.quality_pass
       it.quality_issue = j.quality_issue
       it.abnormal_tags = (j.abnormal_tags ?? []).filter((t) => it.tags.indexOf(t) >= 0)
-      // 异常 tag 非空即该项判异常（与服务端强制口径一致）
+      if (isTypedValueItem(it)) {
+        if (it.value_type === 'number' && it.value_num == null) {
+          const reading = j.reading.match(/-?\d+(?:\.\d+)?/)
+          if (reading != null) it.value_num = Number(reading[0])
+        }
+        if (it.value_type === 'enum' && it.value_text === '') {
+          const option = it.enum_options.find((entry) => entry.value === j.reading || entry.label === j.reading)
+          if (option != null) it.value_text = option.value
+        }
+        it.status = 'todo'
+        return
+      }
       it.pass = j.verdict != 'abnormal' && it.abnormal_tags.length == 0
       if (!it.pass && it.note == '') it.note = j.reason
     },
@@ -2166,12 +2228,11 @@ export default {
       const wp = this.curWizPoint
       if (it == null || wp == null || (it.exception_type ?? '') == '') return
       if (it.job_id != '') this.skippedJobs[it.job_id] = true
-      const name = it.name
       this.resetItem(it)
       it.exception_type = ''
       it.pass = false
       it.note = ''
-      apiItemDraftDelete({ task_id: this.taskId, point_id: wp.point_id, name: name }).catch(() => {})
+      apiItemDraftDelete({ task_id: this.taskId, point_id: wp.point_id, ...itemRef(it) }).catch(() => {})
       uni.showToast({ title: '已撤销，请重新拍照', icon: 'none' })
     },
     /** 该项回到待拍状态（job 过期/失败） */
@@ -2198,7 +2259,7 @@ export default {
       if (this.manualMode) {
         for (let i = 0; i < wp.items.length; i++) {
           const si = wp.items[i]
-          if (si.judge_type != 'equipment_validity' && si.status == 'todo') {
+          if (!isValidityItem(si) && si.status == 'todo') {
             this.itemIdx = i
             this.phase = 'items'
             uni.showToast({ title: '「' + si.name + '」还未检查', icon: 'none' })
@@ -2208,7 +2269,7 @@ export default {
       }
       wp.items.forEach((it, i) => {
         // 台账有效期合成项：服务端判定（逾期记录级转人工），不参与向导的补拍/异常分流
-        if (it.judge_type == 'equipment_validity') return
+        if (isValidityItem(it)) return
         // 异常观察点 tag 非空即该项判异常（服务端同口径强制）；无描述时以 tag 列表预填
         const tagAbn = it.abnormal_tags.length > 0
         if (tagAbn && it.note == '') it.note = '异常观察点：' + it.abnormal_tags.join('、')
@@ -2217,7 +2278,7 @@ export default {
           if ((it.exception_type ?? '') == '' && (!it.pass || tagAbn)) abnormal.push(i)
           return
         }
-        if (it.judge_type != 'manual') {
+        if (!isManualItem(it)) {
           // 拍照项（含标签抽查合成项）：未拍 / 识别失败 / 质量不合格 → 补拍
           if (it.status == 'todo' || it.status == 'failed' || (it.status == 'done' && !it.quality_pass)) {
             retake.push(i)
@@ -2254,7 +2315,7 @@ export default {
       this.submitting = true
       this.gateSubmitError = ''
       // 带新标签照片的提交后端会同步 AI 核对（最长约 15s）：遮罩文案说明在核对，避免误以为卡死
-      const hasLabel = wp.items.some((it) => it.judge_type == 'equipment_validity' && it.file_ids.length > 0)
+      const hasLabel = wp.items.some((it) => isValidityItem(it) && it.file_ids.length > 0)
       this.overlayMsg = hasLabel && !this.manualMode ? 'AI 核对新标签中…' : '提交中…'
       const abnSet: Record<number, boolean> = {}
       abnIdxs.forEach((i) => {
@@ -2265,9 +2326,9 @@ export default {
       // equipment.ai_auto_confirm 开时才自动回写台账）；abnSet 键为 wp.items 原始下标，过滤时保留
       const checkItems: CheckinItemReqPayload[] = []
       wp.items.forEach((it, i) => {
-        if (it.judge_type == 'equipment_validity') {
+        if (isValidityItem(it)) {
           if (it.file_ids.length > 0) {
-            checkItems.push({ name: it.name, result: 'normal', note: '', photos: it.file_ids.slice() })
+            checkItems.push({ ...itemRef(it), result: 'normal', note: '', photos: it.file_ids.slice() })
           }
           return
         }
@@ -2275,12 +2336,14 @@ export default {
         const escaped = (it.exception_type ?? '') != ''
         const tagAbn = it.abnormal_tags.length > 0
         // 抽查合成项：只交照片（+逃生 exception_type=label_missing），结论由服务端四规则比对（日期从该项 AI 读标签草稿 ai_reading 解析），客户端 result 忽略
-        const isSpot = it.judge_type == 'equipment_date_spot'
-        // 处置措施功能已砍（甲方线下处置）：异常项只带结论/备注/照片，服务端见异常即强制人工审核
+        const isSpot = isSpotItem(it)
         checkItems.push({
-          name: it.name,
-          result: escaped ? 'escaped' : isAbn || tagAbn ? 'abnormal' : 'normal',
-          note: isAbn || escaped ? it.note : '',
+          ...itemRef(it),
+          result: escaped ? 'escaped' : isAbn || tagAbn || !it.pass ? 'abnormal' : 'normal',
+          value_num: it.value_num ?? undefined,
+          value_date: it.value_date || undefined,
+          value_text: it.value_text || undefined,
+          note: it.note,
           photos: it.file_ids.slice(),
           exception_type: escaped ? (it.exception_type as CheckinItemReqPayload['exception_type']) : undefined,
           ai_verdict: isSpot || this.manualMode || it.manual_confirmed == true ? '' : it.verdict,
@@ -2380,11 +2443,18 @@ export default {
           const wp = this.curWizPoint
           if (wp == null) return
           wp.items.forEach((it) => {
-            const found = items.find((x) => x.name == it.name)
+            const found = items.find((x) => itemKey(x) == itemKey(it))
             if (found == null) return
-            // 异常观察点 tag 随上次结论回填（修改模式重新拍照后会被重置，重新由 AI/人工标记）
+            it.value_num = found.value_num
+            it.value_date = (found.value_date || '').slice(0, 10)
+            it.value_text = found.value_text || ''
+            it.note = found.note || found.ai_reason
             it.abnormal_tags = (found.abnormal_tags ?? []).filter((t) => it.tags.indexOf(t) >= 0)
-            if (it.judge_type == 'manual') {
+            if (isTypedValueItem(it)) {
+              it.pass = found.result === 'normal'
+              it.verdict = it.pass ? 'pass' : 'abnormal'
+              it.status = 'done'
+            } else if (isManualItem(it)) {
               // 感官项可直接回填结论（三态：normal 回填正常；abnormal/escaped 回填异常态，重新作答可覆盖）
               const ok = found.result == 'normal'
               it.pass = ok
@@ -2406,6 +2476,7 @@ export default {
       if (a == 'take-photo') this.takePhoto()
       else if (a == 'next') this.nextStep()
       else if (a == 'manual-ok') this.tapManualOk()
+      else if (a == 'save-value') this.saveTypedValue()
       else if (a == 'submit') this.submitPoint()
       else if (a == 'skip-ai') {
         const it = this.curItem

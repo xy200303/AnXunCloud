@@ -5,6 +5,7 @@
 import { httpDelete, httpGet, httpPost, refreshSession, getBaseUrl } from '@/services/request'
 import { getAccessToken } from '@/utils/storage'
 import { toId, buildQuery } from './common'
+import type { CheckItemRef } from '@/utils/checkinWizard'
 
 // ---- 业务错误码常量 ----
 
@@ -16,10 +17,12 @@ export const CODE_AI_DISABLED = 43108
 export const CODE_CHECKIN_LOCKED = 43109
 
 /** 打卡逐项填报元素（ai_* 为 AI 预览结论透传落库，可选） */
-export type CheckinItemReqPayload = {
-  name: string
-  /** 三态结论：normal 正常 / abnormal 异常 / escaped 无法检查（逃生，没检成） */
+export type CheckinItemReqPayload = CheckItemRef & {
+  name?: string
   result: 'normal' | 'abnormal' | 'escaped'
+  value_num?: number
+  value_date?: string
+  value_text?: string
   note: string
   photos: string[]
   /** AI 逐项判定透传：pass/review/abnormal/'' */
@@ -60,12 +63,9 @@ export type CheckinReqPayload = {
 }
 
 /** AI 逐项识别 job 创建请求（POST /checkin/ai-item-jobs） */
-export type AiItemJobCreateReq = {
+export type AiItemJobCreateReq = CheckItemRef & {
   task_id: string
   point_id: string
-  /** 检查项名（与点位模板对齐） */
-  name: string
-  /** 该项照片 file_id（一项一图硬约束，恰好 1 张） */
   file_ids: string[]
   /** 拍摄时空信息（防作弊数据源，可选）：GCJ-02 坐标与拍摄时刻 "YYYY-MM-DD HH:mm:ss" */
   shoot_lng?: number
@@ -112,6 +112,7 @@ export type AiItemJob = {
 
 /** AI 逐项判定（同步判定响应 ai_items 元素；reading 为仪表读数等识别值，无则空串） */
 export type CheckinAiItem = {
+  instance_key: string
   name: string
   /** pass / abnormal / review 等 */
   verdict: string
@@ -149,8 +150,11 @@ export type CheckinResult = {
 }
 
 /** 打卡逐项 AI 结论（GET /checkins/:id/items 元素；ai_verdict 空 = 模型未给该项结论） */
-export type CheckinItemAI = {
+export type CheckinItemAI = CheckItemRef & {
   name: string
+  value_num: number | null
+  value_date: string
+  value_text: string | null
   /** 三态结论：normal 正常 / abnormal 异常 / escaped 无法检查（escaped 时 exception_type 给出原因） */
   result: string
   /** pass / review / error / '' */
@@ -183,12 +187,15 @@ export type OfflineSyncResult = {
 }
 
 /** 逐项过程草稿（GET /checkin/item-drafts 元素）：云端保存的逐项进度（巡检进度的唯一事实来源） */
-export interface ItemDraft {
+export interface ItemDraft extends CheckItemRef {
   point_id: string
-  item_name: string
-  /** 草稿种类（恢复分发唯一依据）：ai 识别草稿 / manual 人工结论草稿 / escape 逃生草稿 */
   draft_kind: 'ai' | 'manual' | 'escape'
   job_id: string
+  request_id: string
+  retake_seq: number
+  value_num: number | null
+  value_date: string
+  value_text: string | null
   file_ids: string[]
   photos: string[]
   ai_status: string
@@ -230,7 +237,7 @@ type RawCheckinResult = {
   ai_verdict?: string
   ai_reason?: string
   ai_quality?: { pass?: boolean; issue?: string }
-  ai_items?: Array<{ name?: string; verdict?: string; reason?: string; reading?: string; abnormal_tags?: string[] }>
+  ai_items?: Array<{ instance_key?: string; name?: string; verdict?: string; reason?: string; reading?: string; abnormal_tags?: string[] }>
   audit_status?: string
   task_progress?: {
     total_points?: number
@@ -271,7 +278,7 @@ export function apiCheckin(req: CheckinReqPayload): Promise<CheckinResult> {
             ? undefined
             : { pass: d.ai_quality.pass ?? false, issue: d.ai_quality.issue ?? '' },
           ai_items: (d.ai_items ?? []).map((it) => ({
-            name: it.name ?? '',
+            instance_key: it.instance_key ?? '', name: it.name ?? '',
             verdict: it.verdict ?? '',
             reason: it.reason ?? '',
             reading: it.reading ?? '',
@@ -339,9 +346,10 @@ export function apiItemDrafts(taskId: string, pointId?: string): Promise<{ items
         resolve({
           items: (d?.items ?? []).map((it) => ({
             point_id: it.point_id ?? '',
-            item_name: it.item_name ?? '',
+            template_id: it.template_id ?? '', item_code: it.item_code ?? '', equipment_id: it.equipment_id ?? undefined,
             draft_kind: it.draft_kind ?? 'ai',
-            job_id: it.job_id ?? '',
+            job_id: it.job_id ?? '', request_id: it.request_id ?? '', retake_seq: it.retake_seq ?? 0,
+            value_num: it.value_num ?? null, value_date: String(it.value_date ?? '').slice(0, 10), value_text: it.value_text ?? null,
             file_ids: it.file_ids ?? [],
             photos: it.photos ?? [],
             ai_status: it.ai_status ?? '',
@@ -383,7 +391,7 @@ export function apiPointCredSave(req: PointCredSaveReq): Promise<void> {
 }
 
 /** 手动结论落云端草稿 POST /checkin/item-drafts/manual（感官项与手动档向导的拍照项通用；拍照项携 file_ids ≤3 与 abnormal_tags ⊆ 模板 tags；shoot_* 拍摄时空信息可选） */
-export function apiItemDraftManual(req: { task_id: string; point_id: string; name: string; pass: boolean; note: string; file_ids?: string[]; abnormal_tags?: string[]; shoot_lng?: number; shoot_lat?: number; shoot_at?: string }): Promise<void> {
+export function apiItemDraftManual(req: CheckItemRef & { task_id: string; point_id: string; result: 'normal' | 'abnormal'; value_num?: number; value_date?: string; value_text?: string; note: string; file_ids?: string[]; abnormal_tags?: string[]; shoot_lng?: number; shoot_lat?: number; shoot_at?: string }): Promise<void> {
   return new Promise<void>((resolve, reject) => {
     httpPost('/checkin/item-drafts/manual', req as unknown as Record<string, any>)
       .then(() => resolve())
@@ -392,20 +400,16 @@ export function apiItemDraftManual(req: { task_id: string; point_id: string; nam
 }
 
 /** 撤销某项过程草稿 DELETE /checkin/item-drafts（逃生选错回到待拍；进行中的 job 落定不会复活草稿） */
-export function apiItemDraftDelete(req: { task_id: string; point_id: string; name: string }): Promise<void> {
+export function apiItemDraftDelete(req: CheckItemRef & { task_id: string; point_id: string }): Promise<void> {
   return new Promise<void>((resolve, reject) => {
-    httpDelete(
-      '/checkin/item-drafts?task_id=' + encodeURIComponent(req.task_id) +
-        '&point_id=' + encodeURIComponent(req.point_id) + '&item_name=' + encodeURIComponent(req.name),
-      null
-    )
+    httpDelete('/checkin/item-drafts' + buildQuery(req as unknown as Record<string, any>), null)
       .then(() => resolve())
       .catch(reject)
   })
 }
 
 /** 拍照项逃生入口 POST /checkin/item-drafts/photo-abnormal（device_missing 携 1 张佐证；unable_to_capture/camera_broken 拍不了照，无 file_ids 直接上报；shoot_* 拍摄时空信息可选） */
-export function apiItemDraftPhotoAbnormal(req: { task_id: string; point_id: string; name: string; file_ids?: string[]; note: string; exception_type: 'device_missing' | 'unable_to_capture' | 'camera_broken' | 'ai_failed'; shoot_lng?: number; shoot_lat?: number; shoot_at?: string }): Promise<void> {
+export function apiItemDraftPhotoAbnormal(req: CheckItemRef & { task_id: string; point_id: string; file_ids?: string[]; note: string; exception_type: 'device_missing' | 'unable_to_capture' | 'camera_broken' | 'ai_failed'; shoot_lng?: number; shoot_lat?: number; shoot_at?: string }): Promise<void> {
   return new Promise<void>((resolve, reject) => {
     httpPost('/checkin/item-drafts/photo-abnormal', req as unknown as Record<string, any>)
       .then(() => resolve())
@@ -427,13 +431,14 @@ export function apiCheckinItems(checkinId: string): Promise<CheckinItemAI[]> {
             const res: string = it.result ?? ''
             return {
               name: it.name ?? '',
+              template_id: it.template_id ?? '', item_code: it.item_code ?? '', equipment_id: it.equipment_id ?? undefined,
+              value_num: it.value_num ?? null, value_date: String(it.value_date ?? '').slice(0, 10), value_text: it.value_text ?? null,
               result: res,
               ai_verdict: it.ai_verdict ?? '',
               ai_reason: it.ai_reason ?? '',
               note: it.note ?? '',
               exception_type: it.exception_type ?? '',
               photo_urls: it.photo_urls ?? [],
-              tags: it.tags ?? [],
               abnormal_tags: it.abnormal_tags ?? []
             }
           })

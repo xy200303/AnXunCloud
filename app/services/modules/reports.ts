@@ -4,7 +4,7 @@
  */
 
 import { httpGet, httpPost } from '@/services/request'
-import { getBaseUrl, getPublicOrigin } from '@/services/request'
+import { getBaseUrl } from '@/services/request'
 import { getAccessToken } from '@/utils/storage'
 import { buildQuery } from './common'
 import { toastErr } from '@/utils/ui'
@@ -65,8 +65,7 @@ export type ReportDetail = {
   voided_by: string | null
   voided_by_name: string
   voided_at: string | null
-  file_id: string
-  file_url: string | null
+  files: { id: string; volume_name: string; stage: 'frozen' | 'archived' | 'legacy_archive'; format: 'docx' | 'pdf'; status: 'ready' | 'running' | 'failed' }[]
   created_at: string
   updated_at: string
 }
@@ -135,8 +134,7 @@ export function apiReportDetail(id: string): Promise<ReportDetail> {
           voided_by: d.voided_by ?? null,
           voided_by_name: d.voided_by_name ?? '',
           voided_at: d.voided_at ?? null,
-          file_id: d.file_id ?? '',
-          file_url: d.file_url ?? null,
+          files: (d.files ?? []) as ReportDetail['files'],
           created_at: d.created_at ?? '',
           updated_at: d.updated_at ?? ''
         })
@@ -156,72 +154,36 @@ export function apiSignStep(id: string, step: number, req: ReportSignReq): Promi
   })
 }
 
-/** 签发报告 PDF 预览 ticket POST /reports/:id/pdf-ticket（web-view 无法带登录头，凭 ticket 走限时公开通道） */
-export function apiReportPdfTicket(id: string): Promise<string> {
-  return new Promise<string>((resolve, reject) => {
-    httpPost<any>('/reports/' + id + '/pdf-ticket', null, true)
-      .then((d) => {
-        if (d == null || d.ticket == null || d.ticket == '') {
-          reject(new Error('预览凭证签发失败'))
+export function openReportFile(id: string) {
+  uni.showLoading({ title: '正在加载报告…', mask: true })
+  apiReportDetail(id).then((detail) => {
+    const file = detail.files.find((item) => item.stage === 'archived' && item.status === 'ready') || detail.files.find((item) => item.stage === 'frozen' && item.status === 'ready')
+    if (!file) throw new Error('报告文件尚未生成完成')
+    uni.downloadFile({
+      url: getBaseUrl() + '/reports/' + encodeURIComponent(id) + '/files/' + encodeURIComponent(file.id) + '/download',
+      header: { Authorization: 'Bearer ' + getAccessToken() },
+      success: (res) => {
+        uni.hideLoading()
+        if (res.statusCode != 200) {
+          uni.showToast({ title: '报告加载失败（' + res.statusCode + '）', icon: 'none' })
           return
         }
-        resolve(String(d.ticket))
-      })
-      .catch(reject)
-  })
-}
-
-/**
- * 查看报告 PDF。
- * - App 端：签 ticket → web-view 页内嵌 pdf.js 直接渲染（不依赖系统 PDF 阅读器）；
- * - 小程序端：web-view 需业务域名白名单，暂用下载 + 微信内置 openDocument。
- */
-export function openReportPdf(id: string) {
-  // #ifdef APP-PLUS
-  uni.showLoading({ title: '正在加载报告…', mask: true })
-  apiReportPdfTicket(id)
-    .then((ticket) => {
-      uni.hideLoading()
-      const file = '/api/public/report-pdf/' + encodeURIComponent(id) + '?ticket=' + encodeURIComponent(ticket)
-      const viewer = getPublicOrigin() + '/pdfjs/viewer.html?file=' + encodeURIComponent(file)
-      // file 绝对地址传给预览页：导航栏「打开/分享」直接下载后用系统面板调起 WPS/QQ/微信
-      const fileUrl = getPublicOrigin() + file
-      uni.navigateTo({
-        url: '/pages/reports/pdf?src=' + encodeURIComponent(viewer) + '&file=' + encodeURIComponent(fileUrl)
-      })
-    })
-    .catch((e: Error) => {
-      uni.hideLoading()
-      toastErr(e)
-    })
-  // #endif
-  // #ifndef APP-PLUS
-  const token = getAccessToken()
-  uni.showLoading({ title: '正在加载报告…', mask: true })
-  uni.downloadFile({
-    url: getBaseUrl() + '/reports/' + encodeURIComponent(id) + '/pdf',
-    header: { Authorization: 'Bearer ' + token },
-    success: (res) => {
-      uni.hideLoading()
-      if (res.statusCode != 200) {
-        uni.showToast({ title: '报告加载失败（' + res.statusCode + '）', icon: 'none' })
-        return
+        uni.openDocument({
+          filePath: res.tempFilePath,
+          fileType: file.format,
+          showMenu: true,
+          fail: (e) => uni.showToast({ title: '打开失败：' + (e.errMsg || '请安装文档阅读器'), icon: 'none' })
+        })
+      },
+      fail: (e) => {
+        uni.hideLoading()
+        uni.showToast({ title: '下载失败：' + (e.errMsg || ''), icon: 'none' })
       }
-      uni.openDocument({
-        filePath: res.tempFilePath,
-        fileType: 'pdf',
-        showMenu: true, // 右上角菜单：可转发/保存
-        fail: (e) => {
-          uni.showToast({ title: '打开失败：' + (e.errMsg || '请安装 PDF 阅读器'), icon: 'none' })
-        }
-      })
-    },
-    fail: (e) => {
-      uni.hideLoading()
-      uni.showToast({ title: '下载失败：' + (e.errMsg || ''), icon: 'none' })
-    }
+    })
+  }).catch((e: Error) => {
+    uni.hideLoading()
+    toastErr(e)
   })
-  // #endif
 }
 
 /** 生成报告时读取审核路径及按审核级别筛选的可选签字人。筛选由后端完成。 */
@@ -244,9 +206,9 @@ export function apiReportGenerate(body: {
   patrol_type?: string
   detail_mode?: string
   sign_steps?: { slot: string; candidate_ids: string[] }[]
-}): Promise<{ id: string; title: string; status: string; regenerated: boolean }> {
+}): Promise<{ id: string; title: string; status: string; generation_status: 'running' }> {
   return new Promise((resolve, reject) => {
-    httpPost<{ id: string; title: string; status: string; regenerated: boolean }>('/reports/generate', body as unknown as Record<string, any>)
+    httpPost<{ id: string; title: string; status: string; generation_status: 'running' }>('/reports/generate', body as unknown as Record<string, any>)
       .then((d) => {
         if (d == null) {
           reject(new Error('生成响应异常'))

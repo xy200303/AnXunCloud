@@ -89,25 +89,27 @@ export type EquipmentAutoJudge = {
   equipment_name: string
 }
 
-/** 检查项模板项（TaskDetail 点位 check_items 元素；含绑定设备注入的台账合成项） */
+import type { CheckItemEnumOption, CheckItemValueType } from '@/utils/checkinWizard'
+
 export type CheckItemTpl = {
   name: string
-  requirement: string
-  /** 拍照引导语（巡检员视角的拍摄动作指引；空串=未配置；设备合成项无此字段） */
+  standard: string
   guide: string
-  /** none/optional/required */
   photo_required: string
-  /** 判定方式：manual=感官项（人工正常/异常），equipment_validity=台账有效期（合成项，服务端自动判定），其余=拍照 AI 识别项 */
-  judge_type: string
-  /** 合成项设备快照（judge_type=equipment_validity 时：{equipment_id, equipment_no}） */
-  judge_config?: Record<string, any> | null
-  /** 台账有效期单台设备自动判定（judge_type=equipment_validity 时后端透出；其余项为空） */
+  note_required: boolean
+  value_type: CheckItemValueType
+  unit: string
+  value_min?: number | null
+  value_max?: number | null
+  enum_options?: CheckItemEnumOption[]
+  ai_enabled: boolean
+  builtin_kind: string
+  template_id: string
+  item_code: string
+  equipment_id?: string
+  equipment_no?: string
   auto_judge?: EquipmentAutoJudge | null
-  /** 多模板并集来源模板 ID（检查项由点位组合的多模板并集而来） */
-  template_id?: string
-  /** 来源模板名（与 template_id 对应，展示/排查用） */
   template_name?: string
-  /** 观察点 tag 数组（空=无观察点；提交时 abnormal_tags 须 ⊆ tags，非空即该项判异常） */
   tags?: string[]
 }
 
@@ -127,6 +129,8 @@ export type TaskPoint = {
   latitude: number
   fence_radius: number
   check_items: CheckItemTpl[]
+  status?: 'blocked_by_config'
+  block_reason?: string
   my_checkin: {
     id: string
     checkin_time: string
@@ -241,7 +245,7 @@ type RawTaskDetail = {
     longitude?: number
     latitude?: number
     fence_radius?: number
-    check_items?: Array<{ name?: string; requirement?: string; guide?: string; photo_required?: string; judge_type?: string; judge_config?: Record<string, any> | null; auto_judge?: EquipmentAutoJudge | null; template_id?: string | number; template_name?: string; tags?: string[] }>
+    check_items?: Array<Partial<Omit<CheckItemTpl, 'template_id' | 'equipment_id'>> & { template_id?: string | number; equipment_id?: string | number }>
     my_checkin?: {
       id?: string | number
       checkin_time?: string
@@ -371,16 +375,14 @@ export function apiTaskDetail(id: string): Promise<TaskDetail> {
             latitude: p.latitude ?? 0,
             fence_radius: p.fence_radius ?? 0,
             check_items: (p.check_items ?? []).map((c) => ({
-              name: c.name ?? '',
-              requirement: c.requirement ?? '',
-              guide: c.guide ?? '',
-              photo_required: c.photo_required ?? '',
-              judge_type: c.judge_type ?? '',
-              judge_config: c.judge_config ?? null,
-              auto_judge: c.auto_judge ?? null,
-              template_id: toId(c.template_id),
-              template_name: c.template_name ?? '',
-              tags: c.tags ?? []
+              name: c.name ?? '', standard: c.standard ?? '', guide: c.guide ?? '',
+              photo_required: c.photo_required ?? 'none', note_required: c.note_required ?? false,
+              value_type: c.value_type ?? 'ok', unit: c.unit ?? '',
+              value_min: c.value_min ?? null, value_max: c.value_max ?? null, enum_options: c.enum_options ?? [],
+              ai_enabled: c.ai_enabled ?? false, builtin_kind: c.builtin_kind ?? '',
+              auto_judge: c.auto_judge ?? null, template_id: toId(c.template_id), item_code: c.item_code ?? '',
+              equipment_id: c.equipment_id == null ? undefined : toId(c.equipment_id), equipment_no: c.equipment_no ?? '',
+              template_name: c.template_name ?? '', tags: c.tags ?? []
             })),
             my_checkin: p.my_checkin == null
               ? null

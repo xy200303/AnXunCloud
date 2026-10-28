@@ -98,6 +98,8 @@ type PointView = {
   status_text: string
   status_color: string
   checked: boolean
+  blocked: boolean
+  block_reason: string
   /** 已打卡且已归档锁定（不可修改） */
   locked: boolean
   /** 本地离线队列有待补传暂存（未真正入库；拦截重复打卡） */
@@ -175,10 +177,14 @@ type DraftStat = { stage: SnapStage; done: number }
 
 function toPointView(p: TaskPoint, draftStats: Record<string, DraftStat>, offlineSet: Record<string, boolean>): PointView {
   const ck = p.my_checkin
-  const offlinePending = ck == null && offlineSet[p.point_id] == true
+  const blocked = ck == null && p.status === 'blocked_by_config'
+  const offlinePending = ck == null && !blocked && offlineSet[p.point_id] == true
   let statusText = '待打卡'
   let statusColor = '#909399'
-  if (offlinePending) {
+  if (blocked) {
+    statusText = '配置有误'
+    statusColor = '#D54941'
+  } else if (offlinePending) {
     // 本地离线队列有待补传：优先标注，防止用户再打一次卡造成旧离线数据覆盖新在线记录
     statusText = '离线待补传'
     statusColor = '#ED7B2F'
@@ -211,7 +217,9 @@ function toPointView(p: TaskPoint, draftStats: Record<string, DraftStat>, offlin
     credential_text: credentialTextOf(p.credential),
     status_text: statusText,
     status_color: statusColor,
-    checked: ck != null,
+    checked: ck != null || blocked,
+    blocked: blocked,
+    block_reason: p.block_reason || '该点位配置有误，已通知管理员',
     locked: ck != null && ck.locked,
     offline_pending: offlinePending,
     my_checkin: ck
@@ -365,6 +373,10 @@ export default {
         })
     },
     onPointTap(p: PointView) {
+      if (p.blocked) {
+        uni.showToast({ title: p.block_reason, icon: 'none' })
+        return
+      }
       if (p.offline_pending) {
         uni.showToast({ title: '该点位已离线暂存，网络恢复后自动补传，无需重复打卡', icon: 'none' })
         return

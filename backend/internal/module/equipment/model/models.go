@@ -58,26 +58,26 @@ const (
 // 台账只被 confirmed 维保流水回写（唯一写入口），或后台直接编辑/人工覆盖到期日。
 type Equipment struct {
 	types.UUIDModel
-	TenantID           *string        `gorm:"type:uuid" json:"tenant_id"` // 冗余列（=所属小区租户）
-	CommunityID        string         `gorm:"type:uuid" json:"community_id"`
-	BuildingID         *string        `gorm:"type:uuid" json:"building_id"`
-	PointID            *string        `gorm:"type:uuid" json:"point_id"` // 关联巡检点位（一点多具；NULL=未关联，不参与打卡判定）
-	Type               string         `gorm:"size:32" json:"type"`       // equipment_type 字典值
-	Code               string         `gorm:"size:64" json:"code"`       // 设备编号（租户内唯一，按具/台登记）
-	Name               string         `gorm:"size:128" json:"name"`
-	ManufactureDate    *time.Time     `gorm:"type:date" json:"manufacture_date"`      // 出厂日期（瓶体钢印），可空
-	LastMaintenanceDate  *time.Time     `gorm:"type:date" json:"last_maintenance_date"` // 最近维保日期（仅 confirmed 流水回写）
-	NextDueDate        *time.Time     `gorm:"type:date" json:"next_due_date"`         // 下次到期日（规则计算，可人工覆盖；NULL=无规则/无日期数据）
-	ScrapDate          *time.Time     `gorm:"type:date" json:"scrap_date"`            // 报废日期（自动计算展示）
-	WarnDays           *int           `json:"warn_days"`                              // 临期阈值覆盖（NULL 用全局配置）
-	LastNotifiedAt     *time.Time     `json:"last_notified_at"`                       // 上次提醒时间（防打扰）
-	LabelMissing       bool           `gorm:"default:false" json:"label_missing"`     // 标签缺失/无法辨认：确认链打上/清除；true=豁免到期催办，打卡合成项判异常转维保处置
-	Status             string         `gorm:"size:16;default:in_service" json:"status"`
-	Extra              types.JSONMap  `gorm:"type:jsonb;default:'{}'" json:"extra"` // 类型特有属性口袋（充装量/载重等）
-	Remark             string         `gorm:"size:255" json:"remark"`
-	CreatedAt          time.Time      `json:"created_at"`
-	UpdatedAt          time.Time      `json:"updated_at"`
-	DeletedAt          gorm.DeletedAt `json:"-"`
+	TenantID            *string        `gorm:"type:uuid" json:"tenant_id"` // 冗余列（=所属小区租户）
+	CommunityID         string         `gorm:"type:uuid" json:"community_id"`
+	BuildingID          *string        `gorm:"type:uuid" json:"building_id"`
+	PointID             *string        `gorm:"type:uuid" json:"point_id"` // 关联巡检点位（一点多具；NULL=未关联，不参与打卡判定）
+	Type                string         `gorm:"size:32" json:"type"`       // equipment_type 字典值
+	Code                string         `gorm:"size:64" json:"code"`       // 设备编号（租户内唯一，按具/台登记）
+	Name                string         `gorm:"size:128" json:"name"`
+	ManufactureDate     *time.Time     `gorm:"type:date" json:"manufacture_date"`      // 出厂日期（瓶体钢印），可空
+	LastMaintenanceDate *time.Time     `gorm:"type:date" json:"last_maintenance_date"` // 最近维保日期（仅 confirmed 流水回写）
+	NextDueDate         *time.Time     `gorm:"type:date" json:"next_due_date"`         // 下次到期日（规则计算，可人工覆盖；NULL=无规则/无日期数据）
+	ScrapDate           *time.Time     `gorm:"type:date" json:"scrap_date"`            // 报废日期（自动计算展示）
+	WarnDays            *int           `json:"warn_days"`                              // 临期阈值覆盖（NULL 用全局配置）
+	LastNotifiedAt      *time.Time     `json:"last_notified_at"`                       // 上次提醒时间（防打扰）
+	LabelMissing        bool           `gorm:"default:false" json:"label_missing"`     // 标签缺失/无法辨认：确认链打上/清除；true=豁免到期催办，打卡合成项判异常转维保处置
+	Status              string         `gorm:"size:16;default:in_service" json:"status"`
+	Extra               types.JSONMap  `gorm:"type:jsonb;default:'{}'" json:"extra"` // 类型特有属性口袋（充装量/载重等）
+	Remark              string         `gorm:"size:255" json:"remark"`
+	CreatedAt           time.Time      `json:"created_at"`
+	UpdatedAt           time.Time      `json:"updated_at"`
+	DeletedAt           gorm.DeletedAt `json:"-"`
 }
 
 func (Equipment) TableName() string { return "equipment" }
@@ -85,22 +85,25 @@ func (Equipment) TableName() string { return "equipment" }
 // EquipmentMaintenance 维保流水：一次维保一行，只增不改；台账唯一写入口（confirmed 才回写）。
 type EquipmentMaintenance struct {
 	types.UUIDModel
-	TenantID        *string       `gorm:"type:uuid" json:"tenant_id"`
-	EquipmentID     string        `gorm:"type:uuid" json:"equipment_id"`
-	MaintenanceType string        `gorm:"size:16;default:repair" json:"maintenance_type"` // repair/maintain/inspect/replace/ledger_fix/refill/hydro_test
-	MaintenanceDate time.Time     `gorm:"type:date" json:"maintenance_date"`
-	Vendor          *string       `gorm:"size:128" json:"vendor"`
-	OperatorName    string        `gorm:"size:64" json:"operator_name"` // 经办人（默认登记人）
-	Note            string        `gorm:"size:255" json:"note"`
-	FileIDs         types.IDArray `gorm:"type:jsonb;default:'[]'" json:"file_ids"` // 新维修标签照片（必传）
-	LabelMissing    bool          `gorm:"default:false" json:"label_missing"`      // 标签缺失登记（照片拍设备本体，日期免填；确认后设备打标）
-	ConfirmStatus   string        `gorm:"size:16;default:pending" json:"confirm_status"`
-	ConfirmedBy     *string       `gorm:"type:uuid" json:"confirmed_by"`
-	ConfirmedAt     *time.Time    `json:"confirmed_at"`
-	RejectReason    *string       `gorm:"size:255" json:"reject_reason"`
-	AIVerdict       *string       `gorm:"size:16" json:"ai_verdict"` // pass/review（只标记不拦截）
-	AIReason        *string       `gorm:"size:512" json:"ai_reason"`
-	Payload         types.JSONMap `gorm:"type:jsonb;default:'{}'" json:"payload"` // 随单附加数据（ledger_fix 补录日期等）
+	TenantID            *string       `gorm:"type:uuid" json:"tenant_id"`
+	EquipmentID         string        `gorm:"type:uuid" json:"equipment_id"`
+	CommunityID         string        `gorm:"type:uuid" json:"community_id"`
+	BatchRegistrationID *string       `gorm:"type:uuid" json:"batch_registration_id"`
+	BatchItemID         *string       `gorm:"type:uuid" json:"batch_item_id"`
+	MaintenanceType     string        `gorm:"size:16;default:repair" json:"maintenance_type"` // repair/maintain/inspect/replace/ledger_fix/refill/hydro_test
+	MaintenanceDate     time.Time     `gorm:"type:date" json:"maintenance_date"`
+	Vendor              *string       `gorm:"size:128" json:"vendor"`
+	OperatorName        string        `gorm:"size:64" json:"operator_name"` // 经办人（默认登记人）
+	Note                string        `gorm:"size:255" json:"note"`
+	FileIDs             types.IDArray `gorm:"type:jsonb;default:'[]'" json:"file_ids"` // 新维修标签照片（必传）
+	LabelMissing        bool          `gorm:"default:false" json:"label_missing"`      // 标签缺失登记（照片拍设备本体，日期免填；确认后设备打标）
+	ConfirmStatus       string        `gorm:"size:16;default:pending" json:"confirm_status"`
+	ConfirmedBy         *string       `gorm:"type:uuid" json:"confirmed_by"`
+	ConfirmedAt         *time.Time    `json:"confirmed_at"`
+	RejectReason        *string       `gorm:"size:255" json:"reject_reason"`
+	AIVerdict           *string       `gorm:"size:16" json:"ai_verdict"` // pass/review（只标记不拦截）
+	AIReason            *string       `gorm:"size:512" json:"ai_reason"`
+	Payload             types.JSONMap `gorm:"type:jsonb;default:'{}'" json:"payload"` // 随单附加数据（ledger_fix 补录日期等）
 	// Source 流水来源：form=登记表单 / checkin=打卡拍新标签自动生成（打卡融合 v2.0）
 	Source string `gorm:"size:16;default:form" json:"source"`
 	// CheckinRecordID 来源打卡记录（source=checkin 时非空；checkin_record 为分区表不加 FK）
@@ -112,8 +115,8 @@ type EquipmentMaintenance struct {
 	// FlowSnapshot 登记时命中的审核链快照（FlowStepArray JSON；NULL=存量/空流程，确认时回落现配）
 	FlowSnapshot types.FlowStepArray `gorm:"type:jsonb" json:"flow_snapshot"`
 	CreatedBy    string              `gorm:"type:uuid" json:"created_by"`
-	CreatedAt       time.Time     `json:"created_at"`
-	UpdatedAt       time.Time     `json:"updated_at"`
+	CreatedAt    time.Time           `json:"created_at"`
+	UpdatedAt    time.Time           `json:"updated_at"`
 }
 
 func (EquipmentMaintenance) TableName() string { return "equipment_maintenance" }

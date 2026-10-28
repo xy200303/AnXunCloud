@@ -226,8 +226,8 @@ func (s *MPService) issueTokens(ctx context.Context, user *sysmodel.SysUser) (gi
 		return nil, errs.ErrInternal
 	}
 	var roles []string
-	if len(user.RoleIDs) > 0 {
-		s.db.Model(&sysmodel.SysRole{}).Where("id IN ?", []string(user.RoleIDs)).Pluck("code", &roles)
+	if user.RoleID != nil {
+		s.db.Model(&sysmodel.SysRole{}).Where("id = ?", *user.RoleID).Pluck("code", &roles)
 	}
 	err = s.sess.Save(ctx, authsvc.ChannelApp, user.ID, session.Info{
 		TokenID: accessJTI, RefreshID: refreshJTI, Name: user.Name,

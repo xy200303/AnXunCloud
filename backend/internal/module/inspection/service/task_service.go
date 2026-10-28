@@ -115,13 +115,30 @@ func (s *TaskService) List(c *gin.Context, q *dto.TaskListQuery) (*response.Page
 	}
 	counters := s.loadCounters(tasks)
 	batch := s.loadTaskBatch(tasks)
-	// can_remind：催办归口汇报线名单（与 Remind 同口径），前置透出避免「点了才被拦」
+	taskIDs := make([]string, 0, len(tasks))
+	for i := range tasks {
+		taskIDs = append(taskIDs, tasks[i].ID)
+	}
+	blockedCounts, err := TaskBlockedPointCounts(s.db, taskIDs)
+	if err != nil {
+		return nil, errs.ErrInternal
+	}
 	identity := middleware.CurrentIdentity(c)
-	slots := communitysvc.NewSlotCache(s.db)
+	candidates := communitysvc.NewCandidateCache(s.db)
 	list := make([]gin.H, 0, len(tasks))
 	for i := range tasks {
 		item := s.toItem(&tasks[i], counters[tasks[i].ID], batch)
-		item["can_remind"] = reportLineAuthorized(slots, identity, tasks[i].CommunityID)
+		blocked := blockedCounts[tasks[i].ID]
+		executableTotal := tasks[i].TotalPoints - blocked
+		item["total_points"] = executableTotal
+		item["missing_count"] = executableTotal - tasks[i].DonePoints
+		item["blocked_points"] = blocked
+		if executableTotal > 0 {
+			item["progress"] = tasks[i].DonePoints * 100 / executableTotal
+		} else {
+			item["progress"] = 0
+		}
+		item["can_remind"] = reportLineAuthorized(candidates, identity, tasks[i].CommunityID)
 		list = append(list, item)
 	}
 	return &response.Page{List: list, Total: total, Page: q.Page, PageSize: q.PageSize}, nil
@@ -280,8 +297,12 @@ func (s *TaskService) Detail(c *gin.Context, id string) (gin.H, *errs.Error) {
 			a.done++
 		}
 	}
+	blocks, err := ActivePointConfigBlocks(s.db, []string(pointIDs))
+	if err != nil {
+		return nil, errs.ErrInternal
+	}
 	// 全量状态聚合（汇总条数据源，不随分页变化）
-	stats := gin.H{"total": len(pointIDs), "done": 0, "doing": 0, "pending": 0, "normal": 0, "abnormal": 0, "suspect": 0}
+	stats := gin.H{"total": len(pointIDs), "done": 0, "doing": 0, "pending": 0, "blocked": 0, "normal": 0, "abnormal": 0, "suspect": 0}
 	for _, pid := range pointIDs {
 		if ck, ok := byPoint[pid]; ok {
 			stats["done"] = stats["done"].(int) + 1
@@ -294,6 +315,8 @@ func (s *TaskService) Detail(c *gin.Context, id string) (gin.H, *errs.Error) {
 			if ck.IsSuspect {
 				stats["suspect"] = stats["suspect"].(int) + 1
 			}
+		} else if _, blocked := blocks[pid]; blocked {
+			stats["blocked"] = stats["blocked"].(int) + 1
 		} else if aggByPoint[pid] != nil {
 			stats["doing"] = stats["doing"].(int) + 1
 		} else {
@@ -384,8 +407,10 @@ func (s *TaskService) Detail(c *gin.Context, id string) (gin.H, *errs.Error) {
 		if ck, ok2 := byPoint[pid]; ok2 {
 			entry["status"] = "done"
 			entry["checkin"] = checkinBrief(s.db, ck)
+		} else if reason, blocked := blocks[pid]; blocked {
+			entry["status"] = "blocked_by_config"
+			entry["block_reason"] = reason
 		} else if a := aggByPoint[pid]; a != nil {
-			// 巡检中：有过程草稿但尚未提交
 			entry["status"] = "doing"
 			entry["item_done"] = a.done
 			entry["item_recognizing"] = a.recognizing
@@ -393,9 +418,10 @@ func (s *TaskService) Detail(c *gin.Context, id string) (gin.H, *errs.Error) {
 		}
 		points = append(points, entry)
 	}
+	executableTotal := t.TotalPoints - stats["blocked"].(int)
 	progress := 0
-	if t.TotalPoints > 0 {
-		progress = t.DonePoints * 100 / t.TotalPoints
+	if executableTotal > 0 {
+		progress = t.DonePoints * 100 / executableTotal
 	}
 	commName, inspectorName := "", ""
 	var comm sysmodel.Community
@@ -414,7 +440,7 @@ func (s *TaskService) Detail(c *gin.Context, id string) (gin.H, *errs.Error) {
 			"task_date":   t.TaskDate.Format("2006-01-02"), "time_window": model.TaskTimeWindow(&t),
 			"due_date":   taskDueDate(t.DueDate),
 			"round_name": t.RoundName,
-			"status":     t.Status, "total_points": t.TotalPoints, "done_points": t.DonePoints,
+			"status":     t.Status, "total_points": executableTotal, "done_points": t.DonePoints, "blocked_points": stats["blocked"],
 			"progress": progress, "started_at": timefmt.TP(t.StartedAt), "finished_at": timefmt.TP(t.FinishedAt),
 		},
 		"points":       points,
@@ -444,7 +470,6 @@ func checkinBrief(db *gorm.DB, ck *model.CheckinRecord) gin.H {
 	}
 }
 
-// briefItemViews 任务明细内嵌的逐项结果（photos 为 file_id；requirement 可空）。
 func briefItemViews(db *gorm.DB, recordID string) []gin.H {
 	var items []model.CheckinRecordItem
 	db.Where("record_id = ?", recordID).Order("sort ASC").Find(&items)
@@ -452,7 +477,9 @@ func briefItemViews(db *gorm.DB, recordID string) []gin.H {
 	for _, it := range items {
 		out = append(out, gin.H{
 			"name": it.Name, "result": it.Result, "note": it.Note,
-			"photos": it.Photos, "requirement": it.Requirement, "exception_type": it.ExceptionType,
+			"template_id": it.TemplateID, "item_code": it.ItemCode, "equipment_id": it.EquipmentID,
+			"standard": it.Standard, "value_num": it.ValueNum, "value_date": it.ValueDate, "value_text": it.ValueText,
+			"photos": it.Photos, "exception_type": it.ExceptionType,
 		})
 	}
 	return out
@@ -584,8 +611,8 @@ func (s *TaskService) CheckinList(c *gin.Context, q *dto.CheckinListQuery) (*res
 		return nil, errs.ErrInternal
 	}
 	list := make([]gin.H, 0, len(rows))
-	flows := map[string]types.FlowStepArray{} // community_id → 打卡审核链（当前环节名展示用）
-	slots := communitysvc.NewSlotCache(s.db)  // project|slot → 环节名单（can_audit 判定缓存）
+	flows := map[string]types.FlowStepArray{}
+	candidates := communitysvc.NewCandidateCache(s.db)
 	identity := middleware.CurrentIdentity(c)
 	// 批量预载：点位名/小区名/巡检员名各一次 IN 查询，逐项聚合（异常类型+照片数）一次 GROUP BY（消除逐行 5 查）
 	pointIDs, commIDs, userIDs, recIDs := []string{}, []string{}, []string{}, []string{}
@@ -643,9 +670,9 @@ func (s *TaskService) CheckinList(c *gin.Context, q *dto.CheckinListQuery) (*res
 			"is_suspect": r.IsSuspect, "photo_count": agg.photoCount,
 			"audit_status": r.AuditStatus, "audit_step": r.AuditStep,
 			"current_step_name": s.currentStepName(flows, r),
-			"can_audit":         s.checkinAuditable(flows, slots, r, identity),
+			"can_audit":         s.checkinAuditable(flows, candidates, r, identity),
 			// 撤销审核/抽查归口汇报线名单（与 Reopen/SpotCheck 同口径），前置透出
-			"can_report_line": reportLineAuthorized(slots, identity, r.CommunityID),
+			"can_report_line": reportLineAuthorized(candidates, identity, r.CommunityID),
 			"ai_verdict":      r.AIVerdict, "ai_reason": r.AIReason,
 			"force_submit": r.ForceSubmit,
 		})
@@ -653,13 +680,10 @@ func (s *TaskService) CheckinList(c *gin.Context, q *dto.CheckinListQuery) (*res
 	return &response.Page{List: list, Total: total, Page: q.Page, PageSize: q.PageSize}, nil
 }
 
-// checkinAuditable 当前用户是否可审核该待审记录（与 Pass 同口径：名单制授权；
-// 环节越界/AI 停放/当前环节空名单自愈均回落汇报线）。非待审记录恒 false。
-func (s *TaskService) checkinAuditable(flows map[string]types.FlowStepArray, slots *communitysvc.SlotCache, r *model.CheckinRecord, idt *middleware.Identity) bool {
-	if r.AuditStatus != model.AuditPending || idt == nil {
+func (s *TaskService) checkinAuditable(flows map[string]types.FlowStepArray, candidates *communitysvc.CandidateCache, r *model.CheckinRecord, idt *middleware.Identity) bool {
+	if r.AuditStatus != model.AuditPending || idt == nil || communitysvc.SameNaturalPerson(s.db, idt.UserID, r.InspectorID) {
 		return false
 	}
-	// 快照优先（在途记录按提交时规则审）；无快照走小区级缓存的现配
 	flow := r.FlowSnapshot
 	if len(flow) == 0 {
 		var ok bool
@@ -669,24 +693,15 @@ func (s *TaskService) checkinAuditable(flows map[string]types.FlowStepArray, slo
 			flows[r.CommunityID] = flow
 		}
 	}
-	slot := sysmodel.SlotPatrolReportLine
-	if idx := int(r.AuditStep); idx < len(flow) {
-		step := flow[idx]
-		if step.Kind != sysmodel.FlowStepKindAI {
-			slot = step.Slot
-			// 在途自愈同口径：当前人工环节名单为空 → 授权回落汇报线
-			if len(slots.Users(r.CommunityID, slot)) == 0 {
-				slot = sysmodel.SlotPatrolReportLine
-			}
-		}
+	idx := int(r.AuditStep)
+	if idx >= len(flow) || flow[idx].Kind == sysmodel.FlowStepKindAI {
+		return false
 	}
-	return slots.Authorized(r.CommunityID, slot, idt)
+	return candidates.Authorized(r.CommunityID, flow[idx].RoleCode, idt)
 }
 
-// reportLineAuthorized 当前用户是否在项目汇报线名单内（催办等归口汇报线的操作授权前置判定；
-// 与 SlotAuthorized 同口径：超管/租户管理员放行）。
-func reportLineAuthorized(slots *communitysvc.SlotCache, idt *middleware.Identity, communityID string) bool {
-	return slots.Authorized(communityID, sysmodel.SlotPatrolReportLine, idt)
+func reportLineAuthorized(candidates *communitysvc.CandidateCache, idt *middleware.Identity, communityID string) bool {
+	return candidates.Authorized(communityID, sysmodel.QualitySupervisorCode, idt)
 }
 
 // currentStepName 待审核记录的当前审批环节名（pending 才有值；供列表"待审核（环节名）"展示）。
@@ -741,9 +756,9 @@ func (s *TaskService) CheckinDetail(c *gin.Context, id string) (gin.H, *errs.Err
 		checkItems = append(checkItems, gin.H{
 			"name": ci.Name, "result": ci.Result, "note": ci.Note,
 			"photos": ci.Photos, "photo_urls": ItemPhotoURLs(s.db, ci.Photos),
-			"requirement": ci.Requirement, "ai_hint": ci.AIHint,
-			"judge_type": ci.JudgeType, "judge_config": ci.JudgeConfig,
-			"tags": ci.Tags, "abnormal_tags": ci.AbnormalTags,
+			"template_id": ci.TemplateID, "item_code": ci.ItemCode, "equipment_id": ci.EquipmentID,
+			"standard": ci.Standard, "value_num": ci.ValueNum, "value_date": ci.ValueDate, "value_text": ci.ValueText,
+			"builtin_kind": ci.BuiltinKind, "abnormal_tags": ci.AbnormalTags,
 			"ai_verdict": ci.AIVerdict, "ai_reason": ci.AIReason, "ai_reading": ci.AIReading, "exception_type": ci.ExceptionType,
 			// 照片时空信息与可疑标记（§14.3 防作弊：标记不拒收，审核页提示）
 			"shoot_lng": ci.ShootLng, "shoot_lat": ci.ShootLat, "shoot_at": timefmt.TP(ci.ShootAt),
@@ -848,10 +863,8 @@ func (s *TaskService) Remind(c *gin.Context, id string) *errs.Error {
 	if be := middleware.CheckCommunity(s.db, c, t.CommunityID); be != nil {
 		return be
 	}
-	// 催办归口汇报线名单（超管/租户管理员默认放行）
-	slot := sysmodel.SlotPatrolReportLine
-	if !communitysvc.SlotAuthorized(s.db, t.CommunityID, slot, middleware.CurrentIdentity(c)) {
-		return errs.ErrNotInSlot.WithMsg("当前用户不在本项目该巡查业务线的审核名单内")
+	if !communitysvc.RoleCandidateAuthorized(s.db, []string{t.CommunityID}, sysmodel.QualitySupervisorCode, middleware.CurrentIdentity(c)) {
+		return errs.ErrNotInSlot.WithMsg("当前用户不是打卡复核节点的候选人")
 	}
 	if t.Status == model.TaskDone {
 		return errs.ErrParam.WithMsg("任务已完成，无需催办")

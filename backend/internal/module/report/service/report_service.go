@@ -1,7 +1,8 @@
-// Package service 月度巡检报告业务逻辑：生成/重算 + 动态审核链签字 + PDF 归档。
+// Package service 报告业务逻辑：冻结待审、动态审核签署、最终文件归档。
 package service
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"net/http"
@@ -21,14 +22,13 @@ import (
 	"anxuncloud/internal/module/report/dto"
 	"anxuncloud/internal/module/report/model"
 	sysmodel "anxuncloud/internal/module/system/model"
-	systemsvc "anxuncloud/internal/module/system/service"
 	"anxuncloud/internal/pkg/authz"
 	"anxuncloud/internal/pkg/errs"
+	"anxuncloud/internal/pkg/libreoffice"
 	"anxuncloud/internal/pkg/logger"
 	"anxuncloud/internal/pkg/notify"
-	"anxuncloud/internal/pkg/pdf"
+	queuepkg "anxuncloud/internal/pkg/queue"
 	"anxuncloud/internal/pkg/response"
-	"anxuncloud/internal/pkg/safe"
 	"anxuncloud/internal/pkg/storage"
 	"anxuncloud/internal/pkg/timefmt"
 	"anxuncloud/internal/pkg/types"
@@ -39,11 +39,22 @@ import (
 
 // ReportService 月度报告服务。
 type ReportService struct {
-	db       *gorm.DB
-	rdb      *redis.Client
-	store    *storage.Storage
-	getCfg   func(key string) (string, bool) // 读取系统参数（report.company_name；公章自 v16 起走 sign_asset 资产表）
-	notifier *notify.Notifier
+	db           *gorm.DB
+	rdb          *redis.Client
+	store        *storage.Storage
+	getCfg       func(key string) (string, bool) // 读取系统参数（report.company_name；公章自 v16 起走 sign_asset 资产表）
+	notifier     *notify.Notifier
+	docTemplates *DocTemplateService
+	pdfConverter libreoffice.Converter
+	queue        *queuepkg.Queue
+}
+
+func (s *ReportService) BindPDFConverter(converter libreoffice.Converter) {
+	s.pdfConverter = converter
+}
+
+func (s *ReportService) BindDocTemplateService(service *DocTemplateService) {
+	s.docTemplates = service
 }
 
 func NewReportService(db *gorm.DB, rdb *redis.Client, store *storage.Storage, getCfg func(string) (string, bool), notifier *notify.Notifier) *ReportService {
@@ -114,7 +125,7 @@ func specialReportTitle(commName, period, typeLabel string) string {
 	return fmt.Sprintf("%s%d年%d月%s专项检查报告", commName, t.Year(), int(t.Month()), label)
 }
 
-// reportFlow 解析报告审核链。流程本身允许为空，空流程表示报告生成后直接归档。
+// reportFlow 解析报告审核链；生成时要求非空，候选缺失则挂起告警。
 func (s *ReportService) reportFlow(communityID string) types.FlowStepArray {
 	return communitysvc.ResolveFlow(s.db, communityID, sysmodel.FlowReportReview)
 }
@@ -131,24 +142,20 @@ func (s *ReportService) resolveReportSteps(communityID, patrolType string, inspe
 	flow := s.reportFlow(communityID)
 	steps := make(types.ReportReviewStepArray, 0, len(flow))
 	for _, configured := range flow {
-		slot := configured.Slot
+		roleCode := configured.RoleCode
 		defaults := types.IDArray{}
-		if slot == sysmodel.SlotReportInspector {
+		if roleCode == sysmodel.InspectorCode {
 			defaults = inspectorIDs
-			if len(defaults) == 0 {
-				// 当月无任务巡检员（如补生成历史月报告）时回落编制内巡检员岗位成员
-				// （巡查执行槽位名单），避免「巡检员确认」环节被误跳过
-				defaults = communitysvc.SlotUserIDs(s.db, communityID, sysmodel.SlotPatrolExecute)
-			}
-		} else {
-			defaults = communitysvc.SlotUserIDs(s.db, communityID, slot)
+		}
+		if len(defaults) == 0 {
+			defaults = communitysvc.RoleCandidateUserIDsForCommunity(s.db, communityID, roleCode)
 		}
 		selected := defaults
 		if picked != nil {
 			selected = nil
 			found := false
 			for _, p := range picked {
-				if p.Slot != configured.Slot && p.Slot != slot {
+				if p.RoleCode != roleCode {
 					continue
 				}
 				found = true
@@ -174,7 +181,7 @@ func (s *ReportService) resolveReportSteps(communityID, patrolType string, inspe
 			}
 			selected = uniqueIDs(selected)
 		}
-		steps = append(steps, types.ReportReviewStep{Slot: slot, Name: configured.Name, Mode: reportStepMode(configured), CandidateIDs: selected, Signed: types.SignArray{}})
+		steps = append(steps, types.ReportReviewStep{RoleCode: roleCode, Name: configured.Name, Mode: reportStepMode(configured), CandidateIDs: selected, Signed: types.SignArray{}})
 	}
 	return steps, nil
 }
@@ -192,12 +199,7 @@ func uniqueIDs(ids types.IDArray) types.IDArray {
 }
 
 func firstReviewStep(steps types.ReportReviewStepArray) int {
-	for i, step := range steps {
-		if len(step.CandidateIDs) > 0 {
-			return i
-		}
-	}
-	return len(steps)
+	return 0
 }
 
 func reviewStatus(steps types.ReportReviewStepArray, index int) string {
@@ -625,7 +627,14 @@ func (s *ReportService) List(c *gin.Context, q *dto.ReportListQuery) (*response.
 			}
 		}
 	}
-	signerNames := s.userNamesOf(signerIDSet)
+	tenantID, scopeErr := middleware.TenantScopeOrDefault(c, s.db)
+	if scopeErr != nil {
+		return nil, scopeErr
+	}
+	signerNames, err := s.userNamesOf(tenantID, signerIDSet)
+	if err != nil {
+		return nil, errs.ErrInternal
+	}
 	// 小区名一次 IN 预载（消除逐行 commName 单查）
 	commNames := map[string]string{}
 	if len(commIDSet) > 0 {
@@ -650,7 +659,7 @@ func (s *ReportService) List(c *gin.Context, q *dto.ReportListQuery) (*response.
 					names = append(names, name)
 				}
 			}
-			reviewSteps = append(reviewSteps, gin.H{"slot": step.Slot, "name": step.Name, "mode": step.Mode, "candidate_ids": step.CandidateIDs, "candidate_names": names, "signed": step.Signed})
+			reviewSteps = append(reviewSteps, gin.H{"role_code": step.RoleCode, "name": step.Name, "mode": step.Mode, "candidate_ids": step.CandidateIDs, "candidate_names": names, "signed": step.Signed})
 		}
 		list = append(list, gin.H{
 			"id": r.ID, "community_id": r.CommunityID, "community_name": commNames[r.CommunityID],
@@ -661,7 +670,7 @@ func (s *ReportService) List(c *gin.Context, q *dto.ReportListQuery) (*response.
 			"review_steps":       reviewSteps,
 			"review_step":        r.ReviewStep,
 			"review_current_ids": r.ReviewCurrentIDs,
-			"has_file":           r.FileID != "",
+			"has_file":           s.hasArchivedFile(r.ID),
 			"created_at":         timefmt.T(r.CreatedAt),
 			"updated_at":         timefmt.T(r.UpdatedAt),
 		})
@@ -669,23 +678,23 @@ func (s *ReportService) List(c *gin.Context, q *dto.ReportListQuery) (*response.
 	return &response.Page{List: list, Total: total, Page: q.Page, PageSize: q.PageSize}, nil
 }
 
-// Detail 报告详情（stats 全量 + 签字明细 + file_id/file_url）。
+// Detail 报告详情（统计与签字快照、各阶段产物文件）。
 func (s *ReportService) Detail(c *gin.Context, id string) (gin.H, *errs.Error) {
 	r, be := s.getWithScope(c, id)
 	if be != nil {
 		return nil, be
 	}
-	var fileURL any
-	fileID := r.FileID
-	if r.FileID != "" {
-		if f, ferr := uploadfile.ByID(s.db, r.FileID); ferr == nil {
-			fileURL = s.store.URL(f.StorageKey)
-		}
-	}
 	// 作废留痕（作废人姓名一次反查）
 	voidedByName := ""
 	if r.VoidedBy != nil && *r.VoidedBy != "" {
-		voidedByName = s.userNamesOf(map[string]bool{*r.VoidedBy: true})[*r.VoidedBy]
+		if r.TenantID == nil {
+			return nil, errs.ErrDataScope
+		}
+		names, err := s.userNamesOf(*r.TenantID, map[string]bool{*r.VoidedBy: true})
+		if err != nil {
+			return nil, errs.ErrInternal
+		}
+		voidedByName = names[*r.VoidedBy]
 	}
 	var voidedAt any
 	if r.VoidedAt != nil {
@@ -707,8 +716,7 @@ func (s *ReportService) Detail(c *gin.Context, id string) (gin.H, *errs.Error) {
 		"voided_by":          r.VoidedBy,
 		"voided_by_name":     voidedByName,
 		"voided_at":          voidedAt,
-		"file_id":            fileID,
-		"file_url":           fileURL,
+		"files":              reportFileViews(s.reportFiles(r.ID)),
 		"created_at":         timefmt.T(r.CreatedAt),
 		"updated_at":         timefmt.T(r.UpdatedAt),
 	}, nil
@@ -746,7 +754,7 @@ func (s *ReportService) Void(c *gin.Context, id, reason string) *errs.Error {
 	return nil
 }
 
-// Generate 手动生成/重算报告（approved 不可重算；已存在则重算 stats 并重置签字流程）。
+// Generate 新建报告与冻结任务；同期间重出必须先作废旧报告。
 // patrol_type 空=综合月报（现状），非空=该类型专项检查报告（§3.4：须为字典 patrol_type 启用项；
 // 判重按 community_id+period+patrol_type，综合与专项可同月共存）；plan_id 仅溯源（须属于该小区）。
 // 签字人名单：req 未传（nil）取槽位默认名单（项目级槽位绑定 → 平台默认 → 编制在职成员）；
@@ -792,10 +800,7 @@ func (s *ReportService) Generate(c *gin.Context, req *dto.GenerateReq) (gin.H, *
 		req.SignSteps, planID, nil, req.DetailMode)
 }
 
-// createReport 生成（或按 community+period+patrol_type 判重重算）一份报告并启动签字流。
-// 手动生成（Generate）与报告生成计划执行器共用；inspectionPlanID 溯源巡检计划，
-// reportPlanID 溯源报告计划，均可空。返回 {id,title,status,regenerated}；
-// 已归档同口径报告报 ErrReportApproved。
+// createReport 新建报告、审核快照和冻结任务；同期间只允许一个未作废报告。
 func (s *ReportService) createReport(communityID, patrolType string, start, end time.Time, label string,
 	picked []dto.GenerateSignStep, inspectionPlanID, reportPlanID *string, detailMode string) (gin.H, *errs.Error) {
 	name := s.commName(communityID)
@@ -819,20 +824,18 @@ func (s *ReportService) createReport(communityID, patrolType string, start, end 
 			title = name + label + s.patrolTypeLabel(patrolType) + "检查报告"
 		}
 	}
-	// 首个有签字人的级别起签；某级无签字人自动跳过，审核链全空则直接归档。
+	if len(reviewSteps) == 0 {
+		return nil, errs.ErrConflict.WithMsg("报告审批链未配置，不能生成报告")
+	}
 	initialStep := firstReviewStep(reviewSteps)
 	initialStatus := reviewStatus(reviewSteps, initialStep)
 	endOfDay := end.Add(-time.Second)
 
 	var r model.InspectionReport
-	// 判重/重算按 community_id+period+patrol_type（COALESCE 归一，综合月报 NULL/'' 等价，与唯一索引一致）；
-	// 已作废报告排除在判重外（作废留痕不复活，同期间重新生成新行，与 uk_inspection_report 部分索引口径一致）
 	dedupWhere := s.db.Where("community_id = ? AND period = ? AND COALESCE(patrol_type, '') = ? AND status <> ?",
 		communityID, label, patrolType, model.StatusVoided)
-	err := dedupWhere.First(&r).Error
-	if err == nil {
-		return s.recalcReport(&r, title, initialStatus, initialStep, inspectionPlanID, reportPlanID,
-			start, endOfDay, detailMode, stats, inspectorIDs, reviewSteps, communityID)
+	if err := dedupWhere.First(&r).Error; err == nil {
+		return nil, errs.ErrConflict.WithMsg("同期间报告已存在；需要重出时请先作废原报告，再生成新报告")
 	}
 	r = model.InspectionReport{
 		CommunityID: communityID, Period: label, PatrolType: patrolType,
@@ -844,54 +847,16 @@ func (s *ReportService) createReport(communityID, patrolType string, start, end 
 		ReviewSteps:  reviewSteps, ReviewStep: initialStep, ReviewCurrentIDs: reviewCurrentIDs(reviewSteps, initialStep),
 	}
 	if err := s.db.Create(&r).Error; err != nil {
-		// First-then-Create 竞态：并发请求先一步插入触发唯一索引 uk_inspection_report（23505）→ 转入重算分支
 		if isUniqueViolation(err) {
-			var existing model.InspectionReport
-			if ferr := dedupWhere.First(&existing).Error; ferr == nil {
-				return s.recalcReport(&existing, title, initialStatus, initialStep, inspectionPlanID, reportPlanID,
-					start, endOfDay, detailMode, stats, inspectorIDs, reviewSteps, communityID)
-			}
-			return nil, errs.ErrConflict.WithMsg("报告正在并发生成，请稍后重试")
+			return nil, errs.ErrConflict.WithMsg("同期间报告已存在；需要重出时请先作废原报告，再生成新报告")
 		}
 		return nil, errs.ErrInternal
 	}
-	s.lockRangeCheckins(communityID, start, end) // 归档锁定当期打卡（不可再覆盖修改）
-	if initialStatus == model.StatusApproved {
-		safe.Go(func() { s.archivePDF(r.ID) })
-	}
-	return gin.H{"id": r.ID, "title": title, "status": r.Status, "regenerated": false}, nil
-}
-
-// recalcReport 同口径报告重算：重置签字流程（溯源字段随请求刷新）。
-// 已归档报告报 ErrReportApproved；Updates 附带 status <> 'approved' 条件，
-// 防与并发签字互相覆盖（条件不命中说明刚被并发归档，同样报 ErrReportApproved）。
-func (s *ReportService) recalcReport(r *model.InspectionReport, title, initialStatus string, initialStep int,
-	inspectionPlanID, reportPlanID *string, start, endOfDay time.Time, detailMode string,
-	stats types.JSONMap, inspectorIDs types.IDArray, reviewSteps types.ReportReviewStepArray, communityID string) (gin.H, *errs.Error) {
-	if r.Status == model.StatusApproved {
-		return nil, errs.ErrReportApproved
-	}
-	updates := map[string]any{
-		"title": title, "status": initialStatus, "plan_id": inspectionPlanID,
-		"report_plan_id": reportPlanID, "period_start": start, "period_end": endOfDay,
-		"detail_mode": detailModeOr(detailMode),
-		"stats":       stats, "inspector_ids": inspectorIDs,
-		"review_steps": reviewSteps, "review_step": initialStep,
-		"review_current_ids": reviewCurrentIDs(reviewSteps, initialStep),
-		"reject_reason":      "", "file_id": nil, "seal_file_id": nil,
-	}
-	tx := s.db.Model(r).Where("status <> ?", model.StatusApproved).Updates(updates)
-	if tx.Error != nil {
+	s.lockRangeCheckins(communityID, start, end)
+	if err := s.enqueueRender(context.Background(), r.ID, model.FileStageFrozen); err != nil {
 		return nil, errs.ErrInternal
 	}
-	if tx.RowsAffected == 0 {
-		return nil, errs.ErrReportApproved
-	}
-	s.lockRangeCheckins(communityID, start, endOfDay.Add(time.Second)) // 归档锁定当期打卡（不可再覆盖修改）
-	if initialStatus == model.StatusApproved {
-		safe.Go(func() { s.archivePDF(r.ID) })
-	}
-	return gin.H{"id": r.ID, "title": title, "status": initialStatus, "regenerated": true}, nil
+	return gin.H{"id": r.ID, "title": title, "status": r.Status, "generation_status": "pending"}, nil
 }
 
 // isUniqueViolation 判断 PG 唯一约束冲突（23505）。
@@ -952,22 +917,16 @@ func (s *ReportService) SignCandidates(c *gin.Context, communityID, patrolType, 
 	}
 	steps := make([]gin.H, 0, len(flow))
 	for i, configured := range flow {
-		slot := configured.Slot
-		ids := types.IDArray{}
-		if slot == sysmodel.SlotReportInspector {
-			ids = inspIDs
-			if len(ids) == 0 {
-				// 与生成固化同口径：当月无任务巡检员回落编制内巡检员岗位成员
-				ids = communitysvc.SlotUserIDs(s.db, communityID, sysmodel.SlotPatrolExecute)
-			}
-		} else {
-			ids = communitysvc.SlotUserIDs(s.db, communityID, slot)
+		roleCode := configured.RoleCode
+		ids := inspIDs
+		if roleCode != sysmodel.InspectorCode || len(ids) == 0 {
+			ids = communitysvc.RoleCandidateUserIDsForCommunity(s.db, communityID, roleCode)
 		}
 		users, be := loadUsers(ids)
 		if be != nil {
 			return nil, be
 		}
-		steps = append(steps, gin.H{"index": i, "slot": slot, "name": configured.Name, "mode": reportStepMode(configured), "users": s.candidateItems(users), "default_candidate_ids": ids})
+		steps = append(steps, gin.H{"index": i, "role_code": roleCode, "name": configured.Name, "mode": reportStepMode(configured), "users": s.candidateItems(users), "default_candidate_ids": ids})
 	}
 	return gin.H{
 		"steps": steps,
@@ -1086,14 +1045,19 @@ func (s *ReportService) SignStep(c *gin.Context, id string, step int, req *dto.S
 		return gin.H{"status": model.StatusPendingReview, "review_step": step, "signed_count": len(steps[step].Signed)}, nil
 	}
 	next := step + 1
-	for next < len(steps) && len(steps[next].CandidateIDs) == 0 {
-		next++
-	}
 	newStatus := reviewStatus(steps, next)
+	if newStatus == model.StatusApproved && !s.hasFrozenFile(r.ID) {
+		return nil, errs.ErrConflict.WithMsg("冻结文件尚未生成完成，不能终审归档")
+	}
 	updates := map[string]any{"review_steps": steps, "review_step": next, "review_current_ids": reviewCurrentIDs(steps, next), "status": newStatus, "reject_reason": ""}
 	if newStatus == model.StatusApproved {
 		if sealID := s.activeSealID(r.CommunityID); sealID != "" {
-			updates["seal_file_id"] = sealID
+			stats := types.JSONMap{}
+			for key, value := range r.Stats {
+				stats[key] = value
+			}
+			stats["seal_file_id"] = sealID
+			updates["stats"] = stats
 		}
 	}
 	result := s.db.Model(&model.InspectionReport{}).Where("id = ? AND status = ? AND updated_at = ?", r.ID, model.StatusPendingReview, r.UpdatedAt).Updates(updates)
@@ -1104,7 +1068,11 @@ func (s *ReportService) SignStep(c *gin.Context, id string, step int, req *dto.S
 		return nil, errs.ErrReportStatusNotAllowed
 	}
 	if newStatus == model.StatusApproved {
-		safe.Go(func() { s.archivePDF(r.ID) })
+		if err := s.enqueueRender(c.Request.Context(), r.ID, model.FileStageArchived); err != nil {
+			return nil, errs.ErrInternal
+		}
+	} else if len(steps[next].CandidateIDs) == 0 {
+		communitysvc.NotifyBlockedFlowSteps(s.db, s.notifier, r.TenantID, "报告签署", []string{steps[next].Name}, &r.ID)
 	} else {
 		_ = s.notifier.SendBatch(steps[next].CandidateIDs, r.TenantID, "report", "报告待审核",
 			fmt.Sprintf("「%s」待你进行%s", r.Title, steps[next].Name), &r.ID)
@@ -1112,7 +1080,7 @@ func (s *ReportService) SignStep(c *gin.Context, id string, step int, req *dto.S
 	return gin.H{"status": newStatus, "review_step": next, "signed_count": len(steps[step].Signed)}, nil
 }
 
-// PDF 返回报告 PDF 字节与文件名；file_id 已归档则直接读归档文件，否则即时生成临时版。
+// PDF 返回报告 PDF 字节与文件名；归档报告只读取 report_file 中的产物。
 // 访问控制（路由层不再挂权限点，由此处统一判定）：持 report:download 权限，
 // 或为报告相关人（巡检参与人/动态审核链候选人）。
 func (s *ReportService) PDF(c *gin.Context, id string) ([]byte, string, *errs.Error) {
@@ -1148,22 +1116,22 @@ func (s *ReportService) checkPDFAccess(c *gin.Context, r *model.InspectionReport
 // pdfBytes 取报告 PDF 字节：已归档读归档文件（按驱动读取，local 读盘 / 云存储 HTTP），否则即时生成临时版。
 func (s *ReportService) pdfBytes(r *model.InspectionReport) ([]byte, string, *errs.Error) {
 	filename := r.Title + ".pdf"
-	if r.FileID != "" {
-		if f, ferr := uploadfile.ByID(s.db, r.FileID); ferr == nil {
-			data, err := s.store.ReadFile(f.StorageKey)
-			if err != nil {
-				logger.L.Warn("月报归档文件读取失败，回退即时生成", zap.String("report_id", r.ID), zap.Error(err))
-			} else {
-				return data, filename, nil
-			}
-		} else {
-			logger.L.Warn("月报归档文件登记缺失，回退即时生成", zap.String("report_id", r.ID), zap.String("file_id", r.FileID))
+	if _, file, err := s.archivedFile(r.ID); err == nil {
+		data, err := s.store.ReadFile(file.StorageKey)
+		if err != nil {
+			return nil, "", errs.ErrInternal.WithMsg("归档文件读取失败，请检查文件存储")
 		}
+		return data, filename, nil
+	} else if r.Status == model.StatusApproved || r.Status == model.StatusVoided {
+		return nil, "", errs.ErrNotFound.WithMsg("报告归档文件缺失，请重新生成报告")
 	}
-	data, err := pdf.GenerateMonthly(s.pdfData(r))
+	_, file, err := s.frozenFile(r.ID)
 	if err != nil {
-		logger.L.Warn("月报 PDF 即时生成失败", zap.Error(err), zap.String("report_id", r.ID))
-		return nil, "", errs.ErrInternal
+		return nil, "", errs.ErrConflict.WithMsg("冻结文件尚未生成完成，请稍后重试")
+	}
+	data, err := s.store.ReadFile(file.StorageKey)
+	if err != nil {
+		return nil, "", errs.ErrInternal.WithMsg("冻结文件读取失败，请检查文件存储")
 	}
 	return data, filename, nil
 }
@@ -1236,79 +1204,10 @@ func (s *ReportService) loadPhoto(fileID string) ([]byte, string, error) {
 	return data, imgType, err
 }
 
-// RebuildPDF 用当前模板重渲染报告 PDF 并覆盖归档文件（状态/签字/统计数据保持不变）。
-// 供模板升级后人工刷新存量报告：local 覆盖 file_id 对应对象；云存储重新保存并回写 file_id。
-func (s *ReportService) RebuildPDF(c *gin.Context, reportID string) *errs.Error {
-	// 归属校验（getWithScope：community 链数据权限），越权按不存在口径
-	r, be := s.getWithScope(c, reportID)
-	if be != nil {
-		return be
-	}
-	if err := s.rebuildPDF(r); err != nil {
-		return errs.ErrInternal.WithMsg(err.Error())
-	}
-	return nil
-}
-
-// RebuildPDFByID 免鉴权重渲染（仅运维工具 rebuild_manual_test 使用，HTTP 入口一律走 RebuildPDF）。
-func (s *ReportService) RebuildPDFByID(reportID string) error {
-	var r model.InspectionReport
-	if err := s.db.First(&r, "id = ?", reportID).Error; err != nil {
-		return err
-	}
-	return s.rebuildPDF(&r)
-}
-
-// rebuildPDF 渲染并覆盖归档文件的主体（无鉴权，调用方负责）。
-func (s *ReportService) rebuildPDF(r *model.InspectionReport) error {
-	data, err := pdf.GenerateMonthly(s.pdfData(r))
-	if err != nil {
-		return err
-	}
-	if s.store.IsLocal() && r.FileID != "" {
-		if f, ferr := uploadfile.ByID(s.db, r.FileID); ferr == nil {
-			if err := os.WriteFile(s.store.LocalPath(f.StorageKey), data, 0o644); err != nil {
-				return err
-			}
-			logger.L.Info("月报 PDF 重渲染完成", zap.String("report_id", r.ID), zap.String("file_id", r.FileID))
-			return nil
-		}
-	}
-	key, url, err := s.store.SaveGenerated("reports", r.Title+".pdf", data)
-	if err != nil {
-		return err
-	}
-	fid := systemsvc.RegisterGeneratedFile(s.db, s.store, r.Title+".pdf", "application/pdf", storage.MD5Hex(data), key, url)
-	if err := s.db.Model(r).Update("file_id", fid).Error; err != nil {
-		return err
-	}
-	logger.L.Info("月报 PDF 重渲染完成", zap.String("report_id", r.ID), zap.String("file_id", fid))
-	return nil
-}
-
-// archivePDF 终审后异步生成 PDF 并归档（回写 file_id）。
 func (s *ReportService) archivePDF(reportID string) {
-	var r model.InspectionReport
-	if err := s.db.First(&r, "id = ?", reportID).Error; err != nil {
-		logger.L.Warn("月报归档：报告不存在", zap.String("report_id", reportID))
-		return
+	if err := s.enqueueRender(context.Background(), reportID, model.FileStageArchived); err != nil {
+		logger.L.Warn("月报归档任务入队失败", zap.String("report_id", reportID), zap.Error(err))
 	}
-	data, err := pdf.GenerateMonthly(s.pdfData(&r))
-	if err != nil {
-		logger.L.Warn("月报归档：PDF 生成失败", zap.Error(err), zap.String("report_id", reportID))
-		return
-	}
-	key, url, err := s.store.SaveGenerated("reports", r.Title+".pdf", data)
-	if err != nil {
-		logger.L.Warn("月报归档：保存失败", zap.Error(err), zap.String("report_id", reportID))
-		return
-	}
-	fid := systemsvc.RegisterGeneratedFile(s.db, s.store, r.Title+".pdf", "application/pdf", storage.MD5Hex(data), key, url)
-	if err := s.db.Model(&r).Update("file_id", fid).Error; err != nil {
-		logger.L.Warn("月报归档：回写 file_id 失败", zap.Error(err), zap.String("report_id", reportID))
-		return
-	}
-	logger.L.Info("月报 PDF 归档完成", zap.String("report_id", reportID), zap.String("file_id", fid))
 }
 
 // getWithScope 取报告并做数据权限校验（self 档用户放宽到本人相关报告）。
@@ -1449,7 +1348,7 @@ func (s *ReportService) reviewStepItems(steps types.ReportReviewStepArray) []gin
 				return s.sigURL(entry.SignatureFileID)
 			}()})
 		}
-		items = append(items, gin.H{"slot": step.Slot, "name": step.Name, "mode": step.Mode, "candidate_ids": step.CandidateIDs, "users": users, "signed": step.Signed})
+		items = append(items, gin.H{"role_code": step.RoleCode, "name": step.Name, "mode": step.Mode, "candidate_ids": step.CandidateIDs, "users": users, "signed": step.Signed})
 	}
 	return items
 }

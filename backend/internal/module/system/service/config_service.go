@@ -34,7 +34,7 @@ func NewConfigService(db *gorm.DB, rdb *redis.Client) *ConfigService {
 
 // List 参数分页列表。
 func (s *ConfigService) List(q *dto.ConfigQuery) (*response.Page, *errs.Error) {
-	db := s.db.Model(&model.SysConfig{})
+	db := s.db.Model(&model.SysConfig{}).Where("scope = ? AND scope_id = ?", model.ScopePlatform, model.PlatformScopeID)
 	if q.Key != "" {
 		db = db.Where("key LIKE ?", "%"+q.Key+"%")
 	}
@@ -71,7 +71,7 @@ func (s *ConfigService) List(q *dto.ConfigQuery) (*response.Page, *errs.Error) {
 // Groups 去重分组列表（供前端 Tab/筛选）。
 func (s *ConfigService) Groups() ([]string, *errs.Error) {
 	var groups []string
-	if err := s.db.Model(&model.SysConfig{}).Distinct().Order("config_group ASC").Pluck("config_group", &groups).Error; err != nil {
+	if err := s.db.Model(&model.SysConfig{}).Where("scope = ? AND scope_id = ?", model.ScopePlatform, model.PlatformScopeID).Distinct().Order("config_group ASC").Pluck("config_group", &groups).Error; err != nil {
 		return nil, errs.ErrInternal
 	}
 	return groups, nil
@@ -94,11 +94,11 @@ func (s *ConfigService) Create(req *dto.ConfigSaveReq) (string, *errs.Error) {
 		return "", be
 	}
 	var count int64
-	s.db.Model(&model.SysConfig{}).Where("key = ?", req.Key).Count(&count)
+	s.db.Model(&model.SysConfig{}).Where("scope = ? AND scope_id = ?", model.ScopePlatform, model.PlatformScopeID).Where("key = ?", req.Key).Count(&count)
 	if count > 0 {
 		return "", errs.ErrConfigKeyExists
 	}
-	row := model.SysConfig{Key: req.Key, Name: req.Name, Value: req.Value, ConfigGroup: req.ConfigGroup, Remark: req.Remark}
+	row := model.SysConfig{Scope: model.ScopePlatform, ScopeID: model.PlatformScopeID, Key: req.Key, Name: req.Name, Value: req.Value, ConfigGroup: req.ConfigGroup, Remark: req.Remark}
 	if err := s.db.Create(&row).Error; err != nil {
 		return "", errs.ErrInternal
 	}
@@ -109,7 +109,7 @@ func (s *ConfigService) Create(req *dto.ConfigSaveReq) (string, *errs.Error) {
 // Update 修改参数（key 不可改；name/config_group 为空时保留原值，支持仅提交 value 的部分更新）。
 func (s *ConfigService) Update(id string, req *dto.ConfigUpdateReq) *errs.Error {
 	var row model.SysConfig
-	if err := s.db.First(&row, "id = ?", id).Error; err != nil {
+	if err := s.db.First(&row, "id = ? AND scope = ? AND scope_id = ?", id, model.ScopePlatform, model.PlatformScopeID).Error; err != nil {
 		return errs.ErrNotFound
 	}
 	updates := map[string]any{"value": req.Value, "remark": req.Remark}
@@ -131,7 +131,7 @@ func (s *ConfigService) Update(id string, req *dto.ConfigUpdateReq) *errs.Error 
 
 // Delete 删除参数。
 func (s *ConfigService) Delete(id string) *errs.Error {
-	res := s.db.Delete(&model.SysConfig{}, "id = ?", id)
+	res := s.db.Delete(&model.SysConfig{}, "id = ? AND scope = ? AND scope_id = ?", id, model.ScopePlatform, model.PlatformScopeID)
 	if res.Error != nil {
 		return errs.ErrInternal
 	}
@@ -153,14 +153,13 @@ func (s *ConfigService) Get(key string) (string, bool) {
 	return v, ok
 }
 
-// Resolve 租户级配置解析（P3 多租户，设计方案 §9.1 就近优先）：
-// 租户覆盖（tenant_config）→ 平台默认（sys_config）；tenantID 为空或租户无覆盖时用平台默认。
-// 密钥类配置（ai.* / 存储密钥等）永不下放租户，不走此函数；tenant_config 可写 key 由白名单控制（见 TenantService）。
+// Resolve 按统一作用域解析：租户覆盖 → 平台默认；空 tenantID 直接读平台默认。
+// 密钥类配置不下放租户，可写 key 由白名单控制。
 func (s *ConfigService) Resolve(tenantID, key string) (string, bool) {
 	if tenantID != "" {
 		var value string
-		err := s.db.Model(&model.TenantConfig{}).Select("value").
-			Where("tenant_id = ? AND key = ?", tenantID, key).Limit(1).Pluck("value", &value).Error
+		err := s.db.Model(&model.SysConfig{}).Select("value").
+			Where("scope = ? AND scope_id = ? AND key = ?", model.ScopeTenant, tenantID, key).Limit(1).Pluck("value", &value).Error
 		if err == nil && value != "" {
 			return value, true
 		}
@@ -180,7 +179,7 @@ func (s *ConfigService) DefaultTenantID() string {
 
 // SetValue 按 key 更新参数值（不存在则报错；写后失效缓存）。供品牌官网等按 key 定向保存的场景使用。
 func (s *ConfigService) SetValue(key, value string) *errs.Error {
-	res := s.db.Model(&model.SysConfig{}).Where("key = ?", key).Update("value", value)
+	res := s.db.Model(&model.SysConfig{}).Where("scope = ? AND scope_id = ?", model.ScopePlatform, model.PlatformScopeID).Where("key = ?", key).Update("value", value)
 	if res.Error != nil {
 		return errs.ErrInternal
 	}
@@ -194,7 +193,7 @@ func (s *ConfigService) SetValue(key, value string) *errs.Error {
 // GetByKeys 按 key 列表读取参数（name/value/remark 一并返回，供配置表单渲染）。
 func (s *ConfigService) GetByKeys(keys []string) ([]model.SysConfig, *errs.Error) {
 	var rows []model.SysConfig
-	if err := s.db.Select("id", "key", "name", "value", "remark").Where("key IN ?", keys).Find(&rows).Error; err != nil {
+	if err := s.db.Select("id", "key", "name", "value", "remark").Where("scope = ? AND scope_id = ? AND key IN ?", model.ScopePlatform, model.PlatformScopeID, keys).Find(&rows).Error; err != nil {
 		return nil, errs.ErrInternal
 	}
 	return rows, nil
@@ -210,7 +209,7 @@ func (s *ConfigService) loadAll(ctx context.Context) (map[string]string, error) 
 		}
 	}
 	var rows []model.SysConfig
-	if err := s.db.Select("key", "value").Find(&rows).Error; err != nil {
+	if err := s.db.Select("key", "value").Where("scope = ? AND scope_id = ?", model.ScopePlatform, model.PlatformScopeID).Find(&rows).Error; err != nil {
 		return nil, err
 	}
 	m := make(map[string]string, len(rows))

@@ -36,7 +36,7 @@ type GenerateReq struct {
 }
 
 type GenerateSignStep struct {
-	Slot         string   `json:"slot"`
+	RoleCode     string   `json:"role_code"`
 	CandidateIDs []string `json:"candidate_ids"`
 }
 

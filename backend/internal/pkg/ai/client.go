@@ -36,37 +36,27 @@ const (
 	ProtocolClaude          = "claude"           // Anthropic Messages
 )
 
-// 检查项判定类型（check_template_item.judge_type，打卡时快照进 checkin_record_item.judge_type）。
-// 一期实现 10 类；baseline 基线对比为二期预留，一期按 general 处理。
 const (
-	JudgeGeneral   = "general"   // 通用综合判定（现状行为）
-	JudgePresence  = "presence"  // 有无：设施/物品是否存在
-	JudgeDamage    = "damage"    // 是否损坏：破损/锈蚀/变形
-	JudgeMetric    = "metric"    // 指标区间：读取表计数值并判定区间（judge_config: metric/unit/min/max）
-	JudgeState     = "state"     // 状态位置：实际状态是否符合期望（judge_config: expected）
-	JudgeLabel     = "label"     // 有效期标识：检验日期/合格证/铅封
-	JudgePassage   = "passage"   // 通道遮挡：通道占用/设施遮挡堆物
-	JudgeLeak      = "leak"      // 渗漏痕迹：漏水/渗油/积水/水渍
-	JudgeIndicator = "indicator" // 指示灯状态（judge_config.expected 可描述期望灯态）
-	JudgeTidiness  = "tidiness"  // 环境整洁：杂物堆放
-	JudgeBaseline  = "baseline"  // 基线对比（二期预留，一期按 general 处理）
-	// JudgeManual 手动确认项：不拍照不调 AI，由巡检员现场手选正常/异常（如噪音、气味等照片无法判定的项）
-	JudgeManual = "manual"
-	// JudgeEquipmentValidity 台账有效期（系统内置，服务端按设备台账 next_due_date 自动判定，不调 AI 不要求照片）
-	JudgeEquipmentValidity = "equipment_validity"
-	// JudgeEquipmentDateSpot 日期标签抽查（系统内置合成项：标签抽查照片逐项 AI 核验，抽查触发/落库/回写全链路已实现）
-	JudgeEquipmentDateSpot = "equipment_date_spot"
+	PromptGeneral   = "general"
+	PromptPresence  = "presence"
+	PromptDamage    = "damage"
+	PromptMetric    = "metric"
+	PromptState     = "state"
+	PromptLabel     = "label"
+	PromptPassage   = "passage"
+	PromptLeak      = "leak"
+	PromptIndicator = "indicator"
+	PromptTidiness  = "tidiness"
+	PromptBaseline  = "baseline"
 )
 
-// NormalizeJudgeType 判定类型归一化：非法/空值回 general（兜底，不报错）。
-func NormalizeJudgeType(jt string) string {
-	switch strings.TrimSpace(jt) {
-	case JudgePresence, JudgeDamage, JudgeMetric, JudgeState, JudgeLabel,
-		JudgePassage, JudgeLeak, JudgeIndicator, JudgeTidiness, JudgeBaseline, JudgeManual,
-		JudgeEquipmentValidity, JudgeEquipmentDateSpot:
-		return strings.TrimSpace(jt)
+func NormalizePromptKind(kind string) string {
+	switch strings.TrimSpace(kind) {
+	case PromptPresence, PromptDamage, PromptMetric, PromptState, PromptLabel,
+		PromptPassage, PromptLeak, PromptIndicator, PromptTidiness, PromptBaseline:
+		return strings.TrimSpace(kind)
 	}
-	return JudgeGeneral
+	return PromptGeneral
 }
 
 const (
@@ -84,13 +74,13 @@ const builtinRules = `你是物业巡检打卡审核助手。请根据打卡上�
 2. 照片中是否存在明显的安全异常（设备损坏、漏水、明火、杂物阻塞消防通道等）；
 3. 照片按检查项逐项给出（一项一图，每项照片前均有该项名称与判定要求标注），逐项按标注的判定要求核对该项照片；判定要求涉及表计读数的项，将读出的数值填入 reading。
 全部 reason/issue 字段各不超过 30 字，不要输出思考过程。
-只输出 JSON：{"quality":{"pass":true|false,"issue":""},"verdict":"pass"|"review","reason":"简要中文理由","items":[{"name":"检查项名","verdict":"pass"|"review"|"abnormal","reason":"该项简要理由","reading":"","abnormal_tags":[]}]}，不要输出任何其他内容。
+只输出 JSON：{"quality":{"pass":true|false,"issue":""},"verdict":"pass"|"review","reason":"简要中文理由","items":[{"instance_key":"实例标识","name":"检查项名","verdict":"pass"|"review"|"abnormal","reason":"该项简要理由","reading":"","abnormal_tags":[]}]}，不要输出任何其他内容。
 items 为逐项结论（与给出的检查项一一对应）；无法逐项判断时 items 可省略或为空数组；reading 仅表计读数类检查项填写，其余留空。
 检查项带观察点标注时逐点核对，确认异常的观察点原名填入该项 abnormal_tags（无异常填空数组），存在异常观察点的该项 verdict 不得为 pass。
 quality.pass=false 时 verdict 仍照常给出；逐项确认存在明确异常时该项 verdict 输出 "abnormal"；有任何一项拿不准或存疑时，整体 verdict 一律输出 "review"，理由需说明疑点。`
 
 // outputFormatHint 自定义 prompt 时仍强制要求的输出格式说明。
-const outputFormatHint = "\n\n无论以上规则如何，你只输出 JSON（reason/issue 各不超过 30 字，不要输出思考过程）：{\"quality\":{\"pass\":true|false,\"issue\":\"\"},\"verdict\":\"pass\"|\"review\",\"reason\":\"简要中文理由\",\"items\":[{\"name\":\"检查项名\",\"verdict\":\"pass\"|\"review\"|\"abnormal\",\"reason\":\"该项简要理由\",\"reading\":\"\",\"abnormal_tags\":[]}]}，不要输出任何其他内容；items 逐项结论无法判断时可省略；检查项带观察点时异常观察点原名填入 abnormal_tags；拿不准一律 review。"
+const outputFormatHint = "\n\n无论以上规则如何，你只输出 JSON（reason/issue 各不超过 30 字，不要输出思考过程）：{\"quality\":{\"pass\":true|false,\"issue\":\"\"},\"verdict\":\"pass\"|\"review\",\"reason\":\"简要中文理由\",\"items\":[{\"instance_key\":\"实例标识\",\"name\":\"检查项名\",\"verdict\":\"pass\"|\"review\"|\"abnormal\",\"reason\":\"该项简要理由\",\"reading\":\"\",\"abnormal_tags\":[]}]}，不要输出任何其他内容；items 逐项结论无法判断时可省略；检查项带观察点时异常观察点原名填入 abnormal_tags；拿不准一律 review。"
 
 // RateLimitError 大模型限流错误（HTTP 429）：逐项识别 worker 捕获后指数退避重试。
 // Error 文本与 postJSON 普通状态码错误保持一致（"大模型返回 %d: %s"），下游口径不变。
@@ -114,24 +104,28 @@ type PhotoRef struct {
 	URL string
 }
 
-// ItemPhoto 检查项逐项照片（项名 + 标准要求 + AI 识别要点 + 判定类型/参数 + 观察点 tag + 该项照片），供大模型逐项核对。
 type ItemPhoto struct {
-	Name        string
-	Requirement string         // 检查标准要求（可空）
-	AIHint      string         // AI 识别要点（可空；空=该项不带识别要点）
-	JudgeType   string         // 判定类型（可空；空=general 通用判定）
-	JudgeConfig map[string]any // 判定参数（可空；metric 需 metric/unit/min/max，state/indicator 用 expected）
-	Tags        []string       // 观察点 tag 数组（可空；非空时模型逐 tag 核对，异常 tag 名填入 abnormal_tags）
-	Photos      []PhotoRef
+	InstanceKey  string
+	Name         string
+	Standard     string
+	AIHint       string
+	AIPromptKind string
+	ValueType    string
+	Unit         string
+	ValueMin     *float64
+	ValueMax     *float64
+	EnumOptions  []string
+	Tags         []string
+	Photos       []PhotoRef
 }
 
-// ItemVerdict 逐项大模型结论（检查项名 + 结论 + 理由 + 表计读数 + 异常 tag）。
 type ItemVerdict struct {
+	InstanceKey  string
 	Name         string
-	Verdict      string // pass / review / abnormal
+	Verdict      string
 	Reason       string
-	Reading      string   // 表计读数文本（metric 类检查项；可空）
-	AbnormalTags []string // 异常观察点 tag（⊆ 该项 tags；可空）
+	Reading      string
+	AbnormalTags []string
 }
 
 // QualityResult 照片质量判定（第一层）；Pass=false 时 Issue 为面向巡检员的重拍提示。
@@ -281,17 +275,19 @@ func (c *Client) buildParts(input ReviewInput) []promptPart {
 	// 逐项照片（一项一图）：每项一段文字标注后跟该项照片，让模型逐项核对
 	for _, ip := range input.ItemPhotos {
 		imgs := c.resolveImages(ip.Photos)
-		// 按项标注：项名 + 标准要求 + AI 识别要点（§3.3）+ 判定类型专项指令，让模型逐项对照识别
 		label := "以下是检查项「" + ip.Name + "」"
-		if strings.TrimSpace(ip.Requirement) != "" {
-			label += "（标准要求：" + strings.TrimSpace(ip.Requirement) + "）"
+		if ip.InstanceKey != "" {
+			label += "（实例标识：" + ip.InstanceKey + "，逐项结果必须原样返回 instance_key）"
+		}
+		if strings.TrimSpace(ip.Standard) != "" {
+			label += "（标准要求：" + strings.TrimSpace(ip.Standard) + "）"
 		}
 		if strings.TrimSpace(ip.AIHint) != "" {
 			label += "（AI 识别要点：" + strings.TrimSpace(ip.AIHint) + "）"
 		}
 		label += "的对应照片"
-		if inst := judgeInstruction(ip.JudgeType, ip.JudgeConfig); inst != "" {
-			label += "（判定要求：" + inst + "）"
+		if inst := judgeInstruction(ip.AIPromptKind, ip.ValueType, ip.Unit, ip.ValueMin, ip.ValueMax, ip.EnumOptions); inst != "" {
+			label += "（识别要求：" + inst + "）"
 		}
 		if len(ip.Tags) > 0 {
 			label += "（观察点：" + strings.Join(ip.Tags, "、") + "，逐点核对，异常点原名填入 abnormal_tags）"
@@ -333,52 +329,43 @@ func contextText(input ReviewInput) string {
 	return sb.String()
 }
 
-// judgeInstruction 按判定类型生成逐项判定指令文本；general/baseline（二期预留按通用处理）、
-// manual（手动确认项，不调 AI 不入 prompt）与参数不全的项返回空串（不追加标注，按通用判定）。
-func judgeInstruction(jt string, cfg map[string]any) string {
-	cfgStr := func(key string) string {
-		v, _ := cfg[key].(string)
-		return strings.TrimSpace(v)
-	}
-	switch NormalizeJudgeType(jt) {
-	case JudgePresence:
+func judgeInstruction(kind, valueType, unit string, min, max *float64, enumOptions []string) string {
+	switch NormalizePromptKind(kind) {
+	case PromptPresence:
 		return "判断照片中是否存在该检查项所述设施/物品，不存在则该项 verdict=abnormal"
-	case JudgeDamage:
+	case PromptDamage:
 		return "判断设施外观是否破损、锈蚀、变形，存在则该项 verdict=abnormal"
-	case JudgeMetric:
-		metric := cfgStr("metric")
-		if metric == "" {
-			return "" // judge_config 缺失时按 general
+	case PromptMetric:
+		inst := "读取照片中表计的数值填入 reading"
+		if unit != "" {
+			inst += "（单位：" + unit + "）"
 		}
-		unit := cfgStr("unit")
-		lo, lok := cfg["min"]
-		hi, hik := cfg["max"]
-		if !lok || !hik {
-			return ""
+		if min != nil || max != nil {
+			lo, hi := "不限", "不限"
+			if min != nil {
+				lo = strconv.FormatFloat(*min, 'f', -1, 64)
+			}
+			if max != nil {
+				hi = strconv.FormatFloat(*max, 'f', -1, 64)
+			}
+			inst += fmt.Sprintf("，参考允许区间 [%s, %s] 给出建议；最终结论由服务端按实测值判定", lo, hi)
 		}
-		return fmt.Sprintf("读取照片中%s表计的数值填入 reading（单位：%s），并判断是否在允许区间 [%v, %v] 内，超出区间该项 verdict=abnormal，无法读出数值则该项 verdict=review", metric, unit, lo, hi)
-	case JudgeState:
-		expected := cfgStr("expected")
-		if expected == "" {
-			return ""
-		}
-		return "判断实际状态是否符合期望（" + expected + "），不符合则该项 verdict=abnormal"
-	case JudgeLabel:
+		return inst + "，无法读出数值则该项 verdict=review"
+	case PromptState:
+		return "识别并描述实际状态；无法确认时该项 verdict=review"
+	case PromptLabel:
 		return "识别检验日期/合格证/铅封信息，已过期或缺失则该项 verdict=abnormal"
-	case JudgePassage:
+	case PromptPassage:
 		return "判断通道是否被占用、设施是否被遮挡或堆物，存在则该项 verdict=abnormal"
-	case JudgeLeak:
+	case PromptLeak:
 		return "判断是否有漏水、渗油、积水、水渍痕迹，存在则该项 verdict=abnormal"
-	case JudgeIndicator:
-		inst := "判断指示灯/运行灯状态是否正常"
-		if expected := cfgStr("expected"); expected != "" {
-			inst += "（期望灯态：" + expected + "）"
-		}
-		return inst + "，异常则该项 verdict=abnormal"
-	case JudgeTidiness:
+	case PromptIndicator:
+		return "判断指示灯/运行灯状态是否正常，异常则该项 verdict=abnormal"
+	case PromptTidiness:
 		return "判断环境是否整洁、有无杂物堆放，不达标则该项 verdict=abnormal"
-	case JudgeManual:
-		return "" // 手动确认项不调 AI，不生成判定指令
+	}
+	if valueType == "enum" && len(enumOptions) > 0 {
+		return "从以下选项中识别实际状态：" + strings.Join(enumOptions, "、") + "；无法确认时该项 verdict=review"
 	}
 	return ""
 }
@@ -407,6 +394,7 @@ func validateReviewJSON(raw []byte) (*ReviewResult, error) {
 		Verdict string `json:"verdict"`
 		Reason  string `json:"reason"`
 		Items   []struct {
+			InstanceKey  string   `json:"instance_key"`
 			Name         string   `json:"name"`
 			Verdict      string   `json:"verdict"`
 			Reason       string   `json:"reason"`
@@ -427,11 +415,10 @@ func validateReviewJSON(raw []byte) (*ReviewResult, error) {
 	// 空 items 判失败会让"模型存疑省略 items"被误判成识别失败
 	res := &ReviewResult{Verdict: v.Verdict, Reason: v.Reason, Quality: QualityResult{Pass: *v.Quality.Pass, Issue: v.Quality.Issue}}
 	for _, it := range v.Items {
-		name := strings.TrimSpace(it.Name)
-		if name == "" || (it.Verdict != VerdictPass && it.Verdict != VerdictReview && it.Verdict != VerdictAbnormal) {
-			return nil, fmt.Errorf("非法 items 逐项结论")
+		instanceKey := strings.TrimSpace(it.InstanceKey)
+		if instanceKey == "" || (it.Verdict != VerdictPass && it.Verdict != VerdictReview && it.Verdict != VerdictAbnormal) {
+			return nil, fmt.Errorf("非法 items 逐项结论或缺少 instance_key")
 		}
-		// 异常 tag 归一：trim/去空/去重（⊆ 模板 tags 的过滤在回写快照时做）
 		abn := make([]string, 0, len(it.AbnormalTags))
 		seen := map[string]bool{}
 		for _, t := range it.AbnormalTags {
@@ -441,7 +428,7 @@ func validateReviewJSON(raw []byte) (*ReviewResult, error) {
 				abn = append(abn, t)
 			}
 		}
-		res.Items = append(res.Items, ItemVerdict{Name: name, Verdict: it.Verdict, Reason: it.Reason, Reading: strings.TrimSpace(it.Reading), AbnormalTags: abn})
+		res.Items = append(res.Items, ItemVerdict{InstanceKey: instanceKey, Name: strings.TrimSpace(it.Name), Verdict: it.Verdict, Reason: it.Reason, Reading: strings.TrimSpace(it.Reading), AbnormalTags: abn})
 	}
 	return res, nil
 }

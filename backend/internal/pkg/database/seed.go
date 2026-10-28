@@ -11,9 +11,7 @@ import (
 )
 
 // Seed 写入系统预置数据（超管、内置角色、菜单树、字典、默认参数）。
-// 仅当 sys_role 为空时执行全量初始化；已初始化的库每次启动仍做平台默认行自愈
-// （post_dict/duty_binding/approval_flow 的 tenant_id 为空行是开通租户的复制源，
-// 可能被清库脚本或历史版本误删，缺失会导致岗位绑定角色并集失效）。
+// 仅当 sys_role 为空时执行全量初始化；已初始化的库幂等补齐角色、菜单和平台默认审批链。
 // 超管账号来自配置（ADMIN_USERNAME/PASSWORD/NAME）。
 func Seed(db *gorm.DB, adminUsername, adminPassword, adminName string) error {
 	var count int64
@@ -21,7 +19,20 @@ func Seed(db *gorm.DB, adminUsername, adminPassword, adminName string) error {
 		return err
 	}
 	if count > 0 {
-		return ensurePlatformRows(db)
+		if err := ensurePlatformRows(db); err != nil {
+			return err
+		}
+		return db.Transaction(func(tx *gorm.DB) error {
+			tenantID, err := seedTenant(tx)
+			if err != nil {
+				return err
+			}
+			var role model.SysRole
+			if err := tx.Where("code = ? AND tenant_id IS NULL", model.SuperAdminCode).First(&role).Error; err != nil {
+				return err
+			}
+			return seedAdmin(tx, role.ID, tenantID, adminUsername, adminPassword, adminName)
+		})
 	}
 	return db.Transaction(func(tx *gorm.DB) error {
 		tenantID, err := seedTenant(tx)
@@ -48,17 +59,10 @@ func Seed(db *gorm.DB, adminUsername, adminPassword, adminName string) error {
 		if err := seedConfigs(tx); err != nil {
 			return err
 		}
-		if err := seedPosts(tx, roleIDs); err != nil {
-			return err
-		}
-		if err := seedDutyBindings(tx); err != nil {
-			return err
-		}
 		if err := seedApprovalFlow(tx); err != nil {
 			return err
 		}
-		// 默认租户同样需要一份岗位与槽位默认（模板只读于开通/初始化那一刻，与开通租户同一复制逻辑）
-		return systemsvc.CopyPostTemplatesToTenant(tx, tenantID)
+		return systemsvc.CopyFlowTemplatesToTenant(tx, tenantID)
 	})
 }
 
@@ -81,21 +85,29 @@ func seedTenant(tx *gorm.DB) (string, error) {
 	return t.ID, nil
 }
 
-// seedRoles 预置四个内置角色（权限模板，见设计方案 §3.1），返回 code → id 映射。
 func seedRoles(tx *gorm.DB) (map[string]string, error) {
 	roles := []model.SysRole{
-		{Code: "super_admin", Name: "超级管理员", DataScope: model.ScopeAll, Remark: "拥有全部权限", IsBuiltin: true},
-		{Code: "tenant_admin", Name: "租户管理员", DataScope: model.ScopeAll, Remark: "物业公司负责人：租户内全部业务功能与租户级系统管理", IsBuiltin: true},
-		{Code: "project_admin", Name: "项目管理员", DataScope: model.ScopeProject, Remark: "项目经理/主管等项目级后台使用人员：业务菜单全开", IsBuiltin: true},
-		{Code: "field_staff", Name: "一线人员", DataScope: model.ScopeSelf, Remark: "巡检员/维修工/楼管员/前台等移动端使用人员：打卡、任务、月报确认", IsBuiltin: true},
+		{Code: model.SuperAdminCode, Name: "超级管理员", ScopeLevel: model.ScopePlatform, IsSupervisor: true, IsBuiltin: true},
+		{Code: model.TenantAdminCode, Name: "租户管理员", ScopeLevel: model.ScopeTenant, IsSupervisor: true, IsBuiltin: true},
+		{Code: model.ProjectManagerCode, Name: "项目经理", ScopeLevel: model.ScopeProject, IsSupervisor: true, IsBuiltin: true},
+		{Code: model.QualitySupervisorCode, Name: "品质主管", ScopeLevel: model.ScopeProject, IsSupervisor: true, IsBuiltin: true},
+		{Code: model.EngineerSupervisorCode, Name: "工程主管", ScopeLevel: model.ScopeProject, IsSupervisor: true, IsBuiltin: true},
+		{Code: model.InspectorCode, Name: "巡检员", ScopeLevel: model.ScopeProject, IsBuiltin: true},
+		{Code: model.MaintainerCode, Name: "维保工", ScopeLevel: model.ScopeProject, IsBuiltin: true},
+		{Code: model.BuildingManagerCode, Name: "楼管员", ScopeLevel: model.ScopeProject, IsBuiltin: true},
+		{Code: model.FireDutyCode, Name: "消控值班", ScopeLevel: model.ScopeProject, IsBuiltin: true},
 	}
 	ids := make(map[string]string, len(roles))
 	for i := range roles {
-		roles[i].Status = model.StatusEnabled
-		if err := tx.Create(&roles[i]).Error; err != nil {
-			return nil, err
+		var role model.SysRole
+		if err := tx.Where("code = ? AND tenant_id IS NULL", roles[i].Code).First(&role).Error; err != nil {
+			role = roles[i]
+			role.Status = model.StatusEnabled
+			if err := tx.Create(&role).Error; err != nil {
+				return nil, err
+			}
 		}
-		ids[roles[i].Code] = roles[i].ID
+		ids[role.Code] = role.ID
 	}
 	return ids, nil
 }
@@ -117,6 +129,12 @@ type menuSeed struct {
 func seedMenus(tx *gorm.DB) (map[string]string, error) {
 	tree := []menuSeed{
 		{title: "工作台", path: "/dashboard", icon: "Odometer", typ: model.MenuTypeMenu, perms: "dashboard:view", sort: 10},
+		{title: "计划管理", path: "/inspection/plans", icon: "Calendar", typ: model.MenuTypeMenu, perms: "inspection:plan:list", sort: 15, children: []menuSeed{
+			{title: "新增计划", typ: model.MenuTypeButton, perms: "inspection:plan:create", sort: 1},
+			{title: "编辑计划", typ: model.MenuTypeButton, perms: "inspection:plan:update", sort: 2},
+			{title: "停用计划", typ: model.MenuTypeButton, perms: "inspection:plan:disable", sort: 3},
+			{title: "删除计划", typ: model.MenuTypeButton, perms: "inspection:plan:delete", sort: 4},
+		}},
 		{title: "巡检管理", path: "/inspection", icon: "Location", typ: model.MenuTypeDir, sort: 20, children: []menuSeed{
 			{title: "点位管理", path: "/inspection/points", icon: "MapLocation", typ: model.MenuTypeMenu, perms: "inspection:point:list", sort: 1, children: []menuSeed{
 				{title: "新增点位", typ: model.MenuTypeButton, perms: "inspection:point:create", sort: 1},
@@ -125,12 +143,7 @@ func seedMenus(tx *gorm.DB) (map[string]string, error) {
 				{title: "批量生成二维码", typ: model.MenuTypeButton, perms: "inspection:point:qrcode", sort: 4},
 				{title: "批量导入", typ: model.MenuTypeButton, perms: "inspection:point:import", sort: 5},
 			}},
-			{title: "计划任务", path: "/inspection/plans", icon: "Calendar", typ: model.MenuTypeMenu, perms: "inspection:plan:list", sort: 2, children: []menuSeed{
-				{title: "新增计划", typ: model.MenuTypeButton, perms: "inspection:plan:create", sort: 1},
-				{title: "编辑计划", typ: model.MenuTypeButton, perms: "inspection:plan:update", sort: 2},
-				{title: "停用计划", typ: model.MenuTypeButton, perms: "inspection:plan:disable", sort: 3},
-				{title: "删除计划", typ: model.MenuTypeButton, perms: "inspection:plan:delete", sort: 4},
-			}},
+
 			{title: "任务监控", path: "/inspection/tasks", icon: "Monitor", typ: model.MenuTypeMenu, perms: "inspection:task:monitor", sort: 3, children: []menuSeed{
 				{title: "任务列表", typ: model.MenuTypeButton, perms: "inspection:task:list", sort: 1},
 				{title: "手动生成任务", typ: model.MenuTypeButton, perms: "inspection:task:generate", sort: 2},
@@ -176,7 +189,6 @@ func seedMenus(tx *gorm.DB) (map[string]string, error) {
 			{title: "删除楼栋", typ: model.MenuTypeButton, perms: "community:building:delete", sort: 7},
 			{title: "编制名单", typ: model.MenuTypeButton, perms: "community:staff:list", sort: 8},
 			{title: "编制维护", typ: model.MenuTypeButton, perms: "community:staff:edit", sort: 9},
-			{title: "职责绑定", typ: model.MenuTypeButton, perms: "community:duty:edit", sort: 10},
 		}},
 		// 系统管理（租户级，《管理后台信息架构与菜单归位方案》第一章）：租户管理员管本公司内部事务，
 		// 全部数据操作处在「租户上下文」（middleware.EffectiveTenantID）中
@@ -195,13 +207,7 @@ func seedMenus(tx *gorm.DB) (map[string]string, error) {
 				{title: "删除角色", typ: model.MenuTypeButton, perms: "system:role:delete", sort: 3},
 				{title: "分配权限", typ: model.MenuTypeButton, perms: "system:role:assign", sort: 4},
 			}},
-			// 岗位管理（方案第三章）：本租户岗位 + 岗位绑角色 + 租户级职责槽位默认绑定
-			{title: "岗位管理", path: "/system/posts", icon: "Postcard", typ: model.MenuTypeMenu, perms: "system:post:list", sort: 3, children: []menuSeed{
-				{title: "新增岗位", typ: model.MenuTypeButton, perms: "system:post:create", sort: 1},
-				{title: "编辑岗位", typ: model.MenuTypeButton, perms: "system:post:update", sort: 2},
-				{title: "删除岗位", typ: model.MenuTypeButton, perms: "system:post:delete", sort: 3},
-				{title: "职责绑定", typ: model.MenuTypeButton, perms: "system:post:duty", sort: 4},
-			}},
+
 			{title: "签章管理", path: "/system/sign-assets", icon: "Stamp", typ: model.MenuTypeMenu, perms: "system:signasset:list", sort: 4, children: []menuSeed{
 				{title: "新增签章", typ: model.MenuTypeButton, perms: "system:signasset:create", sort: 1},
 				{title: "作废签章", typ: model.MenuTypeButton, perms: "system:signasset:revoke", sort: 2},
@@ -252,13 +258,7 @@ func seedMenus(tx *gorm.DB) (map[string]string, error) {
 				{title: "上传发布物", typ: model.MenuTypeButton, perms: "system:site:upload", sort: 1},
 				{title: "删除发布物", typ: model.MenuTypeButton, perms: "system:site:delete", sort: 2},
 			}},
-			// 岗位模板库（方案第三章）：平台模板岗位 + 平台默认槽位绑定，仅作开通租户时的初始拷贝源
-			{title: "岗位模板库", path: "/platform/post-templates", icon: "CopyDocument", typ: model.MenuTypeMenu, perms: "platform:post:list", sort: 6, children: []menuSeed{
-				{title: "新增模板岗位", typ: model.MenuTypeButton, perms: "platform:post:create", sort: 1},
-				{title: "编辑模板岗位", typ: model.MenuTypeButton, perms: "platform:post:update", sort: 2},
-				{title: "删除模板岗位", typ: model.MenuTypeButton, perms: "platform:post:delete", sort: 3},
-				{title: "默认职责绑定", typ: model.MenuTypeButton, perms: "platform:post:duty", sort: 4},
-			}},
+
 			// 审批链模板（平台默认打卡审核链；开通租户时作为回落默认）
 			{title: "审批流程模板", path: "/platform/review-flow-template", icon: "Share", typ: model.MenuTypeMenu, perms: "platform:reviewflow:list", sort: 7, children: []menuSeed{
 				{title: "保存审批流程模板", typ: model.MenuTypeButton, perms: "platform:reviewflow:update", sort: 1},
@@ -331,19 +331,17 @@ func seedRoleMenus(tx *gorm.DB, roleIDs, menuIDs map[string]string) error {
 		"equipment:list", "equipment:create", "equipment:update", "equipment:delete", "equipment:import", "equipment:export", "equipment:maintenance", "equipment:confirm",
 		"/stats", "stats:inspection", "stats:performance", "stats:report", "stats:export",
 		"report:list", "report:generate", "report:download",
-		"/community", "community:list", "community:staff:list", "community:staff:edit", "community:duty:edit",
+		"/community", "community:list", "community:staff:list", "community:staff:edit", "system:reviewflow:list", "system:reviewflow:update",
 		"/profile",
 	}
 	assign := func(roleID string, ids []string) error {
-		// 去重：path 与 perms 两个键可能映射到同一菜单行（如小区管理 /community + community:list），
-		// 同一角色重复绑定同一菜单会撞 sys_role_menu 主键
 		seen := make(map[string]bool, len(ids))
 		for _, mid := range ids {
 			if seen[mid] {
 				continue
 			}
 			seen[mid] = true
-			if err := tx.Create(&model.SysRoleMenu{RoleID: roleID, MenuID: mid}).Error; err != nil {
+			if err := tx.Clauses(clause.OnConflict{DoNothing: true}).Create(&model.SysRoleMenu{RoleID: roleID, MenuID: mid}).Error; err != nil {
 				return err
 			}
 		}
@@ -362,36 +360,42 @@ func seedRoleMenus(tx *gorm.DB, roleIDs, menuIDs map[string]string) error {
 			projectAdminMenuIDs = append(projectAdminMenuIDs, id)
 		}
 	}
-	if err := assign(roleIDs["project_admin"], projectAdminMenuIDs); err != nil {
-		return err
+	for _, code := range []string{model.ProjectManagerCode, model.QualitySupervisorCode, model.EngineerSupervisorCode} {
+		if err := assign(roleIDs[code], projectAdminMenuIDs); err != nil {
+			return err
+		}
 	}
-	// 一线人员可查看报告；具体审核权限由报告生成时固化的动态审核链和候选人名单控制。
-	// equipment:maintenance 供 App 维保登记（appAuth 通道）；equipment:list（台账管理）是管理岗能力，不配给一线。
-	fieldStaffMenuKeys := []string{"report:list", "equipment:maintenance"}
 	var fieldStaffMenuIDs []string
-	for _, key := range fieldStaffMenuKeys {
+	for _, key := range []string{"report:list", "equipment:maintenance"} {
 		if id, ok := menuIDs[key]; ok {
 			fieldStaffMenuIDs = append(fieldStaffMenuIDs, id)
 		}
 	}
-	return assign(roleIDs["field_staff"], fieldStaffMenuIDs)
+	for _, code := range []string{model.InspectorCode, model.MaintainerCode, model.BuildingManagerCode, model.FireDutyCode} {
+		if err := assign(roleIDs[code], fieldStaffMenuIDs); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // seedAdmin 写入超级管理员账号（凭据来自配置，bcrypt 入库；P3 起归属默认租户）。
 func seedAdmin(tx *gorm.DB, superRoleID, tenantID, username, pwd, name string) error {
+	var count int64
+	if err := tx.Model(&model.SysUser{}).Where("tenant_id = ? AND username = ?", tenantID, username).Count(&count).Error; err != nil {
+		return err
+	}
+	if count > 0 {
+		return nil
+	}
 	hash, err := password.Hash(pwd)
 	if err != nil {
 		return err
 	}
 	admin := model.SysUser{
-		TenantID:  tenantID,
-		Username:  username,
-		Password:  hash,
-		Name:      name,
-		IsBuiltin: true, // 唯一超管账号：禁止删除/停用/移除超管角色
-		RoleIDs:   types.IDArray{superRoleID},
-		Status:    model.StatusEnabled,
-		Remark:    "系统预置超管，首次登录请修改密码",
+		TenantID: tenantID, Username: username, Password: hash, Name: name, PersonKey: username,
+		IsBuiltin: true, RoleID: &superRoleID, Status: model.StatusEnabled,
+		Remark: "系统预置超管，首次登录请修改密码",
 	}
 	return tx.Create(&admin).Error
 }
@@ -407,7 +411,14 @@ func seedDicts(tx *gorm.DB) error {
 		{"data_scope", "数据范围", [][2]string{{"全部数据", "all"}, {"所在项目", "project"}, {"仅本人", "self"}}},
 		{"menu_type", "菜单类型", [][2]string{{"目录", "dir"}, {"菜单", "menu"}, {"按钮", "button"}}},
 		{"building_type", "楼栋类型", [][2]string{{"楼栋", "building"}, {"区域", "area"}}},
-		{"point_type", "点位类型", [][2]string{{"普通点位", "common"}, {"配电房", "power_room"}, {"消防控制室", "fire_control"}, {"水泵房", "pump_room"}, {"电梯机房", "elevator"}, {"地下车库", "garage"}, {"消防箱", "fire_cabinet"}, {"灭火器", "fire_extinguisher"}}},
+		{"point_type", "点位类型", [][2]string{
+			{"供水设备房", "supply_room"}, {"生活水泵（水箱）", "water_pump"}, {"消防水泵（水池）", "fire_pump"},
+			{"公区水表", "water_meter"}, {"分户水表", "sub_meter"}, {"高低压配电房", "power_room"},
+			{"柴油发电机（房）", "generator"}, {"配电箱（柜）", "distribution_box"}, {"灭火器（箱）", "fire_extinguisher"},
+			{"消火栓（箱）", "fire_cabinet"}, {"防火门·应急灯等", "fire_door"}, {"消防控制室", "control_room"},
+			{"消火栓联动", "hydrant_test"}, {"喷淋联动", "sprinkler_test"}, {"广播", "broadcast_test"},
+			{"消防电话", "phone_test"}, {"风机", "fan_test"}, {"电梯五方对讲", "elevator_talk"}, {"机械式立体车库", "car_park"},
+		}},
 		{"cycle_type", "计划周期", [][2]string{{"每天", "daily"}, {"每周", "weekly"}, {"每月", "monthly"}}},
 		{"task_status", "任务状态", [][2]string{{"待开始", "pending"}, {"进行中", "doing"}, {"已完成", "done"}, {"已逾期", "overdue"}}},
 		{"checkin_type", "打卡类型", [][2]string{{"扫码", "qrcode"}, {"围栏", "fence"}, {"离线补传", "offline"}, {"NFC", "nfc"}}},
@@ -435,6 +446,32 @@ func seedDicts(tx *gorm.DB) error {
 			}
 		}
 	}
+	pointSystems := map[string]types.JSONMap{
+		"supply_room":       {"level": "place", "system": "供水设备", "system_sort": 1},
+		"water_pump":        {"level": "object", "system": "供水设备", "system_sort": 1},
+		"fire_pump":         {"level": "object", "system": "供水设备", "system_sort": 1},
+		"water_meter":       {"level": "object", "system": "供水设备", "system_sort": 1},
+		"sub_meter":         {"level": "object", "system": "供水设备", "system_sort": 1},
+		"power_room":        {"level": "place", "system": "供电设备", "system_sort": 2},
+		"generator":         {"level": "object", "system": "供电设备", "system_sort": 2},
+		"distribution_box":  {"level": "object", "system": "供电设备", "system_sort": 2},
+		"fire_extinguisher": {"level": "object", "system": "消防设施（器材类）", "system_sort": 3},
+		"fire_cabinet":      {"level": "object", "system": "消防设施（器材类）", "system_sort": 3},
+		"fire_door":         {"level": "object", "system": "消防设施（器材类）", "system_sort": 3},
+		"control_room":      {"level": "place", "system": "消防设施（系统类）", "system_sort": 4},
+		"hydrant_test":      {"level": "object", "system": "消防设施（系统类）", "system_sort": 4},
+		"sprinkler_test":    {"level": "object", "system": "消防设施（系统类）", "system_sort": 4},
+		"broadcast_test":    {"level": "object", "system": "消防设施（系统类）", "system_sort": 4},
+		"phone_test":        {"level": "object", "system": "消防设施（系统类）", "system_sort": 4},
+		"fan_test":          {"level": "object", "system": "消防设施（系统类）", "system_sort": 4},
+		"elevator_talk":     {"level": "object", "system": "特种设备", "system_sort": 5},
+		"car_park":          {"level": "object", "system": "特种设备", "system_sort": 5},
+	}
+	for value, attrs := range pointSystems {
+		if err := tx.Model(&model.SysDictData{}).Where("type_code = ? AND value = ?", "point_type", value).Update("attrs", attrs).Error; err != nil {
+			return err
+		}
+	}
 	// patrol_type 大类标记 attrs.category（《专项巡检与专项检查报告设计方案》§3.1：
 	// daily_patrol 日常巡逻 / special 专项检查；前端按大类分组展示）
 	patrolCategories := []struct {
@@ -458,21 +495,22 @@ func seedDicts(tx *gorm.DB) error {
 	// first_months 首次维保月数（0=无首次规则）/ cycle_months 维保周期 / remind 启用催办 / scrap_months 报废月数（0=不算报废）
 	equipmentRules := []struct {
 		value                    string
+		pointType                string
 		firstMonths, cycleMonths int
 		remind                   bool
 		scrapMonths              int
 	}{
-		{"extinguisher", 60, 24, true, 120}, // 干粉灭火器：5 年首保 + 2 年周期 + 10 年报废（甲方规则/国标）
-		{"hydrant", 0, 12, true, 0},         // 消火栓：年度检测
-		{"pump", 0, 6, true, 0},             // 水泵：半年保养
-		{"elevator", 0, 1, false, 0},        // 电梯：外包按月上门，只记录不催办
-		{"distribution", 0, 12, true, 0},    // 配电柜：年检
-		{"smoke_detector", 0, 12, true, 0},  // 烟感：年度检测
+		{"extinguisher", "fire_extinguisher", 60, 24, true, 120},
+		{"hydrant", "fire_cabinet", 0, 12, true, 0},
+		{"pump", "water_pump", 0, 6, true, 0},
+		{"elevator", "elevator_talk", 0, 1, false, 0},
+		{"distribution", "distribution_box", 0, 12, true, 0},
+		{"smoke_detector", "fire_door", 0, 12, true, 0},
 	}
 	for _, er := range equipmentRules {
 		if err := tx.Model(&model.SysDictData{}).
 			Where("type_code = ? AND value = ?", "equipment_type", er.value).
-			Update("attrs", types.JSONMap{"first_months": er.firstMonths, "cycle_months": er.cycleMonths, "remind": er.remind, "scrap_months": er.scrapMonths}).Error; err != nil {
+			Update("attrs", types.JSONMap{"point_type": er.pointType, "first_months": er.firstMonths, "cycle_months": er.cycleMonths, "remind": er.remind, "scrap_months": er.scrapMonths}).Error; err != nil {
 			return err
 		}
 	}
@@ -495,7 +533,7 @@ func seedConfigs(tx *gorm.DB) error {
 		{Key: "equipment.overdue_remind_interval_days", Name: "设备逾期重复提醒间隔(天)", Value: "7", ConfigGroup: "equipment", Remark: "逾期后每隔 N 天重复提醒直至登记维保"},
 		{Key: "equipment.escalate_days", Name: "设备逾期升级经理天数", Value: "7", ConfigGroup: "equipment", Remark: "逾期超过 N 天未登记时升级通知物业经理/安全主管"},
 		{Key: "equipment.spotcheck_enabled", Name: "设备日期抽查开关", Value: "true", ConfigGroup: "equipment", Remark: "二期：灭火器日期标签抽查总开关"},
-		{Key: "equipment.spotcheck_ratio", Name: "设备日期抽查比例(%)", Value: "2", ConfigGroup: "equipment", Remark: "二期：默认抽查比例（甲方口径 2%），可被检查项 judge_config.ratio 覆盖"},
+		{Key: "equipment.spotcheck_ratio", Name: "设备日期抽查比例(%)", Value: "2", ConfigGroup: "equipment", Remark: "默认抽查比例（甲方口径 2%），设备类型规则可覆盖"},
 		{Key: "msg.subscribe_enabled", Name: "微信订阅消息开关", Value: "true", ConfigGroup: "msg", Remark: "任务提醒/审核通知"},
 		{Key: "msg.wecom_webhook_enabled", Name: "企业微信消息推送开关", Value: "false", ConfigGroup: "msg", Remark: "开启需配置 webhook 地址（应用配置，不入库）"},
 		{Key: "security.login_fail_limit", Name: "登录失败锁定次数", Value: "5", ConfigGroup: "security", Remark: "连续失败锁定 10 分钟（配合 Redis 计数）"},
@@ -505,7 +543,7 @@ func seedConfigs(tx *gorm.DB) error {
 		{Key: "ai.base_url", Name: "API 地址", Value: "https://api.openai.com/v1", ConfigGroup: "ai", Remark: "OpenAI 兼容接口地址"},
 		{Key: "ai.api_key", Name: "API Key", Value: "", ConfigGroup: "ai", Remark: "sk-...（服务端保管，不回传前端）"},
 		{Key: "ai.model", Name: "模型名称", Value: "gpt-4o-mini", ConfigGroup: "ai", Remark: "须支持图像理解（vision）"},
-		{Key: "ai.timeout_seconds", Name: "超时秒数", Value: "180", ConfigGroup: "ai", Remark: "超时/失败默认通过并记录 ai_verdict=error"},
+		{Key: "ai.timeout_seconds", Name: "超时秒数", Value: "180", ConfigGroup: "ai", Remark: "超时/失败记录 ai_verdict=error 并转人工复核"},
 		{Key: "ai.disable_thinking", Name: "关闭思考模式", Value: "true", ConfigGroup: "ai", Remark: "提速：关模型思维链（qwen enable_thinking/gemini thinkingBudget/responses minimal；false=保持模型默认）"},
 		{Key: "ai.prompt", Name: "审查规则", Value: "", ConfigGroup: "ai", Remark: "留空用内置规则：判断照片清晰度、与点位/检查项匹配度、有无明显异常，输出 pass/review"},
 		{Key: "ai.protocol", Name: "AI 接口协议", Value: "openai_chat", ConfigGroup: "ai", Remark: "openai_chat（OpenAI 兼容 Chat Completions）/openai_responses/gemini/claude"},
@@ -538,115 +576,52 @@ func seedConfigs(tx *gorm.DB) error {
 	return nil
 }
 
-// seedPosts 预置平台模板岗位（post_dict.tenant_id 空，菜单归位方案 §3）。
-// 仅作开通租户时的复制源；role_id 绑定内置共享角色（有效角色实时并集的来源之一）。
-func seedPosts(tx *gorm.DB, roleIDs map[string]string) error {
-	type postSeed struct {
-		code         string
-		name         string
-		line         string
-		isSupervisor bool
-		roleCode     string // 空 = 不绑角色
-		sort         int
-		status       string
-		remark       string
-	}
-	posts := []postSeed{
-		{"project_manager", "项目经理", "general", false, "project_admin", 1, model.StatusEnabled, "项目第一负责人，月报终审，全员管理"},
-		{"safety_supervisor", "安全主管", "safety", true, "project_admin", 2, model.StatusEnabled, "管理巡检员，巡查打卡审核，月报主管审批"},
-		{"inspector", "巡检员", "safety", false, "field_staff", 3, model.StatusEnabled, "按计划执行巡查打卡"},
-	}
-	for _, p := range posts {
-		// 幂等：平台模板行（tenant_id 为空）按 code 判重，缺失才补
-		var n int64
-		if err := tx.Model(&model.PostDict{}).Where("tenant_id IS NULL AND code = ?", p.code).Count(&n).Error; err != nil {
-			return err
-		}
-		if n > 0 {
-			continue
-		}
-		row := model.PostDict{
-			Code: p.code, Name: p.name, Line: p.line, IsSupervisor: p.isSupervisor,
-			Sort: p.sort, Status: p.status, Remark: p.remark,
-		}
-		if p.roleCode != "" {
-			if rid, ok := roleIDs[p.roleCode]; ok && rid != "" {
-				row.RoleID = &rid
-			}
-		}
-		if err := tx.Create(&row).Error; err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-// ensurePlatformRows 平台默认行自愈（每次启动执行，幂等）：
-// post_dict 平台模板岗位 / duty_binding 平台默认槽位绑定 / approval_flow 平台默认审批链
-// 均为 tenant_id 为空的行，是开通租户复制源（CopyPostTemplatesToTenant）与配置回落的最末一级，
-// 被误清后这里按 code/slot/flow_code 补齐缺失行。
 func ensurePlatformRows(db *gorm.DB) error {
 	return db.Transaction(func(tx *gorm.DB) error {
-		var roles []model.SysRole
-		if err := tx.Select("id", "code").Find(&roles).Error; err != nil {
+		roleIDs, err := seedRoles(tx)
+		if err != nil {
 			return err
 		}
-		roleIDs := make(map[string]string, len(roles))
-		for _, r := range roles {
-			roleIDs[r.Code] = r.ID
-		}
-		if err := seedPosts(tx, roleIDs); err != nil { // 内部按 code 判重
+		menuIDs, err := seedMenus(tx)
+		if err != nil {
 			return err
 		}
-		if err := seedDutyBindings(tx); err != nil { // OnConflict 幂等
+		if err := seedRoleMenus(tx, roleIDs, menuIDs); err != nil {
 			return err
 		}
-		if err := seedConfigs(tx); err != nil { // OnConflict 幂等（新增配置项补入存量库）
+		if err := seedConfigs(tx); err != nil {
 			return err
 		}
 		return seedApprovalFlow(tx)
 	})
 }
 
-// seedDutyBindings 预置平台默认职责槽位绑定（duty_binding：project_id/tenant_id 均空 = 平台默认）。
-// 三级回落的最末一级；租户级/项目级绑定开通或配置时复制/覆盖。
-// 甲方口径三岗位极简模型：汇报线只有通用槽位，不设业务线维度绑定。
-func seedDutyBindings(tx *gorm.DB) error {
-	bindings := []struct {
-		slot  string
-		codes types.StringArray
-	}{
-		{model.SlotPatrolExecute, types.StringArray{"inspector"}},
-		{model.SlotPatrolReportLine, types.StringArray{"safety_supervisor"}},
-		{model.SlotProjectReview, types.StringArray{"project_manager"}},
-	}
-	for _, b := range bindings {
-		// OnConflict 跳过：同名槽位绑定已存在（历史库/迁移补丁）时跳过，保证可重复执行
-		if err := tx.Clauses(clause.OnConflict{DoNothing: true}).Create(&model.DutyBinding{Slot: b.slot, PostCodes: b.codes}).Error; err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-// seedApprovalFlow 预置平台默认审批链（approval_flow：tenant_id/project_id 均空 = 平台默认）。
+// seedApprovalFlow 预置平台默认审批链（统一 platform 作用域）。
 func seedApprovalFlow(tx *gorm.DB) error {
 	flows := []model.ApprovalFlow{{
 		FlowCode: model.FlowCheckinReview,
-		Steps: types.FlowStepArray{
-			{Slot: model.SlotPatrolReportLine, Name: "主管审核"},
-		},
+		Steps:    types.FlowStepArray{{RoleCode: model.QualitySupervisorCode, Name: "打卡复核", Mode: "any"}},
+	}, {
+		FlowCode: model.FlowMaintReview,
+		Steps:    types.FlowStepArray{{RoleCode: model.EngineerSupervisorCode, Name: "维保审核", Mode: "any"}},
+	}, {
+		FlowCode: model.FlowWorkorderReview,
+		Steps:    types.FlowStepArray{{RoleCode: model.ProjectManagerCode, Name: "工单审核", Mode: "any"}},
+	}, {
+		FlowCode: model.FlowAcceptanceReview,
+		Steps:    types.FlowStepArray{{RoleCode: model.ProjectManagerCode, Name: "查验报告签署", Mode: "any"}},
 	}, {
 		FlowCode: model.FlowReportReview,
 		Steps: types.FlowStepArray{
-			{Slot: model.SlotReportInspector, Name: "巡检员确认", Mode: "all"},
-			{Slot: model.SlotPatrolReportLine, Name: "主管审核", Mode: "any"},
-			{Slot: model.SlotProjectReview, Name: "项目复核", Mode: "any"},
+			{RoleCode: model.InspectorCode, Name: "报告现场确认", Mode: "all"},
+			{RoleCode: model.QualitySupervisorCode, Name: "月报主管审核", Mode: "any"},
+			{RoleCode: model.ProjectManagerCode, Name: "月报审批", Mode: "any"},
 		},
 	}}
 	for _, flow := range flows {
+		flow.Scope, flow.ScopeID = model.ScopePlatform, model.PlatformScopeID
 		var count int64
-		if err := tx.Model(&model.ApprovalFlow{}).Where("tenant_id IS NULL AND project_id IS NULL AND flow_code = ?", flow.FlowCode).Count(&count).Error; err != nil {
+		if err := tx.Model(&model.ApprovalFlow{}).Where("scope = ? AND scope_id = ? AND flow_code = ?", model.ScopePlatform, model.PlatformScopeID, flow.FlowCode).Count(&count).Error; err != nil {
 			return err
 		}
 		if count == 0 {

@@ -30,6 +30,7 @@ import (
 	"anxuncloud/internal/pkg/response"
 	"anxuncloud/internal/pkg/storage"
 	"anxuncloud/internal/pkg/timefmt"
+	"anxuncloud/internal/pkg/types"
 	"anxuncloud/internal/pkg/watermark"
 )
 
@@ -203,7 +204,10 @@ func (s *PointService) Create(c *gin.Context, req *dto.PointSaveReq) (string, st
 		if err := tx.Create(&p).Error; err != nil {
 			return err
 		}
-		return replacePointTemplates(tx, p.ID, req.TemplateIDs)
+		if err := replacePointTemplates(tx, p.ID, req.TemplateIDs); err != nil {
+			return err
+		}
+		return SyncPointConfigBlock(tx, &p)
 	})
 	if err != nil {
 		return "", "", errs.ErrInternal
@@ -285,12 +289,19 @@ func (s *PointService) Update(c *gin.Context, id string, req *dto.PointSaveReq) 
 	if req.Status != nil {
 		updates["status"] = sysmodel.StatusStr(*req.Status)
 	}
+	p.TenantID, p.CommunityID = tenantID, req.CommunityID
+	p.Longitude, p.Latitude = req.Longitude, req.Latitude
+	p.FenceRadius, p.Credential = s.fenceRadius(req.FenceRadius), credentialOrDefault(req.Credential)
+	p.NfcID, p.RequireFence = normalizeNfcID(req.NfcID), req.RequireFence
 	// 点位字段 + 模板关联（事务内整表替换）同事务提交
 	err := s.db.Transaction(func(tx *gorm.DB) error {
 		if err := tx.Model(&p).Updates(updates).Error; err != nil {
 			return err
 		}
-		return replacePointTemplates(tx, p.ID, req.TemplateIDs)
+		if err := replacePointTemplates(tx, p.ID, req.TemplateIDs); err != nil {
+			return err
+		}
+		return SyncPointConfigBlock(tx, &p)
 	})
 	if err != nil {
 		return errs.ErrInternal
@@ -438,7 +449,18 @@ func (s *PointService) QRCodeBatch(c *gin.Context, req *dto.QRCodeBatchReq) (gin
 	if err != nil {
 		return nil, errs.ErrInternal
 	}
-	systemsvc.RegisterGeneratedFile(s.db, s.store, fileName, "application/zip", storage.MD5Hex(zipData), key, url)
+	tenantID := points[0].TenantID
+	if tenantID == nil || *tenantID == "" {
+		return nil, errs.ErrDataScope
+	}
+	for _, point := range points[1:] {
+		if point.CommunityID != points[0].CommunityID {
+			return nil, errs.ErrParam.WithMsg("一次二维码导出只能包含同一个小区的点位")
+		}
+	}
+	if systemsvc.RegisterGeneratedFile(s.db, s.store, tenantID, points[0].CommunityID, "inspection_point_batch", types.NewID(), fileName, "application/zip", storage.MD5Hex(zipData), key, url) == "" {
+		return nil, errs.ErrInternal
+	}
 	return gin.H{
 		"file_url":  url,
 		"file_name": fileName,
@@ -498,8 +520,7 @@ func (s *PointService) validate(req *dto.PointSaveReq) *errs.Error {
 	if req.FenceRadius != 0 && (req.FenceRadius < 10 || req.FenceRadius > 2000) {
 		return errs.ErrParam.WithMsg("fence_radius 须在 10–2000 米之间")
 	}
-	// 坐标可选（0,0=未录）：开围栏也允许暂不录坐标，后续由 App 现场补录；
-	// 补录前围栏不生效（checkMode 对无坐标点位跳过围栏校验），凭证校验不受影响
+	// 坐标允许暂缺，但启用围栏后点位进入 blocked_by_config；由管理员补齐坐标后恢复。
 	if req.Longitude < -180 || req.Longitude > 180 || req.Latitude < -90 || req.Latitude > 90 {
 		return errs.ErrParam.WithMsg("经纬度取值非法")
 	}
@@ -532,7 +553,7 @@ func (s *PointService) validateTemplateIDs(tenantID *string, ids []string) *errs
 		return errs.ErrParam.WithMsg("点位必须绑定检查项模板")
 	}
 	var count int64
-	s.db.Model(&model.CheckTemplate{}).Where("id IN ? AND (tenant_id IS NULL OR tenant_id = ?)", uniq, *tenantID).Count(&count)
+	s.db.Model(&model.CheckTemplate{}).Where("id IN ? AND status = ? AND purpose = ? AND (tenant_id IS NULL OR tenant_id = ?)", uniq, model.TemplateStatusEnabled, model.TemplatePurposePatrol, *tenantID).Count(&count)
 	if int(count) != len(uniq) {
 		return errs.ErrParam.WithMsg("template_ids 中存在不存在或无权使用的检查项模板")
 	}
@@ -735,7 +756,10 @@ func (s *PointService) BatchCreate(c *gin.Context, req *dto.PointBatchReq) (*dto
 						if err := tx.Create(&p).Error; err != nil {
 							return err
 						}
-						return replacePointTemplates(tx, p.ID, req.TemplateIDs)
+						if err := replacePointTemplates(tx, p.ID, req.TemplateIDs); err != nil {
+							return err
+						}
+						return SyncPointConfigBlock(tx, &p)
 					})
 					if err != nil {
 						result.Skipped = append(result.Skipped, dto.PointBatchSkip{Building: b.name, Name: name, Reason: "写入失败"})
@@ -811,7 +835,7 @@ func (s *PointService) ImportTemplate(c *gin.Context) (*excelize.File, *errs.Err
 	}
 	tplNames := []string{}
 	if err := s.db.Model(&model.CheckTemplate{}).
-		Where("status = ?", sysmodel.StatusEnabled).
+		Where("status = ? AND purpose = ?", model.TemplateStatusEnabled, model.TemplatePurposePatrol).
 		Order("name ASC").Pluck("name", &tplNames).Error; err != nil {
 		return nil, errs.ErrInternal
 	}

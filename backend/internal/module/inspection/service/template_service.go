@@ -3,6 +3,7 @@ package service
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
@@ -10,9 +11,6 @@ import (
 	"anxuncloud/internal/middleware"
 	"anxuncloud/internal/module/inspection/dto"
 	"anxuncloud/internal/module/inspection/model"
-	sysmodel "anxuncloud/internal/module/system/model"
-	"anxuncloud/internal/pkg/ai"
-	"anxuncloud/internal/pkg/bind"
 	"anxuncloud/internal/pkg/errs"
 	"anxuncloud/internal/pkg/response"
 	"anxuncloud/internal/pkg/strutil"
@@ -47,8 +45,11 @@ func (s *TemplateService) List(c *gin.Context, q *dto.TemplateListQuery) (*respo
 	if q.PointType != "" {
 		db = db.Where("point_type = ?", q.PointType)
 	}
-	if status, ok, _ := bind.StatusFilter(q.Status); ok {
-		db = db.Where("status = ?", status)
+	if q.Purpose != "" {
+		db = db.Where("purpose = ?", q.Purpose)
+	}
+	if q.Status == model.TemplateStatusDraft || q.Status == model.TemplateStatusEnabled {
+		db = db.Where("status = ?", q.Status)
 	}
 	var total int64
 	if err := db.Count(&total).Error; err != nil {
@@ -82,7 +83,7 @@ func (s *TemplateService) loadItems(tplIDs []string) map[string][]model.CheckTem
 		return out
 	}
 	var items []model.CheckTemplateItem
-	s.db.Where("template_id IN ?", tplIDs).Order("template_id ASC, sort ASC").Find(&items)
+	s.db.Where("template_id IN ? AND retired_at IS NULL", tplIDs).Order("template_id ASC, sort ASC").Find(&items)
 	for _, it := range items {
 		out[it.TemplateID] = append(out[it.TemplateID], it)
 	}
@@ -91,22 +92,29 @@ func (s *TemplateService) loadItems(tplIDs []string) map[string][]model.CheckTem
 
 func templateItem(t *model.CheckTemplate, items []model.CheckTemplateItem) gin.H {
 	return gin.H{
-		"id": t.ID, "name": t.Name, "point_type": t.PointType, "items": templateItemViews(items),
-		"sort": t.Sort, "status": sysmodel.StatusInt(t.Status), "remark": t.Remark,
+		"id": t.ID, "code": t.Code, "name": t.Name, "point_type": t.PointType,
+		"purpose": t.Purpose, "items": templateItemViews(items), "sort": t.Sort,
+		"status": t.Status, "published_at": t.PublishedAt, "remark": t.Remark,
 		"created_at": timefmt.T(t.CreatedAt), "updated_at": timefmt.T(t.UpdatedAt),
 	}
 }
 
-// templateItemViews 模板项视图：name/required/photo_required 结构不变，新增 requirement/ai_hint（空=null）。
+func validateTemplateHeader(req *dto.TemplateSaveReq) *errs.Error {
+	if strings.TrimSpace(req.Name) == "" || strings.TrimSpace(req.PointType) == "" {
+		return errs.ErrParam.WithMsg("模板名称与点位类型必填")
+	}
+	switch req.Purpose {
+	case model.TemplatePurposePatrol, model.TemplatePurposeSpot, model.TemplatePurposeVerify:
+	default:
+		return errs.ErrParam.WithMsg("模板用途只能是 patrol、spot 或 verify")
+	}
+	return nil
+}
+
 func templateItemViews(items []model.CheckTemplateItem) []gin.H {
 	out := make([]gin.H, 0, len(items))
-	for _, it := range items {
-		out = append(out, gin.H{
-			"name": it.Name, "required": it.Required,
-			"photo_required": it.PhotoRequired, "requirement": it.Requirement,
-			"ai_hint": it.AIHint, "judge_type": it.JudgeType, "judge_config": it.JudgeConfig,
-			"tags": it.Tags, "guide": it.Guide,
-		})
+	for i := range items {
+		out = append(out, itemRowView(&items[i]))
 	}
 	return out
 }
@@ -117,18 +125,15 @@ func (s *TemplateService) Create(c *gin.Context, req *dto.TemplateSaveReq) (stri
 	if be != nil {
 		return "", be
 	}
+	if be := validateTemplateHeader(req); be != nil {
+		return "", be
+	}
 	t := model.CheckTemplate{
-		Name:      strings.TrimSpace(req.Name),
-		PointType: req.PointType,
-		Sort:      req.Sort,
-		Status:    sysmodel.StatusEnabled,
-		Remark:    req.Remark,
+		Code: types.NewID(), Name: strings.TrimSpace(req.Name), PointType: strings.TrimSpace(req.PointType),
+		Purpose: req.Purpose, Sort: req.Sort, Status: model.TemplateStatusDraft, Remark: strings.TrimSpace(req.Remark),
 	}
 	if tid != "" {
-		t.TenantID = &tid // 租户归属（v22 起新建模板必有租户）
-	}
-	if req.Status != nil {
-		t.Status = sysmodel.StatusStr(*req.Status)
+		t.TenantID = &tid
 	}
 	if err := s.db.Create(&t).Error; err != nil {
 		return "", errs.ErrInternal
@@ -163,12 +168,32 @@ func (s *TemplateService) Update(c *gin.Context, id string, req *dto.TemplateSav
 	if be != nil {
 		return be
 	}
-	updates := map[string]any{
-		"name": strings.TrimSpace(req.Name), "point_type": req.PointType,
-		"sort": req.Sort, "remark": req.Remark,
+	if be := validateTemplateHeader(req); be != nil {
+		return be
 	}
-	if req.Status != nil {
-		updates["status"] = sysmodel.StatusStr(*req.Status)
+	if req.Status != model.TemplateStatusDraft && req.Status != model.TemplateStatusEnabled {
+		return errs.ErrParam.WithMsg("模板状态只能是 draft 或 enabled")
+	}
+	updates := map[string]any{
+		"name": strings.TrimSpace(req.Name), "point_type": strings.TrimSpace(req.PointType),
+		"purpose": req.Purpose, "sort": req.Sort, "remark": strings.TrimSpace(req.Remark), "status": req.Status,
+	}
+	if req.Status == model.TemplateStatusEnabled {
+		var items []model.CheckTemplateItem
+		if err := s.db.Where("template_id = ? AND retired_at IS NULL", id).Find(&items).Error; err != nil {
+			return errs.ErrInternal
+		}
+		if len(items) == 0 {
+			return errs.ErrConflict.WithMsg("至少配置一个检查项后才能发布模板")
+		}
+		for i := range items {
+			if err := items[i].ValidateDefinition(); err != nil {
+				return errs.ErrConflict.WithMsg("检查项「" + items[i].Name + "」：" + err.Error())
+			}
+		}
+		if t.Status != model.TemplateStatusEnabled {
+			updates["published_at"] = time.Now()
+		}
 	}
 	if err := s.db.Model(t).Updates(updates).Error; err != nil {
 		return errs.ErrInternal
@@ -193,8 +218,7 @@ func (s *TemplateService) Delete(c *gin.Context, id string) *errs.Error {
 		if err := tx.Delete(t).Error; err != nil {
 			return err
 		}
-		// 模板软删，级联删除不触发，项行与点位关联行显式清除
-		if err := tx.Where("template_id = ?", id).Delete(&model.CheckTemplateItem{}).Error; err != nil {
+		if err := tx.Model(&model.CheckTemplateItem{}).Where("template_id = ? AND retired_at IS NULL", id).Update("retired_at", time.Now()).Error; err != nil {
 			return err
 		}
 		return tx.Where("template_id = ?", id).Delete(&model.PointTemplate{}).Error
@@ -205,32 +229,6 @@ func (s *TemplateService) Delete(c *gin.Context, id string) *errs.Error {
 	return nil
 }
 
-// validateItem 单个检查项校验：名称非空，photo_required 枚举合法。
-func validateItem(name, photoRequired string) *errs.Error {
-	if strings.TrimSpace(name) == "" {
-		return errs.ErrParam.WithMsg("检查项名称不能为空")
-	}
-	switch photoRequired {
-	case "", types.PhotoReqNone, types.PhotoReqOptional, types.PhotoReqRequired:
-	default:
-		return errs.ErrParam.WithMsg("检查项「" + name + "」photo_required 取值应为 none/optional/required")
-	}
-	return nil
-}
-
-// rejectBuiltinJudgeType 系统内置判定类型不允许写进模板（v1.6 起绑定即启用：
-// 点位绑了台账设备就自动注入合成检查项，模板无需也无法配置；打卡记录快照仍可能带这两个类型）。
-func rejectBuiltinJudgeType(judgeType string) *errs.Error {
-	switch strings.TrimSpace(judgeType) {
-	case ai.JudgeEquipmentValidity, ai.JudgeEquipmentDateSpot:
-		return errs.ErrParam.WithMsg("「台账有效期/日期标签抽查」为系统内置判定类型，设备绑定点位后自动生效，无需在模板中配置")
-	}
-	return nil
-}
-
-// ========== 项级粒度接口 ==========
-
-// normalizeTags tag 数组归一：trim、去空、去重、限量（≤20 个、每个 ≤30 字）。
 func normalizeTags(tags []string) types.StringArray {
 	out := make(types.StringArray, 0, len(tags))
 	seen := map[string]bool{}
@@ -248,24 +246,58 @@ func normalizeTags(tags []string) types.StringArray {
 	return out
 }
 
-// itemRowView 项级接口视图：含 id/sort/created_at（区别于模板内嵌 items 快照视图）。
+func templateItemFromRequest(req *dto.TemplateItemSaveReq) (*model.CheckTemplateItem, *errs.Error) {
+	row := &model.CheckTemplateItem{
+		Code: strings.ToLower(strings.TrimSpace(req.Code)), Name: strings.TrimSpace(req.Name),
+		Standard: strings.TrimSpace(req.Standard), StandardNo: strings.TrimSpace(req.StandardNo),
+		ValueType: req.ValueType, Unit: strings.TrimSpace(req.Unit), ValueMin: req.ValueMin, ValueMax: req.ValueMax,
+		AIPromptKind: req.AIPromptKind, AIEnabled: req.AIEnabled, PhotoRequired: req.PhotoRequired,
+		NoteRequired: req.NoteRequired, Tags: normalizeTags(req.Tags),
+	}
+	if row.AIPromptKind == "" {
+		row.AIPromptKind = "general"
+	}
+	if row.PhotoRequired == "" {
+		row.PhotoRequired = types.PhotoReqNone
+	}
+	for _, option := range req.EnumOptions {
+		row.EnumOptions = append(row.EnumOptions, model.EnumOption{
+			Value: strings.TrimSpace(option.Value), Label: strings.TrimSpace(option.Label), Result: option.Result,
+		})
+	}
+	if h := strings.TrimSpace(req.AIHint); h != "" {
+		row.AIHint = &h
+	}
+	if g := strutil.Truncate(strings.TrimSpace(req.Guide), 200); g != "" {
+		row.Guide = &g
+	}
+	switch row.PhotoRequired {
+	case types.PhotoReqNone, types.PhotoReqOptional, types.PhotoReqRequired:
+	default:
+		return nil, errs.ErrParam.WithMsg("拍照要求只能是 none、optional 或 required")
+	}
+	if err := row.ValidateDefinition(); err != nil {
+		return nil, errs.ErrParam.WithMsg(err.Error())
+	}
+	return row, nil
+}
+
 func itemRowView(it *model.CheckTemplateItem) gin.H {
 	return gin.H{
-		"id": it.ID, "name": it.Name, "requirement": it.Requirement,
-		"ai_hint": it.AIHint, "judge_type": it.JudgeType, "judge_config": it.JudgeConfig,
-		"tags": it.Tags, "guide": it.Guide,
-		"required": it.Required, "photo_required": it.PhotoRequired,
-		"sort": it.Sort, "created_at": timefmt.T(it.CreatedAt),
+		"id": it.ID, "code": it.Code, "name": it.Name, "standard": it.Standard, "standard_no": it.StandardNo,
+		"value_type": it.ValueType, "unit": it.Unit, "value_min": it.ValueMin, "value_max": it.ValueMax,
+		"enum_options": it.EnumOptions, "ai_hint": it.AIHint, "ai_prompt_kind": it.AIPromptKind,
+		"ai_enabled": it.AIEnabled, "note_required": it.NoteRequired, "tags": it.Tags, "guide": it.Guide,
+		"photo_required": it.PhotoRequired, "sort": it.Sort, "created_at": timefmt.T(it.CreatedAt),
 	}
 }
 
-// Items 模板检查项列表（按 sort 升序）。
 func (s *TemplateService) Items(c *gin.Context, templateID string) ([]gin.H, *errs.Error) {
 	if _, be := s.loadOwned(c, templateID); be != nil {
 		return nil, be
 	}
 	var rows []model.CheckTemplateItem
-	if err := s.db.Where("template_id = ?", templateID).Order("sort ASC, id ASC").Find(&rows).Error; err != nil {
+	if err := s.db.Where("template_id = ? AND retired_at IS NULL", templateID).Order("sort ASC, id ASC").Find(&rows).Error; err != nil {
 		return nil, errs.ErrInternal
 	}
 	out := make([]gin.H, 0, len(rows))
@@ -275,117 +307,68 @@ func (s *TemplateService) Items(c *gin.Context, templateID string) ([]gin.H, *er
 	return out, nil
 }
 
-// AddItem 新增一个检查项；sort 缺省时追加到末尾。
 func (s *TemplateService) AddItem(c *gin.Context, templateID string, req *dto.TemplateItemSaveReq) (string, *errs.Error) {
-	if _, be := s.loadOwned(c, templateID); be != nil {
+	tpl, be := s.loadOwned(c, templateID)
+	if be != nil {
 		return "", be
 	}
-	if be := validateItem(req.Name, req.PhotoRequired); be != nil {
+	row, be := templateItemFromRequest(req)
+	if be != nil {
 		return "", be
 	}
-	if be := rejectBuiltinJudgeType(req.JudgeType); be != nil {
-		return "", be
-	}
-	sort := 0
+	row.TemplateID, row.TenantID = templateID, tpl.TenantID
 	if req.Sort != nil {
-		sort = *req.Sort
+		row.Sort = *req.Sort
 	} else {
-		var maxSort int
 		s.db.Model(&model.CheckTemplateItem{}).Where("template_id = ?", templateID).
-			Select("COALESCE(MAX(sort), -1)").Scan(&maxSort)
-		sort = maxSort + 1
+			Select("COALESCE(MAX(sort), -1)").Scan(&row.Sort)
+		row.Sort++
 	}
-	row := model.CheckTemplateItem{
-		TemplateID: templateID, Name: strings.TrimSpace(req.Name),
-		Required: req.Required, PhotoRequired: req.PhotoRequired, Sort: sort,
-		// 判定类型非法值归一 general（不报错，容错旧客户端）
-		JudgeType: ai.NormalizeJudgeType(req.JudgeType),
-		Tags:      normalizeTags(req.Tags),
-	}
-	if len(req.JudgeConfig) > 0 {
-		row.JudgeConfig = types.JSONMap(req.JudgeConfig)
-	}
-	if row.PhotoRequired == "" {
-		row.PhotoRequired = types.PhotoReqNone
-	}
-	if r := strings.TrimSpace(req.Requirement); r != "" {
-		row.Requirement = &r
-	}
-	if h := strings.TrimSpace(req.AIHint); h != "" {
-		row.AIHint = &h
-	}
-	if g := strutil.Truncate(strings.TrimSpace(req.Guide), 200); g != "" {
-		row.Guide = &g
-	}
-	if err := s.db.Create(&row).Error; err != nil {
+	if err := s.db.Create(row).Error; err != nil {
+		if strings.Contains(err.Error(), "23505") || strings.Contains(strings.ToLower(err.Error()), "duplicate") {
+			return "", errs.ErrConflict.WithMsg("检查项编码已存在（含已退役检查项）")
+		}
 		return "", errs.ErrInternal
 	}
 	return row.ID, nil
 }
 
-// findItem 按模板 + 项 id 定位项行。
 func (s *TemplateService) findItem(templateID, itemID string) (*model.CheckTemplateItem, *errs.Error) {
 	var row model.CheckTemplateItem
-	if err := s.db.First(&row, "id = ? AND template_id = ?", itemID, templateID).Error; err != nil {
+	if err := s.db.First(&row, "id = ? AND template_id = ? AND retired_at IS NULL", itemID, templateID).Error; err != nil {
 		return nil, errs.ErrNotFound
 	}
 	return &row, nil
 }
 
-// UpdateItem 修改一个检查项；sort 缺省保持不变。
 func (s *TemplateService) UpdateItem(c *gin.Context, templateID, itemID string, req *dto.TemplateItemSaveReq) *errs.Error {
 	if _, be := s.loadOwned(c, templateID); be != nil {
 		return be
 	}
-	row, be := s.findItem(templateID, itemID)
+	current, be := s.findItem(templateID, itemID)
 	if be != nil {
 		return be
 	}
-	if be := validateItem(req.Name, req.PhotoRequired); be != nil {
+	if !strings.EqualFold(strings.TrimSpace(req.Code), current.Code) {
+		return errs.ErrConflict.WithMsg("检查项编码创建后不可修改")
+	}
+	row, be := templateItemFromRequest(req)
+	if be != nil {
 		return be
 	}
-	if be := rejectBuiltinJudgeType(req.JudgeType); be != nil {
-		return be
-	}
-	pr := req.PhotoRequired
-	if pr == "" {
-		pr = types.PhotoReqNone
-	}
-	updates := map[string]any{
-		"name": strings.TrimSpace(req.Name), "required": req.Required, "photo_required": pr,
-		"judge_type": ai.NormalizeJudgeType(req.JudgeType),
-		"tags":       normalizeTags(req.Tags),
-	}
-	if len(req.JudgeConfig) > 0 {
-		updates["judge_config"] = types.JSONMap(req.JudgeConfig)
+	row.ID, row.TemplateID, row.TenantID, row.CreatedAt = current.ID, templateID, current.TenantID, current.CreatedAt
+	row.Code = current.Code
+	if req.Sort == nil {
+		row.Sort = current.Sort
 	} else {
-		updates["judge_config"] = nil
+		row.Sort = *req.Sort
 	}
-	if r := strings.TrimSpace(req.Requirement); r != "" {
-		updates["requirement"] = r
-	} else {
-		updates["requirement"] = nil
-	}
-	if g := strutil.Truncate(strings.TrimSpace(req.Guide), 200); g != "" {
-		updates["guide"] = g
-	} else {
-		updates["guide"] = nil
-	}
-	if h := strings.TrimSpace(req.AIHint); h != "" {
-		updates["ai_hint"] = h
-	} else {
-		updates["ai_hint"] = nil
-	}
-	if req.Sort != nil {
-		updates["sort"] = *req.Sort
-	}
-	if err := s.db.Model(row).Updates(updates).Error; err != nil {
+	if err := s.db.Save(row).Error; err != nil {
 		return errs.ErrInternal
 	}
 	return nil
 }
 
-// DeleteItem 删除一个检查项（历史打卡记录已快照进 checkin_record_item，不受影响）。
 func (s *TemplateService) DeleteItem(c *gin.Context, templateID, itemID string) *errs.Error {
 	if _, be := s.loadOwned(c, templateID); be != nil {
 		return be
@@ -394,7 +377,7 @@ func (s *TemplateService) DeleteItem(c *gin.Context, templateID, itemID string) 
 	if be != nil {
 		return be
 	}
-	if err := s.db.Delete(row).Error; err != nil {
+	if err := s.db.Model(row).Update("retired_at", time.Now()).Error; err != nil {
 		return errs.ErrInternal
 	}
 	return nil

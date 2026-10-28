@@ -81,7 +81,9 @@ func main() {
 	}
 
 	engine, scheduler := router.New(cfg, db, rdb)
-	scheduler.Start() // 每日任务生成 / 逾期翻转 / 分区滚动
+	if err := scheduler.Start(); err != nil {
+		logger.L.Fatal("任务队列与调度启动失败", zap.Error(err))
+	}
 	srv := &http.Server{
 		Addr:              fmt.Sprintf(":%d", cfg.Server.Port),
 		Handler:           engine,

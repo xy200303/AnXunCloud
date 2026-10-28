@@ -1,4 +1,4 @@
-// 项目岗位编制与职责槽位绑定接口 HTTP 层。
+// 项目任职与审批流程覆盖接口 HTTP 层。
 package controller
 
 import (
@@ -93,36 +93,10 @@ func (ctl *StaffController) Delete(c *gin.Context) {
 	write(c, nil, ctl.svc.DeleteStaff(c, id, staffID))
 }
 
-// PostDict 编制表单岗位下拉（GET /post-dict?community_id=）。
-func (ctl *StaffController) PostDict(c *gin.Context) {
-	items, be := ctl.svc.ListPostDict(c, c.Query("community_id"))
+// RoleOptions 返回当前租户可用于任职与审批节点的角色。
+func (ctl *StaffController) RoleOptions(c *gin.Context) {
+	items, be := ctl.svc.ListRoleOptions(c, c.Query("community_id"))
 	write(c, items, be)
-}
-
-// DutyBindings 项目职责槽位绑定视图（GET /communities/:id/duty-bindings）。
-func (ctl *StaffController) DutyBindings(c *gin.Context) {
-	id, be := pathID(c)
-	if be != nil {
-		response.Fail(c, be)
-		return
-	}
-	items, be := ctl.svc.ListDutyBindings(c, id)
-	write(c, items, be)
-}
-
-// SaveDutyBindings 保存项目级槽位绑定（PUT /communities/:id/duty-bindings）。
-func (ctl *StaffController) SaveDutyBindings(c *gin.Context) {
-	id, be := pathID(c)
-	if be != nil {
-		response.Fail(c, be)
-		return
-	}
-	var req dto.DutyBindingsSaveReq
-	if be := bind.JSON(c, &req); be != nil {
-		response.Fail(c, be)
-		return
-	}
-	write(c, nil, ctl.svc.SaveDutyBindings(c, id, &req))
 }
 
 // FlowPreview 审批链名单预览（GET /communities/:id/flow-preview?flow_code=）。
@@ -136,73 +110,17 @@ func (ctl *StaffController) FlowPreview(c *gin.Context) {
 	write(c, data, be)
 }
 
-// GetReviewFlow 项目打卡审核链视图（GET /communities/:id/review-flow）。
-func (ctl *StaffController) GetReviewFlow(c *gin.Context) {
+func (ctl *StaffController) GetFlow(c *gin.Context) {
 	id, be := pathID(c)
 	if be != nil {
 		response.Fail(c, be)
 		return
 	}
-	data, be := ctl.svc.GetReviewFlow(c, id)
+	data, be := ctl.svc.GetFlow(c, id, c.Param("flowCode"))
 	write(c, data, be)
 }
 
-// SaveReviewFlow 保存项目级打卡审核链覆盖（PUT /communities/:id/review-flow）。
-func (ctl *StaffController) SaveReviewFlow(c *gin.Context) {
-	id, be := pathID(c)
-	if be != nil {
-		response.Fail(c, be)
-		return
-	}
-	var req struct {
-		Steps types.FlowStepArray `json:"steps"` // 空数组 = 默认通过（打卡记录免审直接生效）
-	}
-	if be := bind.JSON(c, &req); be != nil {
-		response.Fail(c, be)
-		return
-	}
-	write(c, nil, ctl.svc.SaveReviewFlow(c, id, req.Steps))
-}
-
-// GetMaintReviewFlow 项目级维保审核链视图（GET /communities/:id/maint-review-flow）。
-func (ctl *StaffController) GetMaintReviewFlow(c *gin.Context) {
-	id, be := pathID(c)
-	if be != nil {
-		response.Fail(c, be)
-		return
-	}
-	data, be := ctl.svc.GetMaintReviewFlow(c, id)
-	write(c, data, be)
-}
-
-// SaveMaintReviewFlow 保存项目级维保审核链覆盖（PUT /communities/:id/maint-review-flow）。
-func (ctl *StaffController) SaveMaintReviewFlow(c *gin.Context) {
-	id, be := pathID(c)
-	if be != nil {
-		response.Fail(c, be)
-		return
-	}
-	var req struct {
-		Steps types.FlowStepArray `json:"steps"` // 空数组 = 登记即生效（默认通过）
-	}
-	if be := bind.JSON(c, &req); be != nil {
-		response.Fail(c, be)
-		return
-	}
-	write(c, nil, ctl.svc.SaveMaintReviewFlow(c, id, req.Steps))
-}
-
-func (ctl *StaffController) GetReportReviewFlow(c *gin.Context) {
-	id, be := pathID(c)
-	if be != nil {
-		response.Fail(c, be)
-		return
-	}
-	data, be := ctl.svc.GetReportReviewFlow(c, id)
-	write(c, data, be)
-}
-
-func (ctl *StaffController) SaveReportReviewFlow(c *gin.Context) {
+func (ctl *StaffController) SaveFlow(c *gin.Context) {
 	id, be := pathID(c)
 	if be != nil {
 		response.Fail(c, be)
@@ -215,5 +133,5 @@ func (ctl *StaffController) SaveReportReviewFlow(c *gin.Context) {
 		response.Fail(c, be)
 		return
 	}
-	write(c, nil, ctl.svc.SaveReportReviewFlow(c, id, req.Steps))
+	write(c, nil, ctl.svc.SaveFlow(c, id, c.Param("flowCode"), req.Steps))
 }

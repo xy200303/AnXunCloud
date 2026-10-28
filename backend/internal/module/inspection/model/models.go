@@ -68,18 +68,28 @@ const (
 	AIVerdictError    = "error"
 )
 
-// CheckTemplate 检查项模板（point_type 空为通用；检查项见 check_template_item 独立表）。
+const (
+	TemplateStatusDraft   = "draft"
+	TemplateStatusEnabled = "enabled"
+	TemplatePurposePatrol = "patrol"
+	TemplatePurposeSpot   = "spot"
+	TemplatePurposeVerify = "verify"
+)
+
 type CheckTemplate struct {
 	types.UUIDModel
-	TenantID  *string        `gorm:"type:uuid" json:"tenant_id"` // 冗余列（查询按点位/项目链路隔离）
-	Name      string         `gorm:"size:128" json:"name"`
-	PointType string         `gorm:"size:32" json:"point_type"`
-	Sort      int            `json:"sort"`
-	Status    string         `gorm:"size:16" json:"status"`
-	Remark    string         `gorm:"size:255" json:"remark"`
-	CreatedAt time.Time      `json:"created_at"`
-	UpdatedAt time.Time      `json:"updated_at"`
-	DeletedAt gorm.DeletedAt `json:"-"`
+	TenantID    *string        `gorm:"type:uuid" json:"tenant_id"`
+	Code        string         `gorm:"size:64" json:"code"`
+	Name        string         `gorm:"size:128" json:"name"`
+	PointType   string         `gorm:"size:32" json:"point_type"`
+	Purpose     string         `gorm:"size:16" json:"purpose"`
+	Sort        int            `json:"sort"`
+	Status      string         `gorm:"size:16" json:"status"`
+	PublishedAt *time.Time     `json:"published_at"`
+	Remark      string         `gorm:"size:255" json:"remark"`
+	CreatedAt   time.Time      `json:"created_at"`
+	UpdatedAt   time.Time      `json:"updated_at"`
+	DeletedAt   gorm.DeletedAt `json:"-"`
 }
 
 func (CheckTemplate) TableName() string { return "check_template" }
@@ -146,7 +156,7 @@ func LoadPointTemplateSets(db *gorm.DB, pointIDs []string) map[string]*PointTemp
 	}
 	itemsByTpl := map[string][]CheckTemplateItem{}
 	var items []CheckTemplateItem
-	db.Where("template_id IN ?", tplIDs).Order("template_id ASC, sort ASC").Find(&items)
+	db.Where("template_id IN ? AND retired_at IS NULL", tplIDs).Order("template_id ASC, sort ASC").Find(&items)
 	for _, it := range items {
 		itemsByTpl[it.TemplateID] = append(itemsByTpl[it.TemplateID], it)
 	}
@@ -167,25 +177,29 @@ func LoadPointTemplateSets(db *gorm.DB, pointIDs []string) map[string]*PointTemp
 	return out
 }
 
-// CheckTemplateItem 模板检查项（v18 起独立表；更新模板=事务内整表替换项行）。
+// CheckTemplateItem 模板检查项；code 是模板内稳定业务身份，retired_at 保留历史引用。
 type CheckTemplateItem struct {
 	types.UUIDModel
-	TemplateID string `gorm:"type:uuid" json:"template_id"`
-	Name       string `gorm:"size:128" json:"name"`
-	// Requirement 检查标准要求文本（可空）
-	Requirement *string `gorm:"type:text" json:"requirement"`
-	// AIHint AI 识别要点文本（可空；空=该项不带识别要点，§3.3）
-	AIHint *string `gorm:"type:text" json:"ai_hint"`
-	// Guide 拍照引导语（可空；向导显示给巡检员的拍摄动作指引，空=App 兜底「拍「项名」照片」；不进打卡快照）
-	Guide *string `gorm:"type:text" json:"guide"`
-	// JudgeType 判定类型（general/presence/damage/metric/state/label/passage/leak/indicator/tidiness/baseline）
-	JudgeType string `gorm:"size:24;default:general" json:"judge_type"`
-	// JudgeConfig 判定参数（metric: {metric,unit,min,max}；state/indicator: {expected}），NULL 按通用判定
-	JudgeConfig types.JSONMap `gorm:"type:jsonb" json:"judge_config"`
-	// Tags 观察点 tag 数组（一项一张照片，tag 不带图；空=无 tag 的传统项）
+	TenantID      *string           `gorm:"type:uuid" json:"tenant_id"`
+	TemplateID    string            `gorm:"type:uuid" json:"template_id"`
+	Code          string            `gorm:"size:64" json:"code"`
+	Name          string            `gorm:"size:128" json:"name"`
+	Standard      string            `gorm:"type:text" json:"standard"`
+	StandardNo    string            `gorm:"size:16" json:"standard_no"`
+	AIHint        *string           `gorm:"type:text" json:"ai_hint"`
+	Guide         *string           `gorm:"type:text" json:"guide"`
+	ValueType     string            `gorm:"size:16" json:"value_type"`
+	Unit          string            `gorm:"size:16" json:"unit"`
+	ValueMin      *float64          `gorm:"type:numeric" json:"value_min"`
+	ValueMax      *float64          `gorm:"type:numeric" json:"value_max"`
+	EnumOptions   EnumOptionArray   `gorm:"type:jsonb" json:"enum_options"`
 	Tags          types.StringArray `gorm:"type:jsonb;default:'[]'" json:"tags"`
-	Required      bool              `json:"required"`
-	PhotoRequired string            `gorm:"size:16" json:"photo_required"` // none/optional/required
+	PhotoRequired string            `gorm:"size:16" json:"photo_required"`
+	NoteRequired  bool              `json:"note_required"`
+	AIPromptKind  string            `gorm:"column:ai_prompt_kind;size:24" json:"ai_prompt_kind"`
+	AIEnabled     bool              `json:"ai_enabled"`
+	BuiltinKind   string            `gorm:"size:24" json:"builtin_kind"`
+	RetiredAt     *time.Time        `json:"retired_at,omitempty"`
 	Sort          int               `json:"sort"`
 	CreatedAt     time.Time         `json:"created_at"`
 }
@@ -309,12 +323,12 @@ type InspectionPlan struct {
 	Name         string        `gorm:"size:128" json:"name"`
 	PatrolType   string        `gorm:"size:16" json:"patrol_type"` // 巡查类型（字典 patrol_type 的 value，字典驱动）
 	PointIDs     types.IDArray `gorm:"type:jsonb" json:"point_ids"`
+	TemplateIDs  types.IDArray `gorm:"type:jsonb" json:"template_ids"`
 	CycleType    string        `gorm:"size:16" json:"cycle_type"`
 	CycleConfig  types.JSONMap `gorm:"type:jsonb" json:"cycle_config"`
 	InspectorIDs types.IDArray `gorm:"type:jsonb" json:"inspector_ids"`
 	StartDate    time.Time     `gorm:"type:date" json:"start_date"`
 	EndDate      *time.Time    `gorm:"type:date" json:"end_date"`
-	TimeWindow   string        `gorm:"size:32" json:"time_window"`
 	// SelectionMode 点位圈选模式（explicit 默认 / by_point_types）；default 标签让零值走 DB 默认值
 	SelectionMode string            `gorm:"size:16;default:explicit" json:"selection_mode"`
 	PointTypes    types.StringArray `gorm:"type:jsonb" json:"point_types"` // 圈选点位类型（by_point_types 时必填）
@@ -360,6 +374,15 @@ func PlanRounds(cfg types.JSONMap) []Round {
 		rounds = append(rounds, Round{Name: name, Window: window})
 	}
 	return rounds
+}
+
+func PlanDefaultWindow(p *InspectionPlan) string {
+	for _, round := range PlanRounds(p.CycleConfig) {
+		if round.Window != "" {
+			return round.Window
+		}
+	}
+	return ""
 }
 
 // PlanExecDays 计划在 date 所在周期内的执行日序列（升序去重）与 date 在其中的下标：
@@ -464,6 +487,7 @@ type InspectionTask struct {
 	TimeWindow string `gorm:"size:32" json:"time_window"`
 	// PointIDs 任务点位名单快照（生成时展开；计划更新会同步未完成任务）。
 	PointIDs    types.IDArray  `gorm:"type:jsonb" json:"point_ids"`
+	TemplateIDs types.IDArray  `gorm:"type:jsonb" json:"template_ids"`
 	DueDate     *time.Time     `gorm:"type:date" json:"due_date"` // 完成期限（仅抽查任务；为空按 task_date/时段判逾期）
 	Status      string         `gorm:"size:16" json:"status"`
 	TotalPoints int            `json:"total_points"`
@@ -490,16 +514,19 @@ func TaskTimeWindow(t *InspectionTask) string {
 // CheckinRecord 打卡记录（按月分区；主键 id+created_at；id 支持客户端 UUIDv7 幂等写入）
 type CheckinRecord struct {
 	types.UUIDModel
-	TenantID        *string    `gorm:"type:uuid" json:"tenant_id"` // 冗余列（=所属小区租户，打卡时从任务带上）
-	TaskID          string     `gorm:"type:uuid" json:"task_id"`
-	PointID         string     `gorm:"type:uuid" json:"point_id"`
-	InspectorID     string     `gorm:"type:uuid" json:"inspector_id"`
-	CommunityID     string     `gorm:"type:uuid" json:"community_id"`
-	CheckinTime     time.Time  `json:"checkin_time"`
-	ClientTime      *time.Time `json:"client_time"`
-	Longitude       *float64   `gorm:"type:numeric(10,7)" json:"longitude"`
-	Latitude        *float64   `gorm:"type:numeric(10,7)" json:"latitude"`
-	DistanceToPoint *float64   `gorm:"type:numeric(10,2)" json:"distance_to_point"`
+	TenantID         *string    `gorm:"type:uuid" json:"tenant_id"` // 冗余列（=所属小区租户，打卡时从任务带上）
+	TaskID           string     `gorm:"type:uuid" json:"task_id"`
+	PointID          string     `gorm:"type:uuid" json:"point_id"`
+	RoundSeq         int        `gorm:"default:1" json:"round_seq"`
+	Revision         int        `gorm:"default:1" json:"revision"`
+	OriginalRecordID *string    `gorm:"type:uuid" json:"original_record_id"`
+	InspectorID      string     `gorm:"type:uuid" json:"inspector_id"`
+	CommunityID      string     `gorm:"type:uuid" json:"community_id"`
+	CheckinTime      time.Time  `json:"checkin_time"`
+	ClientTime       *time.Time `json:"client_time"`
+	Longitude        *float64   `gorm:"type:numeric(10,7)" json:"longitude"`
+	Latitude         *float64   `gorm:"type:numeric(10,7)" json:"latitude"`
+	DistanceToPoint  *float64   `gorm:"type:numeric(10,2)" json:"distance_to_point"`
 	// Altitude/Accuracy 定位辅助信息（米，可空）：仅作参考展示——消费级 GPS 海拔误差 ±20~50m，不参与任何校验/判定
 	Altitude      *float64 `gorm:"type:numeric(10,2)" json:"altitude"`
 	Accuracy      *float64 `gorm:"type:numeric(10,2)" json:"accuracy"`
@@ -557,47 +584,55 @@ func ItemResultOf(exceptionType string, pass bool) string {
 	}
 }
 
-// CheckinRecordItem 打卡逐项结果快照（v18 起独立表）。
-// 快照语义：name/requirement/photo_required 在打卡当时从模板项复制，历史记录内容绝不依赖 join 模板表；
-// record_id 不加 FK（checkin_record 为按月分区表，
-// 其主键含分区键 created_at，FK 无法仅引用 id），以普通索引 + 应用层同事务写入保证一致。
+// CheckinRecordItem 保存项实例身份、当次最小展示快照和事实，不复制模板判定配方。
 type CheckinRecordItem struct {
 	types.UUIDModel
-	RecordID    string  `gorm:"type:uuid" json:"record_id"`
-	Name        string  `gorm:"size:128" json:"name"`
-	Requirement *string `gorm:"type:text" json:"requirement"`
-	// AIHint AI 识别要点快照（打卡当时从模板项复制，与 name/requirement 同机制）
-	AIHint *string `gorm:"type:text" json:"ai_hint"`
-	// JudgeType/JudgeConfig 判定类型与参数快照（打卡当时从模板项复制）
-	JudgeType   string        `gorm:"size:24;default:general" json:"judge_type"`
-	JudgeConfig types.JSONMap `gorm:"type:jsonb" json:"judge_config"`
-	// Tags tag 快照（打卡当时从模板项复制）；AbnormalTags 异常 tag 列表（⊆ Tags，非空=该项异常）
-	Tags          types.StringArray `gorm:"type:jsonb;default:'[]'" json:"tags"`
-	AbnormalTags  types.StringArray `gorm:"type:jsonb;default:'[]'" json:"abnormal_tags"`
-	PhotoRequired string            `gorm:"size:16" json:"photo_required"` // none/optional/required
-	// Result 逐项结论三态（normal/abnormal/escaped，见 ItemResult* 常量）
-	Result string `gorm:"size:16;default:normal" json:"result"`
-	Note   string `gorm:"size:512" json:"note"`
-	// Photos 该项照片 file_id 数组（JSONB，不再拆表）
-	Photos types.StringArray `gorm:"type:jsonb" json:"photos"`
-	// AIVerdict/AIReason 逐项大模型结论（模型未返回逐项结论时为空）
-	AIVerdict *string `gorm:"size:16" json:"ai_verdict"`
-	AIReason  *string `gorm:"size:512" json:"ai_reason"`
-	// AIReading AI 读取的表计读数文本（metric 类检查项；NULL=无读数）
-	AIReading     *string `gorm:"size:64" json:"ai_reading"`
-	ExceptionType string  `gorm:"size:24;default:''" json:"exception_type"` // 逃生具体类型（仅 escaped 态有意义）：device_missing/unable_to_capture/label_missing
-	// ShootLng/ShootLat/ShootAt 照片拍摄时空信息（提交时从逐项过程草稿带出，可空=未上报）
-	ShootLng *float64   `json:"shoot_lng"`
-	ShootLat *float64   `json:"shoot_lat"`
-	ShootAt  *time.Time `json:"shoot_at"`
-	// Suspicious/SuspiciousReason 时空一致性可疑标记（§14.3 防作弊：标记不拒收；多原因「；」连接）
-	Suspicious       bool      `json:"suspicious"`
-	SuspiciousReason string    `gorm:"size:255" json:"suspicious_reason"`
-	Sort             int       `json:"sort"`
-	CreatedAt        time.Time `json:"created_at"`
+	TenantID         *string            `gorm:"type:uuid" json:"tenant_id"`
+	RecordID         string             `gorm:"type:uuid" json:"record_id"`
+	TemplateID       *string            `gorm:"type:uuid" json:"template_id"`
+	ItemCode         string             `gorm:"size:64" json:"item_code"`
+	EquipmentID      *string            `gorm:"type:uuid" json:"equipment_id"`
+	BuiltinKind      string             `gorm:"size:24" json:"builtin_kind"`
+	Name             string             `gorm:"size:128" json:"name"`
+	Standard         string             `gorm:"type:text" json:"standard"`
+	AbnormalTags     types.StringArray  `gorm:"type:jsonb;default:'[]'" json:"abnormal_tags"`
+	Result           string             `gorm:"size:16;default:normal" json:"result"`
+	ValueNum         *float64           `gorm:"type:numeric" json:"value_num"`
+	ValueDate        *time.Time         `gorm:"type:date" json:"value_date"`
+	ValueText        *string            `gorm:"type:text" json:"value_text"`
+	Note             string             `gorm:"size:512" json:"note"`
+	Photos           types.StringArray  `gorm:"type:jsonb" json:"photos"`
+	AIVerdict        *string            `gorm:"size:16" json:"ai_verdict"`
+	AIReason         *string            `gorm:"size:512" json:"ai_reason"`
+	AIReading        *string            `gorm:"size:64" json:"ai_reading"`
+	ExceptionType    string             `gorm:"size:24;default:''" json:"exception_type"`
+	ShootLng         *float64           `json:"shoot_lng"`
+	ShootLat         *float64           `json:"shoot_lat"`
+	ShootAt          *time.Time         `json:"shoot_at"`
+	Suspicious       bool               `json:"suspicious"`
+	SuspiciousReason string             `gorm:"size:255" json:"suspicious_reason"`
+	Sort             int                `json:"sort"`
+	CreatedAt        time.Time          `json:"created_at"`
+	Definition       *CheckTemplateItem `gorm:"-" json:"-"`
 }
 
 func (CheckinRecordItem) TableName() string { return "checkin_record_item" }
+
+func (i CheckinRecordItem) InstanceKey() string {
+	templateID := ""
+	if i.TemplateID != nil {
+		templateID = *i.TemplateID
+	}
+	return ItemInstanceKey(templateID, i.ItemCode, i.EquipmentID)
+}
+
+func (i CheckinItemDraft) InstanceKey() string {
+	templateID := ""
+	if i.TemplateID != nil {
+		templateID = *i.TemplateID
+	}
+	return ItemInstanceKey(templateID, i.ItemCode, i.EquipmentID)
+}
 
 // Escaped 是否逃生态（无法检查，根本没检成）。
 func (i CheckinRecordItem) Escaped() bool { return i.Result == ItemResultEscaped }
@@ -622,19 +657,27 @@ const (
 // 用途：断点恢复（换设备/清缓存也能拉回逐项进度）、后台查看正式提交前的识别过程。
 type CheckinItemDraft struct {
 	types.UUIDModel
-	TenantID    *string           `gorm:"type:uuid" json:"tenant_id"`
-	TaskID      string            `gorm:"type:uuid" json:"task_id"`
-	PointID     string            `gorm:"type:uuid" json:"point_id"`
-	InspectorID string            `gorm:"type:uuid" json:"inspector_id"`
-	CommunityID string            `gorm:"type:uuid" json:"community_id"`
-	ItemName    string            `gorm:"size:128" json:"item_name"`
-	DraftKind   string            `gorm:"size:16;default:ai" json:"draft_kind"` // ai/manual/escape（见 DraftKind* 常量）
-	JobID       string            `gorm:"size:64" json:"job_id"`                // 识别队列 job（pending 恢复轮询用）
-	FileIDs     types.StringArray `gorm:"column:file_ids;type:jsonb" json:"file_ids"`
-	AIStatus    string            `gorm:"size:16" json:"ai_status"`
-	AIVerdict   *string           `gorm:"size:16" json:"ai_verdict"`
-	AIReason    *string           `gorm:"size:512" json:"ai_reason"`
-	AIReading   *string           `gorm:"size:64" json:"ai_reading"`
+	TenantID     *string           `gorm:"type:uuid" json:"tenant_id"`
+	TaskID       string            `gorm:"type:uuid" json:"task_id"`
+	PointID      string            `gorm:"type:uuid" json:"point_id"`
+	InspectorID  string            `gorm:"type:uuid" json:"inspector_id"`
+	CommunityID  string            `gorm:"type:uuid" json:"community_id"`
+	TemplateID   *string           `gorm:"type:uuid" json:"template_id"`
+	ItemCode     string            `gorm:"size:64" json:"item_code"`
+	EquipmentID  *string           `gorm:"type:uuid" json:"equipment_id"`
+	ValueNum     *float64          `gorm:"type:numeric" json:"value_num"`
+	ValueDate    *time.Time        `gorm:"type:date" json:"value_date"`
+	ValueText    *string           `gorm:"type:text" json:"value_text"`
+	RequestID    string            `gorm:"size:64" json:"request_id"`
+	RetakeSeq    int               `json:"retake_seq"`
+	PhotoSetHash string            `gorm:"size:64" json:"photo_set_hash"`
+	DraftKind    string            `gorm:"size:16;default:ai" json:"draft_kind"` // ai/manual/escape（见 DraftKind* 常量）
+	JobID        string            `gorm:"size:64" json:"job_id"`                // 识别队列 job（pending 恢复轮询用）
+	FileIDs      types.StringArray `gorm:"column:file_ids;type:jsonb" json:"file_ids"`
+	AIStatus     string            `gorm:"size:16" json:"ai_status"`
+	AIVerdict    *string           `gorm:"size:16" json:"ai_verdict"`
+	AIReason     *string           `gorm:"size:512" json:"ai_reason"`
+	AIReading    *string           `gorm:"size:64" json:"ai_reading"`
 	// AbnormalTags 逐项 AI 识别的异常 tag（断点恢复/过程查看；正式提交时转入 checkin_record_item）
 	AbnormalTags  types.StringArray `gorm:"type:jsonb;default:'[]'" json:"abnormal_tags"`
 	ExceptionType string            `gorm:"size:24;default:''" json:"exception_type"`

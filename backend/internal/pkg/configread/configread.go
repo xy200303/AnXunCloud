@@ -14,7 +14,7 @@ import (
 // Lookup 读取原始值（缺失/查询失败 → ok=false）。
 func Lookup(db *gorm.DB, key string) (string, bool) {
 	var cfg sysmodel.SysConfig
-	if err := db.Select("value").Where("key = ?", key).First(&cfg).Error; err != nil {
+	if err := db.Select("value").Where("scope = ? AND scope_id = ? AND key = ?", sysmodel.ScopePlatform, sysmodel.PlatformScopeID, key).First(&cfg).Error; err != nil {
 		return "", false
 	}
 	return cfg.Value, true

@@ -99,6 +99,7 @@ var (
 	ErrPhotoQuality     = New(43107, http.StatusBadRequest, "照片质量不达标，请重新拍摄")
 	ErrAIDisabled       = New(43108, http.StatusBadRequest, "AI 识别未启用，请切换手动打卡模式")
 	ErrCheckinLocked    = New(43109, http.StatusConflict, "该点位已归档报告，不可修改")
+	ErrBlockedByConfig  = New(43110, http.StatusConflict, "该点位配置有误，已通知管理员")
 )
 
 // 47xxx 月度报告

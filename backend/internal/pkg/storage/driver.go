@@ -91,9 +91,9 @@ func (d *localDriver) URL(key string) string {
 	return d.baseURL + "/uploads/" + key
 }
 
-// IsProtectedKey 判断内部存储键是否属于敏感场景（signature/seal/export 前缀，读需鉴权）。
+// IsProtectedKey 上传对象一律走统一文件层，公共 /uploads 不再绕过租户与业务授权。
 func IsProtectedKey(key string) bool {
-	return strings.HasPrefix(key, "signature/") || strings.HasPrefix(key, "seal/") || strings.HasPrefix(key, "export/")
+	return key != ""
 }
 
 // ========== 阿里云 OSS 驱动 ==========

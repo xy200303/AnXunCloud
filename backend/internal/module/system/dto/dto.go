@@ -15,22 +15,22 @@ type UserListQuery struct {
 	Status      string `form:"status"`
 }
 
-// UserCreateReq 新增用户（项目归属在小区「岗位编制」维护，不再随用户表单提交）。
+// UserCreateReq 新增用户；任职小区单独保存，一人一角色。
 type UserCreateReq struct {
-	Username string   `json:"username" binding:"required"`
-	Password string   `json:"password" binding:"required"`
-	Name     string   `json:"name" binding:"required"`
-	Phone    string   `json:"phone" binding:"required"`
-	RoleIDs  []string `json:"role_ids"` // 可空：权限可由岗位绑定角色并集获得（方案 §3 有效角色实时并集）
-	Status   *int     `json:"status"`
+	Username string `json:"username" binding:"required"`
+	Password string `json:"password" binding:"required"`
+	Name     string `json:"name" binding:"required"`
+	Phone    string `json:"phone" binding:"required"`
+	RoleID   string `json:"role_id" binding:"required"`
+	Status   *int   `json:"status"`
 }
 
 // UserUpdateReq 修改用户（username/password 不可改）。
 type UserUpdateReq struct {
-	Name    string   `json:"name" binding:"required"`
-	Phone   string   `json:"phone" binding:"required"`
-	RoleIDs []string `json:"role_ids"` // 可空：权限可由岗位绑定角色并集获得
-	Status  *int     `json:"status"`
+	Name   string `json:"name" binding:"required"`
+	Phone  string `json:"phone" binding:"required"`
+	RoleID string `json:"role_id" binding:"required"`
+	Status *int   `json:"status"`
 }
 
 // ResetPasswordReq 重置密码。
@@ -50,17 +50,15 @@ type RoleItem struct {
 	Name string `json:"name"`
 }
 
-// UserItem 用户列表项（community_names 为项目编制推导的所属项目名称，导出用）。
+// UserItem 用户列表项（community_names 为有效任职覆盖的小区名称）。
 type UserItem struct {
-	ID       string     `json:"id"`
-	Username string     `json:"username"`
-	Name     string     `json:"name"`
-	Phone    string     `json:"phone"`
-	Avatar   string     `json:"avatar"`
-	Openid   string     `json:"openid"`
-	Roles    []RoleItem `json:"roles"`
-	// PostRoles 岗位带入角色（在职编制岗位绑定角色，剔除已手动分配的部分；仅列表页填充，只读展示用）
-	PostRoles      []RoleItem `json:"post_roles"`
+	ID             string     `json:"id"`
+	Username       string     `json:"username"`
+	Name           string     `json:"name"`
+	Phone          string     `json:"phone"`
+	Avatar         string     `json:"avatar"`
+	Openid         string     `json:"openid"`
+	Roles          []RoleItem `json:"roles"`
 	CommunityNames []string   `json:"community_names"`
 	Status         int        `json:"status"`
 	IsBuiltin      bool       `json:"is_builtin"`
@@ -70,15 +68,15 @@ type UserItem struct {
 
 // UserDetail 用户详情。
 type UserDetail struct {
-	ID        string   `json:"id"`
-	Username  string   `json:"username"`
-	Name      string   `json:"name"`
-	Phone     string   `json:"phone"`
-	Avatar    string   `json:"avatar"`
-	Openid    string   `json:"openid"`
-	RoleIDs   []string `json:"role_ids"`
-	Status    int      `json:"status"`
-	IsBuiltin bool     `json:"is_builtin"`
+	ID        string `json:"id"`
+	Username  string `json:"username"`
+	Name      string `json:"name"`
+	Phone     string `json:"phone"`
+	Avatar    string `json:"avatar"`
+	Openid    string `json:"openid"`
+	RoleID    string `json:"role_id"`
+	Status    int    `json:"status"`
+	IsBuiltin bool   `json:"is_builtin"`
 	// 手写签名图（月报签字栏用）
 	SignatureFileID string `json:"signature_file_id"`
 	SignatureURL    string `json:"signature_url"`
@@ -111,44 +109,49 @@ type RoleListQuery struct {
 	Status string `form:"status"`
 }
 
-// RoleSaveReq 新增/修改角色。
+// RoleSaveReq 新增/修改角色（UI 在项目上下文中称岗位）。
 type RoleSaveReq struct {
-	Code      string   `json:"code"`
-	Name      string   `json:"name" binding:"required"`
-	DataScope string   `json:"data_scope" binding:"required,oneof=all project self"`
-	Remark    string   `json:"remark"`
-	Status    *int     `json:"status"`
-	MenuIDs   []string `json:"menu_ids"`
+	Code           string   `json:"code"`
+	Name           string   `json:"name" binding:"required"`
+	ScopeLevel     string   `json:"scope_level" binding:"required,oneof=platform tenant project"`
+	IsSupervisor   bool     `json:"is_supervisor"`
+	ClaimWorkTypes []string `json:"claim_work_types"`
+	Remark         string   `json:"remark"`
+	Status         *int     `json:"status"`
+	MenuIDs        []string `json:"menu_ids"`
 }
 
-// RoleAssignReq 分配菜单与数据范围。
+// RoleAssignReq 分配菜单权限，不引入第二份数据范围配置。
 type RoleAssignReq struct {
-	MenuIDs   []string `json:"menu_ids" binding:"required"`
-	DataScope string   `json:"data_scope" binding:"required,oneof=all project self"`
+	MenuIDs []string `json:"menu_ids" binding:"required"`
 }
 
 // RoleListItem 角色列表项。
 type RoleListItem struct {
-	ID        string `json:"id"`
-	Code      string `json:"code"`
-	Name      string `json:"name"`
-	DataScope string `json:"data_scope"`
-	Remark    string `json:"remark"`
-	Status    int    `json:"status"`
-	UserCount int64  `json:"user_count"`
-	CreatedAt string `json:"created_at"`
+	ID             string   `json:"id"`
+	Code           string   `json:"code"`
+	Name           string   `json:"name"`
+	ScopeLevel     string   `json:"scope_level"`
+	IsSupervisor   bool     `json:"is_supervisor"`
+	ClaimWorkTypes []string `json:"claim_work_types"`
+	Remark         string   `json:"remark"`
+	Status         int      `json:"status"`
+	UserCount      int64    `json:"user_count"`
+	CreatedAt      string   `json:"created_at"`
 }
 
 // RoleDetail 角色详情。
 type RoleDetail struct {
-	ID        string   `json:"id"`
-	Code      string   `json:"code"`
-	Name      string   `json:"name"`
-	DataScope string   `json:"data_scope"`
-	Remark    string   `json:"remark"`
-	Status    int      `json:"status"`
-	MenuIDs   []string `json:"menu_ids"`
-	CreatedAt string   `json:"created_at"`
+	ID             string   `json:"id"`
+	Code           string   `json:"code"`
+	Name           string   `json:"name"`
+	ScopeLevel     string   `json:"scope_level"`
+	IsSupervisor   bool     `json:"is_supervisor"`
+	ClaimWorkTypes []string `json:"claim_work_types"`
+	Remark         string   `json:"remark"`
+	Status         int      `json:"status"`
+	MenuIDs        []string `json:"menu_ids"`
+	CreatedAt      string   `json:"created_at"`
 }
 
 // ========== 菜单 ==========
@@ -367,45 +370,4 @@ type TenantConfigItem struct {
 	Value     string `json:"value"`     // 租户覆盖值（空=未覆盖）
 	Platform  string `json:"platform"`  // 平台默认值（sys_config）
 	Effective string `json:"effective"` // 生效值（租户值→平台默认）
-}
-
-// ========== 岗位管理 / 岗位模板库（方案第三章） ==========
-
-// PostSaveReq 岗位新增/修改（code 创建后不可改；role_id 绑角色，空=不绑）。
-type PostSaveReq struct {
-	Code         string `json:"code"`
-	Name         string `json:"name" binding:"required"`
-	Line         string `json:"line" binding:"required,oneof=safety engineering environment service general"`
-	RoleID       string `json:"role_id"`
-	IsSupervisor bool   `json:"is_supervisor"`
-	Sort         int    `json:"sort"`
-	Status       *int   `json:"status"`
-	Remark       string `json:"remark"`
-}
-
-// PostItem 岗位列表项（含业务线与绑定角色名称，按 line+sort 排序）。
-type PostItem struct {
-	ID           string `json:"id"`
-	Code         string `json:"code"`
-	Name         string `json:"name"`
-	Line         string `json:"line"`
-	LineName     string `json:"line_name"`
-	IsSupervisor bool   `json:"is_supervisor"`
-	RoleID       string `json:"role_id"`
-	RoleName     string `json:"role_name"`
-	Sort         int    `json:"sort"`
-	Status       int    `json:"status"`
-	Remark       string `json:"remark"`
-	CreatedAt    string `json:"created_at"`
-}
-
-// PostDutyBindingItem 单条槽位默认绑定（post_codes 空数组 = 该环节跳过/降级）。
-type PostDutyBindingItem struct {
-	Slot      string   `json:"slot" binding:"required"`
-	PostCodes []string `json:"post_codes"`
-}
-
-// PostDutyBindingsSaveReq 租户级/平台级职责槽位默认绑定整体保存。
-type PostDutyBindingsSaveReq struct {
-	Bindings []PostDutyBindingItem `json:"bindings" binding:"required"`
 }

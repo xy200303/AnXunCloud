@@ -132,8 +132,13 @@ func TestPushAsyncBadgePerUser(t *testing.T) {
 	seed(notifyUser1, []string{"cid-u1-a", "cid-u1-b"}, 2)
 	seed(notifyUser2, []string{"cid-u2-a"}, 0)
 
-	if err := n.SendBatch([]string{notifyUser1, notifyUser2}, nil, "notice", "标题", "内容", nil); err != nil {
-		t.Fatalf("SendBatch 失败: %v", err)
+	for _, uid := range []string{notifyUser1, notifyUser2} {
+		if err := n.db.Create(&sysmodel.SysMessage{UserID: uid, Type: "notice", Title: "标题", Content: "内容"}).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := n.pushAsync([]string{notifyUser1, notifyUser2}, "notice", "标题", "内容", nil); err != nil {
+		t.Fatalf("推送 worker 失败: %v", err)
 	}
 	bodies := waitBodies(t, getBodies, 3)
 
@@ -158,10 +163,9 @@ func TestPushAsyncNoDeviceNoRequest(t *testing.T) {
 	defer srv.Close()
 	n := newTestNotifier(t, srv.URL)
 
-	if err := n.Send(notifyUser1, "notice", "标题", "内容", nil); err != nil {
-		t.Fatalf("Send 失败: %v", err)
+	if err := n.pushAsync([]string{notifyUser1}, "notice", "标题", "内容", nil); err != nil {
+		t.Fatalf("推送 worker 失败: %v", err)
 	}
-	time.Sleep(300 * time.Millisecond) // 留足 goroutine 执行窗口
 	if got := len(getBodies()); got != 0 {
 		t.Fatalf("无设备时不应发起 push 请求，实际 %d 条", got)
 	}

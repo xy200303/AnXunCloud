@@ -14,9 +14,10 @@ const (
 	StatusEnabled  = "enabled"
 	StatusDisabled = "disabled"
 
-	ScopeAll     = "all"
-	ScopeProject = "project"
-	ScopeSelf    = "self"
+	ScopePlatform   = "platform"
+	ScopeTenant     = "tenant"
+	ScopeProject    = "project"
+	PlatformScopeID = "00000000-0000-0000-0000-000000000000"
 
 	MenuTypeDir    = "dir"
 	MenuTypeMenu   = "menu"
@@ -28,11 +29,13 @@ const (
 	// TenantAdminCode 租户管理员角色编码（开通租户时初始管理员挂该角色）
 	TenantAdminCode = "tenant_admin"
 
-	// ProjectAdminCode 项目管理员角色编码（主管级/项目经理岗位默认绑该角色）
-	ProjectAdminCode = "project_admin"
-
-	// FieldStaffCode 一线人员角色编码（一线岗位默认绑该角色）
-	FieldStaffCode = "field_staff"
+	ProjectManagerCode     = "project_manager"
+	QualitySupervisorCode  = "quality_supervisor"
+	EngineerSupervisorCode = "engineer_supervisor"
+	InspectorCode          = "inspector"
+	MaintainerCode         = "maintainer"
+	BuildingManagerCode    = "building_manager"
+	FireDutyCode           = "fire_duty"
 
 	// DefaultTenantCode 默认租户代码（私有化部署 = 只有默认租户的同一套系统；存量数据全部归入）
 	DefaultTenantCode = "default"
@@ -47,17 +50,18 @@ const (
 	SignAssetStatusRevoked  = "revoked"  // 作废（需填原因）
 )
 
-// SysUser 系统用户（后台与移动端账号；项目归属与岗位职责由 project_staff 表达）
+// SysUser 系统用户：一个账号仅持有一个角色；同一自然人的多个账号用 PersonKey 关联。
 type SysUser struct {
 	types.UUIDModel
-	TenantID           string         `gorm:"type:uuid" json:"tenant_id"` // 所属租户（登录账号租户内唯一）
+	TenantID           string         `gorm:"type:uuid" json:"tenant_id"`
 	Username           string         `gorm:"size:64" json:"username"`
 	Password           string         `gorm:"size:128" json:"-"`
 	Name               string         `gorm:"size:64" json:"name"`
+	PersonKey          string         `gorm:"size:128" json:"person_key"`
 	Phone              string         `gorm:"size:20" json:"phone"`
 	Openid             *string        `gorm:"size:64" json:"openid"`
 	Avatar             string         `gorm:"size:512" json:"avatar"`
-	RoleIDs            types.IDArray  `gorm:"type:jsonb" json:"role_ids"`
+	RoleID             *string        `gorm:"type:uuid" json:"role_id"`
 	Status             string         `gorm:"size:16" json:"status"`
 	IsBuiltin          bool           `json:"is_builtin"`
 	MustChangePassword bool           `json:"must_change_password"`
@@ -70,19 +74,21 @@ type SysUser struct {
 
 func (SysUser) TableName() string { return "sys_user" }
 
-// SysRole 角色（tenant_id 为空 = 内置角色，全平台共享、只读不可改；租户自建角色归属租户）
+// SysRole 角色即岗位；scope_level 决定范围计算方式，主管标志决定可见深度。
 type SysRole struct {
 	types.UUIDModel
-	TenantID  *string        `gorm:"type:uuid" json:"tenant_id"`
-	Code      string         `gorm:"size:64" json:"code"`
-	Name      string         `gorm:"size:64" json:"name"`
-	DataScope string         `gorm:"size:16" json:"data_scope"`
-	Remark    string         `gorm:"size:255" json:"remark"`
-	Status    string         `gorm:"size:16" json:"status"`
-	IsBuiltin bool           `json:"is_builtin"`
-	CreatedAt time.Time      `json:"created_at"`
-	UpdatedAt time.Time      `json:"updated_at"`
-	DeletedAt gorm.DeletedAt `json:"-"`
+	TenantID       *string           `gorm:"type:uuid" json:"tenant_id"`
+	Code           string            `gorm:"size:64" json:"code"`
+	Name           string            `gorm:"size:64" json:"name"`
+	ScopeLevel     string            `gorm:"size:16" json:"scope_level"`
+	IsSupervisor   bool              `json:"is_supervisor"`
+	ClaimWorkTypes types.StringArray `gorm:"type:jsonb" json:"claim_work_types"`
+	Remark         string            `gorm:"size:255" json:"remark"`
+	Status         string            `gorm:"size:16" json:"status"`
+	IsBuiltin      bool              `json:"is_builtin"`
+	CreatedAt      time.Time         `json:"created_at"`
+	UpdatedAt      time.Time         `json:"updated_at"`
+	DeletedAt      gorm.DeletedAt    `json:"-"`
 }
 
 func (SysRole) TableName() string { return "sys_role" }
@@ -159,17 +165,21 @@ func (SysDictData) TableName() string { return "sys_dict_data" }
 // SysConfig 系统参数
 type SysConfig struct {
 	types.UUIDModel
-	Key         string         `gorm:"size:64" json:"key"`
-	Name        string         `gorm:"size:64" json:"name"`
-	Value       string         `gorm:"type:text" json:"value"`
-	ConfigGroup string         `gorm:"size:50;default:system" json:"config_group"`
-	Remark      string         `gorm:"size:255" json:"remark"`
-	CreatedAt   time.Time      `json:"created_at"`
-	UpdatedAt   time.Time      `json:"updated_at"`
-	DeletedAt   gorm.DeletedAt `json:"-"`
+	Scope               string         `gorm:"size:16;default:platform" json:"scope"`
+	ScopeID             string         `gorm:"type:uuid;default:00000000-0000-0000-0000-000000000000" json:"scope_id"`
+	Key                 string         `gorm:"size:64" json:"key"`
+	Name                string         `gorm:"size:64" json:"name"`
+	Value               string         `gorm:"type:text" json:"value"`
+	ConfigGroup         string         `gorm:"size:50;default:system" json:"config_group"`
+	Remark              string         `gorm:"size:255" json:"remark"`
+	AllowTenantOverride bool           `json:"allow_tenant_override"`
+	IsSecret            bool           `json:"is_secret"`
+	CreatedAt           time.Time      `json:"created_at"`
+	UpdatedAt           time.Time      `json:"updated_at"`
+	DeletedAt           gorm.DeletedAt `json:"-"`
 }
 
-func (SysConfig) TableName() string { return "sys_config" }
+func (SysConfig) TableName() string { return "config" }
 
 // SysLoginLog 登录日志（只增不改）
 type SysLoginLog struct {
@@ -222,50 +232,25 @@ type Community struct {
 
 func (Community) TableName() string { return "community" }
 
-// 平台模板岗位代码（post_dict.code，内置固定保留；数据范围推导与默认槽位绑定引用）
-const (
-	PostProjectManager = "project_manager" // 项目经理（每项目至多一人，保存时校验）
-	PostInspector      = "inspector"       // 巡检员
-)
-
-// 岗位业务线（post_dict.line，扁平结构 + 按业务线分组展示，不做 parent_id 树）
-const (
-	PostLineSafety      = "safety"      // 安全
-	PostLineEngineering = "engineering" // 工程
-	PostLineEnvironment = "environment" // 环境
-	PostLineService     = "service"     // 客服
-	PostLineGeneral     = "general"     // 综合
-)
-
-// PostLineNames 业务线展示名（前端分组标题用）。
-var PostLineNames = map[string]string{
-	PostLineSafety:      "安全",
-	PostLineEngineering: "工程",
-	PostLineEnvironment: "环境",
-	PostLineService:     "客服",
-	PostLineGeneral:     "综合",
-}
-
-// ValidPostLine 校验业务线枚举（与 chk_post_dict_line 约束一致）。
-func ValidPostLine(line string) bool {
-	_, ok := PostLineNames[line]
-	return ok
-}
-
-// 职责槽位代码（duty_binding.slot，系统固定枚举；绑定岗位可配，代码只认槽位）
-const (
-	SlotReportInspector  = "report_inspector"   // 报告巡检员确认（可选流程节点）
-	SlotPatrolExecute    = "patrol_execute"     // 巡查任务执行
-	SlotPatrolReportLine = "patrol_report_line" // 巡查打卡审核（汇报线，唯一槽位，不再按业务线分叉）
-	SlotProjectReview    = "project_review"     // 项目经理复核（审批链第二环节用）
-)
+// RoleCodeQualitySupervisor 是原安全主管岗位的目标角色，任务执行按巡检员角色筛选。
+const RoleCodeQualitySupervisor = QualitySupervisorCode
 
 // 审批流程 code（approval_flow.flow_code，系统固定枚举；步骤内容可配，代码只认流程 code）
 const (
-	FlowCheckinReview = "checkin_review" // 打卡审核链
-	FlowReportReview  = "report_review"  // 报告审核链
-	FlowMaintReview   = "maint_review"   // 维保登记审核链（与打卡链同一引擎：AI 闸门 + 人工环节 + 空流程默认生效）
+	FlowCheckinReview    = "checkin_review"    // 打卡审核链
+	FlowReportReview     = "report_review"     // 报告审核链
+	FlowMaintReview      = "maint_review"      // 维保登记审核链
+	FlowWorkorderReview  = "workorder_review"  // 工单整改后的主管审核链
+	FlowAcceptanceReview = "acceptance_review" // 承接查验报告审核与签署链
 )
+
+func ValidApprovalFlowCode(code string) bool {
+	switch code {
+	case FlowCheckinReview, FlowReportReview, FlowMaintReview, FlowWorkorderReview, FlowAcceptanceReview:
+		return true
+	}
+	return false
+}
 
 // 审批链环节类型（FlowStep.Kind；”=人工环节）
 const (
@@ -288,73 +273,30 @@ const (
 	AIGateReview   = "review"   // 存疑/识别失败/AI 不可用/强制人工（如存在异常项）
 )
 
-// DutySlot 槽位定义（系统固定枚举，名称用于前端展示）。
-type DutySlot struct {
-	Slot string
-	Name string
-}
-
-// DutySlots 全部职责槽位（顺序即前端展示顺序；项目级覆盖页与租户/平台默认绑定页共用）。
-// 甲方口径三岗位极简模型：汇报线只有通用槽位，不再按业务线分叉。
-var DutySlots = []DutySlot{
-	{SlotReportInspector, "报告巡检员确认"},
-	{SlotPatrolExecute, "巡查任务执行"},
-	{SlotPatrolReportLine, "巡查打卡审核"},
-	{SlotProjectReview, "项目经理复核"},
-}
-
-// PostDict 岗位字典（tenant_id 为空 = 平台内置模板岗位；UNIQUE(tenant_id, code)）
-type PostDict struct {
-	types.UUIDModel
-	TenantID     *string   `gorm:"type:uuid" json:"tenant_id"`
-	Code         string    `gorm:"size:64" json:"code"`
-	Name         string    `gorm:"size:64" json:"name"`
-	Line         string    `gorm:"size:32" json:"line"`      // 业务线（safety/engineering/environment/service/general）
-	IsSupervisor bool      `json:"is_supervisor"`            // 主管级（数据范围推导：主管级岗位 → project 档）
-	RoleID       *string   `gorm:"type:uuid" json:"role_id"` // 岗位绑定角色（有效角色实时并集的一个来源，可空）
-	Sort         int       `json:"sort"`                     // 业务线内排序
-	Status       string    `gorm:"size:16" json:"status"`
-	Remark       string    `gorm:"size:255" json:"remark"`
-	CreatedAt    time.Time `json:"created_at"`
-	UpdatedAt    time.Time `json:"updated_at"`
-}
-
-func (PostDict) TableName() string { return "post_dict" }
-
-// ProjectStaff 项目岗位编制（UNIQUE(project_id, user_id)；posts 引用 post_dict.code，一人多岗）
+// ProjectStaff 任职：一行一个小区，只承载授权范围与分派属性。
 type ProjectStaff struct {
 	types.UUIDModel
-	TenantID    *string           `gorm:"type:uuid" json:"tenant_id"`
-	ProjectID   string            `gorm:"type:uuid" json:"project_id"`
-	UserID      string            `gorm:"type:uuid" json:"user_id"`
-	Posts       types.StringArray `gorm:"type:jsonb" json:"posts"`
-	BuildingIDs types.IDArray     `gorm:"type:jsonb" json:"building_ids"` // 责任楼栋（仅楼管员用，空=全部楼栋）
-	Status      string            `gorm:"size:16" json:"status"`
-	CreatedAt   time.Time         `json:"created_at"`
-	UpdatedAt   time.Time         `json:"updated_at"`
+	TenantID         *string       `gorm:"type:uuid" json:"tenant_id"`
+	ProjectID        string        `gorm:"type:uuid" json:"project_id"`
+	UserID           string        `gorm:"type:uuid" json:"user_id"`
+	BuildingIDs      types.IDArray `gorm:"type:jsonb" json:"building_ids"`
+	EffectiveFrom    *time.Time    `json:"effective_from"`
+	EffectiveTo      *time.Time    `json:"effective_to"`
+	DelegateUserID   *string       `gorm:"type:uuid" json:"delegate_user_id"`
+	DelegateUntil    *time.Time    `json:"delegate_until"`
+	TemporaryOrderID *string       `gorm:"type:uuid" json:"temporary_order_id"`
+	Status           string        `gorm:"size:16" json:"status"`
+	CreatedAt        time.Time     `json:"created_at"`
+	UpdatedAt        time.Time     `json:"updated_at"`
 }
 
 func (ProjectStaff) TableName() string { return "project_staff" }
 
-// DutyBinding 职责槽位绑定（project_id 为空 = 平台/租户级默认，非空 = 项目级覆盖；post_codes 空 = 该环节跳过）
-type DutyBinding struct {
-	types.UUIDModel
-	TenantID  *string           `gorm:"type:uuid" json:"tenant_id"`
-	ProjectID *string           `gorm:"type:uuid" json:"project_id"`
-	Slot      string            `gorm:"size:64" json:"slot"`
-	PostCodes types.StringArray `gorm:"type:jsonb" json:"post_codes"`
-	CreatedAt time.Time         `json:"created_at"`
-	UpdatedAt time.Time         `json:"updated_at"`
-}
-
-func (DutyBinding) TableName() string { return "duty_binding" }
-
-// ApprovalFlow 审批链配置（迁移 00002；tenant_id/project_id 均空 = 平台默认，
-// 解析按 项目级 → 租户级 → 平台默认 回落，未配置时代码内置单步默认链兜底）。
+// ApprovalFlow 使用统一配置作用域，按 project → tenant → platform 回落。
 type ApprovalFlow struct {
 	types.UUIDModel
-	TenantID  *string             `gorm:"type:uuid" json:"tenant_id"`
-	ProjectID *string             `gorm:"type:uuid" json:"project_id"`
+	Scope     string              `gorm:"size:16;default:platform" json:"scope"`
+	ScopeID   string              `gorm:"type:uuid;default:00000000-0000-0000-0000-000000000000" json:"scope_id"`
 	FlowCode  string              `gorm:"size:64" json:"flow_code"`
 	Steps     types.FlowStepArray `gorm:"type:jsonb" json:"steps"`
 	CreatedAt time.Time           `json:"created_at"`
@@ -411,19 +353,23 @@ func (UserPushDevice) TableName() string { return "user_push_device" }
 // UploadFile 上传文件记录（第二阶段补充表；v21 起补 name/md5/storage 统一文件元数据）
 type UploadFile struct {
 	types.UUIDModel
-	TenantID       *string    `gorm:"type:uuid" json:"tenant_id"` // 冗余列（访问控制按 scene/归属判定）
-	StorageKey     string     `gorm:"column:storage_key;size:255" json:"-"`
-	Scene          string     `gorm:"size:16" json:"scene"`
-	UserID         string     `gorm:"type:uuid" json:"user_id"` // 零 UUID = 服务端生成文件（月报/导出包）
-	MimeType       string     `gorm:"size:128" json:"mime_type"`
-	URL            string     `gorm:"size:512" json:"url"`
-	WatermarkedURL string     `gorm:"size:512" json:"watermarked_url"`
-	Name           string     `gorm:"size:255" json:"name"`   // 原始文件名
-	MD5            string     `gorm:"size:64" json:"md5"`     // 内容摘要（完整性校验/去重）
-	Size           int64      `json:"size"`                   // 文件字节数
-	Storage        string     `gorm:"size:16" json:"storage"` // 存储驱动：local/oss/cos
-	ExifTime       *time.Time `json:"exif_time"`
-	CreatedAt      time.Time  `json:"created_at"`
+	TenantID       *string       `gorm:"type:uuid" json:"tenant_id"` // 冗余列（访问控制按 scene/归属判定）
+	StorageKey     string        `gorm:"column:storage_key;size:255" json:"-"`
+	Scene          string        `gorm:"size:16" json:"scene"`
+	UserID         string        `gorm:"type:uuid" json:"user_id"` // 零 UUID = 服务端生成文件（月报/导出包）
+	MimeType       string        `gorm:"size:128" json:"mime_type"`
+	URL            string        `gorm:"size:512" json:"url"`
+	WatermarkedURL string        `gorm:"size:512" json:"watermarked_url"`
+	Name           string        `gorm:"size:255" json:"name"`   // 原始文件名
+	MD5            string        `gorm:"size:64" json:"md5"`     // 内容摘要（完整性校验/去重）
+	Size           int64         `json:"size"`                   // 文件字节数
+	Storage        string        `gorm:"size:16" json:"storage"` // 存储驱动：local/oss/cos
+	ExifTime       *time.Time    `json:"exif_time"`
+	ParentFileID   *string       `gorm:"type:uuid" json:"parent_file_id"`
+	EvidenceRole   string        `gorm:"size:24;default:original" json:"evidence_role"`
+	SHA256         string        `gorm:"size:64" json:"sha256"`
+	DerivativeMeta types.JSONMap `gorm:"type:jsonb;default:'{}'" json:"derivative_meta"`
+	CreatedAt      time.Time     `json:"created_at"`
 }
 
 func (UploadFile) TableName() string { return "upload_file" }
@@ -497,16 +443,3 @@ type Tenant struct {
 }
 
 func (Tenant) TableName() string { return "tenant" }
-
-// TenantConfig 租户配置覆盖（UNIQUE(tenant_id, key)）：读取规则「租户值→平台默认」（ConfigService.Resolve）。
-// 仅白名单 key 可写（品牌类先行，见 TenantService）；密钥类配置（ai.* 等）永不下放租户。
-type TenantConfig struct {
-	types.UUIDModel
-	TenantID  string    `gorm:"type:uuid" json:"tenant_id"`
-	Key       string    `gorm:"size:64" json:"key"`
-	Value     string    `gorm:"type:text" json:"value"`
-	CreatedAt time.Time `json:"created_at"`
-	UpdatedAt time.Time `json:"updated_at"`
-}
-
-func (TenantConfig) TableName() string { return "tenant_config" }

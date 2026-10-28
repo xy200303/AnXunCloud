@@ -59,7 +59,7 @@ func AuthAny(db *gorm.DB, sess *session.Store, jwtm *jwtutil.Manager, channels .
 		}
 		// 加载用户最新状态（停用/改角色即时生效）
 		var user model.SysUser
-		if err := db.Select("id", "tenant_id", "username", "name", "status", "role_ids").
+		if err := db.Select("id", "tenant_id", "username", "name", "status", "role_id").
 			First(&user, "id = ?", claims.UserID).Error; err != nil {
 			response.Fail(c, errs.ErrUnauthorized)
 			return

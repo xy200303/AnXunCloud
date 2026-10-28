@@ -102,11 +102,10 @@ func (d *demoSeeder) run() error {
 
 func strptr(s string) *string { return &s }
 
-// createUser 创建演示账号（统一密码；roleIDs 为空则完全靠岗位绑定角色并集授权）。
-func (d *demoSeeder) createUser(tenantID, username, name, phone string, roleIDs ...string) (string, error) {
+func (d *demoSeeder) createUser(tenantID, username, name, phone, roleID string) (string, error) {
 	u := sysmodel.SysUser{
 		TenantID: tenantID, Username: username, Password: d.pwdHash, Name: name,
-		Phone: phone, RoleIDs: types.IDArray(roleIDs), Status: sysmodel.StatusEnabled,
+		PersonKey: phone, Phone: phone, RoleID: &roleID, Status: sysmodel.StatusEnabled,
 		Remark: "演示账号（seed-demo 生成）",
 	}
 	if err := d.db.Create(&u).Error; err != nil {
@@ -115,12 +114,10 @@ func (d *demoSeeder) createUser(tenantID, username, name, phone string, roleIDs 
 	return u.ID, nil
 }
 
-// addStaff 编制：一人多岗；楼管员可圈责任楼栋。
-func (d *demoSeeder) addStaff(tenantID, projectID, userID string, posts []string, buildingIDs ...string) error {
+func (d *demoSeeder) addStaff(tenantID, projectID, userID string, buildingIDs ...string) error {
 	row := sysmodel.ProjectStaff{
 		TenantID: &tenantID, ProjectID: projectID, UserID: userID,
-		Posts: types.StringArray(posts), BuildingIDs: types.IDArray(buildingIDs),
-		Status: sysmodel.StatusEnabled,
+		BuildingIDs: types.IDArray(buildingIDs), Status: sysmodel.StatusEnabled,
 	}
 	return d.db.Create(&row).Error
 }
@@ -172,8 +169,8 @@ type demoTemplateItem struct {
 // createTemplate 检查项模板 + 项行，返回模板 ID 与必拍项名称列表。
 func (d *demoSeeder) createTemplate(tenantID, name string, items []demoTemplateItem) (string, []string, error) {
 	tpl := insmodel.CheckTemplate{
-		TenantID: &tenantID, Name: name, Sort: 1,
-		Status: sysmodel.StatusEnabled, Remark: "演示模板（seed-demo 生成）",
+		TenantID: &tenantID, Code: types.NewID(), Name: name, PointType: "common", Purpose: insmodel.TemplatePurposePatrol, Sort: 1,
+		Status: insmodel.TemplateStatusEnabled, Remark: "演示模板（seed-demo 生成）",
 	}
 	if err := d.db.Create(&tpl).Error; err != nil {
 		return "", nil, err
@@ -181,8 +178,9 @@ func (d *demoSeeder) createTemplate(tenantID, name string, items []demoTemplateI
 	var required []string
 	for i, it := range items {
 		row := insmodel.CheckTemplateItem{
-			TemplateID: tpl.ID, Name: it.name, Requirement: strptr(it.requirement),
-			Required: true, PhotoRequired: it.photoReq, Sort: i + 1,
+			TenantID: &tenantID, TemplateID: tpl.ID, Code: fmt.Sprintf("item_%03d", i+1),
+			Name: it.name, Standard: it.requirement, ValueType: insmodel.ValueOK,
+			AIPromptKind: "general", AIEnabled: true, PhotoRequired: it.photoReq, Sort: i + 1,
 			Tags: types.StringArray(it.tags),
 		}
 		if it.aiHint != "" {
@@ -262,40 +260,36 @@ func (d *demoSeeder) seedTenantA() error {
 		return err
 	}
 	tid := tenant.ID
-	if err := systemsvc.CopyPostTemplatesToTenant(d.db, tid); err != nil {
+	if err := systemsvc.CopyFlowTemplatesToTenant(d.db, tid); err != nil {
 		return err
 	}
-	// 打卡审批流程租户级覆盖：主管审核 → 项目经理复核（演示两级审批流，扩展方案 §3）
 	flow := sysmodel.ApprovalFlow{
-		TenantID: &tid, FlowCode: sysmodel.FlowCheckinReview,
+		Scope: sysmodel.ScopeTenant, ScopeID: tid, FlowCode: sysmodel.FlowCheckinReview,
 		Steps: types.FlowStepArray{
-			{Slot: sysmodel.SlotPatrolReportLine, Name: "主管审核"},
-			{Slot: sysmodel.SlotProjectReview, Name: "项目经理复核"},
+			{RoleCode: sysmodel.QualitySupervisorCode, Name: "打卡复核"},
+			{RoleCode: sysmodel.ProjectManagerCode, Name: "月报审批"},
 		},
 	}
 	if err := d.db.Create(&flow).Error; err != nil {
 		return err
 	}
-
-	// 账号（统一密码 Demo@12345；除租户管理员外不显式挂角色，演示岗位绑定角色的实时并集）
-	// 巡检员按甲方真实月度计划表：黄辉负责 B 区，杨诗负责 A 区+B 区 16/17 栋
 	adminID, err := d.createUser(tid, "huaan_admin", "王建国", "13800001001", d.roleIDs[sysmodel.TenantAdminCode])
 	if err != nil {
 		return err
 	}
-	managerID, err := d.createUser(tid, "ha_manager", "张伟", "13800001002")
+	managerID, err := d.createUser(tid, "ha_manager", "张伟", "13800001002", d.roleIDs[sysmodel.ProjectManagerCode])
 	if err != nil {
 		return err
 	}
-	safetyID, err := d.createUser(tid, "ha_safety", "李强", "13800001003")
+	safetyID, err := d.createUser(tid, "ha_safety", "李强", "13800001003", d.roleIDs[sysmodel.QualitySupervisorCode])
 	if err != nil {
 		return err
 	}
-	huangID, err := d.createUser(tid, "xj_huang", "黄辉", "13800001004")
+	huangID, err := d.createUser(tid, "xj_huang", "黄辉", "13800001004", d.roleIDs[sysmodel.InspectorCode])
 	if err != nil {
 		return err
 	}
-	yangID, err := d.createUser(tid, "xj_yang", "杨诗", "13800001005")
+	yangID, err := d.createUser(tid, "xj_yang", "杨诗", "13800001005", d.roleIDs[sysmodel.InspectorCode])
 	if err != nil {
 		return err
 	}
@@ -348,19 +342,12 @@ func (d *demoSeeder) seedTenantA() error {
 		bldIDs[name] = id
 	}
 
-	// 编制（巡检体系相关岗位：项目经理 / 安全主管 / 巡检员）
 	staff := []struct {
 		uid       string
-		posts     []string
 		buildings []string
-	}{
-		{managerID, []string{sysmodel.PostProjectManager}, nil},
-		{safetyID, []string{"safety_supervisor"}, nil},
-		{huangID, []string{sysmodel.PostInspector}, nil},
-		{yangID, []string{sysmodel.PostInspector}, nil},
-	}
+	}{{managerID, nil}, {safetyID, nil}, {huangID, nil}, {yangID, nil}}
 	for _, s := range staff {
-		if err := d.addStaff(tid, cid, s.uid, s.posts, s.buildings...); err != nil {
+		if err := d.addStaff(tid, cid, s.uid, s.buildings...); err != nil {
 			return err
 		}
 	}
@@ -633,11 +620,11 @@ func (d *demoSeeder) seedFireMonthly(tid, cid string, tplIDs []string, bldIDs, a
 			}
 			plan := &insmodel.InspectionPlan{
 				TenantID: &tid, CommunityID: cid, Name: c.name, PatrolType: "fire",
-				PointIDs: ids, CycleType: "monthly", CycleConfig: types.JSONMap{"days": allDays},
+				PointIDs: ids, CycleType: "monthly", CycleConfig: types.JSONMap{"days": allDays, "rounds": []insmodel.Round{{Name: "", Window: "08:00-18:00"}}},
 				AssignMode:   insmodel.AssignSplit,
 				InspectorIDs: types.IDArray{spec.inspectorID},
-				StartDate:    monthStart, TimeWindow: "08:00-18:00",
-				Status: sysmodel.StatusEnabled, Remark: "演示计划（seed-demo 生成）",
+				StartDate:    monthStart,
+				Status:       sysmodel.StatusEnabled, Remark: "演示计划（seed-demo 生成）",
 			}
 			if err := d.db.Create(plan).Error; err != nil {
 				return err
@@ -654,10 +641,10 @@ func (d *demoSeeder) seedFireMonthly(tid, cid string, tplIDs []string, bldIDs, a
 	}
 	testPlan := &insmodel.InspectionPlan{
 		TenantID: &tid, CommunityID: cid, Name: "打卡方式测试（每日）", PatrolType: insmodel.PatrolSafety,
-		PointIDs: testIDs, CycleType: "daily", CycleConfig: types.JSONMap{"interval": 1},
+		PointIDs: testIDs, CycleType: "daily", CycleConfig: types.JSONMap{"interval": 1, "rounds": []insmodel.Round{{Name: "", Window: "00:00-23:59"}}},
 		InspectorIDs: types.IDArray{huangID, yangID},
-		StartDate:    monthStart, TimeWindow: "00:00-23:59",
-		Status: sysmodel.StatusEnabled, Remark: "演示计划（seed-demo 生成）",
+		StartDate:    monthStart,
+		Status:       sysmodel.StatusEnabled, Remark: "演示计划（seed-demo 生成）",
 	}
 	if err := d.db.Create(testPlan).Error; err != nil {
 		return err
@@ -755,14 +742,14 @@ func (d *demoSeeder) seedFireMonthly(tid, cid string, tplIDs []string, bldIDs, a
 			abCnt++
 		}
 		for j, it := range fireAllItems {
-			row := insmodel.CheckinRecordItem{
-				RecordID: rec.ID, Name: it.name, Requirement: strptr(it.requirement),
-				JudgeType: "general", PhotoRequired: it.photoReq,
-				Result: insmodel.ItemResultNormal, Sort: j + 1, CreatedAt: rec.CheckinTime,
-				Tags: types.StringArray(it.tags),
+			templateID, itemCode := tplIDs[0], j+1
+			if j >= len(hydrantBoxItems) {
+				templateID, itemCode = tplIDs[1], j-len(hydrantBoxItems)+1
 			}
-			if it.aiHint != "" {
-				row.AIHint = strptr(it.aiHint)
+			row := insmodel.CheckinRecordItem{
+				TenantID: &tid, RecordID: rec.ID, TemplateID: &templateID, ItemCode: fmt.Sprintf("item_%03d", itemCode),
+				Name: it.name, Standard: it.requirement, Result: insmodel.ItemResultNormal,
+				Sort: j + 1, CreatedAt: rec.CheckinTime,
 			}
 			if key := d.photo(tid, rec.InspectorID, it.name); key != "" {
 				row.Photos = types.StringArray{key}
@@ -800,7 +787,7 @@ func (d *demoSeeder) seedTenantB() error {
 		return err
 	}
 	tid := tenant.ID
-	if err := systemsvc.CopyPostTemplatesToTenant(d.db, tid); err != nil {
+	if err := systemsvc.CopyFlowTemplatesToTenant(d.db, tid); err != nil {
 		return err
 	}
 
@@ -808,11 +795,11 @@ func (d *demoSeeder) seedTenantB() error {
 	if err != nil {
 		return err
 	}
-	managerID, err := d.createUser(tid, "jy_manager", "黄志强", "13900002002")
+	managerID, err := d.createUser(tid, "jy_manager", "黄志强", "13900002002", d.roleIDs[sysmodel.ProjectManagerCode])
 	if err != nil {
 		return err
 	}
-	xjID, err := d.createUser(tid, "jy_xj01", "郑凯", "13900002003")
+	xjID, err := d.createUser(tid, "jy_xj01", "郑凯", "13900002003", d.roleIDs[sysmodel.InspectorCode])
 	if err != nil {
 		return err
 	}
@@ -827,14 +814,8 @@ func (d *demoSeeder) seedTenantB() error {
 	}
 	cid := community.ID
 
-	for _, s := range []struct {
-		uid   string
-		posts []string
-	}{
-		{managerID, []string{sysmodel.PostProjectManager}},
-		{xjID, []string{sysmodel.PostInspector}},
-	} {
-		if err := d.addStaff(tid, cid, s.uid, s.posts); err != nil {
+	for _, userID := range []string{managerID, xjID} {
+		if err := d.addStaff(tid, cid, userID); err != nil {
 			return err
 		}
 	}
@@ -867,10 +848,10 @@ func (d *demoSeeder) seedTenantB() error {
 
 	plan := insmodel.InspectionPlan{
 		TenantID: &tid, CommunityID: cid, Name: "每日安全巡查", PatrolType: insmodel.PatrolSafety,
-		PointIDs: types.IDArray(pointIDs), CycleType: "daily", CycleConfig: types.JSONMap{"interval": 1},
+		PointIDs: types.IDArray(pointIDs), CycleType: "daily", CycleConfig: types.JSONMap{"interval": 1, "rounds": []types.JSONMap{{"name": "", "window": "08:00-18:00"}}},
 		InspectorIDs: types.IDArray{xjID},
-		StartDate:    daysAgo(7), TimeWindow: "08:00-18:00",
-		Status: sysmodel.StatusEnabled, Remark: "演示计划（seed-demo 生成）",
+		StartDate:    daysAgo(7),
+		Status:       sysmodel.StatusEnabled, Remark: "演示计划（seed-demo 生成）",
 	}
 	if err := d.db.Create(&plan).Error; err != nil {
 		return err
@@ -1086,10 +1067,15 @@ func (d *demoSeeder) seedMonthWorkload(tid, cid string, o monthWorkload) (monthS
 	for _, rec := range recs {
 		p := o.pointMeta[rec.PointID]
 		tpl, _ := demoTemplateItemsOf(p.typ, o.tplSafetyID, o.tplEquipID)
+		templateID := o.tplSafetyID
+		if p.typ == "power_room" || p.typ == "pump_room" || p.typ == "elevator" {
+			templateID = o.tplEquipID
+		}
 		for j, it := range tpl.items {
 			row := insmodel.CheckinRecordItem{
-				RecordID: rec.ID, Name: it.name, Requirement: strptr(it.requirement),
-				PhotoRequired: it.photoReq, Result: insmodel.ItemResultNormal, Sort: j + 1, CreatedAt: rec.CheckinTime,
+				TenantID: &tid, RecordID: rec.ID, TemplateID: &templateID, ItemCode: fmt.Sprintf("item_%03d", j+1),
+				Name: it.name, Standard: it.requirement, Result: insmodel.ItemResultNormal,
+				Sort: j + 1, CreatedAt: rec.CheckinTime,
 			}
 			if it.photoReq == types.PhotoReqRequired {
 				key := d.photo(tid, rec.InspectorID, it.name)
@@ -1135,8 +1121,8 @@ func (d *demoSeeder) seedReportsB(tid, cid, planID string, pointIDs []string, po
 		Stats:        demoReportStats(st, 0, []any{}),
 		InspectorIDs: types.IDArray{xjID},
 		ReviewSteps: types.ReportReviewStepArray{
-			{Slot: sysmodel.SlotReportInspector, Name: "巡检员确认", Mode: "all", CandidateIDs: types.IDArray{xjID}},
-			{Slot: sysmodel.SlotProjectReview, Name: "项目复核", Mode: "any", CandidateIDs: types.IDArray{managerID}},
+			{RoleCode: sysmodel.InspectorCode, Name: "报告现场确认", Mode: "all", CandidateIDs: types.IDArray{xjID}},
+			{RoleCode: sysmodel.ProjectManagerCode, Name: "月报审批", Mode: "any", CandidateIDs: types.IDArray{managerID}},
 		},
 		ReviewStep:       0,
 		ReviewCurrentIDs: types.IDArray{xjID},

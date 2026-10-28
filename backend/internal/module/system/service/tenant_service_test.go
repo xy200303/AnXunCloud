@@ -1,27 +1,44 @@
 package service
 
-import "testing"
+import (
+	"testing"
 
-// TestIsTenantConfigKey 租户可覆盖配置白名单：品牌类 key 放行，密钥类与非白名单 key 拒绝。
-func TestIsTenantConfigKey(t *testing.T) {
-	allowed := []string{
-		"site.company_name", "site.slogan", "site.theme_color",
-		"site.footer_note", "site.contact_phone", "site.contact_email",
+	"github.com/glebarez/sqlite"
+	"gorm.io/gorm"
+
+	"anxuncloud/internal/module/system/model"
+)
+
+func TestTenantOverrideRulesComeFromPlatformConfig(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	if err != nil {
+		t.Fatal(err)
 	}
-	for _, k := range allowed {
-		if !IsTenantConfigKey(k) {
-			t.Errorf("白名单 key 应放行：%s", k)
+	if err := db.AutoMigrate(&model.SysConfig{}); err != nil {
+		t.Fatal(err)
+	}
+	for _, row := range []model.SysConfig{
+		{Scope: model.ScopePlatform, ScopeID: model.PlatformScopeID, Key: "site.theme_color", AllowTenantOverride: true},
+		{Scope: model.ScopePlatform, ScopeID: model.PlatformScopeID, Key: "site.company_name", AllowTenantOverride: true},
+		{Scope: model.ScopePlatform, ScopeID: model.PlatformScopeID, Key: "ai.api_key", AllowTenantOverride: true, IsSecret: true},
+		{Scope: model.ScopePlatform, ScopeID: model.PlatformScopeID, Key: "auth.register_enabled"},
+	} {
+		if err := db.Create(&row).Error; err != nil {
+			t.Fatal(err)
 		}
 	}
-	// 密钥类配置永不下放租户（设计方案 §9.2）
-	denied := []string{
-		"ai.api_key", "ai.base_url", "ai.model",
-		"security.login_fail_limit", "auth.register_enabled",
-		"site.icp", "", "site.theme_color2",
-	}
-	for _, k := range denied {
-		if IsTenantConfigKey(k) {
-			t.Errorf("非白名单 key 应拒绝：%s", k)
+	svc := NewTenantService(db, nil, nil)
+	for _, key := range []string{"site.theme_color", "site.company_name"} {
+		if !svc.tenantOverrideAllowed(key) {
+			t.Errorf("平台允许覆盖的 key 应放行: %s", key)
 		}
+	}
+	for _, key := range []string{"ai.api_key", "auth.register_enabled", "site.unknown", ""} {
+		if svc.tenantOverrideAllowed(key) {
+			t.Errorf("密钥或未授权 key 应拒绝: %s", key)
+		}
+	}
+	if be := svc.SaveConfig("tenant-1", map[string]string{"ai.api_key": "must-not-save"}); be == nil {
+		t.Fatal("密钥不得写入租户配置")
 	}
 }

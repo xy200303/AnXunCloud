@@ -55,7 +55,7 @@ func (s *UserService) listQuery(q *dto.UserListQuery, op *middleware.Identity, t
 		db = db.Where("phone LIKE ?", "%"+q.Phone+"%")
 	}
 	if q.RoleID != "" {
-		db = db.Where("role_ids @> ?::jsonb", fmt.Sprintf(`["%s"]`, q.RoleID))
+		db = db.Where("role_id = ?", q.RoleID)
 	}
 	if q.CommunityID != "" {
 		// 按项目编制过滤：该项目编制内的用户
@@ -84,115 +84,7 @@ func (s *UserService) List(q *dto.UserListQuery, op *middleware.Identity, tenant
 	for i := range users {
 		items = append(items, s.toItem(&users[i]))
 	}
-	s.attachPostRoles(users, items)
 	return &response.Page{List: items, Total: total, Page: q.Page, PageSize: q.PageSize}, nil
-}
-
-// attachPostRoles 批量填充「岗位带入角色」（在职编制岗位绑定角色，剔除已手动分配的角色；
-// 与 middleware.EffectiveRoleIDs 同口径）。仅列表页调用：只读展示权限来源，导出不含此字段。
-func (s *UserService) attachPostRoles(users []model.SysUser, items []dto.UserItem) {
-	userIDs := make([]string, 0, len(users))
-	manual := make(map[string]map[string]bool, len(users)) // userID → 已手动分配 roleID 集合
-	for i := range users {
-		userIDs = append(userIDs, users[i].ID)
-		m := map[string]bool{}
-		for _, rid := range users[i].RoleIDs {
-			m[rid] = true
-		}
-		manual[users[i].ID] = m
-	}
-	var staffs []model.ProjectStaff
-	if err := s.db.Select("user_id", "project_id", "posts").
-		Where("user_id IN ? AND status = ?", userIDs, model.StatusEnabled).
-		Find(&staffs).Error; err != nil || len(staffs) == 0 {
-		return
-	}
-	projectIDs := make([]string, 0, len(staffs))
-	for _, st := range staffs {
-		projectIDs = append(projectIDs, st.ProjectID)
-	}
-	var communities []model.Community
-	if err := s.db.Select("id", "tenant_id").Where("id IN ?", projectIDs).Find(&communities).Error; err != nil {
-		return
-	}
-	tenantByProject := make(map[string]string, len(communities))
-	tenantSeen := map[string]bool{}
-	tenantIDs := make([]string, 0, len(communities))
-	for _, cm := range communities {
-		tenantByProject[cm.ID] = cm.TenantID
-		if cm.TenantID != "" && !tenantSeen[cm.TenantID] {
-			tenantSeen[cm.TenantID] = true
-			tenantIDs = append(tenantIDs, cm.TenantID)
-		}
-	}
-	if len(tenantIDs) == 0 {
-		return
-	}
-	var posts []model.PostDict
-	if err := s.db.Select("tenant_id", "code", "role_id").
-		Where("tenant_id IN ? AND role_id IS NOT NULL", tenantIDs).
-		Find(&posts).Error; err != nil {
-		return
-	}
-	roleByTenantCode := make(map[string]map[string]string, len(tenantIDs))
-	roleIDSeen := map[string]bool{}
-	roleIDs := []string{}
-	for _, p := range posts {
-		if p.TenantID == nil || p.RoleID == nil {
-			continue
-		}
-		m := roleByTenantCode[*p.TenantID]
-		if m == nil {
-			m = map[string]string{}
-			roleByTenantCode[*p.TenantID] = m
-		}
-		m[p.Code] = *p.RoleID
-		if !roleIDSeen[*p.RoleID] {
-			roleIDSeen[*p.RoleID] = true
-			roleIDs = append(roleIDs, *p.RoleID)
-		}
-	}
-	roleItemByID := map[string]dto.RoleItem{}
-	if len(roleIDs) > 0 {
-		var roles []model.SysRole
-		if err := s.db.Select("id", "code", "name").Where("id IN ?", roleIDs).Find(&roles).Error; err != nil {
-			return
-		}
-		for _, r := range roles {
-			roleItemByID[r.ID] = dto.RoleItem{ID: r.ID, Code: r.Code, Name: r.Name}
-		}
-	}
-	idxByUser := make(map[string]int, len(items))
-	for i := range items {
-		idxByUser[items[i].ID] = i
-	}
-	derived := make(map[string]map[string]bool, len(users)) // userID → 已加入的带入 roleID（去重）
-	for _, st := range staffs {
-		idx, ok := idxByUser[st.UserID]
-		if !ok {
-			continue
-		}
-		bindings := roleByTenantCode[tenantByProject[st.ProjectID]]
-		if len(bindings) == 0 {
-			continue
-		}
-		for _, code := range st.Posts {
-			rid, ok := bindings[code]
-			if !ok || manual[st.UserID][rid] {
-				continue
-			}
-			if derived[st.UserID] == nil {
-				derived[st.UserID] = map[string]bool{}
-			}
-			if derived[st.UserID][rid] {
-				continue
-			}
-			if ri, ok := roleItemByID[rid]; ok {
-				derived[st.UserID][rid] = true
-				items[idx].PostRoles = append(items[idx].PostRoles, ri)
-			}
-		}
-	}
 }
 
 // toItem 转换为列表视图（角色名反查；所属项目名取 project_staff 在职编制，导出用）。
@@ -213,11 +105,10 @@ func (s *UserService) toItem(u *model.SysUser) dto.UserItem {
 	if u.Openid != nil {
 		item.Openid = *u.Openid
 	}
-	if len(u.RoleIDs) > 0 {
-		var roles []model.SysRole
-		s.db.Select("id", "code", "name").Where("id IN ?", []string(u.RoleIDs)).Find(&roles)
-		for _, r := range roles {
-			item.Roles = append(item.Roles, dto.RoleItem{ID: r.ID, Code: r.Code, Name: r.Name})
+	if u.RoleID != nil {
+		var role model.SysRole
+		if err := s.db.Select("id", "code", "name").First(&role, "id = ?", *u.RoleID).Error; err == nil {
+			item.Roles = append(item.Roles, dto.RoleItem{ID: role.ID, Code: role.Code, Name: role.Name})
 		}
 	}
 	_, item.CommunityNames = s.userCommunities(u.ID)
@@ -264,10 +155,10 @@ func (s *UserService) Create(req *dto.UserCreateReq, op *middleware.Identity, te
 	if count > 0 {
 		return "", errs.ErrUsernameExists
 	}
-	if be := s.checkRoles(req.RoleIDs, op); be != nil {
+	if be := s.checkRole(req.RoleID, op); be != nil {
 		return "", be
 	}
-	if be := s.guardSuperRoleAssign(req.RoleIDs, op.SuperAdmin); be != nil {
+	if be := s.guardSuperRoleAssign(req.RoleID, op.SuperAdmin); be != nil {
 		return "", be
 	}
 	hash, err := password.Hash(req.Password)
@@ -279,13 +170,9 @@ func (s *UserService) Create(req *dto.UserCreateReq, op *middleware.Identity, te
 		status = model.StatusStr(*req.Status)
 	}
 	user := model.SysUser{
-		TenantID: tenantID,
-		Username: req.Username,
-		Password: hash,
-		Name:     req.Name,
-		Phone:    req.Phone,
-		RoleIDs:  req.RoleIDs,
-		Status:   status,
+		TenantID: tenantID, Username: req.Username, Password: hash,
+		Name: req.Name, PersonKey: req.Phone, Phone: req.Phone,
+		RoleID: &req.RoleID, Status: status,
 	}
 	if err := s.db.Create(&user).Error; err != nil {
 		return "", errs.ErrInternal
@@ -303,13 +190,17 @@ func (s *UserService) Detail(id string, op *middleware.Identity) (*dto.UserDetai
 	if be := checkTenant(u.TenantID, op); be != nil {
 		return nil, be
 	}
+	roleID := ""
+	if u.RoleID != nil {
+		roleID = *u.RoleID
+	}
 	d := &dto.UserDetail{
 		ID:          u.ID,
 		Username:    u.Username,
 		Name:        u.Name,
 		Phone:       u.Phone,
 		Avatar:      u.Avatar,
-		RoleIDs:     u.RoleIDs,
+		RoleID:      roleID,
 		Status:      model.StatusInt(u.Status),
 		IsBuiltin:   u.IsBuiltin,
 		LastLoginAt: timefmt.TP(u.LastLoginAt),
@@ -347,23 +238,21 @@ func (s *UserService) Update(id string, req *dto.UserUpdateReq, op *middleware.I
 		if err := s.db.Select("id").Where("code = ?", model.SuperAdminCode).First(&superRole).Error; err != nil {
 			return errs.ErrInternal
 		}
-		if !types.IDArray(req.RoleIDs).Contains(superRole.ID) {
+		if req.RoleID != superRole.ID {
 			return errs.ErrBuiltinAccount.WithMsg("内置账号不可移除超级管理员角色")
 		}
 	}
 	if !password.ValidPhone(req.Phone) {
 		return errs.ErrParam.WithMsg("phone 手机号格式错误")
 	}
-	if be := s.checkRoles(req.RoleIDs, op); be != nil {
+	if be := s.checkRole(req.RoleID, op); be != nil {
 		return be
 	}
-	if be := s.guardSuperRoleAssign(req.RoleIDs, op.SuperAdmin); be != nil {
+	if be := s.guardSuperRoleAssign(req.RoleID, op.SuperAdmin); be != nil {
 		return be
 	}
 	updates := map[string]any{
-		"name":     req.Name,
-		"phone":    req.Phone,
-		"role_ids": types.IDArray(req.RoleIDs),
+		"name": req.Name, "phone": req.Phone, "person_key": req.Phone, "role_id": req.RoleID,
 	}
 	if req.Status != nil {
 		updates["status"] = model.StatusStr(*req.Status)
@@ -389,12 +278,14 @@ func (s *UserService) ResetPassword(ctx context.Context, id string, newPassword 
 		if u.IsBuiltin {
 			return errs.ErrNoPerm.WithMsg("内置超管账号仅超级管理员本人可重置密码")
 		}
-		has, be := s.hasSuperRole(u.RoleIDs)
-		if be != nil {
-			return be
-		}
-		if has {
-			return errs.ErrNoPerm.WithMsg("目标为超级管理员，仅超管本人可重置其密码")
+		if u.RoleID != nil {
+			var role model.SysRole
+			if err := s.db.First(&role, "id = ?", *u.RoleID).Error; err != nil {
+				return errs.ErrInternal
+			}
+			if role.Code == model.SuperAdminCode {
+				return errs.ErrNoPerm.WithMsg("目标为超级管理员，仅超管本人可重置其密码")
+			}
 		}
 	}
 	if !password.ValidPassword(newPassword) {
@@ -466,49 +357,29 @@ func (s *UserService) Delete(ctx context.Context, id string, op *middleware.Iden
 	return nil
 }
 
-// checkRoles 校验角色存在。
-// 租户约束（P3）：非超管只能分配内置角色（tenant_id 空）或本租户自建角色。
-func (s *UserService) checkRoles(roleIDs []string, op *middleware.Identity) *errs.Error {
-	var roles []model.SysRole
-	if err := s.db.Where("id IN ?", roleIDs).Find(&roles).Error; err != nil {
-		return errs.ErrInternal
+func (s *UserService) checkRole(roleID string, op *middleware.Identity) *errs.Error {
+	var role model.SysRole
+	if err := s.db.First(&role, "id = ? AND status = ?", roleID, model.StatusEnabled).Error; err != nil {
+		return errs.ErrParam.WithMsg("role_id 不是有效的启用角色")
 	}
-	if len(roles) != len(uniqueStrings(roleIDs)) {
-		return errs.ErrParam.WithMsg("role_ids 中存在无效角色")
+	if !op.SuperAdmin && role.TenantID != nil && *role.TenantID != op.TenantID {
+		return errs.ErrParam.WithMsg("不可分配其他租户的角色")
 	}
-	if !op.SuperAdmin {
-		for _, r := range roles {
-			if r.TenantID != nil && *r.TenantID != op.TenantID {
-				return errs.ErrParam.WithMsg("role_ids 中存在非本租户角色")
-			}
-		}
+	if !op.SuperAdmin && role.ScopeLevel == model.ScopePlatform {
+		return errs.ErrNoPerm.WithMsg("仅超级管理员可分配平台角色")
 	}
 	return nil
 }
 
-// hasSuperRole 角色集合是否包含 super_admin。
-func (s *UserService) hasSuperRole(roleIDs []string) (bool, *errs.Error) {
-	if len(roleIDs) == 0 {
-		return false, nil
-	}
-	var n int64
-	if err := s.db.Model(&model.SysRole{}).
-		Where("id IN ? AND code = ?", roleIDs, model.SuperAdminCode).Count(&n).Error; err != nil {
-		return false, errs.ErrInternal
-	}
-	return n > 0, nil
-}
-
-// guardSuperRoleAssign 非超管操作者分配 super_admin 角色时拒绝（垂直越权防护）。
-func (s *UserService) guardSuperRoleAssign(roleIDs []string, operatorSuper bool) *errs.Error {
+func (s *UserService) guardSuperRoleAssign(roleID string, operatorSuper bool) *errs.Error {
 	if operatorSuper {
 		return nil
 	}
-	has, be := s.hasSuperRole(roleIDs)
-	if be != nil {
-		return be
+	var count int64
+	if err := s.db.Model(&model.SysRole{}).Where("id = ? AND code = ?", roleID, model.SuperAdminCode).Count(&count).Error; err != nil {
+		return errs.ErrInternal
 	}
-	if has {
+	if count > 0 {
 		return errs.ErrNoPerm.WithMsg("仅超级管理员可分配超级管理员角色")
 	}
 	return nil
@@ -666,28 +537,16 @@ func (s *UserService) Import(r io.Reader, op *middleware.Identity, tenantID stri
 			fail("手机号已存在")
 			continue
 		}
-		// 3. 角色逐一匹配
-		roleNames := strings.Split(roleText, ",")
-		roleIDs := make([]string, 0, len(roleNames))
-		roleOK := true
-		for _, rn := range roleNames {
-			rn = strings.TrimSpace(rn)
-			role, ok := roleByName[rn]
-			if !ok {
-				fail(fmt.Sprintf("角色「%s」不存在", rn))
-				roleOK = false
-				break
-			}
-			if role.Code == model.SuperAdminCode && !op.SuperAdmin {
-				fail("仅超级管理员可导入超级管理员角色")
-				roleOK = false
-				break
-			}
-			roleIDs = append(roleIDs, role.ID)
-		}
-		if !roleOK {
+		role, ok := roleByName[strings.TrimSpace(roleText)]
+		if !ok {
+			fail("角色不存在")
 			continue
 		}
+		if role.Code == model.SuperAdminCode && !op.SuperAdmin {
+			fail("仅超级管理员可导入超级管理员角色")
+			continue
+		}
+		roleID := role.ID
 		// 4. 小区逐一匹配（选填；填写则导入后写入项目编制，岗位留空待编制页维护）
 		commIDs := make([]string, 0)
 		if commText != "" {
@@ -723,27 +582,18 @@ func (s *UserService) Import(r io.Reader, op *middleware.Identity, tenantID stri
 			return nil, "", errs.ErrInternal
 		}
 		user := model.SysUser{
-			TenantID:           tenantID,
-			Username:           phone,
-			Password:           hash,
-			Name:               name,
-			Phone:              phone,
-			RoleIDs:            roleIDs,
-			Status:             status,
-			MustChangePassword: true, // 导入用户首次登录强制改密
-			Remark:             remark,
+			TenantID: tenantID, Username: phone, Password: hash,
+			Name: name, PersonKey: phone, Phone: phone, RoleID: &roleID,
+			Status: status, MustChangePassword: true, Remark: remark,
 		}
 		if err := s.db.Create(&user).Error; err != nil {
 			fail("写入失败：" + err.Error())
 			continue
 		}
-		// 所属小区 → 项目编制（岗位留空，uk_project_staff 冲突忽略）
 		for _, cid := range commIDs {
 			s.db.Create(&model.ProjectStaff{
-				TenantID:  &tenantID,
-				ProjectID: cid, UserID: user.ID,
-				Posts: types.StringArray{}, BuildingIDs: types.IDArray{},
-				Status: model.StatusEnabled,
+				TenantID: &tenantID, ProjectID: cid, UserID: user.ID,
+				BuildingIDs: types.IDArray{}, Status: model.StatusEnabled,
 			})
 		}
 		seen[phone] = true
@@ -800,9 +650,9 @@ func (s *UserService) UpdateProfile(uid string, name, phone string, sigKey *stri
 		if !password.ValidPhone(phone) {
 			return errs.ErrParam.WithMsg("phone 手机号格式错误")
 		}
-		// 手机号同时可能作为他人登录名（导入用户 username=手机号），两处都要排重
+		// 同一自然人可有多个账号，手机号用于关联；登录名仍须唯一。
 		var count int64
-		s.db.Model(&model.SysUser{}).Where("id <> ? AND (phone = ? OR username = ?)", uid, phone, phone).Count(&count)
+		s.db.Model(&model.SysUser{}).Where("id <> ? AND username = ?", uid, phone).Count(&count)
 		if count > 0 {
 			return errs.ErrPhoneExists
 		}

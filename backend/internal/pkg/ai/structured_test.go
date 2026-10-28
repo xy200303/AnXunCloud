@@ -116,7 +116,7 @@ func TestClaudeToolUseStructuredOutput(t *testing.T) {
 	srv, bodies := captureServer(t, func(map[string]any) []byte {
 		return []byte(`{"content":[
 			{"type":"text","text":"好的，审核完成。"},
-			{"type":"tool_use","name":"submit_review","input":{"quality":{"pass":true,"issue":""},"verdict":"review","reason":"保险销疑似脱落","items":[{"name":"压力表指针在绿区","verdict":"pass","reason":"正常","reading":"1.2MPa","abnormal_tags":[]}]}}
+			{"type":"tool_use","name":"submit_review","input":{"quality":{"pass":true,"issue":""},"verdict":"review","reason":"保险销疑似脱落","items":[{"instance_key":"test:item:","name":"压力表指针在绿区","verdict":"pass","reason":"正常","reading":"1.2MPa","abnormal_tags":[]}]}}
 		]}`)
 	})
 	res, err := testClient().callClaude(context.Background(), srv.Client(), srv.URL, "k", "m", testInput())

@@ -1,6 +1,3 @@
-// 审批链配置预览：把「每个环节到底谁审」显性化给配置页（根治方案 P2）。
-// 名单来源与空态原因三态（unconfigured/no_member/skipped）与线上走链同口径：
-// 槽位→绑定岗位（项目→租户→平台回落）→编制在职成员；空名单环节走链时自动跳过。
 package service
 
 import (
@@ -11,15 +8,11 @@ import (
 	"anxuncloud/internal/pkg/errs"
 )
 
-// FlowPreview 审批链预览：链来源 + 逐环节名单/来源/空态原因。
-// 报告链巡检员确认环节候选人 = 当月任务巡检员（生成时定），空则编制巡检员（巡查执行槽位），预览按编制兜底口径展示。
 func (s *StaffService) FlowPreview(c *gin.Context, communityID, flowCode string) (gin.H, *errs.Error) {
 	if be := middleware.CheckCommunity(s.db, c, communityID); be != nil {
 		return nil, be
 	}
-	switch flowCode {
-	case sysmodel.FlowCheckinReview, sysmodel.FlowMaintReview, sysmodel.FlowReportReview:
-	default:
+	if !sysmodel.ValidApprovalFlowCode(flowCode) {
 		return nil, errs.ErrParam.WithMsg("flow_code 取值非法")
 	}
 	flow, source := ResolveFlowWithSource(s.db, communityID, flowCode)
@@ -29,48 +22,15 @@ func (s *StaffService) FlowPreview(c *gin.Context, communityID, flowCode string)
 			steps = append(steps, gin.H{"index": i, "name": st.Name, "kind": "ai"})
 			continue
 		}
-		slot := st.Slot
-		// 报告巡检员确认环节：名单不走槽位绑定，预览展示编制巡检员兜底口径
-		fallbackInspector := flowCode == sysmodel.FlowReportReview && slot == sysmodel.SlotReportInspector
-		voterSlot := slot
-		if fallbackInspector {
-			voterSlot = sysmodel.SlotPatrolExecute
-		}
-		posts, postSource := resolveSlotPosts(s.db, communityID, voterSlot)
-		userIDs := SlotUserIDs(s.db, communityID, voterSlot)
-		voters := s.userBriefs(userIDs)
-		// 配置时可见性校验（「能审必能看」）：名单成员对该小区无数据可见性则标红，
-		// 避免「能审但看不到待审数据」。报告链候选人按单据实例授权可见（getWithScope 参与者放行），不标红。
-		hidden := 0
-		if flowCode != sysmodel.FlowReportReview {
-			for _, v := range voters {
-				see := middleware.UserCanSeeCommunity(s.db, v["id"].(string), communityID)
-				v["can_see"] = see
-				if !see {
-					hidden++
-				}
-			}
-		}
+		voters := s.userBriefs(RoleCandidateUserIDsForCommunity(s.db, communityID, st.RoleCode))
 		emptyReason := ""
 		if len(voters) == 0 {
-			switch {
-			case postSource == "":
-				emptyReason = "unconfigured" // 无任何绑定
-			case len(posts) == 0:
-				emptyReason = "skipped" // 岗位留空 = 显式跳过
-			default:
-				emptyReason = "no_member" // 有绑定但项目内无在职成员
-			}
+			emptyReason = "no_member"
 		}
-		item := gin.H{
-			"index": i, "name": st.Name, "mode": st.Mode, "slot": slot,
-			"voters": voters, "voter_source": postSource, "empty_reason": emptyReason,
-			"hidden_count": hidden,
-		}
-		if fallbackInspector {
-			item["voter_note"] = "生成报告时按当月任务巡检员确定；无任务巡检员时回落本名单（编制内巡检员）"
-		}
-		steps = append(steps, item)
+		steps = append(steps, gin.H{
+			"index": i, "name": st.Name, "mode": st.Mode, "role_code": st.RoleCode,
+			"voters": voters, "voter_source": source, "empty_reason": emptyReason,
+		})
 	}
 	return gin.H{"source": source, "steps": steps}, nil
 }

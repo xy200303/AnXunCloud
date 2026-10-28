@@ -9,7 +9,7 @@ import (
 	"anxuncloud/internal/pkg/types"
 )
 
-// 报告状态：pending_review → approved；voided=作废终态（归档留痕，记录保留不可再签/重算）。
+// 报告状态：pending_review → approved；voided=作废留痕，重出必须新建报告。
 const (
 	StatusPendingReview = "pending_review"
 	StatusApproved      = "approved"
@@ -45,14 +45,38 @@ type InspectionReport struct {
 	VoidReason string         `gorm:"size:512" json:"void_reason"`
 	VoidedBy   *string        `gorm:"type:uuid" json:"voided_by"`
 	VoidedAt   *time.Time     `json:"voided_at"`
-	SealFileID string         `gorm:"type:uuid;default:null" json:"seal_file_id"`
-	FileID     string         `gorm:"type:uuid;default:null" json:"file_id"`
 	CreatedAt  time.Time      `json:"created_at"`
 	UpdatedAt  time.Time      `json:"updated_at"`
 	DeletedAt  gorm.DeletedAt `json:"-"`
 }
 
 func (InspectionReport) TableName() string { return "inspection_report" }
+
+const (
+	FileStageFrozen        = "frozen"
+	FileStageArchived      = "archived"
+	FileStageLegacyArchive = "legacy_archive"
+	FileStatusReady        = "ready"
+)
+
+type ReportFile struct {
+	types.UUIDModel
+	TenantID        string    `gorm:"type:uuid" json:"tenant_id"`
+	ReportID        string    `gorm:"type:uuid" json:"report_id"`
+	DocKind         string    `gorm:"size:24" json:"doc_kind"`
+	VolumeCode      string    `gorm:"size:64" json:"volume_code"`
+	VolumeName      string    `gorm:"size:128" json:"volume_name"`
+	Stage           string    `gorm:"size:24" json:"stage"`
+	Format          string    `gorm:"size:16" json:"format"`
+	FileID          *string   `gorm:"type:uuid" json:"file_id"`
+	SHA256          string    `gorm:"size:64" json:"sha256"`
+	GenerationBatch string    `gorm:"type:uuid" json:"generation_batch"`
+	Status          string    `gorm:"size:16" json:"status"`
+	ErrorMessage    string    `gorm:"size:512" json:"error_message"`
+	CreatedAt       time.Time `json:"created_at"`
+}
+
+func (ReportFile) TableName() string { return "report_file" }
 
 // ReportPlan 报告生成计划：周期驱动自动生成巡检报告（cycle 定义与巡检计划同构）。
 // 生成期间一律取「上一个完整周期」：monthly=上月（cycle_config.day=生成日 1~28）、

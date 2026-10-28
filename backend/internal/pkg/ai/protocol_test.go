@@ -31,7 +31,7 @@ func newMockClient(serverURL, protocol string) *Client {
 }
 
 // reviewJSON 新格式（含 quality + reading）模型输出。
-const reviewJSON = `{"quality":{"pass":true,"issue":""},"verdict":"review","reason":"压力表存疑","items":[{"name":"压力表指针在绿区","verdict":"abnormal","reason":"指针在红区","reading":"1.8MPa"}]}`
+const reviewJSON = `{"quality":{"pass":true,"issue":""},"verdict":"review","reason":"压力表存疑","items":[{"instance_key":"test:item:","name":"压力表指针在绿区","verdict":"abnormal","reason":"指针在红区","reading":"1.8MPa"}]}`
 
 // fakeJPEG 一张伪图片字节（协议层不校验真实图片格式）。
 var fakeJPEG = []byte("\xff\xd8\xff\xd9")
@@ -311,8 +311,8 @@ func assertReviewResult(t *testing.T, res *ReviewResult) {
 // TestParseReviewNewFormat 新格式：quality + abnormal + reading 全字段解析。
 func TestParseReviewNewFormat(t *testing.T) {
 	res, err := parseReview(`{"quality":{"pass":false,"issue":"照片模糊，请重新拍摄"},"verdict":"review","reason":"质量不达标","items":[
-		{"name":"灭火器压力正常","verdict":"pass","reason":"正常"},
-		{"name":"仪表读数","verdict":"abnormal","reason":"超量程","reading":"42.5℃"}
+		{"instance_key":"test:item:","name":"灭火器压力正常","verdict":"pass","reason":"正常"},
+		{"instance_key":"test:item:","name":"仪表读数","verdict":"abnormal","reason":"超量程","reading":"42.5℃"}
 	]}`)
 	if err != nil {
 		t.Fatalf("解析失败: %v", err)
@@ -326,57 +326,40 @@ func TestParseReviewNewFormat(t *testing.T) {
 }
 
 func TestParseReviewRejectsMissingQuality(t *testing.T) {
-	if _, err := parseReview(`{"verdict":"pass","reason":"照片清晰，无异常","items":[{"name":"消防枪头在位","verdict":"pass","reason":"在位"}]}`); err == nil {
+	if _, err := parseReview(`{"verdict":"pass","reason":"照片清晰，无异常","items":[{"instance_key":"test:item:","name":"消防枪头在位","verdict":"pass","reason":"在位"}]}`); err == nil {
 		t.Fatal("缺少 quality 字段应报错")
 	}
 }
 
-// TestJudgeInstruction 判定类型指令：metric/state 带参数，参数缺失按 general（空串）。
 func TestJudgeInstruction(t *testing.T) {
-	if got := judgeInstruction(JudgeGeneral, nil); got != "" {
+	if got := judgeInstruction(PromptGeneral, "ok", "", nil, nil, nil); got != "" {
 		t.Errorf("general 不应生成指令: %q", got)
 	}
-	if got := judgeInstruction(JudgeBaseline, nil); got != "" {
-		t.Errorf("baseline（二期预留）应按 general 处理: %q", got)
-	}
-	if got := judgeInstruction("bad_type", nil); got != "" {
-		t.Errorf("非法类型应归一 general: %q", got)
-	}
-	metric := judgeInstruction(JudgeMetric, map[string]any{"metric": "温度", "unit": "℃", "min": float64(0), "max": float64(40)})
-	if !strings.Contains(metric, "温度") || !strings.Contains(metric, "reading") || !strings.Contains(metric, "[0, 40]") {
+	min, max := 0.0, 40.0
+	metric := judgeInstruction(PromptMetric, "number", "℃", &min, &max, nil)
+	if !strings.Contains(metric, "℃") || !strings.Contains(metric, "reading") || !strings.Contains(metric, "[0, 40]") || !strings.Contains(metric, "服务端") {
 		t.Errorf("metric 指令异常: %q", metric)
 	}
-	if got := judgeInstruction(JudgeMetric, nil); got != "" {
-		t.Errorf("metric 缺 judge_config 应按 general: %q", got)
+	if got := judgeInstruction(PromptState, "enum", "", nil, nil, []string{"开启", "关闭"}); !strings.Contains(got, "实际状态") {
+		t.Errorf("state 指令异常: %q", got)
 	}
-	state := judgeInstruction(JudgeState, map[string]any{"expected": "阀门应处于关闭状态"})
-	if !strings.Contains(state, "阀门应处于关闭状态") {
-		t.Errorf("state 指令异常: %q", state)
-	}
-	if got := judgeInstruction(JudgeState, nil); got != "" {
-		t.Errorf("state 缺 expected 应按 general: %q", got)
-	}
-	ind := judgeInstruction(JudgeIndicator, map[string]any{"expected": "运行灯常绿"})
-	if !strings.Contains(ind, "运行灯常绿") {
-		t.Errorf("indicator 指令异常: %q", ind)
-	}
-	for _, jt := range []string{JudgePresence, JudgeDamage, JudgeLabel, JudgePassage, JudgeLeak, JudgeTidiness} {
-		if got := judgeInstruction(jt, nil); got == "" {
-			t.Errorf("%s 应生成指令", jt)
+	for _, kind := range []string{PromptPresence, PromptDamage, PromptLabel, PromptPassage, PromptLeak, PromptTidiness} {
+		if got := judgeInstruction(kind, "ok", "", nil, nil, nil); got == "" {
+			t.Errorf("%s 应生成指令", kind)
 		}
 	}
 }
 
-// TestBuildMessagesJudgeInstruction 逐项标注带判定要求（metric 含区间与读数要求）。
 func TestBuildMessagesJudgeInstruction(t *testing.T) {
 	c := NewClient(func(string) (string, bool) { return "", false })
+	min, max := 0.0, 1.0
 	msgs := c.buildMessages(ReviewInput{
 		PointName: "水泵房",
-		ItemPhotos: []ItemPhoto{
-			{Name: "仪表读数在正常范围", JudgeType: JudgeMetric,
-				JudgeConfig: map[string]any{"metric": "压力", "unit": "MPa", "min": float64(0), "max": float64(1)},
-				Photos:      []PhotoRef{{URL: "http://example.com/meter.jpg"}}},
-		},
+		ItemPhotos: []ItemPhoto{{
+			InstanceKey: "template:meter:", Name: "仪表读数在正常范围", AIPromptKind: PromptMetric,
+			ValueType: "number", Unit: "MPa", ValueMin: &min, ValueMax: &max,
+			Photos: []PhotoRef{{URL: "http://example.com/meter.jpg"}},
+		}},
 	})
 	content := msgs[1]["content"].([]map[string]any)
 	var texts []string
@@ -386,7 +369,7 @@ func TestBuildMessagesJudgeInstruction(t *testing.T) {
 		}
 	}
 	joined := strings.Join(texts, "\n")
-	if !strings.Contains(joined, "判定要求：") || !strings.Contains(joined, "压力") {
-		t.Errorf("逐项标注缺判定要求: %s", joined)
+	if !strings.Contains(joined, "识别要求：") || !strings.Contains(joined, "MPa") || !strings.Contains(joined, "instance_key") {
+		t.Errorf("逐项标注缺识别要求或实例键: %s", joined)
 	}
 }

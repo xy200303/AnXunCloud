@@ -14,7 +14,6 @@ import (
 	"anxuncloud/internal/pkg/password"
 	"anxuncloud/internal/pkg/response"
 	"anxuncloud/internal/pkg/timefmt"
-	"anxuncloud/internal/pkg/types"
 )
 
 // TenantService 租户管理（P3 多租户；租户 CRUD 仅超管，租户配置租户管理员可管自己租户）。
@@ -31,23 +30,20 @@ func NewTenantService(db *gorm.DB, killSessions func(ctx context.Context, userID
 // tenantCodeRe 租户代码（公司代码）格式：小写字母/数字/中划线，2–32 位。
 var tenantCodeRe = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{1,31}$`)
 
-// tenantConfigWhitelist 租户可覆盖的配置 key 白名单（设计方案 §9.2：品牌类先行）。
-// 与现有站点品牌配置（sys_config group=site）的 key 对齐——现有实现无 site_name/site_logo 独立 key，
-// 系统名称即 site.company_name、主题色即 site.theme_color；登录页 LOGO/背景图属前端静态资源，后续需要时再扩白名单。
-// 密钥类配置（ai.* / 存储配置）永不在此名单内。
-var tenantConfigWhitelist = []string{
-	"site.company_name", "site.slogan", "site.theme_color",
-	"site.footer_note", "site.contact_phone", "site.contact_email",
+func (s *TenantService) allowedTenantConfigKeys() ([]string, error) {
+	var keys []string
+	err := s.db.Model(&model.SysConfig{}).
+		Where("scope = ? AND scope_id = ? AND allow_tenant_override = true AND is_secret = false", model.ScopePlatform, model.PlatformScopeID).
+		Order("key").Pluck("key", &keys).Error
+	return keys, err
 }
 
-// IsTenantConfigKey 判断 key 是否在租户可覆盖白名单内（纯函数，供单测）。
-func IsTenantConfigKey(key string) bool {
-	for _, k := range tenantConfigWhitelist {
-		if k == key {
-			return true
-		}
-	}
-	return false
+func (s *TenantService) tenantOverrideAllowed(key string) bool {
+	var count int64
+	s.db.Model(&model.SysConfig{}).
+		Where("scope = ? AND scope_id = ? AND key = ? AND allow_tenant_override = true AND is_secret = false", model.ScopePlatform, model.PlatformScopeID, key).
+		Count(&count)
+	return count == 1
 }
 
 // ========== 租户 CRUD（仅 super_admin，路由层挂 tenant:* 权限点） ==========
@@ -127,20 +123,14 @@ func (s *TenantService) Create(req *dto.TenantCreateReq) (string, *errs.Error) {
 			adminName = req.Name + "管理员"
 		}
 		admin := model.SysUser{
-			TenantID:           tenant.ID,
-			Username:           req.AdminUsername,
-			Password:           hash,
-			Name:               adminName,
-			RoleIDs:            types.IDArray{adminRole.ID},
-			Status:             model.StatusEnabled,
-			MustChangePassword: true, // 初始密码仅用于首次登录
-			Remark:             "开通租户时创建的初始管理员",
+			TenantID: tenant.ID, Username: req.AdminUsername, Password: hash,
+			Name: adminName, PersonKey: req.AdminUsername, RoleID: &adminRole.ID, Status: model.StatusEnabled,
+			MustChangePassword: true, Remark: "开通租户时创建的初始管理员",
 		}
 		if err := tx.Create(&admin).Error; err != nil {
 			return err
 		}
-		// 岗位模板库整份复制（岗位 + 平台默认槽位绑定 → 新租户行）
-		return CopyPostTemplatesToTenant(tx, tenant.ID)
+		return CopyFlowTemplatesToTenant(tx, tenant.ID)
 	})
 	if err != nil {
 		return "", errs.ErrInternal
@@ -193,14 +183,18 @@ func (s *TenantService) SetStatus(ctx context.Context, id string, status int) *e
 
 // GetConfig 租户配置视图：白名单 key 的租户覆盖值 + 平台默认值 + 生效值。
 func (s *TenantService) GetConfig(tid string) ([]dto.TenantConfigItem, *errs.Error) {
-	var rows []model.TenantConfig
-	s.db.Where("tenant_id = ?", tid).Find(&rows)
+	var rows []model.SysConfig
+	s.db.Where("scope = ? AND scope_id = ?", model.ScopeTenant, tid).Find(&rows)
 	overrides := make(map[string]string, len(rows))
 	for _, r := range rows {
 		overrides[r.Key] = r.Value
 	}
-	items := make([]dto.TenantConfigItem, 0, len(tenantConfigWhitelist))
-	for _, key := range tenantConfigWhitelist {
+	keys, err := s.allowedTenantConfigKeys()
+	if err != nil {
+		return nil, errs.ErrInternal
+	}
+	items := make([]dto.TenantConfigItem, 0, len(keys))
+	for _, key := range keys {
 		platform, _ := s.cfg.Get(key)
 		value := overrides[key]
 		effective := platform
@@ -217,7 +211,7 @@ func (s *TenantService) GetConfig(tid string) ([]dto.TenantConfigItem, *errs.Err
 // SaveConfig 保存租户配置（仅白名单 key，空值=清除覆盖回落平台默认；主题色校验格式）。
 func (s *TenantService) SaveConfig(tid string, values map[string]string) *errs.Error {
 	for k, v := range values {
-		if !IsTenantConfigKey(k) {
+		if !s.tenantOverrideAllowed(k) {
 			return errs.ErrParam.WithMsg("不支持的租户配置项：" + k)
 		}
 		v = strings.TrimSpace(v)
@@ -229,15 +223,15 @@ func (s *TenantService) SaveConfig(tid string, values map[string]string) *errs.E
 		}
 		if v == "" {
 			// 空值 = 清除覆盖（读取时回落平台默认）
-			if err := s.db.Where("tenant_id = ? AND key = ?", tid, k).Delete(&model.TenantConfig{}).Error; err != nil {
+			if err := s.db.Where("scope = ? AND scope_id = ? AND key = ?", model.ScopeTenant, tid, k).Delete(&model.SysConfig{}).Error; err != nil {
 				return errs.ErrInternal
 			}
 			continue
 		}
-		var row model.TenantConfig
-		err := s.db.Where("tenant_id = ? AND key = ?", tid, k).First(&row).Error
+		var row model.SysConfig
+		err := s.db.Where("scope = ? AND scope_id = ? AND key = ?", model.ScopeTenant, tid, k).First(&row).Error
 		if err != nil {
-			row = model.TenantConfig{TenantID: tid, Key: k, Value: v}
+			row = model.SysConfig{Scope: model.ScopeTenant, ScopeID: tid, Key: k, Value: v}
 			if err := s.db.Create(&row).Error; err != nil {
 				return errs.ErrInternal
 			}

@@ -10,59 +10,15 @@ import (
 	"anxuncloud/internal/pkg/logger"
 )
 
-// 数据权限（设计方案 §5.2）：可见项目集合由 project_staff 岗位编制推导，角色 data_scope 作上限。
-// 任一为项目经理或主管级（is_supervisor）岗位 → 这些项目可见（project 档）；
-// 只有一线岗位 → self 档（项目级查询不可见，仅本人相关数据）；角色 data_scope=self 强制收窄为 self。
-// 业务模块（小区/点位/任务/打卡）在查询层调用 ApplyCommunityFilter 即可完成按项目隔离。
-
-// StaffProjectIDs 用户在职编制覆盖的全部项目集合（任意岗位；登录/档案响应 projects 字段用）。
+// StaffProjectIDs 返回有效任职覆盖的小区；无任职时不产生项目范围。
 func StaffProjectIDs(db *gorm.DB, userID string) ([]string, error) {
 	var ids []string
 	err := db.Model(&model.ProjectStaff{}).
 		Where("user_id = ? AND status = ?", userID, model.StatusEnabled).
+		Where("(effective_from IS NULL OR effective_from <= NOW())").
+		Where("(effective_to IS NULL OR effective_to > NOW())").
 		Order("project_id ASC").Pluck("project_id", &ids).Error
 	return ids, err
-}
-
-// ManagedProjectIDs 用户在职编制中「项目经理或主管级（is_supervisor）岗位」覆盖的项目集合（project 档推导）。
-func ManagedProjectIDs(db *gorm.DB, userID string) ([]string, error) {
-	var staffs []model.ProjectStaff
-	if err := db.Select("project_id", "posts").
-		Where("user_id = ? AND status = ?", userID, model.StatusEnabled).
-		Find(&staffs).Error; err != nil {
-		return nil, err
-	}
-	if len(staffs) == 0 {
-		return nil, nil
-	}
-	// 主管级岗位集合（仅启用岗位参与推导）
-	supervisorPosts := map[string]bool{}
-	var posts []model.PostDict
-	if err := db.Select("code").Where("is_supervisor = ? AND status = ?", true, model.StatusEnabled).Find(&posts).Error; err != nil {
-		return nil, err
-	}
-	for _, p := range posts {
-		supervisorPosts[p.Code] = true
-	}
-	seen := map[string]bool{}
-	var ids []string
-	for _, st := range staffs {
-		if seen[st.ProjectID] {
-			continue
-		}
-		managed := false
-		for _, post := range st.Posts {
-			if post == model.PostProjectManager || supervisorPosts[post] {
-				managed = true
-				break
-			}
-		}
-		if managed {
-			seen[st.ProjectID] = true
-			ids = append(ids, st.ProjectID)
-		}
-	}
-	return ids, nil
 }
 
 // ApplyCommunityFilter 为查询追加项目（小区）数据权限过滤。
@@ -74,25 +30,13 @@ func ManagedProjectIDs(db *gorm.DB, userID string) ([]string, error) {
 func ApplyCommunityFilter(db *gorm.DB, c *gin.Context, column string) *gorm.DB {
 	identity := CurrentIdentity(c)
 	if identity == nil {
-		return db
+		return db.Where("1 = 0")
 	}
 	if identity.SuperAdmin {
-		// NewDB 会话：db 可能已带业务查询条件，租户解析必须用干净句柄
 		clean := db.Session(&gorm.Session{NewDB: true})
 		tid, be := ExplicitTenantID(c, clean)
-		if be != nil {
-			logger.L.Warn("超管租户上下文解析失败，按空结果过滤",
-				zap.String("uid", identity.UserID), zap.String("err", be.Msg))
+		if be != nil || tid == "" {
 			return db.Where("1 = 0")
-		}
-		if tid == "" {
-			// 缺省 = 默认租户（与 EffectiveTenantID 同规：前端「当前公司=默认租户」时不带 X-Tenant-Id，
-			// 业务列表应与系统管理页一致按所选租户隔离，不再平台级全量）
-			clean.Model(&model.Tenant{}).Select("id").Where("code = ?", model.DefaultTenantCode).
-				Limit(1).Pluck("id", &tid)
-			if tid == "" {
-				return db // 默认租户缺失（异常库）：回落平台级放行，避免全库误锁
-			}
 		}
 		sub := db.Session(&gorm.Session{NewDB: true}).Model(&model.Community{}).
 			Select("id").Where("tenant_id = ?", tid)
@@ -119,7 +63,7 @@ func ApplyCommunityFilter(db *gorm.DB, c *gin.Context, column string) *gorm.DB {
 // 用户不存在/停用/租户停用一律不可见。审批链配置页据此把「审了也看不到数据」的名单成员标红。
 func UserCanSeeCommunity(db *gorm.DB, userID, communityID string) bool {
 	var user model.SysUser
-	if err := db.Select("id", "tenant_id", "username", "name", "status", "role_ids").
+	if err := db.Select("id", "tenant_id", "username", "name", "status", "role_id").
 		First(&user, "id = ?", userID).Error; err != nil || user.Status != model.StatusEnabled {
 		return false
 	}
@@ -139,9 +83,6 @@ func UserCanSeeCommunity(db *gorm.DB, userID, communityID string) bool {
 	if identity.DataScopeAll {
 		return true
 	}
-	if identity.ScopeSelf {
-		return false
-	}
 	for _, id := range identity.ProjectIDs {
 		if id == communityID {
 			return true
@@ -150,40 +91,28 @@ func UserCanSeeCommunity(db *gorm.DB, userID, communityID string) bool {
 	return false
 }
 
-// CheckCommunity 校验当前用户是否有权访问指定项目数据，越权返回 40302。
-// 无 identity（调度/内部调用）放行；超管未指定租户时按默认租户校验（与 ApplyCommunityFilter 同规），
-// 显式指定租户时校验小区归属该租户；
-// 不一致或小区不存在一律按越权处理（不暴露存在性）；
-// 非超管先校验小区归属本租户（data_scope=all 不得跨租户），再按数据范围校验。
-// self 档用户不持有项目级可见范围，一律拒绝（本人相关数据由业务层按名单/归属另行放行）。
+// CheckCommunity 校验当前用户是否有权访问指定项目数据；后台任务必须使用显式 scope 的 owner 契约。
 func CheckCommunity(db *gorm.DB, c *gin.Context, communityID string) *errs.Error {
 	identity := CurrentIdentity(c)
 	if identity == nil {
-		return nil
+		return errs.ErrUnauthorized
 	}
 	if identity.SuperAdmin {
-		// NewDB 会话：防御调用方传入带条件的句柄，租户解析必须用干净句柄
 		clean := db.Session(&gorm.Session{NewDB: true})
 		tid, be := ExplicitTenantID(c, clean)
-		if be != nil {
-			logger.L.Warn("超管租户上下文解析失败，按越权处理",
-				zap.String("uid", identity.UserID), zap.String("err", be.Msg))
+		if be != nil || tid == "" {
+			logger.L.Warn("超管缺少或传入无效租户上下文",
+				zap.String("uid", identity.UserID))
 			return errs.ErrDataScope
 		}
 		t := CommunityTenantID(clean, communityID)
-		// 小区不存在一律按越权处理，不暴露存在性
-		if t == nil {
-			return errs.ErrDataScope
-		}
-		// 缺省 = 默认租户（同 ApplyCommunityFilter）：解析不出默认租户（异常库）才回落平台级放行
-		if tid == "" {
-			clean.Model(&model.Tenant{}).Select("id").Where("code = ?", model.DefaultTenantCode).
-				Limit(1).Pluck("id", &tid)
-		}
-		if tid != "" && *t != tid {
+		if t == nil || *t != tid {
 			return errs.ErrDataScope
 		}
 		return nil
+	}
+	if identity.TenantID == "" {
+		return errs.ErrDataScope
 	}
 	if identity.TenantID != "" {
 		// NewDB 干净会话（与超管分支同规）：防御调用方传入带 WHERE 条件的句柄污染小区归属查询

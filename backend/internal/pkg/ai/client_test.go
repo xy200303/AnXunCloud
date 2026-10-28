@@ -12,8 +12,8 @@ import (
 // TestParseReviewWithItems 逐项结论：整体 + 逐项均解析；非法逐项跳过不报错。
 func TestParseReviewWithItems(t *testing.T) {
 	res, err := parseReview(`{"quality":{"pass":true},"verdict":"review","reason":"保险销疑似脱落","items":[
-		{"name":"压力表指针在绿区","verdict":"pass","reason":"指针在绿区"},
-		{"name":"保险销完好","verdict":"review","reason":"保险销缺失"}
+		{"instance_key":"test:item:","name":"压力表指针在绿区","verdict":"pass","reason":"指针在绿区"},
+		{"instance_key":"test:item:","name":"保险销完好","verdict":"review","reason":"保险销缺失"}
 	]}`)
 	if err != nil {
 		t.Fatalf("解析失败: %v", err)
@@ -34,7 +34,7 @@ func TestParseReviewWithItems(t *testing.T) {
 
 // TestParseReviewRequiresCompleteContract 缺失质量或逐项结论必须拒绝，避免错误放行。
 func TestParseReviewRequiresCompleteContract(t *testing.T) {
-	if _, err := parseReview(`{"verdict":"pass","reason":"照片清晰","items":[{"name":"检查项","verdict":"pass"}]}`); err == nil {
+	if _, err := parseReview(`{"verdict":"pass","reason":"照片清晰","items":[{"instance_key":"test:item:","name":"检查项","verdict":"pass"}]}`); err == nil {
 		t.Fatal("缺少质量结论应报错")
 	}
 	// items 可省略/为空（prompt 允许"无法逐项判断时省略"）：逐项任务由 worker 回落整体 verdict
@@ -105,7 +105,7 @@ func TestBuildMessagesItemHints(t *testing.T) {
 	msgs := c.buildMessages(ReviewInput{
 		PointName: "1栋1层电梯厅消防箱",
 		ItemPhotos: []ItemPhoto{
-			{Name: "灭火器压力正常", Requirement: "指针在绿区", AIHint: "指针位于绿色区域",
+			{Name: "灭火器压力正常", Standard: "指针在绿区", AIHint: "指针位于绿色区域",
 				Photos: []PhotoRef{{URL: "http://example.com/gauge.jpg"}}},
 			{Name: "箱体与通道", Photos: []PhotoRef{{URL: "http://example.com/box.jpg"}}},
 		},

@@ -1,8 +1,6 @@
 package service
 
 import (
-	"fmt"
-
 	"gorm.io/gorm"
 
 	"anxuncloud/internal/middleware"
@@ -92,13 +90,13 @@ func (s *RoleService) List(q *dto.RoleListQuery, op *middleware.Identity, tenant
 	items := make([]dto.RoleListItem, 0, len(roles))
 	for _, r := range roles {
 		var userCount int64
-		s.db.Model(&model.SysUser{}).Where("role_ids @> ?::jsonb", fmt.Sprintf(`["%s"]`, r.ID)).Count(&userCount)
+		s.db.Model(&model.SysUser{}).Where("role_id = ?", r.ID).Count(&userCount)
 		items = append(items, dto.RoleListItem{
-			ID:        r.ID,
-			Code:      r.Code,
-			Name:      r.Name,
-			DataScope: r.DataScope,
-			Remark:    r.Remark,
+			ID:         r.ID,
+			Code:       r.Code,
+			Name:       r.Name,
+			ScopeLevel: r.ScopeLevel, IsSupervisor: r.IsSupervisor,
+			ClaimWorkTypes: r.ClaimWorkTypes, Remark: r.Remark,
 			Status:    model.StatusInt(r.Status),
 			UserCount: userCount,
 			CreatedAt: timefmt.T(r.CreatedAt),
@@ -127,12 +125,9 @@ func (s *RoleService) Create(req *dto.RoleSaveReq, op *middleware.Identity, tena
 		status = model.StatusStr(*req.Status)
 	}
 	role := model.SysRole{
-		TenantID:  &tenantID,
-		Code:      req.Code,
-		Name:      req.Name,
-		DataScope: req.DataScope,
-		Remark:    req.Remark,
-		Status:    status,
+		TenantID: &tenantID, Code: req.Code, Name: req.Name,
+		ScopeLevel: req.ScopeLevel, IsSupervisor: req.IsSupervisor,
+		ClaimWorkTypes: req.ClaimWorkTypes, Remark: req.Remark, Status: status,
 	}
 	menuIDs := s.filterPlatformMenus(req.MenuIDs, req.Code)
 	err := s.db.Transaction(func(tx *gorm.DB) error {
@@ -163,11 +158,11 @@ func (s *RoleService) Detail(id string, op *middleware.Identity) (*dto.RoleDetai
 		menuIDs = []string{}
 	}
 	return &dto.RoleDetail{
-		ID:        role.ID,
-		Code:      role.Code,
-		Name:      role.Name,
-		DataScope: role.DataScope,
-		Remark:    role.Remark,
+		ID:         role.ID,
+		Code:       role.Code,
+		Name:       role.Name,
+		ScopeLevel: role.ScopeLevel, IsSupervisor: role.IsSupervisor,
+		ClaimWorkTypes: role.ClaimWorkTypes, Remark: role.Remark,
 		Status:    model.StatusInt(role.Status),
 		MenuIDs:   menuIDs,
 		CreatedAt: timefmt.T(role.CreatedAt),
@@ -183,11 +178,13 @@ func (s *RoleService) Update(id string, req *dto.RoleSaveReq, op *middleware.Ide
 	if be := guardRole(&role, op, true); be != nil {
 		return be
 	}
-	updates := map[string]any{"name": req.Name, "remark": req.Remark}
+	updates := map[string]any{
+		"name": req.Name, "remark": req.Remark, "scope_level": req.ScopeLevel,
+		"is_supervisor": req.IsSupervisor, "claim_work_types": req.ClaimWorkTypes,
+	}
 	if role.Code == model.SuperAdminCode {
-		updates["data_scope"] = model.ScopeAll
-	} else {
-		updates["data_scope"] = req.DataScope
+		updates["scope_level"] = model.ScopePlatform
+		updates["is_supervisor"] = true
 	}
 	if req.Status != nil {
 		// 内置角色（尤其 super_admin）禁停用：停用后所有持有账号即时失去权限，可能导致超管集体锁死
@@ -225,7 +222,7 @@ func (s *RoleService) Delete(id string, op *middleware.Identity) *errs.Error {
 		return errs.ErrBuiltin
 	}
 	var userCount int64
-	s.db.Model(&model.SysUser{}).Where("role_ids @> ?::jsonb", fmt.Sprintf(`["%s"]`, id)).Count(&userCount)
+	s.db.Model(&model.SysUser{}).Where("role_id = ?", id).Count(&userCount)
 	if userCount > 0 {
 		return errs.ErrRoleHasUsers
 	}
@@ -242,7 +239,7 @@ func (s *RoleService) Delete(id string, op *middleware.Identity) *errs.Error {
 	return nil
 }
 
-// AssignMenus 分配菜单权限与数据范围（整体替换；内置角色仅超管可维护，租户角色限本租户）。
+// AssignMenus 整体替换角色的菜单权限。
 func (s *RoleService) AssignMenus(id string, req *dto.RoleAssignReq, op *middleware.Identity) *errs.Error {
 	var role model.SysRole
 	if err := s.db.First(&role, "id = ?", id).Error; err != nil {
@@ -254,12 +251,7 @@ func (s *RoleService) AssignMenus(id string, req *dto.RoleAssignReq, op *middlew
 	if role.Code == model.SuperAdminCode {
 		return errs.ErrBuiltin.WithMsg("内置超级管理员角色不可修改")
 	}
-	err := s.db.Transaction(func(tx *gorm.DB) error {
-		if err := tx.Model(&role).Update("data_scope", req.DataScope).Error; err != nil {
-			return err
-		}
-		return replaceRoleMenus(tx, id, s.filterPlatformMenus(req.MenuIDs, role.Code))
-	})
+	err := replaceRoleMenus(s.db, id, s.filterPlatformMenus(req.MenuIDs, role.Code))
 	if err != nil {
 		return errs.ErrInternal
 	}

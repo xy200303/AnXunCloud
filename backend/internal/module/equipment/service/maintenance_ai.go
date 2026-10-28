@@ -81,7 +81,7 @@ func CheckMaintenanceLabel(ctx context.Context, aiCli *ai.Client, db *gorm.DB, p
 		PointName: pointName, PointType: pointType,
 		CheckItems: []string{"维保标签"},
 		ItemPhotos: []ai.ItemPhoto{{
-			Name: "维保标签", Requirement: prompt, JudgeType: ai.JudgeLabel, Photos: refs,
+			InstanceKey: "maintenance:label", Name: "维保标签", Standard: prompt, AIPromptKind: ai.PromptLabel, Photos: refs,
 		}},
 	})
 	if err != nil {

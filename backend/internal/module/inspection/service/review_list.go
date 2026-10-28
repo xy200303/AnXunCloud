@@ -21,8 +21,7 @@ type reviewBatchCtx struct {
 	itemsByRec map[string][]model.CheckinRecordItem
 	filesByID  map[string]sysmodel.UploadFile
 	flows      map[string]types.FlowStepArray
-	// 槽位名单批次缓存（project|slot → 用户名单），避免逐记录重复查询
-	slots *communitysvc.SlotCache
+	candidates *communitysvc.CandidateCache
 	// 当前请求身份（can_audit 判定用）
 	identity *middleware.Identity
 }
@@ -36,7 +35,7 @@ func (s *ReviewService) loadReviewBatch(rows []model.CheckinRecord) *reviewBatch
 		itemsByRec: map[string][]model.CheckinRecordItem{},
 		filesByID:  map[string]sysmodel.UploadFile{},
 		flows:      map[string]types.FlowStepArray{},
-		slots:      communitysvc.NewSlotCache(s.db),
+		candidates: communitysvc.NewCandidateCache(s.db),
 	}
 	pointIDs, commIDs, userIDs, recIDs := []string{}, []string{}, []string{}, []string{}
 	seenP, seenC, seenU := map[string]bool{}, map[string]bool{}, map[string]bool{}
@@ -127,9 +126,9 @@ func (s *ReviewService) reviewItemBatch(r *model.CheckinRecord, ctx *reviewBatch
 		views = append(views, gin.H{
 			"name": ci.Name, "result": ci.Result, "note": ci.Note,
 			"photos": ci.Photos, "photo_urls": urls,
-			"requirement": ci.Requirement, "ai_hint": ci.AIHint,
-			"judge_type": ci.JudgeType, "judge_config": ci.JudgeConfig,
-			"tags": ci.Tags, "abnormal_tags": ci.AbnormalTags,
+			"template_id": ci.TemplateID, "item_code": ci.ItemCode, "equipment_id": ci.EquipmentID,
+			"standard": ci.Standard, "value_num": ci.ValueNum, "value_date": ci.ValueDate, "value_text": ci.ValueText,
+			"builtin_kind": ci.BuiltinKind, "abnormal_tags": ci.AbnormalTags,
 			"ai_verdict": ci.AIVerdict, "ai_reason": ci.AIReason, "ai_reading": ci.AIReading,
 			// 照片时空信息与可疑标记（§14.3 防作弊：标记不拒收，审核页提示）
 			"shoot_lng": ci.ShootLng, "shoot_lat": ci.ShootLat, "shoot_at": timefmt.TP(ci.ShootAt),
@@ -140,7 +139,7 @@ func (s *ReviewService) reviewItemBatch(r *model.CheckinRecord, ctx *reviewBatch
 	flowSteps := make([]gin.H, 0, 2)
 	for i, step := range ctx.flows[r.CommunityID] {
 		flowSteps = append(flowSteps, gin.H{
-			"name": step.Name, "slot": step.Slot,
+			"name": step.Name, "role_code": step.RoleCode,
 			"done": i < int(r.AuditStep), "current": i == int(r.AuditStep) && r.AuditStatus == model.AuditPending,
 		})
 	}
@@ -171,26 +170,15 @@ func (s *ReviewService) reviewItemBatch(r *model.CheckinRecord, ctx *reviewBatch
 	}
 }
 
-// auditActionable 待审核记录的当前环节名 + 当前用户是否可审核（与 Pass 同口径：环节槽位名单制授权；
-// 快照优先于现行流程，环节越界走汇报线兜底）。
 func (s *ReviewService) auditActionable(r *model.CheckinRecord, ctx *reviewBatchCtx) (string, bool) {
-	flow := ctx.flows[r.CommunityID]
-	if len(r.FlowSnapshot) > 0 {
-		flow = communitysvc.FlowOrResolve(s.db, r.FlowSnapshot, r.CommunityID, sysmodel.FlowCheckinReview)
-	}
+	flow := communitysvc.FlowOrResolve(s.db, r.FlowSnapshot, r.CommunityID, sysmodel.FlowCheckinReview)
 	stepIdx := int(r.AuditStep)
-	stepName := "主管审核"
-	slot := sysmodel.SlotPatrolReportLine
-	if stepIdx < len(flow) {
-		step := flow[stepIdx]
-		stepName = step.Name
-		if step.Kind != sysmodel.FlowStepKindAI {
-			slot = step.Slot
-			// 与 Pass 在途自愈同口径：当前人工环节名单为空时授权回落汇报线
-			if len(ctx.slots.Users(r.CommunityID, slot)) == 0 {
-				slot = sysmodel.SlotPatrolReportLine
-			}
-		}
+	if stepIdx >= len(flow) {
+		return "审批链待修复", false
 	}
-	return stepName, ctx.slots.Authorized(r.CommunityID, slot, ctx.identity)
+	step := flow[stepIdx]
+	if step.Kind == sysmodel.FlowStepKindAI || ctx.identity == nil || communitysvc.SameNaturalPerson(s.db, ctx.identity.UserID, r.InspectorID) {
+		return step.Name, false
+	}
+	return step.Name, ctx.candidates.Authorized(r.CommunityID, step.RoleCode, ctx.identity)
 }

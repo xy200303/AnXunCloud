@@ -100,6 +100,10 @@ func (s *PlanService) toItem(p *model.InspectionPlan) gin.H {
 	if len(p.InspectorIDs) > 0 {
 		s.db.Model(&sysmodel.SysUser{}).Where("id IN ?", []string(p.InspectorIDs)).Order("id ASC").Pluck("name", &inspectorNames)
 	}
+	templateNames := []string{}
+	if len(p.TemplateIDs) > 0 {
+		s.db.Model(&model.CheckTemplate{}).Where("id IN ?", []string(p.TemplateIDs)).Order("sort ASC, id ASC").Pluck("name", &templateNames)
+	}
 	endDate := ""
 	if p.EndDate != nil {
 		endDate = p.EndDate.Format("2006-01-02")
@@ -114,8 +118,9 @@ func (s *PlanService) toItem(p *model.InspectionPlan) gin.H {
 		"name": p.Name, "patrol_type": p.PatrolType, "point_count": pointCount,
 		"cycle_type": p.CycleType, "cycle_config": p.CycleConfig,
 		"inspector_ids": p.InspectorIDs, "inspector_names": inspectorNames,
+		"template_ids": p.TemplateIDs, "template_names": templateNames,
 		"start_date": p.StartDate.Format("2006-01-02"), "end_date": endDate,
-		"time_window": p.TimeWindow, "status": sysmodel.StatusInt(p.Status),
+		"time_window": model.PlanDefaultWindow(p), "status": sysmodel.StatusInt(p.Status),
 		"selection_mode": p.SelectionMode, "point_types": p.PointTypes,
 		"assign_mode": p.AssignMode,
 		"plan_kind":   p.PlanKind, "spotcheck_config": p.SpotcheckConfig,
@@ -198,6 +203,10 @@ func (s *PlanService) Create(c *gin.Context, req *dto.PlanSaveReq) (string, *err
 	if be != nil {
 		return "", be
 	}
+	templateIDs, be := s.validateTemplateSelection(req, middleware.CommunityTenantID(s.db, req.CommunityID))
+	if be != nil {
+		return "", be
+	}
 	status := sysmodel.StatusEnabled
 	if req.Status != nil {
 		status = sysmodel.StatusStr(*req.Status)
@@ -212,12 +221,12 @@ func (s *PlanService) Create(c *gin.Context, req *dto.PlanSaveReq) (string, *err
 		Name:         req.Name,
 		PatrolType:   patrolType,
 		PointIDs:     req.PointIDs,
+		TemplateIDs:  templateIDs,
 		CycleType:    req.CycleType,
 		CycleConfig:  cfg,
 		InspectorIDs: req.InspectorIDs,
 		StartDate:    start,
 		EndDate:      end,
-		TimeWindow:   req.TimeWindow,
 		Status:       status,
 		Remark:       req.Remark,
 	}
@@ -257,6 +266,10 @@ func (s *PlanService) Update(c *gin.Context, id string, req *dto.PlanSaveReq) *e
 	if be != nil {
 		return be
 	}
+	templateIDs, be := s.validateTemplateSelection(req, tenantID)
+	if be != nil {
+		return be
+	}
 	cfg := types.JSONMap(req.CycleConfig)
 	if cfg == nil {
 		cfg = types.JSONMap{}
@@ -269,9 +282,9 @@ func (s *PlanService) Update(c *gin.Context, id string, req *dto.PlanSaveReq) *e
 	planKind, spotCfg := planKindOf(req)
 	updates := map[string]any{
 		"tenant_id": tenantID, "community_id": req.CommunityID, "name": req.Name, "patrol_type": patrolType,
-		"point_ids": types.IDArray(req.PointIDs), "cycle_type": req.CycleType,
+		"point_ids": types.IDArray(req.PointIDs), "template_ids": templateIDs, "cycle_type": req.CycleType,
 		"cycle_config": cfg, "inspector_ids": types.IDArray(req.InspectorIDs),
-		"start_date": start, "end_date": end, "time_window": req.TimeWindow, "remark": req.Remark,
+		"start_date": start, "end_date": end, "remark": req.Remark,
 		"selection_mode": selectionMode, "point_types": types.StringArray(pointTypes),
 		"assign_mode": assignMode, "plan_kind": planKind, "spotcheck_config": spotCfg,
 	}
@@ -290,8 +303,9 @@ func (s *PlanService) Update(c *gin.Context, id string, req *dto.PlanSaveReq) *e
 		}
 	}
 	p.TenantID, p.CommunityID, p.Name, p.PatrolType = tenantID, req.CommunityID, req.Name, patrolType
-	p.PointIDs, p.CycleType, p.CycleConfig, p.InspectorIDs = types.IDArray(req.PointIDs), req.CycleType, cfg, types.IDArray(req.InspectorIDs)
-	p.StartDate, p.EndDate, p.TimeWindow, p.Remark = start, end, req.TimeWindow, req.Remark
+	p.PointIDs, p.TemplateIDs = types.IDArray(req.PointIDs), templateIDs
+	p.CycleType, p.CycleConfig, p.InspectorIDs = req.CycleType, cfg, types.IDArray(req.InspectorIDs)
+	p.StartDate, p.EndDate, p.Remark = start, end, req.Remark
 	p.SelectionMode, p.PointTypes = selectionMode, types.StringArray(pointTypes)
 	p.AssignMode = assignMode
 	p.PlanKind, p.SpotcheckConfig = planKind, spotCfg
@@ -335,9 +349,8 @@ func (s *PlanService) syncActiveTasks(tx *gorm.DB, p *model.InspectionPlan) erro
 	for i := range tasks {
 		task := &tasks[i]
 		updates := map[string]any{
-			"tenant_id":    p.TenantID,
-			"community_id": p.CommunityID,
-			"patrol_type":  p.PatrolType,
+			"tenant_id": p.TenantID, "community_id": p.CommunityID,
+			"patrol_type": p.PatrolType, "template_ids": p.TemplateIDs,
 		}
 		if p.PlanKind == model.PlanKindSpotcheck {
 			// 抽查任务：point_ids 是生成时的抽样快照，不随计划点位名单全量重铺；仅按最新配置刷新期限
@@ -358,13 +371,16 @@ func (s *PlanService) syncActiveTasks(tx *gorm.DB, p *model.InspectionPlan) erro
 			updates["done_points"] = donePoints
 		}
 		if task.RoundName == "" || task.RoundName == model.SpotRoundName {
-			updates["time_window"] = p.TimeWindow
+			updates["time_window"] = model.PlanDefaultWindow(p)
 		} else if window, ok := roundWindows[task.RoundName]; ok {
 			updates["time_window"] = window
 		}
 		if err := tx.Model(&model.InspectionTask{}).
 			Where("id = ? AND status IN ?", task.ID, activeTaskStatuses).
 			Updates(updates).Error; err != nil {
+			return err
+		}
+		if err := SyncTaskProjection(tx, task.ID); err != nil {
 			return err
 		}
 	}
@@ -384,8 +400,19 @@ func (s *PlanService) Delete(c *gin.Context, id string) *errs.Error {
 		if err := tx.Delete(&p).Error; err != nil {
 			return err
 		}
-		// 未开始任务一并取消（软删）
-		return tx.Where("plan_id = ? AND status = ?", id, model.TaskPending).Delete(&model.InspectionTask{}).Error
+		var taskIDs []string
+		if err := tx.Model(&model.InspectionTask{}).Where("plan_id = ? AND status = ?", id, model.TaskPending).Pluck("id", &taskIDs).Error; err != nil {
+			return err
+		}
+		if err := tx.Where("plan_id = ? AND status = ?", id, model.TaskPending).Delete(&model.InspectionTask{}).Error; err != nil {
+			return err
+		}
+		for _, taskID := range taskIDs {
+			if err := DeleteTaskProjection(tx, taskID); err != nil {
+				return err
+			}
+		}
+		return nil
 	})
 	if err != nil {
 		return errs.ErrInternal
@@ -466,9 +493,8 @@ func (s *PlanService) validate(req *dto.PlanSaveReq) (time.Time, *time.Time, *er
 	if req.PlanKind == model.PlanKindSpotcheck && req.CycleType != "monthly" {
 		return start, nil, errs.ErrPlanCycleInvalid.WithMsg("抽查计划仅支持 monthly 周期")
 	}
-	// 时段：配了轮次以各轮次 window 为准，顶层 time_window 可留空；未配轮次维持必填
-	if req.TimeWindow == "" && len(rounds) == 0 {
-		return start, nil, errs.ErrParam.WithMsg("time_window 格式应为 HH:MM-HH:MM")
+	if len(rounds) == 0 {
+		return start, nil, errs.ErrPlanCycleInvalid.WithMsg("cycle_config.rounds 至少需要一个执行时段")
 	}
 	// 点位均分（split）仅 weekly/monthly 合法（daily 无执行日集合可切分）；
 	// 与轮次互斥：轮次按天全量巡更，均分按周期切块，语义冲突
@@ -476,17 +502,8 @@ func (s *PlanService) validate(req *dto.PlanSaveReq) (time.Time, *time.Time, *er
 		if req.CycleType == "daily" {
 			return start, nil, errs.ErrPlanCycleInvalid.WithMsg("每天周期不支持按日均分（每天本身即全量重复）")
 		}
-		if len(rounds) > 0 {
-			return start, nil, errs.ErrPlanCycleInvalid.WithMsg("按日均分与轮次设置不能同时使用")
-		}
-	}
-	if req.TimeWindow != "" {
-		if !timeWindowRe.MatchString(req.TimeWindow) {
-			return start, nil, errs.ErrParam.WithMsg("time_window 格式应为 HH:MM-HH:MM")
-		}
-		// 起止相等非法（规则表 #8；全天请配 00:00-23:59），跨零点（如 19:00-07:00）保持合法
-		if req.TimeWindow[:5] == req.TimeWindow[6:] {
-			return start, nil, errs.ErrParam.WithMsg("time_window 起止时刻不能相等（全天请配 00:00-23:59）")
+		if len(rounds) > 1 || len(rounds) == 1 && rounds[0].Name != "" {
+			return start, nil, errs.ErrPlanCycleInvalid.WithMsg("按日均分与多轮巡更不能同时使用")
 		}
 	}
 	// 周期细则校验（43003）
@@ -553,19 +570,19 @@ func (s *PlanService) validate(req *dto.PlanSaveReq) (time.Time, *time.Time, *er
 	return start, end, nil
 }
 
-// validateRounds 轮次配置校验：仅 daily/weekly 允许配轮次；每轮 name 1-32 字、
+// validateRounds 单无名轮次仅承载执行时段，适用于所有周期；多轮巡更限 daily/weekly 且每轮命名。
 // window 须为 HH:MM-HH:MM（允许跨零点，任务日期归属开始时刻所在日；起止相等拒绝）、当天内不重名。
 func validateRounds(cycleType string, rounds []model.Round) *errs.Error {
 	if len(rounds) == 0 {
 		return nil
 	}
-	if cycleType != "daily" && cycleType != "weekly" {
-		return errs.ErrPlanCycleInvalid.WithMsg("仅 daily/weekly 周期支持轮次（rounds）")
+	if len(rounds) > 1 && cycleType != "daily" && cycleType != "weekly" {
+		return errs.ErrPlanCycleInvalid.WithMsg("monthly 周期只支持一个执行时段，多轮巡更限 daily/weekly")
 	}
 	seen := map[string]bool{}
 	for _, r := range rounds {
-		if n := utf8.RuneCountInString(r.Name); n < 1 || n > 32 {
-			return errs.ErrPlanCycleInvalid.WithMsg("轮次名称须为 1-32 字")
+		if n := utf8.RuneCountInString(r.Name); n > 32 || n == 0 && len(rounds) > 1 {
+			return errs.ErrPlanCycleInvalid.WithMsg("单轮名称可留空，多轮名称须为 1-32 字")
 		}
 		// window 可空 = 自由时段（只考核轮次次数，不限定执行时段；逾期判定回落任务日终）
 		if r.Window != "" {
@@ -719,11 +736,12 @@ func (s *PlanService) GenerateForDate(ctx context.Context, date time.Time) (int,
 				}
 				timeWindow := rd.Window
 				if timeWindow == "" {
-					timeWindow = p.TimeWindow
+					timeWindow = model.PlanDefaultWindow(p)
 				}
 				task := model.InspectionTask{
 					TenantID:    p.TenantID, // 冗余列随计划快照（=所属小区租户）
 					PlanID:      p.ID,
+					TemplateIDs: p.TemplateIDs,
 					CommunityID: p.CommunityID,
 					InspectorID: inspectorID,
 					PatrolType:  p.PatrolType, // 巡查类型随任务快照，计划更新会同步未完成任务
@@ -736,6 +754,9 @@ func (s *PlanService) GenerateForDate(ctx context.Context, date time.Time) (int,
 				}
 				if err := s.db.Create(&task).Error; err != nil {
 					continue // uk_task_plan_date_inspector（含轮次维度）兜底，冲突即跳过
+				}
+				if err := SyncTaskProjection(s.db, task.ID); err != nil {
+					return 0, 0, errs.ErrInternal
 				}
 				created++
 			}
@@ -814,14 +835,24 @@ func (s *PlanService) PreviewPoints(c *gin.Context, communityID, pointTypes stri
 func (s *PlanService) FlipOverdue() (int64, error) {
 	now := time.Now()
 	var tasks []model.InspectionTask
-	if err := s.db.Select("id", "community_id", "inspector_id", "task_date", "time_window", "patrol_type", "round_name", "due_date").
+	if err := s.db.Select("id", "community_id", "inspector_id", "task_date", "time_window", "patrol_type", "round_name", "due_date", "point_ids", "done_points", "total_points").
 		Where("task_date <= ? AND status IN ?", now.Format("2006-01-02"), []string{model.TaskPending, model.TaskDoing}).
 		Find(&tasks).Error; err != nil {
 		return 0, err
 	}
-	// 内存过滤到期任务（含当天窗口已过的任务；未来任务天然不命中）
+	candidateIDs := make([]string, 0, len(tasks))
+	for i := range tasks {
+		candidateIDs = append(candidateIDs, tasks[i].ID)
+	}
+	blockedCounts, err := TaskBlockedPointCounts(s.db, candidateIDs)
+	if err != nil {
+		return 0, err
+	}
 	due := make([]model.InspectionTask, 0, len(tasks))
 	for _, t := range tasks {
+		if t.DonePoints >= t.TotalPoints-blockedCounts[t.ID] {
+			continue
+		}
 		// 抽查任务：due_date 次日零点起才算逾期（期限前跳过，日常任务 due_date 为空不受影响）
 		if t.DueDate != nil && now.Before(dateOnly(*t.DueDate).AddDate(0, 0, 1)) {
 			continue
@@ -842,6 +873,11 @@ func (s *PlanService) FlipOverdue() (int64, error) {
 	if res.Error != nil {
 		return 0, res.Error
 	}
+	for _, id := range ids {
+		if err := SyncTaskProjection(s.db, id); err != nil {
+			return 0, err
+		}
+	}
 	lineStats := map[string]int{} // 小区|巡查类型 → 逾期数
 	for _, t := range tasks {
 		round := ""
@@ -857,8 +893,7 @@ func (s *PlanService) FlipOverdue() (int64, error) {
 	for key, n := range lineStats {
 		parts := strings.SplitN(key, "|", 2)
 		cid, patrolType := parts[0], parts[1]
-		slot := sysmodel.SlotPatrolReportLine
-		_ = s.notifier.SendBatch(communitysvc.SlotUserIDs(s.db, cid, slot), middleware.CommunityTenantID(s.db, cid), "task",
+		_ = s.notifier.SendBatch(communitysvc.RoleCandidateUserIDsForCommunity(s.db, cid, sysmodel.QualitySupervisorCode), middleware.CommunityTenantID(s.db, cid), "task",
 			"巡查任务逾期提醒",
 			fmt.Sprintf("截至昨日，本项目%s有 %d 个巡查任务逾期未巡，请跟进督办。", s.patrolLineName(patrolType), n),
 			nil)

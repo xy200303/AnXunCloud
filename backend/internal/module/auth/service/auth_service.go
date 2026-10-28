@@ -251,7 +251,7 @@ func (s *AuthService) KillUserSessions(ctx context.Context, userID string) {
 // Info 当前用户信息 + 权限点集合。
 func (s *AuthService) Info(identity *middleware.Identity) (*dto.InfoResp, *errs.Error) {
 	var user model.SysUser
-	if err := s.db.Select("id", "username", "name", "phone", "avatar", "openid", "is_builtin", "role_ids", "tenant_id", "last_login_at", "created_at").
+	if err := s.db.Select("id", "username", "name", "phone", "avatar", "openid", "is_builtin", "role_id", "tenant_id", "last_login_at", "created_at").
 		First(&user, "id = ?", identity.UserID).Error; err != nil {
 		return nil, errs.ErrUnauthorized
 	}
@@ -265,15 +265,15 @@ func (s *AuthService) Info(identity *middleware.Identity) (*dto.InfoResp, *errs.
 		projects = append(projects, dto.ProjectBrief{ID: pid})
 	}
 	resp := &dto.InfoResp{
-		ID:        user.ID,
-		Username:  user.Username,
-		Name:      user.Name,
-		Phone:     user.Phone,
-		Avatar:    user.Avatar,
-		Projects:  projects,
-		DataScope: model.ScopeProject,
-		Roles:     []dto.RoleBrief{},
-		Perms:     []string{},
+		ID:         user.ID,
+		Username:   user.Username,
+		Name:       user.Name,
+		Phone:      user.Phone,
+		Avatar:     user.Avatar,
+		Projects:   projects,
+		ScopeLevel: model.ScopeProject,
+		Roles:      []dto.RoleBrief{},
+		Perms:      []string{},
 	}
 	// 所属公司（租户名）与在职编制（小区 + 岗位名），个人中心展示用
 	if user.TenantID != "" {
@@ -294,9 +294,7 @@ func (s *AuthService) Info(identity *middleware.Identity) (*dto.InfoResp, *errs.
 		}
 	}
 	if identity.DataScopeAll {
-		resp.DataScope = model.ScopeAll
-	} else if identity.ScopeSelf {
-		resp.DataScope = model.ScopeSelf
+		resp.ScopeLevel = model.ScopeTenant
 	}
 	if user.Openid != nil {
 		resp.Openid = *user.Openid
@@ -312,11 +310,11 @@ func (s *AuthService) Info(identity *middleware.Identity) (*dto.InfoResp, *errs.
 		Order("created_at DESC").First(&lastLog).Error; err == nil {
 		resp.LastLoginIP = lastLog.IP
 	}
-	if len(user.RoleIDs) > 0 {
-		var roles []model.SysRole
-		s.db.Select("id", "code", "name").Where("id IN ? AND status = ?", []string(user.RoleIDs), model.StatusEnabled).Find(&roles)
-		for _, r := range roles {
-			resp.Roles = append(resp.Roles, dto.RoleBrief{ID: r.ID, Code: r.Code, Name: r.Name})
+	if user.RoleID != nil {
+		var role model.SysRole
+		if err := s.db.First(&role, "id = ? AND status = ?", *user.RoleID, model.StatusEnabled).Error; err == nil {
+			resp.Roles = append(resp.Roles, dto.RoleBrief{ID: role.ID, Code: role.Code, Name: role.Name})
+			resp.ScopeLevel = role.ScopeLevel
 		}
 	}
 	for p := range identity.Perms {
@@ -431,8 +429,8 @@ func (s *AuthService) issueTokens(ctx context.Context, user *model.SysUser, chan
 		return nil, errs.ErrInternal
 	}
 	var roles []string
-	if len(user.RoleIDs) > 0 {
-		s.db.Model(&model.SysRole{}).Where("id IN ?", []string(user.RoleIDs)).Pluck("code", &roles)
+	if user.RoleID != nil {
+		s.db.Model(&model.SysRole{}).Where("id = ?", *user.RoleID).Pluck("code", &roles)
 	}
 	err = s.sess.Save(ctx, channel, user.ID, session.Info{
 		TokenID:   accessJTI,
@@ -630,44 +628,18 @@ func (s *AuthService) staffBriefs(user model.SysUser) []dto.StaffBrief {
 			commNames[cm.ID] = cm.Name
 		}
 	}
-	// 岗位 code → 名称（租户字典优先，平台模板回落）
-	codes := map[string]bool{}
-	for _, r := range rows {
-		for _, c := range r.Posts {
-			codes[c] = true
-		}
-	}
-	postNames := map[string]string{}
-	if len(codes) > 0 {
-		codeList := make([]string, 0, len(codes))
-		for c := range codes {
-			codeList = append(codeList, c)
-		}
-		var posts []model.PostDict
-		q := s.db.Select("code", "name").Where("code IN ?", codeList)
-		if user.TenantID != "" {
-			q = q.Where("tenant_id = ? OR tenant_id IS NULL", user.TenantID)
-		}
-		if err := q.Order("tenant_id ASC").Find(&posts).Error; err == nil {
-			for _, p := range posts { // 租户行（tenant_id 非空）后扫到则覆盖平台模板名
-				postNames[p.Code] = p.Name
-			}
+	roleName := ""
+	if user.RoleID != nil {
+		var role model.SysRole
+		if err := s.db.Select("name").First(&role, "id = ?", *user.RoleID).Error; err == nil {
+			roleName = role.Name
 		}
 	}
 	out := make([]dto.StaffBrief, 0, len(rows))
 	for _, r := range rows {
-		names := make([]string, 0, len(r.Posts))
-		for _, c := range r.Posts {
-			if n, ok := postNames[c]; ok {
-				names = append(names, n)
-			} else {
-				names = append(names, c)
-			}
-		}
 		out = append(out, dto.StaffBrief{
-			CommunityID:   r.ProjectID,
-			CommunityName: commNames[r.ProjectID],
-			PostNames:     names,
+			CommunityID: r.ProjectID, CommunityName: commNames[r.ProjectID],
+			PostNames: []string{roleName},
 		})
 	}
 	return out

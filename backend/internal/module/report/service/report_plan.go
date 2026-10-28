@@ -2,6 +2,7 @@ package service
 
 import (
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -100,8 +101,7 @@ func (s *ReportService) RunDueReportPlans(now time.Time) (int, error) {
 		_, be := s.createReport(p.CommunityID, p.PatrolType, start, end, label, nil, nil, &p.ID, detailModeOr(p.DetailMode))
 		upd := map[string]any{"last_period": label, "last_error": ""}
 		if be != nil {
-			// 已有同口径归档报告：视为本期已完成（记期间跳过）；其他错误记录待下轮重试
-			if be == errs.ErrReportApproved {
+			if be.Code == errs.ErrConflict.Code && strings.Contains(be.Msg, "同期间报告已存在") {
 				s.db.Model(p).Updates(upd)
 				continue
 			}

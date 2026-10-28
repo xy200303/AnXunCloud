@@ -19,23 +19,15 @@ type CommunitySaveReq struct {
 	Remark    string  `json:"remark"`
 }
 
-// StaffSaveReq 项目编制成员新增/修改（posts 引用 post_dict.code；building_ids 仅楼管员用）。
+// StaffSaveReq 任职：角色取用户唯一角色，责任楼栋只用于分派筛选。
 type StaffSaveReq struct {
-	UserID      string   `json:"user_id" binding:"required"`
-	Posts       []string `json:"posts" binding:"required,min=1"`
-	BuildingIDs []string `json:"building_ids"`
-	Status      *int     `json:"status"`
-}
-
-// DutyBindingItem 单条槽位绑定（post_codes 空数组 = 该环节跳过/降级）。
-type DutyBindingItem struct {
-	Slot      string   `json:"slot" binding:"required"`
-	PostCodes []string `json:"post_codes"`
-}
-
-// DutyBindingsSaveReq 项目级职责槽位绑定整体保存（覆盖项目级配置）。
-type DutyBindingsSaveReq struct {
-	Bindings []DutyBindingItem `json:"bindings" binding:"required"`
+	UserID         string   `json:"user_id" binding:"required"`
+	BuildingIDs    []string `json:"building_ids"`
+	EffectiveFrom  *string  `json:"effective_from"`
+	EffectiveTo    *string  `json:"effective_to"`
+	DelegateUserID *string  `json:"delegate_user_id"`
+	DelegateUntil  *string  `json:"delegate_until"`
+	Status         *int     `json:"status"`
 }
 
 type BuildingListQuery struct {

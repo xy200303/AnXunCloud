@@ -77,9 +77,9 @@ func LastVerifiedMap(db *gorm.DB, equipmentIDs []string) map[string]time.Time {
 		LastAt      time.Time `gorm:"column:last_at"`
 	}
 	db.Model(&insmodel.CheckinRecordItem{}).
-		Select("judge_config->>'equipment_id' AS equipment_id, MAX(created_at) AS last_at").
-		Where("judge_type = ? AND result = ?", "equipment_date_spot", insmodel.ItemResultNormal).
-		Where("judge_config->>'equipment_id' IN ?", equipmentIDs).
+		Select("equipment_id, MAX(created_at) AS last_at").
+		Where("builtin_kind = ? AND result = ?", insmodel.BuiltinEquipmentDateSpot, insmodel.ItemResultNormal).
+		Where("equipment_id IN ?", equipmentIDs).
 		Group("equipment_id").Scan(&spotRows)
 	for _, r := range spotRows {
 		t := timefmt.Day(r.LastAt)

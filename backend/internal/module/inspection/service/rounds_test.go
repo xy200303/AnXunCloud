@@ -26,7 +26,7 @@ func TestPlanRounds(t *testing.T) {
 	}
 }
 
-// TestValidateRounds 轮次校验：monthly 拒绝、名称长度/重复、window 格式、跨零点放行。
+// TestValidateRounds 单轮执行时段与多轮巡更的周期、名称、window 校验。
 func TestValidateRounds(t *testing.T) {
 	ok := []model.Round{{Name: "早班-1", Window: "08:00-10:00"}, {Name: "夜班", Window: "22:00-02:00"}}
 	if be := validateRounds("daily", ok); be != nil {
@@ -36,7 +36,13 @@ func TestValidateRounds(t *testing.T) {
 		t.Fatalf("weekly+合法 rounds 应通过: %v", be)
 	}
 	if be := validateRounds("monthly", ok); be == nil {
-		t.Fatal("monthly+rounds 应报参数错误")
+		t.Fatal("monthly+多轮巡更应报参数错误")
+	}
+	if be := validateRounds("monthly", []model.Round{{Window: "08:00-18:00"}}); be != nil {
+		t.Fatalf("monthly+单无名执行时段应通过: %v", be)
+	}
+	if be := validateRounds("daily", []model.Round{{Window: "08:00-10:00"}, {Window: "11:00-13:00"}}); be == nil {
+		t.Fatal("多个无名轮次应报参数错误")
 	}
 	if be := validateRounds("daily", []model.Round{{Name: strings.Repeat("巡", 33), Window: "08:00-10:00"}}); be == nil {
 		t.Fatal("轮次名称超过 32 字应报参数错误")

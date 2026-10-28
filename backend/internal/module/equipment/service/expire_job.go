@@ -98,7 +98,7 @@ func (s *ExpireService) ScanExpiring(now time.Time) (int, error) {
 			tenantIDs = append(tenantIDs, tid)
 		}
 	}
-	staffByTenant := s.userIDsByRolesBatch(tenantIDs, []string{sysmodel.FieldStaffCode, sysmodel.ProjectAdminCode})
+	staffByTenant := s.userIDsByRolesBatch(tenantIDs, []string{sysmodel.MaintainerCode, sysmodel.EngineerSupervisorCode, sysmodel.ProjectManagerCode})
 	adminByTenant := s.userIDsByRolesBatch(tenantIDs, []string{sysmodel.TenantAdminCode})
 	notified := 0
 	for i := range rows {
@@ -181,7 +181,7 @@ func (s *ExpireService) scanScrap(now time.Time, intervalDays int) (int, error) 
 		}
 		title := "设备报废提醒"
 		content := fmt.Sprintf("设备「%s（%s）」已过报废日期（%s），请立即停用并安排更换。", e.Name, e.Code, dateStr(e.ScrapDate))
-		recipients := s.userIDsByRoles(*e.TenantID, []string{sysmodel.FieldStaffCode, sysmodel.ProjectAdminCode})
+		recipients := s.userIDsByRoles(*e.TenantID, []string{sysmodel.MaintainerCode, sysmodel.EngineerSupervisorCode, sysmodel.ProjectManagerCode})
 		if len(recipients) > 0 {
 			if err := s.notifier.SendBatch(recipients, e.TenantID, MsgTypeScrap, title, content, &e.ID); err != nil {
 				logger.L.Warn("设备报废提醒发送失败", zap.String("equipment_id", e.ID), zap.Error(err))
@@ -213,17 +213,9 @@ func UserIDsByRoleCodes(db *gorm.DB, tenantID string, roleCodes []string) []stri
 	if len(roleIDs) == 0 {
 		return nil
 	}
-	// role_ids 为 jsonb 数组：任一角色命中即可
-	conds := make([]string, 0, len(roleIDs))
-	args := make([]any, 0, len(roleIDs))
-	for _, rid := range roleIDs {
-		conds = append(conds, "role_ids @> ?::jsonb")
-		args = append(args, fmt.Sprintf(`["%s"]`, rid))
-	}
 	var userIDs []string
 	db.Model(&sysmodel.SysUser{}).
-		Where("tenant_id = ? AND status = ?", tenantID, sysmodel.StatusEnabled).
-		Where(strings.Join(conds, " OR "), args...).
+		Where("tenant_id = ? AND status = ? AND role_id IN ?", tenantID, sysmodel.StatusEnabled, roleIDs).
 		Pluck("id", &userIDs)
 	return userIDs
 }
@@ -260,21 +252,13 @@ func (s *ExpireService) userIDsByRolesBatch(tenantIDs []string, roleCodes []stri
 	if len(roleIDs) == 0 {
 		return out
 	}
-	// role_ids 为 jsonb 数组：任一角色命中即可
-	conds := make([]string, 0, len(roleIDs))
-	args := make([]any, 0, len(roleIDs))
-	for _, rid := range roleIDs {
-		conds = append(conds, "role_ids @> ?::jsonb")
-		args = append(args, fmt.Sprintf(`["%s"]`, rid))
-	}
 	var rows []struct {
 		TenantID string
 		ID       string
 	}
 	s.db.Model(&sysmodel.SysUser{}).
 		Select("tenant_id", "id").
-		Where("tenant_id IN ? AND status = ?", tenantIDs, sysmodel.StatusEnabled).
-		Where(strings.Join(conds, " OR "), args...).
+		Where("tenant_id IN ? AND status = ? AND role_id IN ?", tenantIDs, sysmodel.StatusEnabled, roleIDs).
 		Scan(&rows)
 	for _, r := range rows {
 		out[r.TenantID] = append(out[r.TenantID], r.ID)

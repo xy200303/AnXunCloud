@@ -16,6 +16,7 @@ import (
 	"anxuncloud/internal/module/inspection/dto"
 	"anxuncloud/internal/module/inspection/model"
 	sysmodel "anxuncloud/internal/module/system/model"
+	workordersvc "anxuncloud/internal/module/workorder/service"
 	"anxuncloud/internal/pkg/ai"
 	"anxuncloud/internal/pkg/configread"
 	"anxuncloud/internal/pkg/errs"
@@ -40,13 +41,22 @@ type ReviewService struct {
 	aiCli *ai.Client
 	// checkinAIGate 打卡 AI 闸门回调（mp 模块装配注入；人工环节推进到 AI 环节时触发），为 nil 跳过（记录停 AI 环节等人工兜底）。
 	checkinAIGate func(recID string)
-	store         *storage.Storage // 可空；逐项照片 file_id 转 URL 用
-	notifier      *notify.Notifier
+	orderSink     interface {
+		CreateFromInspection(tx *gorm.DB, req workordersvc.CreateFromInspectionReq) error
+	}
+	store    *storage.Storage // 可空；逐项照片 file_id 转 URL 用
+	notifier *notify.Notifier
 }
 
 // BindCheckinAIGate 注入打卡 AI 闸门回调（router 装配：mp.CheckinService.RunAIGate）。
 func (s *ReviewService) BindCheckinAIGate(gate func(recID string)) {
 	s.checkinAIGate = gate
+}
+
+func (s *ReviewService) BindWorkOrderSink(sink interface {
+	CreateFromInspection(tx *gorm.DB, req workordersvc.CreateFromInspectionReq) error
+}) {
+	s.orderSink = sink
 }
 
 func NewReviewService(db *gorm.DB, notifier *notify.Notifier) *ReviewService {
@@ -106,11 +116,13 @@ func (s *ReviewService) scopeQuery(c *gin.Context, auditStatus, communityID, ins
 	if db, be = timeRangeOn(db, "checkin_time", startTime, endTime); be != nil {
 		return nil, be
 	}
-	return middleware.ApplyCommunityFilter(db, c, "checkin_record.community_id"), nil
+	db = middleware.ApplyCommunityFilter(db, c, "checkin_record.community_id")
+	if identity := middleware.CurrentIdentity(c); identity != nil && identity.ScopeSelf {
+		db = db.Where("checkin_record.inspector_id = ? OR checkin_record.id IN (?)", identity.UserID, communitysvc.CandidateCheckinRecordIDs(s.db, identity))
+	}
+	return db, nil
 }
 
-// Pass 审核通过当前环节（审批链按链执行，扩展方案 §3）：
-// 操作者须在当前环节槽位名单内；非末环节通过后推进到下一环节并通知下一环节名单，末环节通过才置 pass。
 func (s *ReviewService) Pass(c *gin.Context, id string) *errs.Error {
 	r, be := s.loadPending(c, id)
 	if be != nil {
@@ -118,48 +130,44 @@ func (s *ReviewService) Pass(c *gin.Context, id string) *errs.Error {
 	}
 	flow := communitysvc.FlowOrResolve(s.db, r.FlowSnapshot, r.CommunityID, sysmodel.FlowCheckinReview)
 	stepIdx := int(r.AuditStep)
-	// 越界保险丝：流程已变短/空流程兜底单（audit_step 超出现行链长度）→ 汇报线名单处置，通过即整单生效
-	overEnd := stepIdx >= len(flow)
-	stepName := "主管审核"
-	slot := sysmodel.SlotPatrolReportLine
-	// 走链起点：正常从下一环节起；当前环节名单为空（在途自愈）时从本环节起走（本环节按自动跳过处理）
-	walkStart := stepIdx + 1
-	if !overEnd {
-		step := flow[stepIdx]
-		stepName = step.Name
-		if step.Kind != sysmodel.FlowStepKindAI {
-			slot = step.Slot
-			// 在途自愈：当前人工环节名单为空（改配置/清空编制导致卡死）→ 授权回落汇报线，走链从本环节起自动跳过
-			if len(communitysvc.SlotUserIDs(s.db, r.CommunityID, slot)) == 0 {
-				slot = sysmodel.SlotPatrolReportLine
-				walkStart = stepIdx
-			}
-		}
-		// AI 环节停放记录（闸门无下游/兜底）：slot 保持汇报线兜底
+	if stepIdx >= len(flow) {
+		return errs.ErrConflict.WithMsg("审批环节无效，请修复审批链")
 	}
-	if !communitysvc.SlotAuthorized(s.db, r.CommunityID, slot, middleware.CurrentIdentity(c)) {
-		return errs.ErrNotInSlot.WithMsg("当前用户不在「" + stepName + "」环节授权名单内")
+	step := flow[stepIdx]
+	if step.Kind == sysmodel.FlowStepKindAI || !communitysvc.RoleCandidateAuthorized(s.db, []string{r.CommunityID}, step.RoleCode, middleware.CurrentIdentity(c)) {
+		return errs.ErrNotInSlot.WithMsg("当前用户不是该审批节点的候选人")
+	}
+	by := middleware.CurrentUserID(c)
+	if communitysvc.SameNaturalPerson(s.db, by, r.InspectorID) {
+		return errs.ErrNoPerm.WithMsg("不能审核本人提交的记录")
+	}
+	walk := communitysvc.WalkFlowWithVoters(s.db, r.CommunityID, flow, stepIdx+1, "", false)
+	if walk.Blocked {
+		communitysvc.NotifyBlockedFlowSteps(s.db, s.notifier, r.TenantID, "打卡审核", walk.BlockedSteps, &r.ID)
+		return errs.ErrConflict.WithMsg("后续审批节点缺少候选人，已挂起")
 	}
 	now := time.Now()
-	by := middleware.CurrentUserID(c)
-	// 空名单自动跳过走链：从 walkStart 起找可落定的环节（人工环节名单为空自动跳过）
-	walk := communitysvc.WalkFlowWithVoters(s.db, r.CommunityID, flow, walkStart, "", false)
-	if overEnd || walk.Finish { // 末环节/越界兜底/后续无非空名单人工环节 → 审核通过
-		updates := map[string]any{
-			"audit_status": model.AuditPass, "audit_step": walk.Step,
-			"audit_by": by, "audit_at": now, "audit_remark": "",
-		}
-		res := s.db.Model(&model.CheckinRecord{}).Where("id = ? AND audit_status = ? AND audit_step = ?", r.ID, model.AuditPending, stepIdx).Updates(updates)
-		if res.Error != nil {
+	if walk.Finish {
+		err := s.db.Transaction(func(tx *gorm.DB) error {
+			res := tx.Model(&model.CheckinRecord{}).Where("id = ? AND audit_status = ? AND audit_step = ?", r.ID, model.AuditPending, stepIdx).
+				Updates(map[string]any{"audit_status": model.AuditPass, "audit_step": walk.Step,
+					"audit_by": by, "audit_at": now, "audit_remark": ""})
+			if res.Error != nil {
+				return res.Error
+			}
+			if res.RowsAffected != 1 {
+				return errs.ErrConflict.WithMsg("审核状态已被其他人更新")
+			}
+			return s.createApprovedWorkOrders(tx, r, by)
+		})
+		if err != nil {
+			if be, ok := err.(*errs.Error); ok {
+				return be
+			}
 			return errs.ErrInternal
 		}
-		if res.RowsAffected != 1 {
-			return errs.ErrConflict.WithMsg("审核状态已被其他人更新")
-		}
-		communitysvc.NotifySkippedFlowSteps(s.db, s.notifier, r.TenantID, "打卡审核", walk.Skipped, &r.ID)
 		return nil
 	}
-	// 推进到下一有效环节，保持 pending，定向通知环节名单
 	updates := map[string]any{"audit_step": walk.Step, "audit_by": by, "audit_at": now}
 	res := s.db.Model(&model.CheckinRecord{}).Where("id = ? AND audit_status = ? AND audit_step = ?", r.ID, model.AuditPending, stepIdx).Updates(updates)
 	if res.Error != nil {
@@ -168,29 +176,22 @@ func (s *ReviewService) Pass(c *gin.Context, id string) *errs.Error {
 	if res.RowsAffected != 1 {
 		return errs.ErrConflict.WithMsg("审核状态已被其他人更新")
 	}
-	communitysvc.NotifySkippedFlowSteps(s.db, s.notifier, r.TenantID, "打卡审核", walk.Skipped, &r.ID)
 	if walk.NeedGate || (walk.Step < len(flow) && flow[walk.Step].Kind == sysmodel.FlowStepKindAI) {
-		// 下一环节是 AI 闸门：触发异步判定路由（无结论现判；AI 不可用按存疑转下游/兜底）
 		if s.checkinAIGate != nil {
 			go s.checkinAIGate(r.ID)
 		}
 		return nil
 	}
 	next := flow[walk.Step]
-	ptName := pointName(s.db, r.PointID)
-	_ = s.notifier.SendBatch(communitysvc.SlotUserIDs(s.db, r.CommunityID, next.Slot), r.TenantID, "checkin_audit",
+	_ = s.notifier.SendBatch(communitysvc.RoleCandidateUserIDsForCommunity(s.db, r.CommunityID, next.RoleCode), r.TenantID, "checkin_audit",
 		"打卡记录待"+next.Name,
-		fmt.Sprintf("点位「%s」的打卡记录已通过「%s」，待您执行「%s」。", ptName, stepName, next.Name),
-		&r.ID)
+		fmt.Sprintf("点位「%s」的打卡记录已通过「%s」，待您执行「%s」。", pointName(s.db, r.PointID), step.Name, next.Name), &r.ID)
 	return nil
 }
 
-// requireReportLine 巡查汇报线名单校验（抽查/催办归口汇报线成员；超管/租户管理员默认放行）。
-// 汇报线只有通用槽位（维度槽位机制已拆除，三岗位极简模型）。
 func (s *ReviewService) requireReportLine(c *gin.Context, r *model.CheckinRecord) *errs.Error {
-	slot := sysmodel.SlotPatrolReportLine
-	if !communitysvc.SlotAuthorized(s.db, r.CommunityID, slot, middleware.CurrentIdentity(c)) {
-		return errs.ErrNotInSlot.WithMsg("当前用户不在本项目该巡查业务线的审核名单内")
+	if !communitysvc.RoleCandidateAuthorized(s.db, []string{r.CommunityID}, sysmodel.QualitySupervisorCode, middleware.CurrentIdentity(c)) {
+		return errs.ErrNotInSlot.WithMsg("当前用户不是打卡复核节点的候选人")
 	}
 	return nil
 }
@@ -208,82 +209,40 @@ func (s *ReviewService) requireReportLineForRecords(c *gin.Context, ids []string
 		Where("checkin_record.id IN ?", ids).
 		Distinct().Scan(&pairs)
 	for _, p := range pairs {
-		slot := sysmodel.SlotPatrolReportLine
-		if !communitysvc.SlotAuthorized(s.db, p.CommunityID, slot, middleware.CurrentIdentity(c)) {
-			return errs.ErrNotInSlot.WithMsg("当前用户不在本项目该巡查业务线的审核名单内")
+		if !communitysvc.RoleCandidateAuthorized(s.db, []string{p.CommunityID}, sysmodel.QualitySupervisorCode, middleware.CurrentIdentity(c)) {
+			return errs.ErrNotInSlot.WithMsg("当前用户不是打卡复核节点的候选人")
 		}
 	}
 	return nil
 }
 
-// BatchPass 批量审核通过（按链各推进一步：处于末环节的记录置 pass，其余进度 +1）。
-// 小区数据权限通过 ApplyCommunityFilter 收敛；返回 passed/advanced/skipped 计数。
 func (s *ReviewService) BatchPass(c *gin.Context, ids []string) (gin.H, *errs.Error) {
-	var recs []model.CheckinRecord
-	db := s.db.Where("id IN ? AND audit_status = ?", ids, model.AuditPending)
-	db = middleware.ApplyCommunityFilter(db, c, "checkin_record.community_id")
-	if err := db.Find(&recs).Error; err != nil {
-		return nil, errs.ErrInternal
-	}
-	// 逐条判定：可审的推进、不可审的跳过并报告原因（不再整批拒绝）
-	now := time.Now()
-	by := middleware.CurrentUserID(c)
-	identity := middleware.CurrentIdentity(c)
-	flows := map[string]types.FlowStepArray{} // community_id → 审批链
 	passed, advanced := 0, 0
-	skippedDetail := []gin.H{}
-	for i := range recs {
-		r := &recs[i]
-		flow, ok := flows[r.CommunityID]
-		if !ok {
-			flow = communitysvc.ResolveFlow(s.db, r.CommunityID, sysmodel.FlowCheckinReview)
-			flows[r.CommunityID] = flow
-		}
-		stepIdx := int(r.AuditStep)
-		if stepIdx >= len(flow) {
-			skippedDetail = append(skippedDetail, gin.H{"id": r.ID, "reason": "环节越界"})
+	skippedDetail := make([]gin.H, 0)
+	for _, id := range ids {
+		before, be := s.loadPending(c, id)
+		if be != nil {
+			skippedDetail = append(skippedDetail, gin.H{"id": id, "reason": be.Msg})
 			continue
 		}
-		step := flow[stepIdx]
-		slot := step.Slot
-		walkStart := stepIdx + 1
-		if step.Kind == sysmodel.FlowStepKindAI {
-			slot = sysmodel.SlotPatrolReportLine // AI 环节停放记录：汇报线兜底（与 Pass 同口径）
-		} else if len(communitysvc.SlotUserIDs(s.db, r.CommunityID, slot)) == 0 {
-			// 在途自愈：当前人工环节名单为空（改配置/清空编制导致卡死）→ 授权回落汇报线，走链从本环节起自动跳过
-			slot = sysmodel.SlotPatrolReportLine
-			walkStart = stepIdx
-		}
-		if !communitysvc.SlotAuthorized(s.db, r.CommunityID, slot, identity) {
-			skippedDetail = append(skippedDetail, gin.H{"id": r.ID, "reason": "不在「" + step.Name + "」环节授权名单内"})
+		previousStep := before.AuditStep
+		if be := s.Pass(c, id); be != nil {
+			skippedDetail = append(skippedDetail, gin.H{"id": id, "reason": be.Msg})
 			continue
 		}
-		// 空名单自动跳过走链：推进到下一有效环节；链尾无非空名单人工环节则整单通过
-		walk := communitysvc.WalkFlowWithVoters(s.db, r.CommunityID, flow, walkStart, "", false)
-		updates := map[string]any{"audit_step": walk.Step, "audit_by": by, "audit_at": now}
-		if walk.Finish {
-			updates["audit_status"] = model.AuditPass
-			updates["audit_remark"] = ""
-		}
-		// 并发下不覆盖人工已处理的记录
-		res := s.db.Model(&model.CheckinRecord{}).
-			Where("id = ? AND audit_status = ? AND audit_step = ?", r.ID, model.AuditPending, stepIdx).
-			Updates(updates)
-		if res.Error != nil {
+		var after model.CheckinRecord
+		if err := s.db.Select("audit_status", "audit_step").First(&after, "id = ?", id).Error; err != nil {
 			return nil, errs.ErrInternal
 		}
-		if res.RowsAffected != 1 {
-			skippedDetail = append(skippedDetail, gin.H{"id": r.ID, "reason": "已被其他人处理"})
-			continue
-		}
-		if walk.Finish {
+		if after.AuditStatus == model.AuditPass {
 			passed++
-		} else {
+		} else if after.AuditStep != previousStep {
 			advanced++
+		} else {
+			skippedDetail = append(skippedDetail, gin.H{"id": id, "reason": "审批已挂起"})
 		}
-		communitysvc.NotifySkippedFlowSteps(s.db, s.notifier, r.TenantID, "打卡审核", walk.Skipped, &r.ID)
 	}
-	return gin.H{"passed": passed, "advanced": advanced, "skipped": len(ids) - passed - advanced, "skipped_detail": skippedDetail}, nil
+	return gin.H{"passed": passed, "advanced": advanced, "skipped": len(skippedDetail), "skipped_detail": skippedDetail}, nil
 }
 
 // Reopen 撤销审核（pass/rejected → pending 且审批进度回 0，重新走完整链）：审核误操作的后悔药。
@@ -325,21 +284,18 @@ func (s *ReviewService) Reject(c *gin.Context, id, reason string) *errs.Error {
 	}
 	flow := communitysvc.FlowOrResolve(s.db, r.FlowSnapshot, r.CommunityID, sysmodel.FlowCheckinReview)
 	stepIdx := int(r.AuditStep)
-	// 越界保险丝（同 Pass）：流程变短/空流程兜底单 → 汇报线名单可打回
-	stepName := "主管审核"
-	slot := sysmodel.SlotPatrolReportLine
-	if stepIdx < len(flow) {
-		step := flow[stepIdx]
-		stepName = step.Name
-		if step.Kind != sysmodel.FlowStepKindAI {
-			slot = step.Slot
-		}
+	if stepIdx >= len(flow) {
+		return errs.ErrConflict.WithMsg("审批环节无效，请修复审批链")
 	}
-	if !communitysvc.SlotAuthorized(s.db, r.CommunityID, slot, middleware.CurrentIdentity(c)) {
-		return errs.ErrNotInSlot.WithMsg("当前用户不在「" + stepName + "」环节授权名单内")
+	step := flow[stepIdx]
+	by := middleware.CurrentUserID(c)
+	if step.Kind == sysmodel.FlowStepKindAI || !communitysvc.RoleCandidateAuthorized(s.db, []string{r.CommunityID}, step.RoleCode, middleware.CurrentIdentity(c)) {
+		return errs.ErrNotInSlot.WithMsg("当前用户不是该审批节点的候选人")
+	}
+	if communitysvc.SameNaturalPerson(s.db, by, r.InspectorID) {
+		return errs.ErrNoPerm.WithMsg("不能审核本人提交的记录")
 	}
 	now := time.Now()
-	by := middleware.CurrentUserID(c)
 	updates := map[string]any{
 		"audit_status": model.AuditRejected, "audit_by": by, "audit_at": now, "audit_remark": reason,
 	}
@@ -366,7 +322,10 @@ func (s *ReviewService) loadPending(c *gin.Context, id string) (*model.CheckinRe
 		return nil, errs.ErrNotFound
 	}
 	if be := middleware.CheckCommunity(s.db, c, r.CommunityID); be != nil {
-		return nil, be
+		flow := communitysvc.FlowOrResolve(s.db, r.FlowSnapshot, r.CommunityID, sysmodel.FlowCheckinReview)
+		if int(r.AuditStep) >= len(flow) || !communitysvc.RoleCandidateAuthorized(s.db, []string{r.CommunityID}, flow[r.AuditStep].RoleCode, middleware.CurrentIdentity(c)) {
+			return nil, be
+		}
 	}
 	if r.AuditStatus != model.AuditPending {
 		return nil, errs.ErrConflict.WithMsg("仅待审核（pending）记录可执行审核操作")
@@ -461,7 +420,7 @@ func (s *ReviewService) spotcheckAI(c *gin.Context, req *dto.SpotcheckReq) (gin.
 			updates["ai_reason"] = strutil.Truncate(res.Reason, 500)
 			updates["ai_quality_pass"] = res.Quality.Pass
 			updates["ai_quality_issue"] = strutil.Truncate(res.Quality.Issue, 255)
-			writeItemVerdicts(s.db, r.ID, res.Items)
+			WriteItemVerdicts(s.db, r.ID, res.Items)
 			if res.Verdict == model.AIVerdictPass {
 				updates["ai_verdict"] = model.AIVerdictPass
 				passed++
@@ -484,72 +443,76 @@ func (s *ReviewService) spotcheckAI(c *gin.Context, req *dto.SpotcheckReq) (gin.
 	return gin.H{"picked": picked, "to_review": toReview, "passed": passed, "failed": failed}, nil
 }
 
-// reviewInputOf 由打卡记录组装大模型审核上下文（照片全部来自逐项快照）。
+// reviewInputOf 由记录身份读取当前/已退役模板定义，记录本身只提供事实和照片。
 func (s *ReviewService) reviewInputOf(r *model.CheckinRecord) ai.ReviewInput {
 	var point model.InspectionPoint
 	s.db.Select("name", "type").First(&point, "id = ?", r.PointID)
 	var recItems []model.CheckinRecordItem
 	s.db.Where("record_id = ?", r.ID).Order("sort ASC").Find(&recItems)
+	LoadItemDefinitions(s.db, recItems)
 	names := make([]string, 0, len(recItems))
-	for _, it := range recItems {
-		names = append(names, it.Name)
-	}
 	var itemPhotos []ai.ItemPhoto
-	if s.store != nil {
-		for _, it := range recItems {
-			if len(it.Photos) == 0 {
-				continue
-			}
-			irefs := make([]ai.PhotoRef, 0, len(it.Photos))
-			for _, ref := range it.Photos {
-				if f, err := uploadfile.ByID(s.db, ref); err == nil {
-					irefs = append(irefs, ai.PhotoRef{URL: f.URL})
-				}
-			}
-			itemPhotos = append(itemPhotos, ai.ItemPhoto{
-				Name: it.Name, Requirement: strutil.StrVal(it.Requirement), AIHint: strutil.StrVal(it.AIHint),
-				JudgeType: it.JudgeType, JudgeConfig: it.JudgeConfig, Tags: it.Tags, Photos: irefs,
-			})
+	for _, it := range recItems {
+		if it.Definition == nil || !it.Definition.AIEnabled {
+			continue
 		}
+		names = append(names, it.Name)
+		irefs := make([]ai.PhotoRef, 0, len(it.Photos))
+		for _, ref := range it.Photos {
+			if f, err := uploadfile.ByID(s.db, ref); err == nil {
+				irefs = append(irefs, ai.PhotoRef{URL: f.URL})
+			}
+		}
+		itemPhotos = append(itemPhotos, ItemPhoto(it, irefs))
 	}
-	return ai.ReviewInput{
-		PointName: point.Name, PointType: point.Type, CheckItems: names, Remark: r.Remark,
-		ItemPhotos: itemPhotos,
-	}
+	return ai.ReviewInput{PointName: point.Name, PointType: point.Type, CheckItems: names, Remark: r.Remark, ItemPhotos: itemPhotos}
 }
 
-// writeItemVerdicts 逐项 AI 结论落库（按 record_id+name 匹配快照行；模型未返回逐项结论时为空不做事）。
-// abnormal_tags 按快照 tags 过滤（模型可能杜撰 tag 名，只认快照内的原名）。
-func writeItemVerdicts(db *gorm.DB, recID string, items []ai.ItemVerdict) {
+func WriteItemVerdicts(db *gorm.DB, recID string, items []ai.ItemVerdict) {
 	var rows []model.CheckinRecordItem
-	db.Select("name", "tags").Where("record_id = ?", recID).Find(&rows)
-	tagsByName := make(map[string]map[string]bool, len(rows))
-	for _, r := range rows {
-		allow := make(map[string]bool, len(r.Tags))
-		for _, t := range r.Tags {
-			allow[t] = true
-		}
-		tagsByName[r.Name] = allow
+	db.Where("record_id = ?", recID).Find(&rows)
+	LoadItemDefinitions(db, rows)
+	byKey := make(map[string]model.CheckinRecordItem, len(rows))
+	for _, row := range rows {
+		byKey[row.InstanceKey()] = row
 	}
 	for _, iv := range items {
-		v, r := iv.Verdict, strutil.Truncate(iv.Reason, 500)
-		updates := map[string]any{"ai_verdict": v, "ai_reason": r}
+		row, ok := byKey[iv.InstanceKey]
+		if !ok || row.Definition == nil {
+			logger.L.Warn("AI 返回未知检查项实例，已忽略", zap.String("rec_id", recID), zap.String("instance_key", iv.InstanceKey))
+			continue
+		}
+		v, reason := iv.Verdict, strutil.Truncate(iv.Reason, 500)
+		updates := map[string]any{"ai_verdict": v, "ai_reason": reason}
 		if rd := strutil.Truncate(strings.TrimSpace(iv.Reading), 64); rd != "" {
 			updates["ai_reading"] = rd
 		}
-		if allow, ok := tagsByName[iv.Name]; ok && len(allow) > 0 && len(iv.AbnormalTags) > 0 {
+		if len(iv.AbnormalTags) > 0 {
+			allow := map[string]bool{}
+			for _, tag := range row.Definition.Tags {
+				allow[tag] = true
+			}
 			abn := make(types.StringArray, 0, len(iv.AbnormalTags))
-			for _, t := range iv.AbnormalTags {
-				if allow[t] {
-					abn = append(abn, t)
+			for _, tag := range iv.AbnormalTags {
+				if allow[tag] {
+					abn = append(abn, tag)
 				}
 			}
 			updates["abnormal_tags"] = abn
 		}
-		if err := db.Model(&model.CheckinRecordItem{}).
-			Where("record_id = ? AND name = ?", recID, iv.Name).
-			Updates(updates).Error; err != nil {
-			logger.L.Warn("逐项 AI 结论回写失败", zap.String("rec_id", recID), zap.String("item", iv.Name), zap.Error(err))
+		query := db.Model(&model.CheckinRecordItem{}).Where("record_id = ? AND item_code = ?", recID, row.ItemCode)
+		if row.TemplateID == nil {
+			query = query.Where("template_id IS NULL")
+		} else {
+			query = query.Where("template_id = ?", *row.TemplateID)
+		}
+		if row.EquipmentID == nil {
+			query = query.Where("equipment_id IS NULL")
+		} else {
+			query = query.Where("equipment_id = ?", *row.EquipmentID)
+		}
+		if err := query.Updates(updates).Error; err != nil {
+			logger.L.Warn("逐项 AI 结论回写失败", zap.String("rec_id", recID), zap.String("instance_key", iv.InstanceKey), zap.Error(err))
 		}
 	}
 }

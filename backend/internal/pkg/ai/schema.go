@@ -38,13 +38,14 @@ func reviewSchemaOpenAI() map[string]any {
 				"items": map[string]any{
 					"type": "object",
 					"properties": map[string]any{
+						"instance_key":  map[string]any{"type": "string"},
 						"name":          map[string]any{"type": "string"},
 						"verdict":       verdictEnum,
 						"reason":        map[string]any{"type": "string"},
 						"reading":       map[string]any{"type": "string"},
 						"abnormal_tags": map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
 					},
-					"required": []string{"name", "verdict", "reason", "reading", "abnormal_tags"},
+					"required": []string{"instance_key", "name", "verdict", "reason", "reading", "abnormal_tags"},
 				},
 			},
 		},

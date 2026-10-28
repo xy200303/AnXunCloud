@@ -66,9 +66,12 @@ func ExplicitTenantID(c *gin.Context, db *gorm.DB) (string, *errs.Error) {
 func TenantScopeOrDefault(c *gin.Context, db *gorm.DB) (string, *errs.Error) {
 	identity := CurrentIdentity(c)
 	if identity == nil {
-		return "", nil
+		return "", errs.ErrUnauthorized
 	}
 	if !identity.SuperAdmin {
+		if identity.TenantID == "" {
+			return "", errs.ErrDataScope
+		}
 		return identity.TenantID, nil
 	}
 	tid, be := ExplicitTenantID(c, db)
@@ -76,10 +79,7 @@ func TenantScopeOrDefault(c *gin.Context, db *gorm.DB) (string, *errs.Error) {
 		return "", be
 	}
 	if tid == "" {
-		if err := db.Model(&model.Tenant{}).Select("id").Where("code = ?", model.DefaultTenantCode).
-			Limit(1).Pluck("id", &tid).Error; err != nil {
-			return "", errs.ErrInternal
-		}
+		return "", errs.ErrDataScope.WithMsg("平台操作必须显式指定目标租户")
 	}
 	return tid, nil
 }
@@ -89,10 +89,13 @@ func TenantScopeOrDefault(c *gin.Context, db *gorm.DB) (string, *errs.Error) {
 func CheckTenantRow(c *gin.Context, db *gorm.DB, rowTenantID *string) *errs.Error {
 	identity := CurrentIdentity(c)
 	if identity == nil {
-		return nil
+		return errs.ErrUnauthorized
 	}
 	if rowTenantID == nil || *rowTenantID == "" {
 		if identity.SuperAdmin {
+			if _, be := ExplicitTenantID(c, db); be != nil {
+				return errs.ErrDataScope
+			}
 			return nil
 		}
 		return errs.ErrDataScope
@@ -107,18 +110,15 @@ func CheckTenantRow(c *gin.Context, db *gorm.DB, rowTenantID *string) *errs.Erro
 	return nil
 }
 
-// EffectiveTenantID 系统管理（租户级）「租户上下文」解析（《管理后台信息架构与菜单归位方案》第二章）：
-//   - 非超管：固定本人租户（请求参数一律忽略）；
-//   - 超管：优先 ?tenant_id=（或 X-Tenant-Id 头），缺省 = 默认租户；
-//     指定的租户必须存在，否则报参数错误（不做跨租户混合列表）。
-//
-// 系统管理（租户级）各 controller（用户/角色/签章/日志/公告/企业品牌）统一用它取上下文租户。
 func EffectiveTenantID(c *gin.Context, db *gorm.DB) (string, *errs.Error) {
 	identity := CurrentIdentity(c)
 	if identity == nil {
 		return "", errs.ErrUnauthorized
 	}
 	if !identity.SuperAdmin {
+		if identity.TenantID == "" {
+			return "", errs.ErrDataScope
+		}
 		return identity.TenantID, nil
 	}
 	tid, be := ExplicitTenantID(c, db)
@@ -126,12 +126,7 @@ func EffectiveTenantID(c *gin.Context, db *gorm.DB) (string, *errs.Error) {
 		return "", be
 	}
 	if tid == "" {
-		// 缺省 = 默认租户（私有化部署的唯一租户，体验与无租户一致）
-		if err := db.Model(&model.Tenant{}).Select("id").Where("code = ?", model.DefaultTenantCode).
-			Limit(1).Pluck("id", &tid).Error; err != nil || tid == "" {
-			return "", errs.ErrInternal
-		}
-		return tid, nil
+		return "", errs.ErrDataScope.WithMsg("平台操作必须显式指定目标租户")
 	}
 	return tid, nil
 }

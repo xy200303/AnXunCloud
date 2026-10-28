@@ -7,7 +7,6 @@ import (
 
 	"gorm.io/gorm"
 
-	reportsvc "anxuncloud/internal/module/report/service"
 	"anxuncloud/internal/pkg/database"
 	"anxuncloud/internal/pkg/logger"
 	"go.uber.org/zap"
@@ -26,16 +25,21 @@ type PlanJob struct {
 // 单实例部署前提：内置任务的当日防重标记（registerBuiltin 内的 lastGen/lastPart/lastFlip）
 // 仅为进程内存变量，多副本部署会产生重复执行——届时须改为 Redis SETNX 日锁
 // （如 lock:sched:task_generate:20260101，EX 到次日）后再并行扩容。
+type ReportPlanRunner interface {
+	RunDueReportPlans(time.Time) (int, error)
+}
+
 type Scheduler struct {
 	db      *gorm.DB
 	plans   *PlanService
-	reports *reportsvc.ReportService
+	reports ReportPlanRunner
 	getCfg  func(key string) (string, bool)
 	jobs    []PlanJob
+	queue   QueueLifecycle
 	stopCh  chan struct{}
 }
 
-func NewScheduler(db *gorm.DB, plans *PlanService, reports *reportsvc.ReportService, getCfg func(string) (string, bool)) *Scheduler {
+func NewScheduler(db *gorm.DB, plans *PlanService, reports ReportPlanRunner, getCfg func(string) (string, bool)) *Scheduler {
 	s := &Scheduler{db: db, plans: plans, reports: reports, getCfg: getCfg, stopCh: make(chan struct{})}
 	s.registerBuiltin()
 	return s
@@ -129,12 +133,23 @@ func (s *Scheduler) registerBuiltin() {
 	}
 }
 
-// Start 启动调度循环（每 30s 检查一次到点任务）。
-func (s *Scheduler) Start() {
+type QueueLifecycle interface {
+	Start(context.Context) error
+	Stop(context.Context) error
+}
+
+func (s *Scheduler) RegisterQueue(queue QueueLifecycle) { s.queue = queue }
+
+func (s *Scheduler) Start() error {
+	if s.queue != nil {
+		if err := s.queue.Start(context.Background()); err != nil {
+			return err
+		}
+	}
 	go func() {
 		ticker := time.NewTicker(30 * time.Second)
 		defer ticker.Stop()
-		s.tick() // 启动即执行一次，保证新部署当天任务生成
+		s.tick()
 		for {
 			select {
 			case <-s.stopCh:
@@ -144,10 +159,19 @@ func (s *Scheduler) Start() {
 			}
 		}
 	}()
+	return nil
 }
 
-// Stop 停止调度。
-func (s *Scheduler) Stop() { close(s.stopCh) }
+func (s *Scheduler) Stop() {
+	close(s.stopCh)
+	if s.queue != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer cancel()
+		if err := s.queue.Stop(ctx); err != nil {
+			logger.L.Warn("任务队列停止失败", zap.Error(err))
+		}
+	}
+}
 
 func (s *Scheduler) tick() {
 	now := time.Now()

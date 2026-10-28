@@ -15,8 +15,8 @@ import (
 // 月报设备章节（v1.7）：
 // - 台账状态快照：按 正常/临期/逾期/应报废/标签缺失 分桶（当前时点，非期间口径）；
 // - 当期维保：登记数/确认数/驳回数（created_at 落在期间）；
-// - 抽查：触发数/不符数（打卡快照 judge_type=equipment_date_spot，期间口径）；
-// - 判定来源：期间逐项快照按 judge_type 分 系统判定（equipment_validity/equipment_date_spot）与 人工/AI 判定（其余）。
+// - 抽查：触发数/不符数（记录项 builtin_kind=equipment_date_spot，期间口径）；
+// - 判定来源：期间记录项按 builtin_kind 分系统判定与人工/AI 判定。
 func (s *ReportService) buildEquipmentStats(communityID string, start, end time.Time) gin.H {
 	out := gin.H{}
 	// 台账状态快照（当前时点）
@@ -87,7 +87,7 @@ func (s *ReportService) buildEquipmentStats(communityID string, start, end time.
 	s.db.Model(&insmodel.CheckinRecordItem{}).
 		Joins("JOIN checkin_record ON checkin_record.id = checkin_record_item.record_id").
 		Where("checkin_record.community_id = ? AND checkin_record.checkin_time >= ? AND checkin_record.checkin_time < ? AND checkin_record.superseded_by IS NULL", communityID, start, end).
-		Where("checkin_record_item.judge_type = ?", "equipment_date_spot").
+		Where("checkin_record_item.builtin_kind = ?", insmodel.BuiltinEquipmentDateSpot).
 		Select("COUNT(*) AS triggered, COUNT(*) FILTER (WHERE checkin_record_item.result = 'abnormal') AS mismatch").
 		Scan(&spotSum)
 	out["spotcheck"] = gin.H{"triggered": spotSum.Triggered, "mismatch": spotSum.Mismatch}
@@ -99,8 +99,8 @@ func (s *ReportService) buildEquipmentStats(communityID string, start, end time.
 	s.db.Model(&insmodel.CheckinRecordItem{}).
 		Joins("JOIN checkin_record ON checkin_record.id = checkin_record_item.record_id").
 		Where("checkin_record.community_id = ? AND checkin_record.checkin_time >= ? AND checkin_record.checkin_time < ? AND checkin_record.superseded_by IS NULL", communityID, start, end).
-		Select(`COUNT(*) FILTER (WHERE checkin_record_item.judge_type IN ('equipment_validity','equipment_date_spot')) AS system,
-			COUNT(*) FILTER (WHERE checkin_record_item.judge_type NOT IN ('equipment_validity','equipment_date_spot')) AS manual_ai`).
+		Select(`COUNT(*) FILTER (WHERE checkin_record_item.builtin_kind <> '') AS system,
+			COUNT(*) FILTER (WHERE checkin_record_item.builtin_kind = '') AS manual_ai`).
 		Scan(&srcSum)
 	out["judge_source"] = gin.H{"system": srcSum.System, "manual_ai": srcSum.ManualAI}
 	return out

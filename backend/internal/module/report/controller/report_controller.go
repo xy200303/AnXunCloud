@@ -91,15 +91,6 @@ func (ctl *ReportController) Generate(c *gin.Context) {
 	write(c, data, be)
 }
 
-// Rebuild POST /reports/:id/rebuild（模板升级后用当前模板重渲染 PDF 并覆盖归档，状态/签字留痕不变）
-func (ctl *ReportController) Rebuild(c *gin.Context) {
-	if be := ctl.svc.RebuildPDF(c, c.Param("id")); be != nil {
-		response.Fail(c, be)
-		return
-	}
-	response.OKMsg(c, "已按当前模板重新生成", nil)
-}
-
 // Void POST /reports/:id/void（作废归档：记录保留，原因必填；作废后同期间可重新生成新报告）
 func (ctl *ReportController) Void(c *gin.Context) {
 	id, be := pathID(c)
@@ -151,7 +142,7 @@ func (ctl *ReportController) SignStep(c *gin.Context) {
 	write(c, data, be)
 }
 
-// PDF GET /reports/:id/pdf（已归档走 file_id，未终审即时生成临时版）
+// PDF GET /reports/:id/pdf（优先读取 report_file 归档产物）
 func (ctl *ReportController) PDF(c *gin.Context) {
 	id, be := pathID(c)
 	if be != nil {
@@ -196,4 +187,18 @@ func (ctl *ReportController) PDFByTicket(c *gin.Context) {
 	}
 	c.Header("Content-Disposition", fmt.Sprintf("inline; filename*=UTF-8''%s", url.PathEscape(filename)))
 	c.Data(http.StatusOK, "application/pdf", data)
+}
+
+func (ctl *ReportController) RetryFile(c *gin.Context) {
+	write(c, gin.H{"generation_status": "running"}, ctl.svc.RetryFrozenFile(c, c.Param("id"), c.Param("fileId")))
+}
+
+func (ctl *ReportController) DownloadFile(c *gin.Context) {
+	data, filename, contentType, be := ctl.svc.DownloadFile(c, c.Param("id"), c.Param("fileId"))
+	if be != nil {
+		response.Fail(c, be)
+		return
+	}
+	c.Header("Content-Disposition", fmt.Sprintf("attachment; filename*=UTF-8''%s", url.PathEscape(filename)))
+	c.Data(http.StatusOK, contentType, data)
 }

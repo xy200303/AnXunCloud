@@ -23,17 +23,18 @@ const ctxIdentity = "pi_identity"
 
 // Identity 当前登录用户身份与权限快照。
 type Identity struct {
-	UserID        string
-	TenantID      string // 所属租户（P3 多租户：超管账号归属默认租户；业务数据可在未指定上下文时平台级访问）
-	Username      string
-	Name          string
-	JTI           string // 当前 access token 的 jti
-	SuperAdmin    bool
-	Perms         map[string]struct{} // 按钮级权限点集合（超管为全集）
-	DataScopeAll  bool                // true 表示全部项目（角色 data_scope=all 或超管）
-	ScopeSelf     bool                // true 表示仅本人相关（纯一线岗位，或角色 data_scope=self 强制收窄）
-	ProjectIDs    []string            // project 档可见项目集合（按岗位编制推导：项目经理/主管级岗位覆盖的项目）
-	RoleCodes     []string
+	UserID          string
+	TenantID        string // 所属租户（P3 多租户：超管账号归属默认租户；业务数据可在未指定上下文时平台级访问）
+	Username        string
+	Name            string
+	JTI             string // 当前 access token 的 jti
+	SuperAdmin      bool
+	Perms           map[string]struct{} // 按钮级权限点集合（超管为全集）
+	DataScopeAll    bool                // true 表示全部项目（角色 data_scope=all 或超管）
+	ScopeSelf       bool                // true 表示仅本人相关（纯一线岗位，或角色 data_scope=self 强制收窄）
+	ProjectIDs      []string            // project 档可见项目集合（按岗位编制推导：项目经理/主管级岗位覆盖的项目）
+	RoleCodes       []string
+	ClaimWorkTypes  []string
 	AccessExpiresAt time.Time // 当前 access token 过期时间（登出时计算黑名单 TTL）
 }
 
@@ -91,7 +92,7 @@ func Auth(db *gorm.DB, sess *session.Store, jwtm *jwtutil.Manager, channel strin
 		}
 		// 加载用户最新状态（停用/改角色即时生效）
 		var user model.SysUser
-		if err := db.Select("id", "tenant_id", "username", "name", "status", "role_ids").
+		if err := db.Select("id", "tenant_id", "username", "name", "status", "role_id").
 			First(&user, "id = ?", claims.UserID).Error; err != nil {
 			response.Fail(c, errs.ErrUnauthorized)
 			return
@@ -138,70 +139,32 @@ func buildIdentity(db *gorm.DB, user *model.SysUser, jti string) (*Identity, err
 		return nil, errs.ErrTenantDisabled
 	}
 	identity := &Identity{
-		UserID:   user.ID,
-		TenantID: user.TenantID,
-		Username: user.Username,
-		Name:     user.Name,
-		JTI:      jti,
-		Perms:    map[string]struct{}{},
+		UserID: user.ID, TenantID: user.TenantID, Username: user.Username,
+		Name: user.Name, JTI: jti, Perms: map[string]struct{}{}, ScopeSelf: true,
 	}
-	var roles []model.SysRole
-	// 有效角色并集（方案 §3）：手动分配角色 ∪ 在职编制岗位绑定角色（post_dict.role_id），实时计算不落库
-	effectiveRoleIDs, err := EffectiveRoleIDs(db, user)
-	if err != nil {
-		return nil, err
+	var role model.SysRole
+	if user.RoleID != nil {
+		if err := db.First(&role, "id = ? AND status = ?", *user.RoleID, model.StatusEnabled).Error; err == nil {
+			identity.RoleCodes = []string{role.Code}
+			identity.SuperAdmin = role.Code == model.SuperAdminCode
+			identity.DataScopeAll = role.ScopeLevel == model.ScopeTenant || identity.SuperAdmin
+			identity.ScopeSelf = role.ScopeLevel == model.ScopeProject && !role.IsSupervisor
+			identity.ClaimWorkTypes = append(identity.ClaimWorkTypes, role.ClaimWorkTypes...)
+		}
 	}
-	if len(effectiveRoleIDs) > 0 {
-		if err := db.Where("id IN ? AND status = ?", effectiveRoleIDs, model.StatusEnabled).Find(&roles).Error; err != nil {
+	if role.ScopeLevel == model.ScopeProject {
+		identity.ProjectIDs, err = StaffProjectIDs(db, user.ID)
+		if err != nil {
 			return nil, err
 		}
 	}
-	// 角色 data_scope 上限：任一 all → all；否则任一 project → project；全为 self → self
-	roleBound := model.ScopeSelf
-	roleIDs := make([]string, 0, len(roles))
-	for _, r := range roles {
-		identity.RoleCodes = append(identity.RoleCodes, r.Code)
-		roleIDs = append(roleIDs, r.ID)
-		if r.Code == model.SuperAdminCode {
-			identity.SuperAdmin = true
-		}
-		switch r.DataScope {
-		case model.ScopeAll:
-			roleBound = model.ScopeAll
-		case model.ScopeProject:
-			if roleBound != model.ScopeAll {
-				roleBound = model.ScopeProject
-			}
-		}
-	}
-	// 超管数据范围必为全部
-	if identity.SuperAdmin || roleBound == model.ScopeAll {
-		identity.DataScopeAll = true
-	}
-	// 可见项目集合按岗位编制推导（角色上限为 self 时直接收窄，不再查编制）
-	if !identity.DataScopeAll {
-		if roleBound == model.ScopeSelf {
-			identity.ScopeSelf = true
-		} else {
-			projectIDs, err := ManagedProjectIDs(db, user.ID)
-			if err != nil {
-				return nil, err
-			}
-			if len(projectIDs) == 0 {
-				identity.ScopeSelf = true
-			} else {
-				identity.ProjectIDs = projectIDs
-			}
-		}
-	}
-	// 权限点集合：超管取全量菜单 perms，否则按角色关联菜单取
 	q := db.Model(&model.SysMenu{}).Distinct("perms").
 		Where("perms <> '' AND status = ?", model.StatusEnabled)
 	if !identity.SuperAdmin {
-		if len(roleIDs) == 0 {
+		if user.RoleID == nil || role.ID == "" {
 			return identity, nil
 		}
-		q = q.Where("id IN (?)", db.Model(&model.SysRoleMenu{}).Select("menu_id").Where("role_id IN ?", roleIDs))
+		q = q.Where("id IN (?)", db.Model(&model.SysRoleMenu{}).Select("menu_id").Where("role_id = ?", role.ID))
 	}
 	var perms []string
 	if err := q.Pluck("perms", &perms).Error; err != nil {

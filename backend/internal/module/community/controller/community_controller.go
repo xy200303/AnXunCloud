@@ -5,6 +5,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 
+	"anxuncloud/internal/middleware"
 	"anxuncloud/internal/module/community/dto"
 	"anxuncloud/internal/module/community/service"
 	"anxuncloud/internal/pkg/bind"
@@ -138,6 +139,52 @@ func (ctl *CommunityController) DeleteBuilding(c *gin.Context) {
 		return
 	}
 	write(c, nil, ctl.svc.DeleteBuilding(c, id))
+}
+
+func (ctl *CommunityController) PresetPacks(c *gin.Context) {
+	rows, be := ctl.svc.PresetPacks()
+	write(c, rows, be)
+}
+
+func (ctl *CommunityController) PresetPack(c *gin.Context) {
+	row, be := ctl.svc.PresetPack(c.Param("code"))
+	write(c, row, be)
+}
+
+func platformPresetAllowed(c *gin.Context) bool {
+	identity := middleware.CurrentIdentity(c)
+	return identity != nil && identity.SuperAdmin
+}
+
+func (ctl *CommunityController) PlatformPresetPacks(c *gin.Context) {
+	if !platformPresetAllowed(c) {
+		write(c, nil, errs.ErrNoPerm)
+		return
+	}
+	rows, be := ctl.svc.PlatformPresetPacks()
+	write(c, rows, be)
+}
+
+func (ctl *CommunityController) PlatformPresetPack(c *gin.Context) {
+	if !platformPresetAllowed(c) {
+		write(c, nil, errs.ErrNoPerm)
+		return
+	}
+	row, be := ctl.svc.PlatformPresetPack(c.Param("code"))
+	write(c, row, be)
+}
+
+func (ctl *CommunityController) SavePresetPack(c *gin.Context) {
+	if !platformPresetAllowed(c) {
+		write(c, nil, errs.ErrNoPerm)
+		return
+	}
+	var req service.PresetPackReq
+	if be := bind.JSON(c, &req); be != nil {
+		write(c, nil, be)
+		return
+	}
+	write(c, nil, ctl.svc.SavePresetPack(c.Param("code"), req))
 }
 
 func write(c *gin.Context, data any, be *errs.Error) {

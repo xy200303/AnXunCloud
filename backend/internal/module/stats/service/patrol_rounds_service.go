@@ -9,20 +9,21 @@ import (
 	"gorm.io/gorm"
 
 	"anxuncloud/internal/middleware"
-	insmodel "anxuncloud/internal/module/inspection/model"
 	"anxuncloud/internal/module/stats/dto"
+	statsmodel "anxuncloud/internal/module/stats/model"
 	"anxuncloud/internal/pkg/errs"
+	"anxuncloud/internal/pkg/inspectionrule"
 )
 
 // expiredState 逾期口径：已翻转 overdue → overdue；未完成（pending/doing）且 ShouldOverdue
 // 判定窗口（或回落日期规则）已过 → expired_doing（动态判定，区分已翻转）；其余不计逾期。
-// 判定逻辑与 scheduler 翻转共用 insmodel.ShouldOverdue（§3.2 规则表），杜绝两套口径。
+// 判定逻辑与 scheduler 翻转共用 inspectionrule.ShouldOverdue（§3.2 规则表），杜绝两套口径。
 func expiredState(status string, taskDate time.Time, window string, now time.Time) string {
-	if status == insmodel.TaskOverdue {
-		return insmodel.TaskOverdue
+	if status == statsmodel.TaskOverdue {
+		return statsmodel.TaskOverdue
 	}
-	if (status == insmodel.TaskPending || status == insmodel.TaskDoing) &&
-		insmodel.ShouldOverdue(taskDate, window, now) {
+	if (status == statsmodel.TaskPending || status == statsmodel.TaskDoing) &&
+		inspectionrule.ShouldOverdue(taskDate, window, now) {
 		return "expired_doing"
 	}
 	return ""
@@ -45,13 +46,13 @@ func (s *StatsService) PatrolRounds(c *gin.Context, q *dto.PatrolRoundsQuery) (g
 		return nil, errs.ErrParam.WithMsg("日期跨度不能超过 366 天")
 	}
 
-	scope := s.db.Model(&insmodel.InspectionTask{}).
+	scope := s.db.Model(&statsmodel.Task{}).
 		Where("round_name <> '' AND community_id = ? AND task_date >= ? AND task_date <= ?", q.CommunityID, q.From, q.To)
 	if q.PlanID != "" {
 		scope = scope.Where("plan_id = ?", q.PlanID)
 	}
-	scope = middleware.ApplyCommunityFilter(scope, c, "inspection_task.community_id")
-	var tasks []insmodel.InspectionTask
+	scope = middleware.ApplyCommunityFilter(scope, c, "stats_task.community_id")
+	var tasks []statsmodel.Task
 	if err := scope.Session(&gorm.Session{}).
 		Select("id", "plan_id", "task_date", "round_name", "time_window", "inspector_id", "status", "done_points", "total_points").
 		Order("task_date, id").Find(&tasks).Error; err != nil {
@@ -83,10 +84,10 @@ func (s *StatsService) PatrolRounds(c *gin.Context, q *dto.PatrolRoundsQuery) (g
 			pointRateCnt++
 		}
 		switch t.Status {
-		case insmodel.TaskDone:
+		case statsmodel.TaskDone:
 			done++
 			da.done++
-		case insmodel.TaskPending, insmodel.TaskDoing:
+		case statsmodel.TaskPending, statsmodel.TaskDoing:
 			open++
 		}
 		// 逾期：状态已翻转 overdue，或动态判定窗口已过仍 pending/doing（标 expired_doing 区分）
@@ -136,29 +137,26 @@ func (s *StatsService) PatrolRounds(c *gin.Context, q *dto.PatrolRoundsQuery) (g
 	}, nil
 }
 
-// resolveDailyMinRounds 解析每日达标轮次线：指定 plan_id 时取该计划 cycle_config.daily_min_rounds；
-// 汇总口径（plan_id 空）下涉及计划的配置值唯一时采用，多值歧义或未配置则不设线（返回 nil）。
+// resolveDailyMinRounds 读取任务生成时的达标线快照；多值歧义或全部未配置时不设线。
 func (s *StatsService) resolveDailyMinRounds(planID string, planIDs map[string]bool) *int {
-	if planID != "" {
-		var p insmodel.InspectionPlan
-		if s.db.Select("cycle_config").First(&p, "id = ?", planID).Error == nil {
-			return insmodel.PlanDailyMinRounds(p.CycleConfig)
-		}
-		return nil
-	}
-	if len(planIDs) == 0 {
-		return nil
-	}
 	ids := make([]string, 0, len(planIDs))
 	for id := range planIDs {
 		ids = append(ids, id)
 	}
-	var plans []insmodel.InspectionPlan
-	s.db.Select("id", "cycle_config").Where("id IN ?", ids).Find(&plans)
+	var tasks []statsmodel.Task
+	query := s.db.Select("daily_min_rounds")
+	if planID != "" {
+		query = query.Where("plan_id = ?", planID)
+	} else if len(ids) > 0 {
+		query = query.Where("plan_id IN ?", ids)
+	} else {
+		return nil
+	}
+	query.Find(&tasks)
 	vals := map[int]bool{}
-	for _, p := range plans {
-		if v := insmodel.PlanDailyMinRounds(p.CycleConfig); v != nil {
-			vals[*v] = true
+	for _, task := range tasks {
+		if task.DailyMinRounds != nil {
+			vals[*task.DailyMinRounds] = true
 		}
 	}
 	if len(vals) != 1 {

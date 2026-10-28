@@ -40,7 +40,7 @@ func TestSpecialReportTitle(t *testing.T) {
 
 func TestReviewStepHelpers(t *testing.T) {
 	steps := types.ReportReviewStepArray{{CandidateIDs: types.IDArray{}}, {CandidateIDs: types.IDArray{"u1"}}}
-	if firstReviewStep(steps) != 1 || reviewStatus(steps, 1) != "pending_review" || len(reviewCurrentIDs(steps, 1)) != 1 {
-		t.Fatal("动态审核步骤辅助函数结果不符合预期")
+	if firstReviewStep(steps) != 0 || reviewStatus(steps, 0) != "pending_review" || len(reviewCurrentIDs(steps, 0)) != 0 {
+		t.Fatal("空候选节点必须挂起，不能自动跳过")
 	}
 }

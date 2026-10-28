@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/redis/go-redis/v9"
@@ -15,6 +16,10 @@ import (
 
 	"anxuncloud/internal/config"
 	"anxuncloud/internal/middleware"
+	acceptancectl "anxuncloud/internal/module/acceptance/controller"
+	acceptancesvc "anxuncloud/internal/module/acceptance/service"
+	aictl "anxuncloud/internal/module/ai/controller"
+	aisvc "anxuncloud/internal/module/ai/service"
 	authctl "anxuncloud/internal/module/auth/controller"
 	authsvc "anxuncloud/internal/module/auth/service"
 	communityctl "anxuncloud/internal/module/community/controller"
@@ -33,11 +38,15 @@ import (
 	statssvc "anxuncloud/internal/module/stats/service"
 	systemctl "anxuncloud/internal/module/system/controller"
 	systemsvc "anxuncloud/internal/module/system/service"
+	workorderctl "anxuncloud/internal/module/workorder/controller"
+	workordersvc "anxuncloud/internal/module/workorder/service"
 	"anxuncloud/internal/pkg/ai"
 	"anxuncloud/internal/pkg/jwtutil"
+	"anxuncloud/internal/pkg/libreoffice"
 	"anxuncloud/internal/pkg/logger"
 	"anxuncloud/internal/pkg/notify"
 	"anxuncloud/internal/pkg/push"
+	queuepkg "anxuncloud/internal/pkg/queue"
 	"anxuncloud/internal/pkg/response"
 	"anxuncloud/internal/pkg/session"
 	"anxuncloud/internal/pkg/storage"
@@ -86,19 +95,68 @@ func New(cfg *config.Config, db *gorm.DB, rdb *redis.Client) (*gin.Engine, *insp
 	taskSvc := inspectionsvc.NewTaskService(db, store, notifier)
 	templateSvc := inspectionsvc.NewTemplateService(db)
 	reviewSvc := inspectionsvc.NewReviewService(db, notifier)
+	workorderSvc := workordersvc.NewWorkOrderService(db)
+	reviewSvc.BindWorkOrderSink(workorderSvc)
 	equipmentSvc := equipmentsvc.NewEquipmentService(db)
 	maintSvc := equipmentsvc.NewMaintenanceService(db, notifier, ai.NewClient(configSvc.Get, ai.WithStorage(store)))
 	expireSvc := equipmentsvc.NewExpireService(db, notifier)
-	statsSvc := statssvc.NewStatsService(db, store)
+	projection := statssvc.NewProjectionService(db, inspectionsvc.LoadTaskProjection, inspectionsvc.LoadConfigAlertProjection, inspectionsvc.ProjectionTaskIDs, inspectionsvc.ProjectionAlertIDs)
+	inspectionsvc.BindProjectionSink(projection)
+	statsSvc := statssvc.NewStatsService(db, store, projection)
+	go func() {
+		if err := projection.Rebuild(); err != nil {
+			logger.L.Error("stats 全量投影重建失败", zap.Error(err))
+		}
+	}()
 	reportSvc := reportsvc.NewReportService(db, rdb, store, configSvc.Get, notifier)
+	var pdfConverter libreoffice.Converter = libreoffice.UnavailableConverter(nil)
+	switch cfg.LibreOffice.Mode {
+	case "exec":
+		converter, err := libreoffice.NewExecConverter(cfg.LibreOffice.Binary, time.Duration(cfg.LibreOffice.TimeoutSeconds)*time.Second, cfg.LibreOffice.MaxConcurrent, cfg.LibreOffice.MaxInputBytes, cfg.LibreOffice.MaxOutputBytes)
+		if err != nil {
+			logger.L.Error("LibreOffice 初始化失败", zap.Error(err))
+			pdfConverter = libreoffice.UnavailableConverter(err)
+		} else {
+			pdfConverter = converter
+		}
+	case "worker":
+		converter, err := libreoffice.NewWorkerClient(cfg.LibreOffice.WorkerDir, time.Duration(cfg.LibreOffice.TimeoutSeconds)*time.Second, cfg.LibreOffice.MaxInputBytes, cfg.LibreOffice.MaxOutputBytes)
+		if err != nil {
+			logger.L.Error("LibreOffice worker 初始化失败", zap.Error(err))
+			pdfConverter = libreoffice.UnavailableConverter(err)
+		} else {
+			pdfConverter = converter
+		}
+	}
+	reportSvc.BindPDFConverter(pdfConverter)
+	docTemplateSvc := reportsvc.NewDocTemplateService(db)
+	reportSvc.BindDocTemplateService(docTemplateSvc)
 	mpSvc := mpsvc.NewMPService(db, rdb, sess, jwtm, cfg.Wechat, messageSvc)
+	taskQueue, err := queuepkg.New(cfg.Postgres)
+	if err != nil {
+		panic(err)
+	}
+	notifier.BindQueue(taskQueue)
+	queuepkg.RegisterWorker(taskQueue, notify.NewNotificationWorker(notifier))
+	reportSvc.BindQueue(taskQueue)
+	queuepkg.RegisterWorker(taskQueue, reportsvc.NewReportRenderWorker(reportSvc))
 	checkinSvc := mpsvc.NewCheckinService(db, rdb, store, configSvc.Get, notifier)
-	reviewSvc.BindCheckinAIGate(checkinSvc.RunAIGate) // 审批链推进到 AI 环节时触发打卡闸门
-	checkinSvc.StartAIItemWorkers()                   // 逐项 AI 识别队列消费 worker（ai.worker_count，随 router 装配启动）
+	reviewSvc.BindCheckinAIGate(checkinSvc.RunAIGate)
+	checkinSvc.BindQueue(taskQueue)
+	queuepkg.RegisterWorker(taskQueue, mpsvc.NewAIItemWorker(checkinSvc))
 	uploadSvc := filesvc.NewUploadService(db, store, cfg.Upload, cfg.OSS)
 	scheduler := inspectionsvc.NewScheduler(db, planSvc, reportSvc, configSvc.Get)
+	scheduler.RegisterQueue(taskQueue)
 	// 设备台账：每日到期扫描提醒（临期/逾期/升级经理，时间取 equipment.expire_check_time）
 	scheduler.Register(inspectionsvc.PlanJob{Name: "equipment_expire", Run: expireSvc.Run})
+	scheduler.Register(inspectionsvc.PlanJob{Name: "workorder_maintenance_due", Run: func(now time.Time) error {
+		_, err := workorderSvc.CreateDueMaintenance(now)
+		return err
+	}})
+	scheduler.Register(inspectionsvc.PlanJob{Name: "report_render_recovery", Run: func(time.Time) error {
+		reportSvc.ResumePendingFrozenFiles()
+		return nil
+	}})
 
 	authCtl := authctl.NewAuthController(authSvc)
 	userCtl := systemctl.NewUserController(userSvc, db)
@@ -124,14 +182,31 @@ func New(cfg *config.Config, db *gorm.DB, rdb *redis.Client) (*gin.Engine, *insp
 	maintCtl := equipmentctl.NewMaintenanceController(maintSvc)
 	templateCtl := inspectionctl.NewTemplateController(templateSvc)
 	reviewCtl := inspectionctl.NewReviewController(reviewSvc)
+	workorderCtl := workorderctl.NewWorkOrderController(workorderSvc)
+	acceptanceSchemaSvc := acceptancesvc.NewSchemaService(db, templateSvc.VerifyTemplates)
+	acceptanceBatchSvc := acceptancesvc.NewBatchService(db, store, acceptanceSchemaSvc, func(tenantID, communityID string) ([]inspectionsvc.BuildingRef, error) {
+		return inspectionsvc.BuildingRefs(db, tenantID, communityID)
+	}, templateSvc.VerifyTemplates)
+	acceptanceBatchSvc.BindQueue(taskQueue)
+	acceptanceBatchSvc.BindPDFConverter(pdfConverter)
+	queuepkg.RegisterWorker(taskQueue, acceptancesvc.NewAcceptanceRenderWorker(acceptanceBatchSvc))
+	acceptanceCtl := acceptancectl.NewController(acceptanceBatchSvc, acceptanceSchemaSvc, db)
+	registrySvc := aisvc.NewRegistryService(db)
+	aiCtl := aictl.NewRegistryController(registrySvc, db)
+	assistantCtl := aictl.NewAssistantController(aisvc.NewAssistantService(db, registrySvc, aisvc.NewUsageService(db)), db)
+	mcpSvc := aisvc.NewMCPService(db, taskSvc.SummaryForAI)
+	mcpCtl := aictl.NewMCPController(mcpSvc, db)
+	usageSvc := aisvc.NewUsageService(db)
+	agentCtl := aictl.NewAgentController(aisvc.NewAgentService(db, registrySvc, usageSvc, mcpSvc), db)
+	usageCtl := aictl.NewUsageController(usageSvc, db)
 	statsCtl := statsctl.NewStatsController(statsSvc)
 	reportCtl := reportctl.NewReportController(reportSvc)
+	docTemplateCtl := reportctl.NewDocTemplateController(docTemplateSvc, db)
 	fileCtl := filectl.NewFileController(filesvc.NewFileService(db, store, uploadSvc))
 	mpCtl := mpctl.NewMPController(mpSvc, checkinSvc, uploadSvc, noticeSvc)
 	pushCtl := mpctl.NewPushController(notifier)
 
-	// 健康检查 + 本地文件静态路由（仅非敏感场景：checkin/avatar/notice 等内容图；
-	// signature/seal/export 由 /api/files 鉴权提供，store.URL 已按前缀分流）
+	// 上传对象全部由 /api/files 鉴权提供；/uploads 仅用于拒绝旧公共地址，不再直接读盘。
 	r.GET("/healthz", func(c *gin.Context) { response.OK(c, gin.H{"status": "up"}) })
 	// 就绪探针：db SELECT 1 + Redis Ping，任一失败 503（K8s readiness 摘流量用；/healthz 仅存活）
 	r.GET("/readyz", func(c *gin.Context) {
@@ -177,8 +252,8 @@ func New(cfg *config.Config, db *gorm.DB, rdb *redis.Client) (*gin.Engine, *insp
 	pdfjsGzip := gzipStaticFS(pdfjsSub)
 	r.GET("/pdfjs/*filepath", pdfjsGzip)
 	r.HEAD("/pdfjs/*filepath", pdfjsGzip)
-	// 报告 PDF 公开下载（仅凭一次性 ticket；ticket 由登录接口签发，见 /api/app/reports/:id/pdf-ticket）
-	r.GET("/api/public/report-pdf/:id", reportCtl.PDFByTicket)
+
+	r.POST("/mcp", mcpCtl.RPC)
 
 	// 统一文件层：上传/直传凭证/下载（AuthAny 跨通道认证，scene 级读权限在 service 内判定）
 	files := r.Group("/api/files", middleware.AuthAny(db, sess, jwtm, authsvc.ChannelAdmin, authsvc.ChannelApp, mpsvc.ChannelMP))
@@ -236,7 +311,14 @@ func New(cfg *config.Config, db *gorm.DB, rdb *redis.Client) (*gin.Engine, *insp
 			site.DELETE("/releases/:id", middleware.RequirePerm("system:site:delete"), middleware.OperLog(db, "system", "site_release_delete"), siteCtl.Delete)
 		}
 
+		// 平台预置包维护与租户项目上线读取
+		secured.GET("/platform/preset-packs", middleware.RequirePerm("system:site:list"), communityCtl.PlatformPresetPacks)
+		secured.GET("/platform/preset-packs/:code", middleware.RequirePerm("system:site:list"), communityCtl.PlatformPresetPack)
+		secured.PUT("/platform/preset-packs/:code", middleware.RequirePerm("system:site:update"), middleware.OperLog(db, "community", "preset_pack_save"), communityCtl.SavePresetPack)
+
 		// 小区与楼栋
+		secured.GET("/community/preset-packs", middleware.RequirePerm("community:create"), communityCtl.PresetPacks)
+		secured.GET("/community/preset-packs/:code", middleware.RequirePerm("community:create"), communityCtl.PresetPack)
 		secured.GET("/communities", middleware.RequirePerm("community:list"), communityCtl.List)
 		secured.GET("/communities/tree", middleware.RequirePerm("community:list"), communityCtl.Tree)
 		secured.POST("/communities", middleware.RequirePerm("community:create"), middleware.OperLog(db, "community", "create"), communityCtl.Create)
@@ -249,21 +331,15 @@ func New(cfg *config.Config, db *gorm.DB, rdb *redis.Client) (*gin.Engine, *insp
 		secured.PUT("/buildings/:id", middleware.RequirePerm("community:building:update", "community:update"), middleware.OperLog(db, "community", "update"), communityCtl.UpdateBuilding)
 		secured.DELETE("/buildings/:id", middleware.RequirePerm("community:building:delete", "community:delete"), middleware.OperLog(db, "community", "delete"), communityCtl.DeleteBuilding)
 
-		// 项目岗位编制与职责槽位绑定（名单制授权的配置入口）
-		secured.GET("/dict-options", dictCtl.Options) // 业务字典只读选项（免权限，登录即可）
-		secured.GET("/post-dict", middleware.RequirePerm("community:staff:list"), staffCtl.PostDict)
+		// 任职与审批配置：角色来自用户，审批节点直接绑定角色。
+		secured.GET("/dict-options", dictCtl.Options)
+		secured.GET("/role-options", middleware.RequirePerm("community:staff:list"), staffCtl.RoleOptions)
 		secured.GET("/communities/:id/staff", middleware.RequirePerm("community:staff:list"), staffCtl.List)
 		secured.POST("/communities/:id/staff", middleware.RequirePerm("community:staff:edit"), middleware.OperLog(db, "community", "staff_create"), staffCtl.Create)
 		secured.PUT("/communities/:id/staff/:staffId", middleware.RequirePerm("community:staff:edit"), middleware.OperLog(db, "community", "staff_update"), staffCtl.Update)
 		secured.DELETE("/communities/:id/staff/:staffId", middleware.RequirePerm("community:staff:edit"), middleware.OperLog(db, "community", "staff_delete"), staffCtl.Delete)
-		secured.GET("/communities/:id/duty-bindings", middleware.RequirePerm("community:staff:list"), staffCtl.DutyBindings)
-		secured.PUT("/communities/:id/duty-bindings", middleware.RequirePerm("community:duty:edit"), middleware.OperLog(db, "community", "duty_binding_save"), staffCtl.SaveDutyBindings)
-		secured.GET("/communities/:id/review-flow", middleware.RequirePerm("community:staff:list"), staffCtl.GetReviewFlow)
-		secured.PUT("/communities/:id/review-flow", middleware.RequirePerm("community:duty:edit"), middleware.OperLog(db, "community", "review_flow_save"), staffCtl.SaveReviewFlow)
-		secured.GET("/communities/:id/report-review-flow", middleware.RequirePerm("community:staff:list"), staffCtl.GetReportReviewFlow)
-		secured.PUT("/communities/:id/report-review-flow", middleware.RequirePerm("community:duty:edit"), middleware.OperLog(db, "community", "report_review_flow_save"), staffCtl.SaveReportReviewFlow)
-		secured.GET("/communities/:id/maint-review-flow", middleware.RequirePerm("community:staff:list"), staffCtl.GetMaintReviewFlow)
-		secured.PUT("/communities/:id/maint-review-flow", middleware.RequirePerm("community:duty:edit"), middleware.OperLog(db, "community", "maint_review_flow_save"), staffCtl.SaveMaintReviewFlow)
+		secured.GET("/communities/:id/review-flows/:flowCode", middleware.RequirePerm("community:staff:list"), staffCtl.GetFlow)
+		secured.PUT("/communities/:id/review-flows/:flowCode", middleware.RequirePerm("system:reviewflow:update"), middleware.OperLog(db, "community", "review_flow_save"), staffCtl.SaveFlow)
 		secured.GET("/communities/:id/flow-preview", middleware.RequirePerm("community:staff:list"), staffCtl.FlowPreview)
 
 		// 巡检管理：点位
@@ -293,6 +369,10 @@ func New(cfg *config.Config, db *gorm.DB, rdb *redis.Client) (*gin.Engine, *insp
 			equipment.POST("/maintenance", middleware.RequirePerm("equipment:maintenance"), middleware.OperLog(db, "equipment", "maintenance"), maintCtl.Register)
 			equipment.POST("/maintenance/confirm", middleware.RequirePerm("equipment:confirm"), middleware.OperLog(db, "equipment", "confirm"), maintCtl.Confirm)
 			equipment.POST("/maintenance/reject", middleware.RequirePerm("equipment:confirm"), middleware.OperLog(db, "equipment", "reject"), maintCtl.Reject)
+			equipment.POST("/maintenance-batches/preview", middleware.RequirePerm("equipment:maintenance"), middleware.OperLog(db, "equipment", "maintenance_batch_preview"), maintCtl.PreviewBatch)
+			equipment.POST("/maintenance-batches/:id", middleware.RequirePerm("equipment:maintenance"), middleware.OperLog(db, "equipment", "maintenance_batch_create"), maintCtl.CreateBatch)
+			equipment.POST("/maintenance-batches/:id/confirm", middleware.RequirePerm("equipment:confirm"), middleware.OperLog(db, "equipment", "maintenance_batch_confirm"), maintCtl.ConfirmBatch)
+			equipment.POST("/maintenance-batches/:id/reject", middleware.RequirePerm("equipment:confirm"), middleware.OperLog(db, "equipment", "maintenance_batch_reject"), maintCtl.RejectBatch)
 			// 类型化台账：类型字段方案（列表列/导出列/表单字段/导入列头；租户级覆盖平台默认）
 			equipment.GET("/type-schemas", middleware.RequirePerm("equipment:list"), equipmentCtl.TypeSchemas)
 			equipment.PUT("/type-schemas/:type", middleware.RequirePerm("equipment:update"), middleware.OperLog(db, "equipment", "type_schema"), equipmentCtl.SaveTypeSchema)
@@ -326,6 +406,10 @@ func New(cfg *config.Config, db *gorm.DB, rdb *redis.Client) (*gin.Engine, *insp
 		// 检查项模板
 		templates := secured.Group("/inspection/templates")
 		{
+			templates.GET("/import/template", middleware.RequirePerm("inspection:template:update"), templateCtl.DownloadImportTemplate)
+			templates.POST("/import/preview", middleware.RequirePerm("inspection:template:update"), middleware.OperLog(db, "inspection", "template_import_preview"), templateCtl.PreviewImport)
+			templates.POST("/import/apply", middleware.RequirePerm("inspection:template:update"), middleware.OperLog(db, "inspection", "template_import_apply"), templateCtl.ApplyImport)
+			templates.POST("/import/failure-export", middleware.RequirePerm("inspection:template:update"), templateCtl.ExportImportFailures)
 			templates.GET("", middleware.RequirePerm("inspection:template:list"), templateCtl.List)
 			templates.POST("", middleware.RequirePerm("inspection:template:create"), middleware.OperLog(db, "inspection", "create"), templateCtl.Create)
 			templates.GET("/:id", middleware.RequirePerm("inspection:template:list"), templateCtl.Detail)
@@ -348,6 +432,78 @@ func New(cfg *config.Config, db *gorm.DB, rdb *redis.Client) (*gin.Engine, *insp
 			review.POST("/:id/reopen", middleware.RequirePerm("inspection:checkin:review"), middleware.OperLog(db, "inspection", "review_reopen"), reviewCtl.Reopen)
 		}
 
+		// 工单池：抢单、分派、整改、主管审核和关闭。
+		orders := secured.Group("/workorders")
+		{
+			orders.GET("", middleware.RequirePerm("workorder:list"), workorderCtl.List)
+			orders.GET("/candidates", middleware.RequirePerm("workorder:assign"), workorderCtl.Candidates)
+			orders.POST("/merge", middleware.RequirePerm("workorder:merge"), middleware.OperLog(db, "workorder", "merge"), workorderCtl.Merge)
+			orders.GET("/:id", middleware.RequirePerm("workorder:list"), workorderCtl.Detail)
+			orders.POST("/:id/claim", middleware.RequirePerm("workorder:claim"), middleware.OperLog(db, "workorder", "claim"), workorderCtl.Claim)
+			orders.POST("/:id/assign", middleware.RequirePerm("workorder:assign"), middleware.OperLog(db, "workorder", "assign"), workorderCtl.Assign)
+			orders.POST("/:id/finish", middleware.RequirePerm("workorder:finish"), middleware.OperLog(db, "workorder", "finish"), workorderCtl.Finish)
+			orders.POST("/:id/review", middleware.OperLog(db, "workorder", "review"), workorderCtl.Review)
+			orders.POST("/:id/close", middleware.RequirePerm("workorder:close"), middleware.OperLog(db, "workorder", "close"), workorderCtl.Close)
+		}
+
+		acceptance := secured.Group("/acceptance")
+		{
+			acceptance.GET("/batches", middleware.RequirePerm("acceptance:list"), acceptanceCtl.List)
+			acceptance.POST("/batches", middleware.RequirePerm("acceptance:manage"), middleware.OperLog(db, "acceptance", "batch_create"), acceptanceCtl.Create)
+			acceptance.GET("/batches/:id", middleware.RequirePerm("acceptance:list"), acceptanceCtl.Detail)
+			acceptance.POST("/batches/:id/start", middleware.RequirePerm("acceptance:manage"), middleware.OperLog(db, "acceptance", "batch_start"), acceptanceCtl.Start)
+			acceptance.POST("/batches/:id/records", middleware.RequirePerm("acceptance:submit"), middleware.OperLog(db, "acceptance", "record_save"), acceptanceCtl.SaveRecord)
+			acceptance.POST("/batches/:id/targets/:targetId/coverage", middleware.RequirePerm("acceptance:submit"), middleware.OperLog(db, "acceptance", "coverage_confirm"), acceptanceCtl.ConfirmCoverage)
+			acceptance.POST("/batches/:id/submit", middleware.RequirePerm("acceptance:submit"), middleware.OperLog(db, "acceptance", "batch_submit"), acceptanceCtl.Submit)
+			acceptance.POST("/batches/:id/review", middleware.OperLog(db, "acceptance", "batch_review"), acceptanceCtl.Review)
+			acceptance.POST("/batches/:id/sign", middleware.OperLog(db, "acceptance", "batch_sign"), acceptanceCtl.Sign)
+			acceptance.PUT("/batches/:id/problems/:problemId/acceptance", middleware.RequirePerm("acceptance:manage"), middleware.OperLog(db, "acceptance", "problem_accept"), acceptanceCtl.AcceptProblem)
+			acceptance.PUT("/batches/:id/sign-subjects", middleware.RequirePerm("acceptance:manage"), middleware.OperLog(db, "acceptance", "subjects_save"), acceptanceCtl.UpdateSubjects)
+			acceptance.POST("/batches/:id/withdraw", middleware.RequirePerm("acceptance:manage"), middleware.OperLog(db, "acceptance", "batch_withdraw"), acceptanceCtl.Withdraw)
+			acceptance.POST("/batches/:id/reopen-requests", middleware.RequirePerm("acceptance:reopen"), middleware.OperLog(db, "acceptance", "reopen_request"), acceptanceCtl.RequestReopen)
+			acceptance.POST("/batches/:id/reopen-requests/:requestId/decision", middleware.RequirePerm("acceptance:reopen"), middleware.OperLog(db, "acceptance", "reopen_decision"), acceptanceCtl.DecideReopen)
+			acceptance.GET("/batches/:id/files/:fileId/download", middleware.RequirePerm("acceptance:list"), acceptanceCtl.Download)
+		}
+		schemas := secured.Group("/acceptance-schemas")
+		{
+			schemas.GET("", middleware.RequirePerm("acceptance:schema:list"), acceptanceCtl.Schemas)
+			schemas.PUT("/:code", middleware.RequirePerm("acceptance:schema:update"), middleware.OperLog(db, "acceptance", "schema_save"), acceptanceCtl.SaveSchema)
+			schemas.PUT("/:code/rows/:rowCode", middleware.RequirePerm("acceptance:schema:update"), middleware.OperLog(db, "acceptance", "schema_row_save"), acceptanceCtl.SaveRow)
+		}
+
+		aiRegistry := secured.Group("/ai")
+		{
+			aiRegistry.GET("/task-catalog", middleware.RequirePerm("ai:config:list"), aiCtl.TaskCatalog)
+			aiRegistry.GET("/providers", middleware.RequirePerm("ai:config:list"), aiCtl.Providers)
+			aiRegistry.PUT("/providers/:code", middleware.RequirePerm("ai:config:update"), middleware.OperLog(db, "ai", "provider_save"), aiCtl.SaveProvider)
+			aiRegistry.GET("/models", middleware.RequirePerm("ai:config:list"), aiCtl.Models)
+			aiRegistry.PUT("/models/:providerCode/:modelId", middleware.RequirePerm("ai:config:update"), middleware.OperLog(db, "ai", "model_save"), aiCtl.SaveModel)
+			aiRegistry.GET("/bindings", middleware.RequirePerm("ai:config:list"), aiCtl.Bindings)
+			aiRegistry.PUT("/bindings/:taskType", middleware.RequirePerm("ai:config:update"), middleware.OperLog(db, "ai", "binding_save"), aiCtl.SaveBinding)
+			aiRegistry.GET("/usage", middleware.RequirePerm("ai:config:list"), usageCtl.Usage)
+			aiRegistry.PUT("/quotas/:taskType", middleware.RequirePerm("ai:config:update"), middleware.OperLog(db, "ai", "quota_save"), usageCtl.SaveQuota)
+			aiRegistry.DELETE("/quotas/:taskType", middleware.RequirePerm("ai:config:update"), middleware.OperLog(db, "ai", "quota_reset"), usageCtl.ResetQuota)
+			aiRegistry.GET("/mcp/tools", middleware.RequirePerm("assistant:settings"), mcpCtl.Tools)
+			aiRegistry.GET("/mcp/tokens", middleware.RequirePerm("assistant:settings"), mcpCtl.Tokens)
+			aiRegistry.POST("/mcp/tokens", middleware.RequirePerm("assistant:settings"), middleware.OperLog(db, "ai", "mcp_token_issue"), mcpCtl.Issue)
+			aiRegistry.DELETE("/mcp/tokens/:id", middleware.RequirePerm("assistant:settings"), middleware.OperLog(db, "ai", "mcp_token_revoke"), mcpCtl.Revoke)
+			assistant := aiRegistry.Group("/assistant", middleware.RequirePerm("assistant:chat"))
+			{
+				assistant.GET("/status", assistantCtl.Status)
+				assistant.GET("/conversations", assistantCtl.Conversations)
+				assistant.GET("/conversations/:id/messages", assistantCtl.Messages)
+				assistant.POST("/chat", assistantCtl.Chat)
+			}
+			agent := aiRegistry.Group("/agent", middleware.RequirePerm("assistant:chat"))
+			{
+				agent.GET("/status", agentCtl.Status)
+				agent.GET("/tools", agentCtl.Tools)
+				agent.PUT("/tools/:code", middleware.RequirePerm("ai:config:update"), middleware.OperLog(db, "ai", "agent_tool_save"), agentCtl.SetTool)
+				agent.POST("/chat", agentCtl.Chat)
+				agent.GET("/conversations/:id/calls", agentCtl.Calls)
+			}
+		}
+
 		// 统计报表
 		stats := secured.Group("/stats")
 		{
@@ -359,6 +515,14 @@ func New(cfg *config.Config, db *gorm.DB, rdb *redis.Client) (*gin.Engine, *insp
 		}
 
 		// 月度报告（动态审核链签字 + PDF 归档）
+		docTemplates := secured.Group("/doc-templates")
+		{
+			docTemplates.GET("/style-packs", middleware.RequirePerm("report:template:list"), docTemplateCtl.StylePacks)
+			docTemplates.GET("/:id/bindings", middleware.RequirePerm("report:template:list"), docTemplateCtl.Bindings)
+			docTemplates.PUT("/:id/bindings", middleware.RequirePerm("report:template:update"), middleware.OperLog(db, "report", "template_output_bindings"), docTemplateCtl.SaveBindings)
+			docTemplates.GET("", middleware.RequirePerm("report:template:list"), docTemplateCtl.List)
+			docTemplates.PUT("/:id", middleware.RequirePerm("report:template:update"), middleware.OperLog(db, "report", "doc_template_save"), docTemplateCtl.Save)
+		}
 		reports := secured.Group("/reports")
 		{
 			reports.GET("", middleware.RequirePerm("report:list"), reportCtl.List)
@@ -369,13 +533,13 @@ func New(cfg *config.Config, db *gorm.DB, rdb *redis.Client) (*gin.Engine, *insp
 			reports.PUT("/plans/:id", middleware.RequirePerm("report:generate"), middleware.OperLog(db, "report", "plan_update"), reportCtl.UpdateReportPlan)
 			reports.DELETE("/plans/:id", middleware.RequirePerm("report:generate"), middleware.OperLog(db, "report", "plan_delete"), reportCtl.DeleteReportPlan)
 			reports.POST("/plans/:id/run", middleware.RequirePerm("report:generate"), middleware.OperLog(db, "report", "plan_run"), reportCtl.RunReportPlanNow)
-			reports.POST("/:id/rebuild", middleware.RequirePerm("report:generate"), middleware.OperLog(db, "report", "rebuild"), reportCtl.Rebuild)
+			reports.POST("/:id/files/:fileId/retry", middleware.RequirePerm("report:generate"), middleware.OperLog(db, "report", "file_retry"), reportCtl.RetryFile)
 			reports.POST("/:id/void", middleware.RequirePerm("report:generate"), middleware.OperLog(db, "report", "void"), reportCtl.Void)
 			reports.GET("/sign-candidates", middleware.RequirePerm("report:generate"), reportCtl.SignCandidates)
 			reports.GET("/:id/records", middleware.RequirePerm("report:list"), reportCtl.PagedRecords)
+			reports.GET("/:id/files/:fileId/download", reportCtl.DownloadFile)
 			reports.GET("/:id", middleware.RequirePerm("report:list"), reportCtl.Detail)
 			reports.POST("/:id/sign-step/:step", middleware.OperLog(db, "report", "sign_step"), reportCtl.SignStep)
-			reports.GET("/:id/pdf", reportCtl.PDF) // 权限在 service 内判定：report:download 或报告相关人
 		}
 	}
 
@@ -482,8 +646,21 @@ func New(cfg *config.Config, db *gorm.DB, rdb *redis.Client) (*gin.Engine, *insp
 				appEquipment.GET("/maintenance-pending", middleware.RequirePerm("equipment:confirm"), maintCtl.PendingList)
 				appEquipment.POST("/maintenance/confirm", middleware.RequirePerm("equipment:confirm"), middleware.OperLog(db, "equipment", "confirm"), maintCtl.Confirm)
 				appEquipment.POST("/maintenance/reject", middleware.RequirePerm("equipment:confirm"), middleware.OperLog(db, "equipment", "reject"), maintCtl.Reject)
+				appEquipment.POST("/maintenance-batches/preview", middleware.RequirePerm("equipment:maintenance"), middleware.OperLog(db, "equipment", "maintenance_batch_preview"), maintCtl.PreviewBatch)
+				appEquipment.POST("/maintenance-batches/:id", middleware.RequirePerm("equipment:maintenance"), middleware.OperLog(db, "equipment", "maintenance_batch_create"), maintCtl.CreateBatch)
+				appEquipment.POST("/maintenance-batches/:id/confirm", middleware.RequirePerm("equipment:confirm"), middleware.OperLog(db, "equipment", "maintenance_batch_confirm"), maintCtl.ConfirmBatch)
+				appEquipment.POST("/maintenance-batches/:id/reject", middleware.RequirePerm("equipment:confirm"), middleware.OperLog(db, "equipment", "maintenance_batch_reject"), maintCtl.RejectBatch)
 				appEquipment.GET("/:id", middleware.RequirePerm("equipment:list", "equipment:maintenance"), equipmentCtl.Detail)
 				appEquipment.GET("/:id/maintenances", middleware.RequirePerm("equipment:list", "equipment:maintenance"), maintCtl.History)
+			}
+			appOrders := appAuth.Group("/workorders")
+			{
+				appOrders.GET("", middleware.RequirePerm("workorder:list"), workorderCtl.List)
+				appOrders.POST("/merge", middleware.RequirePerm("workorder:merge"), middleware.OperLog(db, "workorder", "merge"), workorderCtl.Merge)
+				appOrders.GET("/:id", middleware.RequirePerm("workorder:list"), workorderCtl.Detail)
+				appOrders.POST("/:id/claim", middleware.RequirePerm("workorder:claim"), workorderCtl.Claim)
+				appOrders.POST("/:id/finish", middleware.RequirePerm("workorder:finish"), workorderCtl.Finish)
+				appOrders.POST("/:id/review", workorderCtl.Review)
 			}
 			appAuth.GET("/dashboard", statsCtl.Dashboard)
 			appAuth.GET("/communities/tree", middleware.RequirePerm("community:list", "inspection:point:list"), communityCtl.Tree)
@@ -523,8 +700,7 @@ func New(cfg *config.Config, db *gorm.DB, rdb *redis.Client) (*gin.Engine, *insp
 				appReports.GET("/:id/records", middleware.RequirePerm("report:list"), reportCtl.PagedRecords)
 				appReports.GET("/:id", middleware.RequirePerm("report:list"), reportCtl.Detail)
 				appReports.POST("/:id/sign-step/:step", middleware.OperLog(db, "report", "sign_step"), reportCtl.SignStep)
-				appReports.GET("/:id/pdf", reportCtl.PDF)               // 同 PC：service 内判定（report:download 或报告相关人）
-				appReports.POST("/:id/pdf-ticket", reportCtl.PDFTicket) // 签发 web-view 预览用一次性 ticket
+				appReports.GET("/:id/files/:fileId/download", reportCtl.DownloadFile)
 			}
 		}
 	}
@@ -606,39 +782,11 @@ func registerSystemRoutes(sys *gin.RouterGroup, db *gorm.DB,
 		signAssets.POST("/:id/revoke", middleware.RequirePerm("system:signasset:revoke"), middleware.OperLog(db, "system", "sign_asset_revoke"), signAssetCtl.Revoke)
 	}
 
-	// 审批链管理（系统管理，租户上下文）与审批链模板（平台管理，仅超管）
-	sys.GET("/review-flow", middleware.RequirePerm("system:reviewflow:list"), postCtl.GetReviewFlow)
-	sys.PUT("/review-flow", middleware.RequirePerm("system:reviewflow:update"), middleware.OperLog(db, "system", "review_flow_save"), postCtl.SaveReviewFlow)
-	sys.GET("/report-review-flow", middleware.RequirePerm("system:reviewflow:list"), postCtl.GetReportReviewFlow)
-	sys.PUT("/report-review-flow", middleware.RequirePerm("system:reviewflow:update"), middleware.OperLog(db, "system", "report_review_flow_save"), postCtl.SaveReportReviewFlow)
-	sys.GET("/maint-review-flow", middleware.RequirePerm("system:reviewflow:list"), postCtl.GetMaintReviewFlow)
-	sys.PUT("/maint-review-flow", middleware.RequirePerm("system:reviewflow:update"), middleware.OperLog(db, "system", "maint_review_flow_save"), postCtl.SaveMaintReviewFlow)
-	sys.GET("/review-flow-template", middleware.RequirePerm("platform:reviewflow:list"), postTmplCtl.GetReviewFlow)
-	sys.PUT("/review-flow-template", middleware.RequirePerm("platform:reviewflow:update"), middleware.OperLog(db, "system", "review_flow_save"), postTmplCtl.SaveReviewFlow)
-	sys.GET("/report-review-flow-template", middleware.RequirePerm("platform:reviewflow:list"), postTmplCtl.GetReportReviewFlow)
-	sys.PUT("/report-review-flow-template", middleware.RequirePerm("platform:reviewflow:update"), middleware.OperLog(db, "system", "report_review_flow_save"), postTmplCtl.SaveReportReviewFlow)
-	sys.GET("/maint-review-flow-template", middleware.RequirePerm("platform:reviewflow:list"), postTmplCtl.GetMaintReviewFlow)
-	sys.PUT("/maint-review-flow-template", middleware.RequirePerm("platform:reviewflow:update"), middleware.OperLog(db, "system", "maint_review_flow_save"), postTmplCtl.SaveMaintReviewFlow)
-
-	// 岗位管理（系统管理，租户上下文）与岗位模板库（平台管理，仅超管）
-	posts := sys.Group("/posts")
-	{
-		posts.GET("", middleware.RequirePerm("system:post:list"), postCtl.List)
-		posts.POST("", middleware.RequirePerm("system:post:create"), middleware.OperLog(db, "system", "post_create"), postCtl.Create)
-		posts.PUT("/:id", middleware.RequirePerm("system:post:update"), middleware.OperLog(db, "system", "post_update"), postCtl.Update)
-		posts.DELETE("/:id", middleware.RequirePerm("system:post:delete"), middleware.OperLog(db, "system", "post_delete"), postCtl.Delete)
-		posts.GET("/duty-bindings", middleware.RequirePerm("system:post:list"), postCtl.DutyBindings)
-		posts.PUT("/duty-bindings", middleware.RequirePerm("system:post:duty"), middleware.OperLog(db, "system", "post_duty_save"), postCtl.SaveDutyBindings)
-	}
-	postTmpls := sys.Group("/post-templates")
-	{
-		postTmpls.GET("", middleware.RequirePerm("platform:post:list"), postTmplCtl.List)
-		postTmpls.POST("", middleware.RequirePerm("platform:post:create"), middleware.OperLog(db, "system", "post_tmpl_create"), postTmplCtl.Create)
-		postTmpls.PUT("/:id", middleware.RequirePerm("platform:post:update"), middleware.OperLog(db, "system", "post_tmpl_update"), postTmplCtl.Update)
-		postTmpls.DELETE("/:id", middleware.RequirePerm("platform:post:delete"), middleware.OperLog(db, "system", "post_tmpl_delete"), postTmplCtl.Delete)
-		postTmpls.GET("/duty-bindings", middleware.RequirePerm("platform:post:list"), postTmplCtl.DutyBindings)
-		postTmpls.PUT("/duty-bindings", middleware.RequirePerm("platform:post:update"), middleware.OperLog(db, "system", "post_tmpl_duty_save"), postTmplCtl.SaveDutyBindings)
-	}
+	// 同一审批模型覆盖平台默认、租户默认与项目覆盖，无独立业务配置接口。
+	sys.GET("/review-flows/:flowCode", middleware.RequirePerm("system:reviewflow:list"), postCtl.GetFlow)
+	sys.PUT("/review-flows/:flowCode", middleware.RequirePerm("system:reviewflow:update"), middleware.OperLog(db, "system", "review_flow_save"), postCtl.SaveFlow)
+	sys.GET("/review-flow-templates/:flowCode", middleware.RequirePerm("platform:reviewflow:list"), postTmplCtl.GetFlow)
+	sys.PUT("/review-flow-templates/:flowCode", middleware.RequirePerm("platform:reviewflow:update"), middleware.OperLog(db, "system", "review_flow_save"), postTmplCtl.SaveFlow)
 
 	users := sys.Group("/users")
 	{
@@ -694,7 +842,6 @@ func registerSystemRoutes(sys *gin.RouterGroup, db *gorm.DB,
 		configs.GET("", middleware.RequirePerm("system:config:list"), configCtl.List)
 		configs.GET("/groups", middleware.RequirePerm("system:config:list"), configCtl.Groups)
 		configs.POST("", middleware.RequirePerm("system:config:create"), middleware.OperLog(db, "system", "create"), configCtl.Create)
-		configs.POST("/ai-test", middleware.RequirePerm("system:config:update"), configCtl.TestAI)
 		configs.PUT("/:id", middleware.RequirePerm("system:config:update"), middleware.OperLog(db, "system", "update"), configCtl.Update)
 		configs.DELETE("/:id", middleware.RequirePerm("system:config:delete"), middleware.OperLog(db, "system", "delete"), configCtl.Delete)
 	}

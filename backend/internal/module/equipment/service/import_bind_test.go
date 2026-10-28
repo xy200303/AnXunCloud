@@ -89,7 +89,7 @@ func TestPointBindIndex(t *testing.T) {
 		mkPoint("p-1-2", "1栋2楼通道消火栓", &b1),
 		mkPoint("p-2-1", "2栋1楼大厅消火栓", &b2),
 		mkPoint("p-2-1b", "2栋1楼通道消火栓", &b2), // 与 p-2-1 同键 → 歧义
-		mkPoint("p-no-b", "3栋5楼消火栓", nil),    // 无楼栋信息时从点位名解析
+		mkPoint("p-no-b", "3栋5楼消火栓", nil),   // 无楼栋信息时从点位名解析
 	}
 	// 结构化楼层（批量建点写入 floor=-1/-2，名称渲染 B1 无后缀也能归位）
 	pB1 := mkPoint("p-1-b1", "1栋B1通道灭火器", &b1)

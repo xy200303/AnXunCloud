@@ -15,22 +15,23 @@ import (
 
 // Config 应用全局配置
 type Config struct {
-	Server    ServerConfig    `mapstructure:"server"`
-	Postgres  PostgresConfig  `mapstructure:"postgres"`
-	Redis     RedisConfig     `mapstructure:"redis"`
-	JWT       JWTConfig       `mapstructure:"jwt"`
-	CORS      CORSConfig      `mapstructure:"cors"`
-	Log       LogConfig       `mapstructure:"log"`
-	App       AppConfig       `mapstructure:"app"`
-	Wechat    WechatConfig    `mapstructure:"wechat"`
-	Upload    UploadConfig    `mapstructure:"upload"`
-	OSS       OSSConfig       `mapstructure:"oss"`
-	COS       COSConfig       `mapstructure:"cos"`
-	Watermark WatermarkConfig `mapstructure:"watermark"`
-	Admin     AdminConfig     `mapstructure:"admin"`
-	SPA       SPAConfig       `mapstructure:"spa"`
-	UniPush   UniPushConfig   `mapstructure:"unipush"`
-	Env       string          `mapstructure:"-"` // 当前运行环境（dev/prod），来自 APP_ENV
+	Server      ServerConfig      `mapstructure:"server"`
+	Postgres    PostgresConfig    `mapstructure:"postgres"`
+	Redis       RedisConfig       `mapstructure:"redis"`
+	JWT         JWTConfig         `mapstructure:"jwt"`
+	CORS        CORSConfig        `mapstructure:"cors"`
+	Log         LogConfig         `mapstructure:"log"`
+	App         AppConfig         `mapstructure:"app"`
+	Wechat      WechatConfig      `mapstructure:"wechat"`
+	Upload      UploadConfig      `mapstructure:"upload"`
+	OSS         OSSConfig         `mapstructure:"oss"`
+	COS         COSConfig         `mapstructure:"cos"`
+	Watermark   WatermarkConfig   `mapstructure:"watermark"`
+	LibreOffice LibreOfficeConfig `mapstructure:"libreoffice"`
+	Admin       AdminConfig       `mapstructure:"admin"`
+	SPA         SPAConfig         `mapstructure:"spa"`
+	UniPush     UniPushConfig     `mapstructure:"unipush"`
+	Env         string            `mapstructure:"-"` // 当前运行环境（dev/prod），来自 APP_ENV
 }
 
 type ServerConfig struct {
@@ -114,6 +115,16 @@ type WatermarkConfig struct {
 	LogoPath string `mapstructure:"logo_path"`
 }
 
+type LibreOfficeConfig struct {
+	Mode           string `mapstructure:"mode"`
+	Binary         string `mapstructure:"binary"`
+	WorkerDir      string `mapstructure:"worker_dir"`
+	TimeoutSeconds int    `mapstructure:"timeout_seconds"`
+	MaxConcurrent  int    `mapstructure:"max_concurrent"`
+	MaxInputBytes  int64  `mapstructure:"max_input_bytes"`
+	MaxOutputBytes int64  `mapstructure:"max_output_bytes"`
+}
+
 // AdminConfig 初始超管账号（seed 时读取，不存在才创建）。
 type AdminConfig struct {
 	Username string `mapstructure:"username"`
@@ -186,34 +197,41 @@ func registerDefaults(v *viper.Viper) {
 		"log.level":               "info",
 		// app.base_url 不再内置默认域名：prod 环境必须在 .env.prod 配置 APP_BASE_URL（cmd/server 启动时 fatal 校验），
 		// 避免漏配时静默拼出指向他人域名的文件 URL / 短链接 / 二维码
-		"app.base_url":            "",
-		"wechat.appid":            "",
-		"wechat.secret":           "",
-		"wechat.mock":             true,
-		"upload.mode":             "local",
-		"upload.local_dir":        "uploads",
-		"upload.max_file_size":    20971520,
-		"upload.allowed_types":    []string{"jpg", "jpeg", "png", "heic"},
-		"oss.access_key_id":       "",
-		"oss.access_key_secret":   "",
-		"oss.role_arn":            "",
-		"oss.bucket":              "",
-		"oss.endpoint":            "",
-		"oss.expire_seconds":      3600,
-		"cos.secret_id":           "",
-		"cos.secret_key":          "",
-		"cos.bucket":              "",
-		"cos.region":              "",
-		"cos.expire_seconds":      3600,
-		"watermark.font_path":     "",
-		"watermark.logo_path":     "",
-		"admin.username":          "admin",
-		"admin.password":          "Admin@123",
-		"admin.name":              "系统管理员",
-		"spa.dist_path":           "",
-		"unipush.appid":           "",
-		"unipush.appkey":          "",
-		"unipush.mastersecret":    "",
+		"app.base_url":                 "",
+		"wechat.appid":                 "",
+		"wechat.secret":                "",
+		"wechat.mock":                  true,
+		"upload.mode":                  "local",
+		"upload.local_dir":             "uploads",
+		"upload.max_file_size":         20971520,
+		"upload.allowed_types":         []string{"jpg", "jpeg", "png", "heic"},
+		"oss.access_key_id":            "",
+		"oss.access_key_secret":        "",
+		"oss.role_arn":                 "",
+		"oss.bucket":                   "",
+		"oss.endpoint":                 "",
+		"oss.expire_seconds":           3600,
+		"cos.secret_id":                "",
+		"cos.secret_key":               "",
+		"cos.bucket":                   "",
+		"cos.region":                   "",
+		"cos.expire_seconds":           3600,
+		"watermark.font_path":          "",
+		"watermark.logo_path":          "",
+		"libreoffice.mode":             "worker",
+		"libreoffice.binary":           "soffice",
+		"libreoffice.worker_dir":       "/render",
+		"libreoffice.timeout_seconds":  90,
+		"libreoffice.max_concurrent":   1,
+		"libreoffice.max_input_bytes":  52428800,
+		"libreoffice.max_output_bytes": 104857600,
+		"admin.username":               "admin",
+		"admin.password":               "Admin@123",
+		"admin.name":                   "系统管理员",
+		"spa.dist_path":                "",
+		"unipush.appid":                "",
+		"unipush.appkey":               "",
+		"unipush.mastersecret":         "",
 	}
 	for k, val := range defaults {
 		v.SetDefault(k, val)

@@ -26,10 +26,10 @@ type RefreshReq struct {
 
 // TokenResp 双令牌响应（data 结构）。
 type TokenResp struct {
-	TokenType    string   `json:"token_type"`
-	AccessToken  string   `json:"access_token"`
-	RefreshToken string   `json:"refresh_token"`
-	ExpiresIn    int64    `json:"expires_in"`
+	TokenType    string     `json:"token_type"`
+	AccessToken  string     `json:"access_token"`
+	RefreshToken string     `json:"refresh_token"`
+	ExpiresIn    int64      `json:"expires_in"`
 	User         *UserBrief `json:"user,omitempty"`
 }
 
@@ -53,22 +53,22 @@ type ProjectBrief struct {
 
 // InfoResp 当前用户信息（GET /auth/info）。
 type InfoResp struct {
-	ID           string      `json:"id"`
-	Username     string      `json:"username"`
-	Name         string      `json:"name"`
-	Phone        string      `json:"phone"`
-	Avatar       string      `json:"avatar"`
+	ID       string `json:"id"`
+	Username string `json:"username"`
+	Name     string `json:"name"`
+	Phone    string `json:"phone"`
+	Avatar   string `json:"avatar"`
 	// 手写签名图 URL（月报签字栏用，空=未设置）
-	SignatureURL string      `json:"signature_url"`
-	Openid       string      `json:"openid"`
-	IsBuiltin    bool        `json:"is_builtin"`
-	Roles        []RoleBrief `json:"roles"`
+	SignatureURL string         `json:"signature_url"`
+	Openid       string         `json:"openid"`
+	IsBuiltin    bool           `json:"is_builtin"`
+	Roles        []RoleBrief    `json:"roles"`
 	Projects     []ProjectBrief `json:"projects"`
-	DataScope    string      `json:"data_scope"`
-	Perms        []string    `json:"perms"`
-	CreatedAt    string      `json:"created_at"`
-	LastLoginAt  string      `json:"last_login_at"`
-	LastLoginIP  string      `json:"last_login_ip"`
+	ScopeLevel   string         `json:"scope_level"`
+	Perms        []string       `json:"perms"`
+	CreatedAt    string         `json:"created_at"`
+	LastLoginAt  string         `json:"last_login_at"`
+	LastLoginIP  string         `json:"last_login_ip"`
 	// 所属公司（租户）与在职编制岗位（个人中心展示：岗位/小区/公司）
 	TenantName string       `json:"tenant_name"`
 	Staffs     []StaffBrief `json:"staffs"`

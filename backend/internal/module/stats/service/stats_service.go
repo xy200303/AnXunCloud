@@ -10,24 +10,27 @@ import (
 	"gorm.io/gorm"
 
 	"anxuncloud/internal/middleware"
-	insmodel "anxuncloud/internal/module/inspection/model"
+	filesvc "anxuncloud/internal/module/file/service"
 	"anxuncloud/internal/module/stats/dto"
+	statsmodel "anxuncloud/internal/module/stats/model"
 	sysmodel "anxuncloud/internal/module/system/model"
 	systemsvc "anxuncloud/internal/module/system/service"
 	"anxuncloud/internal/pkg/errs"
 	"anxuncloud/internal/pkg/response"
 	"anxuncloud/internal/pkg/storage"
 	"anxuncloud/internal/pkg/timefmt"
+	"anxuncloud/internal/pkg/types"
 )
 
 // StatsService 统计报表服务。
 type StatsService struct {
-	db    *gorm.DB
-	store *storage.Storage
+	db         *gorm.DB
+	store      *storage.Storage
+	projection *ProjectionService
 }
 
-func NewStatsService(db *gorm.DB, store *storage.Storage) *StatsService {
-	return &StatsService{db: db, store: store}
+func NewStatsService(db *gorm.DB, store *storage.Storage, projection *ProjectionService) *StatsService {
+	return &StatsService{db: db, store: store, projection: projection}
 }
 
 // parseRange 解析并校验日期范围（跨度 ≤366 天）。
@@ -51,13 +54,15 @@ func parseRange(start, end string) (time.Time, time.Time, *errs.Error) {
 
 // taskScope 带数据权限与日期范围的任务查询。
 func (s *StatsService) taskScope(c *gin.Context, q *dto.ReportQuery) *gorm.DB {
-	db := s.db.Model(&insmodel.InspectionTask{}).
+	db := s.db.Model(&statsmodel.Task{}).
 		Where("task_date >= ? AND task_date <= ?", q.StartDate, q.EndDate)
 	if q.CommunityID != "" {
 		db = db.Where("community_id = ?", q.CommunityID)
 	}
-	return middleware.ApplyCommunityFilter(db, c, "inspection_task.community_id")
+	return middleware.ApplyCommunityFilter(db, c, "stats_task.community_id")
 }
+
+const executableTaskPointsSQL = "GREATEST(stats_task.total_points - stats_task.blocked_points, 0)"
 
 // pct 百分比（保留 1 位小数）。
 func pct(part, total int64) float64 {
@@ -81,15 +86,15 @@ func (s *StatsService) Coverage(c *gin.Context, q *dto.ReportQuery) (gin.H, *err
 		Should int64
 		Done   int64
 	}
-	scope.Session(&gorm.Session{}).Select("COALESCE(SUM(total_points),0) AS should, COALESCE(SUM(done_points),0) AS done").Scan(&sum)
+	scope.Session(&gorm.Session{}).Select("COALESCE(SUM(" + executableTaskPointsSQL + "),0) AS should, COALESCE(SUM(done_points),0) AS done").Scan(&sum)
 
 	// 异常/疑似打卡数（过滤已被覆盖的旧记录）
-	ck := s.db.Model(&insmodel.CheckinRecord{}).
+	ck := s.db.Model(&statsmodel.Checkin{}).
 		Where("checkin_time >= ? AND checkin_time < ? AND superseded_by IS NULL", q.StartDate, endExclusive)
 	if q.CommunityID != "" {
 		ck = ck.Where("community_id = ?", q.CommunityID)
 	}
-	ck = middleware.ApplyCommunityFilter(ck, c, "checkin_record.community_id")
+	ck = middleware.ApplyCommunityFilter(ck, c, "stats_checkin.community_id")
 	var ab struct {
 		Abnormal int64
 		Suspect  int64
@@ -104,7 +109,7 @@ func (s *StatsService) Coverage(c *gin.Context, q *dto.ReportQuery) (gin.H, *err
 	}
 	var days []dayRow
 	scope.Session(&gorm.Session{}).
-		Select("to_char(task_date, 'YYYY-MM-DD') AS date, SUM(total_points) AS should, SUM(done_points) AS done").
+		Select("to_char(task_date, 'YYYY-MM-DD') AS date, SUM(" + executableTaskPointsSQL + ") AS should, SUM(done_points) AS done").
 		Group("date").Order("date").Scan(&days)
 	daily := make([]gin.H, 0, len(days))
 	for _, d := range days {
@@ -118,7 +123,7 @@ func (s *StatsService) Coverage(c *gin.Context, q *dto.ReportQuery) (gin.H, *err
 	}
 	var commRows []commRow
 	scope.Session(&gorm.Session{}).
-		Select("community_id, SUM(total_points) AS should, SUM(done_points) AS done").
+		Select("community_id, SUM(" + executableTaskPointsSQL + ") AS should, SUM(done_points) AS done").
 		Group("community_id").Scan(&commRows)
 	byComm := make([]gin.H, 0, len(commRows))
 	for _, r := range commRows {
@@ -143,9 +148,9 @@ func (s *StatsService) Timeliness(c *gin.Context, q *dto.ReportQuery) (gin.H, *e
 		return nil, be
 	}
 	scope := s.taskScope(c, q)
-	// 及时判定：finished_at <= task_date + time_window 结束时刻；时段取任务快照优先（轮次任务按各轮 window）、回落计划
-	windowExpr := "COALESCE(NULLIF(inspection_task.time_window, ''), (SELECT time_window FROM inspection_plan WHERE id = inspection_task.plan_id))"
-	onTimeExpr := `CASE WHEN status = 'done' AND finished_at IS NOT NULL AND
+	// 及时判定只使用任务生成时固化的轮次时段，不受后续计划修改影响。
+	windowExpr := "NULLIF(stats_task.time_window, '')"
+	onTimeExpr := `CASE WHEN status = 'done' AND finished_at IS NOT NULL AND ` + windowExpr + ` IS NOT NULL AND
 		finished_at <= (
 			task_date + split_part(` + windowExpr + `, '-', 2)::time
 			+ CASE WHEN split_part(` + windowExpr + `, '-', 1)::time >= split_part(` + windowExpr + `, '-', 2)::time
@@ -218,7 +223,7 @@ func (s *StatsService) Performance(c *gin.Context, q *dto.PerformanceQuery) (*re
 		Select(`inspector_id,
 			COUNT(*) AS total_tasks,
 			COUNT(*) FILTER (WHERE status = 'done') AS done_tasks,
-			COALESCE(SUM(total_points),0) AS should_points,
+			COALESCE(SUM(` + executableTaskPointsSQL + `),0) AS should_points,
 			COALESCE(SUM(done_points),0) AS done_points,
 			COALESCE(AVG(EXTRACT(EPOCH FROM (finished_at - started_at)) * 1000) FILTER (WHERE status = 'done' AND started_at IS NOT NULL AND finished_at IS NOT NULL), 0) AS avg_duration_ms`).
 		Group("inspector_id")
@@ -241,9 +246,9 @@ func (s *StatsService) Performance(c *gin.Context, q *dto.PerformanceQuery) (*re
 	userNames := map[string]string{}
 	if len(inspectorIDs) > 0 {
 		var abRows []abRow
-		ck := s.db.Model(&insmodel.CheckinRecord{}).
+		ck := s.db.Model(&statsmodel.Checkin{}).
 			Where("inspector_id IN ? AND checkin_time >= ? AND checkin_time < ? AND superseded_by IS NULL", inspectorIDs, q.StartDate, endExclusive)
-		ck = middleware.ApplyCommunityFilter(ck, c, "checkin_record.community_id")
+		ck = middleware.ApplyCommunityFilter(ck, c, "stats_checkin.community_id")
 		ck.Select("inspector_id, COUNT(*) FILTER (WHERE result = 'abnormal') AS abnormal, COUNT(*) FILTER (WHERE is_suspect) AS suspect").
 			Group("inspector_id").Scan(&abRows)
 		for _, r := range abRows {
@@ -253,17 +258,17 @@ func (s *StatsService) Performance(c *gin.Context, q *dto.PerformanceQuery) (*re
 			InspectorID string
 			Name        string
 		}
-		s.db.Model(&insmodel.InspectionTask{}).Distinct("inspector_id", "community.name").
-			Joins("JOIN community ON community.id = inspection_task.community_id").
+		s.db.Model(&statsmodel.Task{}).Distinct("inspector_id", "community_name").
 			Where("inspector_id IN ? AND task_date >= ? AND task_date <= ?", inspectorIDs, q.StartDate, q.EndDate).
 			Scan(&cnRows)
 		for _, r := range cnRows {
 			commNamesByID[r.InspectorID] = append(commNamesByID[r.InspectorID], r.Name)
 		}
-		var users []sysmodel.SysUser
-		s.db.Select("id", "name").Where("id IN ?", inspectorIDs).Find(&users)
-		for i := range users {
-			userNames[users[i].ID] = users[i].Name
+		type inspectorNameRow struct{ InspectorID, InspectorName string }
+		var nameRows []inspectorNameRow
+		s.db.Model(&statsmodel.Task{}).Distinct("inspector_id", "inspector_name").Where("inspector_id IN ?", inspectorIDs).Scan(&nameRows)
+		for _, row := range nameRows {
+			userNames[row.InspectorID] = row.InspectorName
 		}
 	}
 	items := make([]gin.H, 0, len(rows))
@@ -409,9 +414,46 @@ func (s *StatsService) Export(c *gin.Context, req *dto.ExportReq) (gin.H, *errs.
 	if err != nil {
 		return nil, errs.ErrInternal
 	}
-	systemsvc.RegisterGeneratedFile(s.db, s.store, fileName, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", storage.MD5Hex(buf), key, url)
+	exportID := types.NewID()
+	identity := middleware.CurrentIdentity(c)
+	if identity == nil {
+		return nil, errs.ErrUnauthorized
+	}
+	tenantID := identity.TenantID
+	if identity.SuperAdmin {
+		var be *errs.Error
+		tenantID, be = middleware.ExplicitTenantID(c, s.db)
+		if be != nil {
+			return nil, be
+		}
+	}
+	if tenantID == "" {
+		return nil, errs.ErrDataScope
+	}
+	communityIDs := append([]string(nil), identity.ProjectIDs...)
+	if identity.DataScopeAll {
+		communityIDs = nil
+		if err := s.db.Model(&sysmodel.Community{}).Where("tenant_id = ?", tenantID).Order("id").Pluck("id", &communityIDs).Error; err != nil {
+			return nil, errs.ErrInternal
+		}
+	}
+	if q.CommunityID != "" {
+		communityIDs = []string{q.CommunityID}
+	}
+	if len(communityIDs) == 0 {
+		return nil, errs.ErrDataScope
+	}
+	fileID := systemsvc.RegisterGeneratedFile(s.db, s.store, &tenantID, communityIDs[0], "stats_export", exportID, fileName, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", storage.MD5Hex(buf), key, url)
+	if fileID == "" {
+		return nil, errs.ErrInternal
+	}
+	for _, communityID := range communityIDs[1:] {
+		if err := filesvc.LinkObject(s.db, tenantID, communityID, "stats_export", exportID, []string{fileID}); err != nil {
+			return nil, errs.ErrInternal
+		}
+	}
 	return gin.H{
-		"export_id":    fmt.Sprintf("exp%s", time.Now().Format("20060102150405")),
+		"export_id":    exportID,
 		"status":       "done",
 		"download_url": url,
 		"expire_at":    time.Now().Add(24 * time.Hour).Format(timefmt.Layout),
@@ -421,11 +463,11 @@ func (s *StatsService) Export(c *gin.Context, req *dto.ExportReq) (gin.H, *errs.
 // Dashboard 工作台总览（数据权限自动按所辖小区过滤）。
 func (s *StatsService) Dashboard(c *gin.Context, communityID string) (gin.H, *errs.Error) {
 	today := time.Now().Format("2006-01-02")
-	taskQ := s.db.Model(&insmodel.InspectionTask{}).Where("task_date = ?", today)
+	taskQ := s.db.Model(&statsmodel.Task{}).Where("task_date = ?", today)
 	if communityID != "" {
 		taskQ = taskQ.Where("community_id = ?", communityID)
 	}
-	taskQ = middleware.ApplyCommunityFilter(taskQ, c, "inspection_task.community_id")
+	taskQ = middleware.ApplyCommunityFilter(taskQ, c, "stats_task.community_id")
 	var todaySum struct {
 		Total   int64
 		Done    int64
@@ -433,7 +475,7 @@ func (s *StatsService) Dashboard(c *gin.Context, communityID string) (gin.H, *er
 		Overdue int64
 	}
 	taskQ.Session(&gorm.Session{}).
-		Select("COALESCE(SUM(total_points),0) AS total, COALESCE(SUM(done_points),0) AS done, COUNT(*) FILTER (WHERE status = 'doing') AS doing, COUNT(*) FILTER (WHERE status = 'overdue') AS overdue").
+		Select("COALESCE(SUM(" + executableTaskPointsSQL + "),0) AS total, COALESCE(SUM(done_points),0) AS done, COUNT(*) FILTER (WHERE status = 'doing') AS doing, COUNT(*) FILTER (WHERE status = 'overdue') AS overdue").
 		Scan(&todaySum)
 
 	// 近 7 天趋势
@@ -445,9 +487,9 @@ func (s *StatsService) Dashboard(c *gin.Context, communityID string) (gin.H, *er
 			Total int64
 			Done  int64
 		}
-		dq := s.db.Model(&insmodel.InspectionTask{}).Where("task_date = ?", dayStr)
-		dq = middleware.ApplyCommunityFilter(dq, c, "inspection_task.community_id")
-		dq.Session(&gorm.Session{}).Select("COALESCE(SUM(total_points),0) AS total, COALESCE(SUM(done_points),0) AS done").Scan(&ds)
+		dq := s.db.Model(&statsmodel.Task{}).Where("task_date = ?", dayStr)
+		dq = middleware.ApplyCommunityFilter(dq, c, "stats_task.community_id")
+		dq.Session(&gorm.Session{}).Select("COALESCE(SUM(" + executableTaskPointsSQL + "),0) AS total, COALESCE(SUM(done_points),0) AS done").Scan(&ds)
 		trend = append(trend, gin.H{"date": dayStr, "total": ds.Total, "done": ds.Done, "rate": pct(ds.Done, ds.Total)})
 	}
 	// 小区排行（今日）
@@ -457,10 +499,10 @@ func (s *StatsService) Dashboard(c *gin.Context, communityID string) (gin.H, *er
 		Done        int64
 	}
 	var ranks []rankRow
-	rankQ := s.db.Model(&insmodel.InspectionTask{}).Where("task_date = ?", today)
-	rankQ = middleware.ApplyCommunityFilter(rankQ, c, "inspection_task.community_id")
+	rankQ := s.db.Model(&statsmodel.Task{}).Where("task_date = ?", today)
+	rankQ = middleware.ApplyCommunityFilter(rankQ, c, "stats_task.community_id")
 	rankQ.Session(&gorm.Session{}).
-		Select("community_id, SUM(total_points) AS total, SUM(done_points) AS done").
+		Select("community_id, SUM(" + executableTaskPointsSQL + ") AS total, SUM(done_points) AS done").
 		Group("community_id").Scan(&ranks)
 	rankList := make([]gin.H, 0, len(ranks))
 	for _, r := range ranks {
@@ -470,20 +512,45 @@ func (s *StatsService) Dashboard(c *gin.Context, communityID string) (gin.H, *er
 		})
 	}
 	// 今日执行动态（最近 10 条打卡）
-	var cks []insmodel.CheckinRecord
-	ckQ := s.db.Model(&insmodel.CheckinRecord{}).Where("checkin_time >= ? AND superseded_by IS NULL", today)
-	ckQ = middleware.ApplyCommunityFilter(ckQ, c, "checkin_record.community_id")
+	var cks []statsmodel.Checkin
+	ckQ := s.db.Model(&statsmodel.Checkin{}).Where("checkin_time >= ? AND superseded_by IS NULL", today)
+	ckQ = middleware.ApplyCommunityFilter(ckQ, c, "stats_checkin.community_id")
 	ckQ.Session(&gorm.Session{}).Order("checkin_time DESC").Limit(10).Find(&cks)
 	timeline := make([]gin.H, 0, len(cks))
 	for _, ck := range cks {
 		action := "完成打卡"
-		if ck.Result == insmodel.ResultAbnormal {
+		if ck.Result == statsmodel.ResultAbnormal {
 			action = "上报异常：" + ck.Remark
 		}
 		timeline = append(timeline, gin.H{
 			"time": timefmt.T(ck.CheckinTime), "inspector_name": s.userName(ck.InspectorID),
 			"task_id": ck.TaskID, "task_name": s.pointName(ck.PointID), "action": action,
 		})
+	}
+	type configAlert struct {
+		PointID       string
+		PointName     string
+		CommunityID   string
+		CommunityName string
+		Reason        string
+		StartedAt     time.Time
+	}
+	alerts := []configAlert{}
+	alertQ := s.db.Table("stats_config_alert AS b").
+		Select("b.point_id, b.point_name, b.community_id, b.community_name, b.reason, b.started_at").
+		Where("b.ended_at IS NULL")
+	if communityID != "" {
+		alertQ = alertQ.Where("b.community_id = ?", communityID)
+	}
+	alertQ = middleware.ApplyCommunityFilter(alertQ, c, "b.community_id")
+	if err := alertQ.Order("b.started_at DESC").Limit(20).Scan(&alerts).Error; err != nil {
+		return nil, errs.ErrInternal
+	}
+	var projectionStatus any
+	if s.projection != nil {
+		if status, err := s.projection.Status(); err == nil {
+			projectionStatus = status
+		}
 	}
 	return gin.H{
 		"today_completion":  gin.H{"total": todaySum.Total, "done": todaySum.Done, "rate": pct(todaySum.Done, todaySum.Total)},
@@ -492,29 +559,31 @@ func (s *StatsService) Dashboard(c *gin.Context, communityID string) (gin.H, *er
 		"trend_7d":          trend,
 		"community_rank":    rankList,
 		"task_timeline":     timeline,
+		"config_alerts":     alerts,
+		"projection_status": projectionStatus,
 	}, nil
 }
 
 func (s *StatsService) commName(id string) string {
-	var c sysmodel.Community
-	if s.db.Select("name").First(&c, "id = ?", id).Error == nil {
-		return c.Name
+	var task statsmodel.Task
+	if s.db.Select("community_name").First(&task, "community_id = ?", id).Error == nil {
+		return task.CommunityName
 	}
 	return ""
 }
 
 func (s *StatsService) userName(id string) string {
-	var u sysmodel.SysUser
-	if s.db.Select("name").First(&u, "id = ?", id).Error == nil {
-		return u.Name
+	var task statsmodel.Task
+	if s.db.Select("inspector_name").First(&task, "inspector_id = ?", id).Error == nil {
+		return task.InspectorName
 	}
 	return ""
 }
 
 func (s *StatsService) pointName(id string) string {
-	var name string
-	s.db.Table("inspection_point").Select("name").Where("id = ?", id).Scan(&name)
-	return name
+	var record statsmodel.Checkin
+	s.db.Select("point_name").First(&record, "point_id = ?", id)
+	return record.PointName
 }
 
 // exportLogs 导出操作/登录日志（时间范围内，上限 5 万行；按租户上下文过滤，与日志列表同口径）。

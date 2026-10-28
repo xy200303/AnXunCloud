@@ -1,6 +1,4 @@
-// 审批链解析（《汇报线与审批链扩展设计方案》§3，P2）。
-// 流程 = 有序环节列表（flow_code 系统定义，steps 可配）；每个环节引用一个职责槽位，
-// 名单解析/授权判定完全复用槽位体系（SlotUserIDs / SlotAuthorized），不引入第二套规则。
+// 审批链按职责命名并直接绑定角色；候选人为角色在对象范围内的有效任职人员。
 package service
 
 import (
@@ -18,98 +16,99 @@ import (
 	"anxuncloud/internal/pkg/types"
 )
 
-// DefaultCheckinReviewFlow 内置默认打卡审批流程（无任何配置时兜底）：空流程 = 打卡记录默认通过。
-// 要人工/AI 审核就在流程里配环节（AI 环节 = 闸门：无问题直接过，有问题流向下游）。
 func DefaultCheckinReviewFlow() types.FlowStepArray {
-	return types.FlowStepArray{}
+	return types.FlowStepArray{{RoleCode: sysmodel.QualitySupervisorCode, Name: "打卡复核", Mode: "any"}}
 }
 
-// DefaultReportReviewFlow 报告审核默认链。它只是无配置时的默认值，项目/租户可以配置任意顺序和数量，
-// 也可以完全移除巡检员节点或保存空流程。
-func DefaultReportReviewFlow() types.FlowStepArray {
-	return types.FlowStepArray{
-		{Slot: sysmodel.SlotReportInspector, Name: "巡检员确认", Mode: "all"},
-		{Slot: sysmodel.SlotPatrolReportLine, Name: "主管审核", Mode: "any"},
-		{Slot: sysmodel.SlotProjectReview, Name: "项目复核", Mode: "any"},
+func DefaultWorkorderReviewFlow() types.FlowStepArray {
+	return types.FlowStepArray{{RoleCode: sysmodel.ProjectManagerCode, Name: "工单审核", Mode: "any"}}
+}
+
+func DefaultAcceptanceReviewFlow() types.FlowStepArray {
+	return types.FlowStepArray{{RoleCode: sysmodel.ProjectManagerCode, Name: "查验报告签署", Mode: "any"}}
+}
+
+func DefaultFlow(db *gorm.DB, code string) types.FlowStepArray {
+	switch code {
+	case sysmodel.FlowReportReview:
+		return DefaultReportReviewFlow()
+	case sysmodel.FlowWorkorderReview:
+		return DefaultWorkorderReviewFlow()
+	case sysmodel.FlowAcceptanceReview:
+		return DefaultAcceptanceReviewFlow()
+	case sysmodel.FlowMaintReview:
+		return DefaultMaintReviewFlow(db)
+	default:
+		return DefaultCheckinReviewFlow()
 	}
 }
 
-// ResolveFlow 解析审批链配置：项目级 → 租户级 → 平台默认 → 内置默认。
-// 记录存在即命中（含显式空 = 默认通过），无记录才继续回落；打卡/维保链空流程语义 = 提交即生效。
+func DefaultReportReviewFlow() types.FlowStepArray {
+	return types.FlowStepArray{
+		{RoleCode: sysmodel.InspectorCode, Name: "报告现场确认", Mode: "all"},
+		{RoleCode: sysmodel.QualitySupervisorCode, Name: "月报主管审核", Mode: "any"},
+		{RoleCode: sysmodel.ProjectManagerCode, Name: "月报审批", Mode: "any"},
+	}
+}
+
+// ResolveFlow 按统一作用域解析审批链：项目级 → 租户级 → 平台默认 → 内置默认。
 func ResolveFlow(db *gorm.DB, communityID, flowCode string) types.FlowStepArray {
 	var f sysmodel.ApprovalFlow
-	if err := db.Where("project_id = ? AND flow_code = ?", communityID, flowCode).First(&f).Error; err == nil {
+	if err := db.Where("scope = ? AND scope_id = ? AND flow_code = ?", sysmodel.ScopeProject, communityID, flowCode).First(&f).Error; err == nil {
 		return f.Steps
 	}
 	if tid := middleware.CommunityTenantID(db, communityID); tid != nil {
-		if err := db.Where("project_id IS NULL AND tenant_id = ? AND flow_code = ?", *tid, flowCode).First(&f).Error; err == nil {
+		if err := db.Where("scope = ? AND scope_id = ? AND flow_code = ?", sysmodel.ScopeTenant, *tid, flowCode).First(&f).Error; err == nil {
 			return f.Steps
 		}
 	}
-	if err := db.Where("project_id IS NULL AND tenant_id IS NULL AND flow_code = ?", flowCode).First(&f).Error; err == nil {
+	if err := db.Where("scope = ? AND scope_id = ? AND flow_code = ?", sysmodel.ScopePlatform, sysmodel.PlatformScopeID, flowCode).First(&f).Error; err == nil {
 		return f.Steps
 	}
-	if flowCode == sysmodel.FlowReportReview {
-		return DefaultReportReviewFlow()
-	}
-	if flowCode == sysmodel.FlowMaintReview {
-		return DefaultMaintReviewFlow(db)
-	}
-	return DefaultCheckinReviewFlow()
+	return DefaultFlow(db, flowCode)
 }
 
 // ResolveFlowWithSource 解析审批链并给出来源（project/tenant/platform/default），供配置页展示。
 func ResolveFlowWithSource(db *gorm.DB, communityID, flowCode string) (types.FlowStepArray, string) {
 	var f sysmodel.ApprovalFlow
-	if err := db.Where("project_id = ? AND flow_code = ?", communityID, flowCode).First(&f).Error; err == nil {
+	if err := db.Where("scope = ? AND scope_id = ? AND flow_code = ?", sysmodel.ScopeProject, communityID, flowCode).First(&f).Error; err == nil {
 		return f.Steps, "project"
 	}
 	if tid := middleware.CommunityTenantID(db, communityID); tid != nil {
-		if err := db.Where("project_id IS NULL AND tenant_id = ? AND flow_code = ?", *tid, flowCode).First(&f).Error; err == nil {
+		if err := db.Where("scope = ? AND scope_id = ? AND flow_code = ?", sysmodel.ScopeTenant, *tid, flowCode).First(&f).Error; err == nil {
 			return f.Steps, "tenant"
 		}
 	}
-	if err := db.Where("project_id IS NULL AND tenant_id IS NULL AND flow_code = ?", flowCode).First(&f).Error; err == nil {
+	if err := db.Where("scope = ? AND scope_id = ? AND flow_code = ?", sysmodel.ScopePlatform, sysmodel.PlatformScopeID, flowCode).First(&f).Error; err == nil {
 		return f.Steps, "platform"
 	}
-	if flowCode == sysmodel.FlowReportReview {
-		return DefaultReportReviewFlow(), "default"
-	}
-	if flowCode == sysmodel.FlowMaintReview {
-		return DefaultMaintReviewFlow(db), "default"
-	}
-	return DefaultCheckinReviewFlow(), "default"
+	return DefaultFlow(db, flowCode), "default"
 }
 
-// DefaultMaintReviewFlow 维保登记审核内置默认（无任何配置记录时兜底）：
-// equipment.ai_auto_confirm 开 → [AI 闸门]（可信直接生效；其余按 AI 环节默认 OnReview=next 转人工兜底）；
-// 关（甲方口径：一律经理确认）→ [项目经理复核]。
 func DefaultMaintReviewFlow(db *gorm.DB) types.FlowStepArray {
 	if configread.GetBool(db, "equipment.ai_auto_confirm", false) {
-		return types.FlowStepArray{{Kind: sysmodel.FlowStepKindAI, Name: "AI 审核"}}
+		return types.FlowStepArray{
+			{Kind: sysmodel.FlowStepKindAI, Name: "AI 辅助识别", OnReview: sysmodel.FlowRouteNext},
+			{RoleCode: sysmodel.EngineerSupervisorCode, Name: "维保审核", Mode: "any"},
+		}
 	}
-	return types.FlowStepArray{{Slot: sysmodel.SlotProjectReview, Name: "经理确认"}}
+	return types.FlowStepArray{{RoleCode: sysmodel.EngineerSupervisorCode, Name: "维保审核", Mode: "any"}}
 }
 
-// WalkResult 通用走链结果（打卡/维保审核链共用）。
 type WalkResult struct {
-	Finish    bool     // 整单通过，流程结束（Step = len(flow)）
-	Reject    bool     // 整单打回（Step = 当前 AI 环节下标）
-	Step      int      // 落定环节下标
-	NeedGate  bool     // 停在 AI 环节且尚无结论（调用方异步接力）
-	NotifyIdx int      // 需通知的人工环节下标（-1 = 不通知）
-	Fallback  bool     // 通知走兜底（AI 环节越末位/空流程强制人工）
-	Skipped   []string // 因名单为空被自动跳过的人工环节名（WalkFlowSkipEmpty 填充）
+	Finish       bool
+	Reject       bool
+	Blocked      bool
+	Step         int
+	NeedGate     bool
+	NotifyIdx    int
+	Fallback     bool
+	BlockedSteps []string
 }
 
-// WalkFlow 通用走链：人工环节 → 待审；AI 环节 → 按 outcome 三分支路由（” = 无结论原地等闸门）；
-// 空流程 → Finish（forcedHuman 时 Fallback 兜底人工）。goto 向前跳，必终止。
 func WalkFlow(flow types.FlowStepArray, startIdx int, outcome string, forcedHuman bool) WalkResult {
 	if len(flow) == 0 {
-		if forcedHuman {
-			return WalkResult{Step: 0, NotifyIdx: -1, Fallback: true}
-		}
-		return WalkResult{Finish: true, Step: 0, NotifyIdx: -1}
+		return WalkResult{Blocked: true, Step: 0, NotifyIdx: -1, BlockedSteps: []string{"未配置审批流程"}}
 	}
 	idx := startIdx
 	for idx < len(flow) {
@@ -127,8 +126,7 @@ func WalkFlow(flow types.FlowStepArray, startIdx int, outcome string, forcedHuma
 		case d.Reject:
 			return WalkResult{Reject: true, Step: idx, NotifyIdx: -1}
 		case d.NextIdx >= len(flow):
-			// 越过末位：停在本环节，兜底人工
-			return WalkResult{Step: idx, NotifyIdx: -1, Fallback: true}
+			return WalkResult{Blocked: true, Step: idx, NotifyIdx: -1, BlockedSteps: []string{"AI 环节后缺少人工审核"}}
 		default:
 			idx = d.NextIdx
 		}
@@ -136,72 +134,43 @@ func WalkFlow(flow types.FlowStepArray, startIdx int, outcome string, forcedHuma
 	return WalkResult{Finish: true, Step: len(flow), NotifyIdx: -1}
 }
 
-// WalkFlowSkipEmpty 空名单自动跳过版走链（三链统一口径，替代裸 WalkFlow）：
-// 落定的人工环节名单为空（voters 返回空）时自动跳过该环节继续走，跳过记录进 WalkResult.Skipped，
-// 由调用方通知管理员检查配置；AI 环节路由语义与 WalkFlow 完全一致。
-// voters 闭包注入名单解析（生产=SlotUserIDs，测试=桩），保持本函数纯净可测。
-// 注意：forcedHuman 触发的空流程兜底人工（Fallback）是最后一道，不跳过。
-func WalkFlowSkipEmpty(flow types.FlowStepArray, startIdx int, outcome string, forcedHuman bool, voters func(slot string) []string) WalkResult {
+func WalkFlowWithVoters(db *gorm.DB, communityID string, flow types.FlowStepArray, startIdx int, outcome string, forcedHuman bool) WalkResult {
 	w := WalkFlow(flow, startIdx, outcome, forcedHuman)
-	for !w.Finish && !w.Reject && !w.NeedGate && !w.Fallback && w.Step < len(flow) {
-		st := flow[w.Step]
-		if st.Kind == sysmodel.FlowStepKindAI {
-			return w // 停在有结论待定的 AI 环节（兜底人工语义由 Fallback 表达）
-		}
-		if len(voters(st.Slot)) > 0 {
-			return w // 名单非空，落定
-		}
-		w.Skipped = append(w.Skipped, st.Name)
-		// 从下一环节继续走；跳过 AI 环节时其路由仍按 outcome 计算
-		next := WalkFlow(flow, w.Step+1, outcome, false)
-		next.Skipped = append(w.Skipped, next.Skipped...)
-		w = next
+	if w.Blocked || w.Finish || w.Reject || w.NeedGate || w.Step >= len(flow) {
+		return w
 	}
+	step := flow[w.Step]
+	if step.Kind == sysmodel.FlowStepKindAI {
+		return w
+	}
+	if len(RoleCandidateUserIDsForCommunity(db, communityID, step.RoleCode)) > 0 {
+		return w
+	}
+	w.Blocked = true
+	w.BlockedSteps = []string{step.Name}
 	return w
 }
 
-// WalkFlowWithVoters 生产口径包装：名单解析绑定 db+communityID 的空名单自动跳过走链。
-func WalkFlowWithVoters(db *gorm.DB, communityID string, flow types.FlowStepArray, startIdx int, outcome string, forcedHuman bool) WalkResult {
-	return WalkFlowSkipEmpty(flow, startIdx, outcome, forcedHuman, func(slot string) []string {
-		return SlotUserIDs(db, communityID, slot)
-	})
-}
-
-// NotifySkippedFlowSteps 空名单环节被自动跳过的管理面通知（项目管理员/租户管理员）；skipped 为空直接返回。
-func NotifySkippedFlowSteps(db *gorm.DB, n *notify.Notifier, tenantID *string, flowLabel string, skipped []string, bizID *string) {
-	if len(skipped) == 0 || n == nil || tenantID == nil || *tenantID == "" {
+func NotifyBlockedFlowSteps(db *gorm.DB, n *notify.Notifier, tenantID *string, flowLabel string, blocked []string, bizID *string) {
+	if len(blocked) == 0 || n == nil || tenantID == nil || *tenantID == "" {
 		return
 	}
 	ids := adminUserIDs(db, *tenantID)
 	if len(ids) == 0 {
 		return
 	}
-	_ = n.SendBatch(ids, tenantID, "flow_step_skipped", "审批环节已自动跳过",
-		fmt.Sprintf("「%s」审批链中环节【%s】的审核名单为空，记录已自动跳过该环节。请到 小区管理 → 岗位编制 检查环节分工与编制名单。",
-			flowLabel, strings.Join(skipped, "、")), bizID)
+	_ = n.SendBatch(ids, tenantID, "flow_blocked", "审批流程已挂起",
+		fmt.Sprintf("「%s」在环节【%s】缺少候选人，记录保持待处理，未自动通过。请补充任职或调整审批节点。",
+			flowLabel, strings.Join(blocked, "、")), bizID)
 }
 
-// adminUserIDs 租户内项目管理员/租户管理员（空名单跳过等管理面通知接收人）。
 func adminUserIDs(db *gorm.DB, tenantID string) []string {
-	var roleIDs []string
-	db.Model(&sysmodel.SysRole{}).
-		Where("code IN ? AND status = ?", []string{sysmodel.ProjectAdminCode, sysmodel.TenantAdminCode}, sysmodel.StatusEnabled).
-		Pluck("id", &roleIDs)
-	if len(roleIDs) == 0 {
-		return nil
-	}
-	// role_ids 为 jsonb 数组：任一角色命中即可
-	conds := make([]string, 0, len(roleIDs))
-	args := make([]any, 0, len(roleIDs))
-	for _, rid := range roleIDs {
-		conds = append(conds, "role_ids @> ?::jsonb")
-		args = append(args, fmt.Sprintf(`["%s"]`, rid))
-	}
 	var ids []string
-	db.Model(&sysmodel.SysUser{}).
-		Where("tenant_id = ? AND status = ?", tenantID, sysmodel.StatusEnabled).
-		Where(strings.Join(conds, " OR "), args...).
-		Pluck("id", &ids)
+	db.Model(&sysmodel.SysUser{}).Distinct("sys_user.id").
+		Joins("JOIN sys_role ON sys_role.id = sys_user.role_id").
+		Where("sys_user.tenant_id = ? AND sys_user.status = ? AND sys_role.status = ?", tenantID, sysmodel.StatusEnabled, sysmodel.StatusEnabled).
+		Where("sys_role.code IN ?", []string{sysmodel.ProjectManagerCode, sysmodel.TenantAdminCode}).
+		Pluck("sys_user.id", &ids)
 	return ids
 }
 
@@ -215,27 +184,27 @@ func FlowOrResolve(db *gorm.DB, snapshot types.FlowStepArray, communityID, flowC
 	return ResolveFlow(db, communityID, flowCode)
 }
 
-// ValidateReportFlowSteps 报告审核链校验（0-5 环节；不允许 AI 环节——报告签字是人的动作）。
-func ValidateReportFlowSteps(db *gorm.DB, steps types.FlowStepArray) *errs.Error {
-	if len(steps) > 5 {
-		return errs.ErrParam.WithMsg("报告审核链最多 5 个环节")
-	}
-	if len(steps) == 0 {
-		return nil
+func ValidateHumanFlowSteps(db *gorm.DB, steps types.FlowStepArray) *errs.Error {
+	if len(steps) == 0 || len(steps) > 5 {
+		return errs.ErrParam.WithMsg("审批链须包含 1-5 个人工环节")
 	}
 	for _, st := range steps {
 		if st.Kind == sysmodel.FlowStepKindAI {
-			return errs.ErrParam.WithMsg("报告审核链不支持 AI 环节")
+			return errs.ErrParam.WithMsg("此审核链只支持人工环节")
 		}
 	}
 	return validateHumanSteps(db, steps)
 }
 
-// ValidateFlowSteps 打卡/维保审核链环节入参校验（0-5 环节，空 = 默认通过；
-// AI 环节免槽位、不参与查重，三分支路由逐值校验（含 goto 目标合法性）；人工环节照旧）。
+func ValidateReportFlowSteps(db *gorm.DB, steps types.FlowStepArray) *errs.Error {
+	return ValidateHumanFlowSteps(db, steps)
+}
+
+// ValidateFlowSteps 打卡/维保审核链入参校验（1-5 个环节，不允许空链直通；
+// AI 环节只生成预审建议，人工节点候选人决定能否审核）。
 func ValidateFlowSteps(db *gorm.DB, steps types.FlowStepArray) *errs.Error {
-	if len(steps) > 5 {
-		return errs.ErrParam.WithMsg("审批链最多 5 个环节")
+	if len(steps) == 0 || len(steps) > 5 {
+		return errs.ErrParam.WithMsg("审批链须包含 1-5 个环节")
 	}
 	human := make(types.FlowStepArray, 0, len(steps))
 	for i, st := range steps {
@@ -344,28 +313,25 @@ func RouteAIStep(flow types.FlowStepArray, idx int, outcome string) RouteDecisio
 	}
 }
 
-// validateHumanSteps 人工环节校验（槽位须在槽位目录内且不重复；名称 1-32 字）。
 func validateHumanSteps(db *gorm.DB, steps types.FlowStepArray) *errs.Error {
-	known := make(map[string]bool, len(sysmodel.DutySlots))
-	for _, ds := range sysmodel.DutySlots {
-		known[ds.Slot] = true
-	}
-	seen := map[string]bool{}
 	for _, st := range steps {
 		name := strings.TrimSpace(st.Name)
 		if name == "" || len([]rune(name)) > 32 {
 			return errs.ErrParam.WithMsg("环节名称须为 1-32 字")
 		}
-		if !known[st.Slot] {
-			return errs.ErrParam.WithMsg("未知职责槽位「" + st.Slot + "」")
+		if strings.TrimSpace(st.RoleCode) == "" {
+			return errs.ErrParam.WithMsg("人工环节必须绑定角色")
 		}
-		if seen[st.Slot] {
-			return errs.ErrParam.WithMsg("槽位「" + st.Slot + "」在链中重复")
+		var count int64
+		if err := db.Model(&sysmodel.SysRole{}).Where("code = ? AND status = ?", st.RoleCode, sysmodel.StatusEnabled).Count(&count).Error; err != nil {
+			return errs.ErrInternal
+		}
+		if count == 0 {
+			return errs.ErrParam.WithMsg("角色「" + st.RoleCode + "」不存在或已停用")
 		}
 		if st.Mode != "" && st.Mode != "any" && st.Mode != "all" {
 			return errs.ErrParam.WithMsg("环节 mode 须为 any 或 all")
 		}
-		seen[st.Slot] = true
 	}
 	return nil
 }

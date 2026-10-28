@@ -4,13 +4,13 @@ import (
 	"fmt"
 	"sort"
 	"strings"
-	"time"
 
-	insmodel "anxuncloud/internal/module/inspection/model"
+	equipmentsvc "anxuncloud/internal/module/equipment/service"
+	inscontract "anxuncloud/internal/module/inspection/contract"
+	inspectionsvc "anxuncloud/internal/module/inspection/service"
 	"anxuncloud/internal/module/report/model"
-	sysmodel "anxuncloud/internal/module/system/model"
+	systemsvc "anxuncloud/internal/module/system/service"
 	"anxuncloud/internal/pkg/logger"
-	"anxuncloud/internal/pkg/pdf"
 	"anxuncloud/internal/pkg/types"
 	"anxuncloud/internal/pkg/uploadfile"
 
@@ -20,19 +20,25 @@ import (
 // pdfData 由报告记录组装 PDF 版面数据（v2 模板）。
 // 汇总表/分项明细/整改台账按期间实时查询（点位+打卡记录+异常打卡）；
 // 签字信息取报告留痕（含签名图快照）；管理单位取 report 配置，公章取报告快照/签章资产表。
-func (s *ReportService) pdfData(r *model.InspectionReport) pdf.MonthlyReportData {
+func (s *ReportService) pdfData(r *model.InspectionReport, docTemplate *model.DocTemplate) (model.MonthlyReportData, error) {
 	start, end, be := periodRange(r.Period)
 	if be != nil {
-		start, end = time.Now(), time.Now()
+		return model.MonthlyReportData{}, be
 	}
-	d := pdf.MonthlyReportData{
+	if r.TenantID == nil || *r.TenantID == "" {
+		return model.MonthlyReportData{}, fmt.Errorf("报告缺少租户")
+	}
+	effectiveTemplate := *docTemplate
+	effectiveTemplate.TenantID = r.TenantID
+	docTemplate = &effectiveTemplate
+	d := model.MonthlyReportData{
 		CommunityName:    s.commName(r.CommunityID),
 		CommunityAddress: s.commAddress(r.CommunityID),
 		Period:           r.Period,
 		TitleLine:        s.reportTitleLine(r),
 		CompanyName:      s.cfgString("report.company_name"),
 		CompanyNameEn:    s.cfgString("report.company_name_en"),
-		Contact: pdf.ContactInfo{
+		Contact: model.ContactInfo{
 			Tel:     s.cfgString("site.contact_phone"),
 			Email:   s.cfgString("site.contact_email"),
 			Address: s.cfgString("site.address"),
@@ -54,20 +60,31 @@ func (s *ReportService) pdfData(r *model.InspectionReport) pdf.MonthlyReportData
 	d.ReportNo = d.CommunityName + "-" + r.Period
 	if d.Approved {
 		// 公章：优先用终审时固化的快照；存量报告无快照回退报告所属租户当前 active 公章资产
-		d.SealFileID = r.SealFileID
+		d.SealFileID, _ = r.Stats["seal_file_id"].(string)
 		if d.SealFileID == "" {
 			d.SealFileID = s.activeSealID(r.CommunityID)
 		}
 	}
 
-	// ===== 点位与类型 =====
-	var points []insmodel.InspectionPoint
-	s.db.Select("id", "name", "type", "qrcode_no").
-		Where("community_id = ?", r.CommunityID).Order("sort ASC, id ASC").Find(&points)
-	// 专项报告：点位口径收拢到该类型期间任务实际覆盖的点位（应检/实检/漏检清单只列该专项的点位）
+	var points []inscontract.PointFact
+	var recs []inscontract.RecordFact
+	var tasks []inscontract.TaskFact
+	itemsByRec := map[string][]inscontract.ItemFact{}
+	err := inspectionsvc.ReadApprovedFacts(s.db, inscontract.ApprovedFactQuery{TenantID: *r.TenantID, CommunityID: r.CommunityID, PatrolType: r.PatrolType, Start: start, End: end}, func(page inscontract.ApprovedFactPage) error {
+		points = append(points, page.Points...)
+		tasks = append(tasks, page.Tasks...)
+		recs = append(recs, page.Records...)
+		for _, item := range page.Items {
+			itemsByRec[item.RecordID] = append(itemsByRec[item.RecordID], item)
+		}
+		return nil
+	})
+	if err != nil {
+		return model.MonthlyReportData{}, err
+	}
 	if r.PatrolType != "" {
-		covered := s.patrolPointIDs(r.CommunityID, start, end, r.PatrolType)
-		filtered := make([]insmodel.InspectionPoint, 0, len(points))
+		covered := patrolPointIDs(tasks)
+		filtered := make([]inscontract.PointFact, 0, len(points))
 		for _, pt := range points {
 			if covered[pt.ID] {
 				filtered = append(filtered, pt)
@@ -75,7 +92,7 @@ func (s *ReportService) pdfData(r *model.InspectionReport) pdf.MonthlyReportData
 		}
 		points = filtered
 	}
-	pointByID := map[string]*insmodel.InspectionPoint{}
+	pointByID := map[string]*inscontract.PointFact{}
 	typesPresent := map[string]bool{}
 	for i := range points {
 		pointByID[points[i].ID] = &points[i]
@@ -83,53 +100,61 @@ func (s *ReportService) pdfData(r *model.InspectionReport) pdf.MonthlyReportData
 			typesPresent[points[i].Type] = true
 		}
 	}
-	typeNames := s.pointTypeNames(typesPresent)
+	typeNames, err := s.pointTypeNames(typesPresent)
+	if err != nil {
+		return model.MonthlyReportData{}, err
+	}
 	for _, code := range typeNames.ordered {
-		d.TypeNames = append(d.TypeNames, typeNames.label(code)) // 封面设施类别用中文名
+		d.TypeNames = append(d.TypeNames, typeNames.label(code))
 	}
 
-	// ===== 当期打卡记录（过滤已被覆盖的旧记录，台账只取有效记录） =====
-	var recs []insmodel.CheckinRecord
-	scopeCheckinType(s.db, r.PatrolType).
-		Select("id", "point_id", "inspector_id", "checkin_time", "result", "remark", "audit_status").
-		Where("community_id = ? AND checkin_time >= ? AND checkin_time < ? AND superseded_by IS NULL", r.CommunityID, start, end).
-		Order("checkin_time ASC").Find(&recs)
-	recsByPoint := map[string][]insmodel.CheckinRecord{}
+	recsByPoint := map[string][]inscontract.RecordFact{}
 	inspectorIDSet := map[string]bool{}
-	recIDs := make([]string, 0, len(recs))
 	for i := range recs {
 		recsByPoint[recs[i].PointID] = append(recsByPoint[recs[i].PointID], recs[i])
 		inspectorIDSet[recs[i].InspectorID] = true
-		recIDs = append(recIDs, recs[i].ID)
 	}
-	// 逐项结果快照（v18 起独立表；record_id → 按 sort 升序的项行）
-	itemsByRec := map[string][]insmodel.CheckinRecordItem{}
-	if len(recIDs) > 0 {
-		var recItems []insmodel.CheckinRecordItem
-		s.db.Where("record_id IN ?", recIDs).Order("sort ASC").Find(&recItems)
-		for _, it := range recItems {
-			itemsByRec[it.RecordID] = append(itemsByRec[it.RecordID], it)
+	equipmentIDs := map[string]bool{}
+	for _, items := range itemsByRec {
+		for _, item := range items {
+			if item.EquipmentID != nil {
+				equipmentIDs[*item.EquipmentID] = true
+			}
 		}
 	}
-
+	equipmentNames := map[string]string{}
+	if len(equipmentIDs) > 0 {
+		ids := make([]string, 0, len(equipmentIDs))
+		for id := range equipmentIDs {
+			ids = append(ids, id)
+		}
+		if r.TenantID != nil {
+			if names, err := equipmentsvc.EquipmentNames(s.db, *r.TenantID, ids); err == nil {
+				equipmentNames = names
+			}
+		}
+	}
 	// ===== 当期异常打卡记录（整改台账数据源；复核通过视为已闭环） =====
-	abnormalRecs := make([]insmodel.CheckinRecord, 0)
+	abnormalRecs := make([]inscontract.RecordFact, 0)
 	for i := range recs {
-		if recs[i].Result == insmodel.ResultAbnormal {
+		if recs[i].Result == inscontract.ResultAbnormal {
 			abnormalRecs = append(abnormalRecs, recs[i])
 		}
 	}
-	userNames := s.userNamesOf(inspectorIDSet)
+	userNames, err := s.userNamesOf(*r.TenantID, inspectorIDSet)
+	if err != nil {
+		return model.MonthlyReportData{}, err
+	}
 
 	// ===== 3.本月检查汇总表（按点位类型动态行） =====
 	for _, t := range typeNames.ordered {
-		var pts []*insmodel.InspectionPoint
+		var pts []*inscontract.PointFact
 		for i := range points {
 			if points[i].Type == t {
 				pts = append(pts, &points[i])
 			}
 		}
-		row := pdf.SummaryRow{TypeName: typeNames.label(t), Total: len(pts)}
+		row := model.SummaryRow{TypeName: typeNames.label(t), Total: len(pts)}
 		checked := 0
 		for _, pt := range pts {
 			prs := recsByPoint[pt.ID]
@@ -141,7 +166,7 @@ func (s *ReportService) pdfData(r *model.InspectionReport) pdf.MonthlyReportData
 			// 点位有打卡且无异常记正常完好；有任一异常打卡记存在问题
 			hasAbnormal := false
 			for _, rec := range prs {
-				if rec.Result == insmodel.ResultAbnormal {
+				if rec.Result == inscontract.ResultAbnormal {
 					hasAbnormal = true
 					break
 				}
@@ -158,7 +183,7 @@ func (s *ReportService) pdfData(r *model.InspectionReport) pdf.MonthlyReportData
 		for i := range abnormalRecs {
 			if pt, ok := pointByID[abnormalRecs[i].PointID]; ok && pt.Type == t {
 				created++
-				if abnormalRecs[i].AuditStatus == insmodel.AuditPass {
+				if abnormalRecs[i].AuditStatus == inscontract.AuditPass {
 					row.Rectified++
 				}
 			}
@@ -171,9 +196,9 @@ func (s *ReportService) pdfData(r *model.InspectionReport) pdf.MonthlyReportData
 		return summaryOrderKey(d.Summary[i].TypeName) < summaryOrderKey(d.Summary[j].TypeName)
 	})
 
-	// ===== 4.分项巡检明细（每个有点位的类型一张表） =====
+	// ===== 4.分项巡检明细（按输出模板列身份与行模式装配） =====
 	for _, t := range typeNames.ordered {
-		var pts []*insmodel.InspectionPoint
+		var pts []*inscontract.PointFact
 		for i := range points {
 			if points[i].Type == t {
 				pts = append(pts, &points[i])
@@ -182,82 +207,86 @@ func (s *ReportService) pdfData(r *model.InspectionReport) pdf.MonthlyReportData
 		if len(pts) == 0 {
 			continue
 		}
-		items := s.templateColumns(pts)
+		columnSet := s.templateColumns(pts, docTemplate, itemsByRec)
+		items := columnSet.Columns
 		labels := make([]string, 0, len(items))
+		keys := make([]string, 0, len(items))
 		for _, c := range items {
 			labels = append(labels, c.label)
+			keys = append(keys, c.itemCode)
 		}
-		dt := pdf.DetailTable{TypeName: typeNames.label(t), TypeCode: t, Items: labels}
-		if len(labels) > 0 {
-			dt.Note = "注：检查标准：" + strings.Join(labels, "；") + "。"
-		}
-		// 行：每点位一行（取当期最新一次有效打卡；未巡点位保留空行，明细完整覆盖应巡清单）
-		// detail_mode=abnormal 时只保留异常点位行（报告厚度控制；汇总表仍为全量口径）
+		dt := model.DetailTable{TypeName: typeNames.label(t), TypeCode: t, Items: labels, ColumnKeys: keys}
+		rowMode := outputRowMode(s, docTemplate, t)
 		for _, pt := range pts {
-			row := pdf.DetailRow{Location: pointLocation(pt)}
-			prs := recsByPoint[pt.ID]
-			if len(prs) == 0 {
-				if r.DetailMode == "abnormal" {
+			location := pointLocation(pt)
+			rows := expandOutputRecords(rowMode, recsByPoint[pt.ID], itemsByRec, equipmentNames)
+			if len(rows) == 0 {
+				if r.DetailMode != "abnormal" {
+					dt.Rows = append(dt.Rows, model.DetailRow{Location: location, Marks: make([]string, len(items)), Time: "—"})
+				}
+				continue
+			}
+			for _, entry := range rows {
+				rec := entry.record
+				if r.DetailMode == "abnormal" && rec.Result != inscontract.ResultAbnormal {
 					continue
 				}
-				row.Marks = make([]string, len(items))
-				row.Time = "—"
-				dt.Rows = append(dt.Rows, row)
-				continue
-			}
-			rec := prs[len(prs)-1] // recs 按 checkin_time 升序，末条即最新
-			if r.DetailMode == "abnormal" && rec.Result != insmodel.ResultAbnormal {
-				continue
-			}
-			row.Inspector = userNames[rec.InspectorID]
-			row.Time = rec.CheckinTime.Format("01-02 15:04")
-			marks := make([]string, len(items))
-			for _, ci := range itemsByRec[rec.ID] {
-				for j, col := range items {
-					if ci.Name != col.item {
+				row := model.DetailRow{Location: location + entry.suffix, Inspector: userNames[rec.InspectorID], Time: rec.CheckinTime.Format("01-02 15:04")}
+				if rec.Result == inscontract.ResultAbnormal {
+					row.Problem = checkinProblem(rec, itemsByRec[rec.ID])
+				}
+				marks := make([]string, len(items))
+				for _, ci := range itemsByRec[rec.ID] {
+					if entry.equipmentID == nil && ci.EquipmentID != nil {
 						continue
 					}
-					// 逃生态（没检成）统一标「—」，不计异常（异常只算 abnormal）
-					if ci.Result == insmodel.ItemResultEscaped {
-						marks[j] = "—"
+					if entry.equipmentID != nil && (ci.EquipmentID == nil || *ci.EquipmentID != *entry.equipmentID) {
 						continue
 					}
-					if col.tag == "" {
-						// 无 tag 传统项：按项结果判
-						if ci.Result == insmodel.ItemResultNormal {
-							marks[j] = "√"
-						} else {
+					for _, ref := range ci.Photos {
+						if f, err := uploadfile.ByID(s.db, ref); err == nil && len(row.PhotoIDs) < 3 {
+							row.PhotoIDs = append(row.PhotoIDs, f.ID)
+						}
+					}
+					for j, col := range items {
+						if ci.TemplateID == nil || *ci.TemplateID != col.templateID || ci.ItemCode != col.itemCode {
+							continue
+						}
+						if ci.Result == inscontract.ItemResultEscaped {
+							marks[j] = "—"
+							continue
+						}
+						if col.tag == "" {
+							marks[j] = outputItemValue(ci, col)
+							continue
+						}
+						abn := false
+						for _, tag := range ci.AbnormalTags {
+							if tag == col.tag {
+								abn = true
+								break
+							}
+						}
+						if abn || (ci.Result == inscontract.ItemResultAbnormal && len(ci.AbnormalTags) == 0) {
 							marks[j] = "×"
+						} else {
+							marks[j] = "√"
 						}
-						continue
-					}
-					// tag 列：勾选异常 → ×；项整体异常但无 tag 明细 → 该项全部 tag 列 ×；其余 √
-					abn := false
-					for _, t := range ci.AbnormalTags {
-						if t == col.tag {
-							abn = true
-							break
-						}
-					}
-					if abn || (ci.Result == insmodel.ItemResultAbnormal && len(ci.AbnormalTags) == 0) {
-						marks[j] = "×"
-					} else {
-						marks[j] = "√"
 					}
 				}
+				row.Marks = marks
+				dt.Rows = append(dt.Rows, row)
 			}
-			row.Marks = marks
-			dt.Rows = append(dt.Rows, row)
 		}
 		if r.DetailMode == "abnormal" && len(dt.Rows) == 0 {
-			continue // 仅异常明细模式下该类型无异常点位，不出空表
+			continue
 		}
 		d.Details = append(d.Details, dt)
 	}
 
 	// ===== 附件：分项检查照片（v2：按设施类别分组，标注=点位名·日期[·检查项]） =====
 	for _, t := range typeNames.ordered {
-		group := pdf.PhotoGroup{Title: typeNames.label(t)}
+		group := model.PhotoGroup{Title: typeNames.label(t)}
 		for i := range points {
 			pt := points[i]
 			if pt.Type != t {
@@ -268,7 +297,7 @@ func (s *ReportService) pdfData(r *model.InspectionReport) pdf.MonthlyReportData
 				for _, ci := range itemsByRec[rec.ID] {
 					for _, ref := range ci.Photos {
 						if f, err := uploadfile.ByID(s.db, ref); err == nil {
-							group.Cells = append(group.Cells, pdf.PhotoCell{Label: base + "·" + ci.Name, FileID: f.ID})
+							group.Cells = append(group.Cells, model.PhotoCell{Label: base + "·" + ci.Name, FileID: f.ID})
 						}
 					}
 				}
@@ -285,7 +314,7 @@ func (s *ReportService) pdfData(r *model.InspectionReport) pdf.MonthlyReportData
 	// ===== 5.问题清单及整改台账（新版模板列：类别/区域位置/问题说明+故障照片/整改情况+完结照片） =====
 	for i := range abnormalRecs {
 		rec := &abnormalRecs[i]
-		row := pdf.LedgerRow{Problem: checkinProblem(*rec, itemsByRec[rec.ID])}
+		row := model.LedgerRow{Date: rec.CheckinTime.Format("01-02"), Inspector: userNames[rec.InspectorID], Problem: checkinProblem(*rec, itemsByRec[rec.ID])}
 		if pt, ok := pointByID[rec.PointID]; ok {
 			row.Category = typeNames.label(pt.Type)
 			row.Location = pointLocation(pt)
@@ -305,7 +334,7 @@ func (s *ReportService) pdfData(r *model.InspectionReport) pdf.MonthlyReportData
 
 	// ===== 2.动态审核链签字栏（含签名图快照） =====
 	for _, step := range r.ReviewSteps {
-		signs := make([]pdf.SignInfo, 0, len(step.CandidateIDs))
+		signs := make([]model.SignInfo, 0, len(step.CandidateIDs))
 		for _, uid := range step.CandidateIDs {
 			entry := types.SignEntry{}
 			found := false
@@ -319,23 +348,17 @@ func (s *ReportService) pdfData(r *model.InspectionReport) pdf.MonthlyReportData
 			if found && entry.ProxyName != "" {
 				name += "（" + entry.ProxyName + "代签）"
 			}
-			signs = append(signs, pdf.SignInfo{Name: name, Time: entry.SignedAt, SignatureFileID: entry.SignatureFileID})
+			signs = append(signs, model.SignInfo{Name: name, Time: entry.SignedAt, SignatureFileID: entry.SignatureFileID})
 		}
-		d.ReviewSigns = append(d.ReviewSigns, pdf.ReviewSignGroup{Name: step.Name, Signs: signs})
+		d.ReviewSigns = append(d.ReviewSigns, model.ReviewSignGroup{Name: step.Name, Signs: signs})
 	}
-	return d
+	return d, nil
 }
 
 // photoGroupMaxCells 单个设施类别照片上限（防单组撑爆版面）。
 const photoGroupMaxCells = 48
 
-// patrolPointIDs 该小区该期间内指定巡查类型任务覆盖的点位集合（以任务点位快照为准）。
-func (s *ReportService) patrolPointIDs(communityID string, start, end time.Time, patrolType string) map[string]bool {
-	var tasks []insmodel.InspectionTask
-	s.db.Select("id", "plan_id", "point_ids").
-		Where("community_id = ? AND task_date >= ? AND task_date < ? AND patrol_type = ?",
-			communityID, start.Format("2006-01-02"), end.Format("2006-01-02"), patrolType).
-		Find(&tasks)
+func patrolPointIDs(tasks []inscontract.TaskFact) map[string]bool {
 	set := map[string]bool{}
 	for i := range tasks {
 		for _, pid := range tasks[i].PointIDs {
@@ -359,15 +382,11 @@ func (n pointTypeNames) label(code string) string {
 }
 
 // pointTypeNames 读取字典 point_type，输出有点位类型的有序中文名表。
-func (s *ReportService) pointTypeNames(present map[string]bool) pointTypeNames {
-	type dictRow struct {
-		Label string
-		Value string
+func (s *ReportService) pointTypeNames(present map[string]bool) (pointTypeNames, error) {
+	rows, err := systemsvc.EnabledDictionary(s.db, "point_type")
+	if err != nil {
+		return pointTypeNames{}, err
 	}
-	var rows []dictRow
-	s.db.Model(&sysmodel.SysDictData{}).
-		Where("type_code = ? AND status = ?", "point_type", sysmodel.StatusEnabled).
-		Order("sort ASC").Select("label", "value").Scan(&rows)
 	out := pointTypeNames{labels: map[string]string{}}
 	seen := map[string]bool{}
 	for _, r := range rows {
@@ -382,42 +401,39 @@ func (s *ReportService) pointTypeNames(present map[string]bool) pointTypeNames {
 			out.ordered = append(out.ordered, code)
 		}
 	}
-	return out
+	return out, nil
 }
 
-// detailColumn 明细列定义：tag 展开的列（item+tag 定位勾选结果；tag 空=无 tag 传统项按 pass 判）。
-type detailColumn struct{ label, item, tag string }
+type detailColumn struct {
+	label, item, tag     string
+	templateID           string
+	itemCode             string
+	unit                 string
+	standard, standardNo string
+}
 
-// templateColumns 明细列：第一个有模板项的点位的模板项展开——带 tags 的项逐 tag 一列（官方月报明细列口径），
-// 无 tags 的项保持一项一列。
-func (s *ReportService) templateColumns(pts []*insmodel.InspectionPoint) []detailColumn {
-	ids := make([]string, 0, len(pts))
-	for _, pt := range pts {
-		ids = append(ids, pt.ID)
+func outputItemValue(item inscontract.ItemFact, column detailColumn) string {
+	if item.ValueNum != nil {
+		return fmt.Sprint(*item.ValueNum) + column.unit
 	}
-	sets := insmodel.LoadPointTemplateSets(s.db, ids)
-	for _, pt := range pts {
-		set := sets[pt.ID]
-		if set == nil || len(set.Items) == 0 {
-			continue
-		}
-		var cols []detailColumn
-		for _, it := range set.Items {
-			if len(it.Tags) > 0 {
-				for _, tag := range it.Tags {
-					cols = append(cols, detailColumn{label: tag, item: it.Name, tag: tag})
-				}
-			} else {
-				cols = append(cols, detailColumn{label: it.Name, item: it.Name})
-			}
-		}
-		return cols
+	if item.ValueDate != nil {
+		return item.ValueDate.Format("2006-01-02")
 	}
-	return nil
+	if item.ValueText != nil && strings.TrimSpace(*item.ValueText) != "" {
+		return strings.TrimSpace(*item.ValueText)
+	}
+	if item.Result == inscontract.ItemResultNormal {
+		return "√"
+	}
+	return "×"
+}
+
+func (s *ReportService) templateColumns(pts []*inscontract.PointFact, docTemplate *model.DocTemplate, itemsByRec map[string][]inscontract.ItemFact) detailColumnSet {
+	return outputTemplateColumns(s, pts, docTemplate, itemsByRec)
 }
 
 // pointLocation 位置/编号：点位名称 + 编码（qrcode_no 或 NFC 卡号）。
-func pointLocation(pt *insmodel.InspectionPoint) string {
+func pointLocation(pt *inscontract.PointFact) string {
 	if pt == nil {
 		return "-"
 	}
@@ -433,7 +449,7 @@ func pointLocation(pt *insmodel.InspectionPoint) string {
 
 // checkinProblem 异常打卡问题描述：优先异常备注；空则逐项兜底——异常项取 note，
 // 逃生项「无法检查·类型」（escaped=没检成，与 abnormal 区分展示）。
-func checkinProblem(rec insmodel.CheckinRecord, items []insmodel.CheckinRecordItem) string {
+func checkinProblem(rec inscontract.RecordFact, items []inscontract.ItemFact) string {
 	if rec.Remark != "" {
 		return rec.Remark
 	}
@@ -442,9 +458,9 @@ func checkinProblem(rec insmodel.CheckinRecord, items []insmodel.CheckinRecordIt
 	for _, it := range items {
 		var s string
 		switch {
-		case it.Result == insmodel.ItemResultEscaped:
+		case it.Result == inscontract.ItemResultEscaped:
 			s = "无法检查·" + exceptionTypeCN(it.ExceptionType)
-		case it.Result == insmodel.ItemResultAbnormal:
+		case it.Result == inscontract.ItemResultAbnormal:
 			s = strings.TrimSpace(it.Note)
 		}
 		if s != "" && !seen[s] {
@@ -490,32 +506,23 @@ func summaryOrderKey(typeName string) int {
 // auditStatusCN 打卡复核状态中文（台账「处理情况」列回落口径）。
 func auditStatusCN(status string) string {
 	switch status {
-	case insmodel.AuditPending:
+	case inscontract.AuditPending:
 		return "待复核"
-	case insmodel.AuditPass:
+	case inscontract.AuditPass:
 		return "复核通过"
-	case insmodel.AuditRejected:
+	case inscontract.AuditRejected:
 		return "复核驳回"
-	case insmodel.AuditAutoPass:
+	case inscontract.AuditAutoPass:
 		return "自动通过"
 	}
 	return status
 }
 
 // userNamesOf 批量反查用户姓名。
-func (s *ReportService) userNamesOf(idSet map[string]bool) map[string]string {
-	out := map[string]string{}
-	if len(idSet) == 0 {
-		return out
-	}
+func (s *ReportService) userNamesOf(tenantID string, idSet map[string]bool) (map[string]string, error) {
 	ids := make([]string, 0, len(idSet))
 	for id := range idSet {
 		ids = append(ids, id)
 	}
-	var users []sysmodel.SysUser
-	s.db.Select("id", "name").Where("id IN ?", ids).Find(&users)
-	for _, u := range users {
-		out[u.ID] = u.Name
-	}
-	return out
+	return systemsvc.UserDisplayNames(s.db, tenantID, ids)
 }

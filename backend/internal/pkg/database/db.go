@@ -3,6 +3,7 @@ package database
 
 import (
 	"fmt"
+	"net/url"
 	"time"
 
 	"gorm.io/driver/postgres"
@@ -14,8 +15,9 @@ import (
 
 // Connect 建立 GORM 连接池。
 func Connect(cfg config.PostgresConfig) (*gorm.DB, error) {
-	dsn := fmt.Sprintf("host=%s port=%d user=%s password=%s dbname=%s sslmode=%s TimeZone=Asia/Shanghai",
-		cfg.Host, cfg.Port, cfg.User, cfg.Password, cfg.DBName, cfg.SSLMode)
+	query := url.Values{"sslmode": {cfg.SSLMode}}
+	dsn := fmt.Sprintf("postgres://%s@%s:%d/%s?%s",
+		url.UserPassword(cfg.User, cfg.Password).String(), cfg.Host, cfg.Port, cfg.DBName, query.Encode()+"&TimeZone=Asia/Shanghai")
 	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{
 		Logger: gormlogger.Default.LogMode(gormlogger.Warn),
 	})

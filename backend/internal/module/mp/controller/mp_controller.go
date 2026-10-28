@@ -214,9 +214,9 @@ func (ctl *MPController) ItemDrafts(c *gin.Context) {
 	write(c, data, be)
 }
 
-// DeleteItemDraft DELETE /checkin/item-drafts?task_id&point_id&item_name（撤销某项过程草稿：逃生选错回到待拍）
+// DeleteItemDraft DELETE /checkin/item-drafts?task_id&point_id&template_id&item_code&equipment_id
 func (ctl *MPController) DeleteItemDraft(c *gin.Context) {
-	data, be := ctl.checkin.DeleteItemDraft(c.Request.Context(), uid(c), c.Query("task_id"), c.Query("point_id"), c.Query("item_name"))
+	data, be := ctl.checkin.DeleteItemDraft(c.Request.Context(), uid(c), c.Query("task_id"), c.Query("point_id"), c.Query("template_id"), c.Query("item_code"), c.Query("equipment_id"))
 	write(c, data, be)
 }
 

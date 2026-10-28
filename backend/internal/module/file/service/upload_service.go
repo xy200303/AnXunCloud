@@ -23,6 +23,7 @@ import (
 	"anxuncloud/internal/pkg/logger"
 	"anxuncloud/internal/pkg/storage"
 	"anxuncloud/internal/pkg/timefmt"
+	"anxuncloud/internal/pkg/types"
 )
 
 // UploadService 上传服务：云端直传凭证、local 本地上传、OSS 回调。
@@ -132,9 +133,12 @@ func storageDir(store *storage.Storage, scene string, uid string) string {
 // scene=signature 为 App 端月报签字的一次性手写签名（报告 resolveSignKey 按 scene+user_id 校验归属）。
 func (s *UploadService) SaveLocal(userID string, scene, filename string, size int64, r io.Reader) (gin.H, *errs.Error) {
 	switch scene {
-	case "checkin", "avatar", "signature":
+	case "checkin", "avatar", "signature", "workorder", "acceptance":
 	default:
 		return nil, errs.ErrParam.WithMsg("scene 取值非法")
+	}
+	if be := s.AuthorizeScene(userID, scene); be != nil {
+		return nil, be
 	}
 	ext, be := s.store.CheckExt(filename)
 	if be != nil {
@@ -146,6 +150,9 @@ func (s *UploadService) SaveLocal(userID string, scene, filename string, size in
 	data, err := io.ReadAll(io.LimitReader(r, s.store.MaxFileSize()+1))
 	if err != nil || int64(len(data)) > s.store.MaxFileSize() {
 		return nil, errs.ErrUploadTooLarge
+	}
+	if be := validateUploadContent(scene, ext, data); be != nil {
+		return nil, be
 	}
 	if existing, ok := s.FindReusable(scene, storage.MD5Hex(data), int64(len(data)), s.UserTenantID(userID), userID); ok {
 		return gin.H{"file_id": existing.ID, "url": existing.URL}, nil
@@ -164,8 +171,12 @@ func (s *UploadService) SaveLocal(userID string, scene, filename string, size in
 		TenantID: s.UserTenantID(userID), StorageKey: key, Scene: scene, UserID: userID,
 		MimeType: "image/" + ext, URL: url, ExifTime: exifTime,
 		Name: filepath.Base(filename), MD5: md5, Size: int64(len(data)), Storage: s.store.DriverName(),
+		EvidenceRole: "original", SHA256: sha256Hex(data), DerivativeMeta: types.JSONMap{},
 	}
 	if err := s.db.Create(&rec).Error; err != nil {
+		return nil, errs.ErrInternal
+	}
+	if err := s.createCleanedDerivative(&rec, data); err != nil {
 		return nil, errs.ErrInternal
 	}
 	return gin.H{"file_id": rec.ID, "url": url}, nil
@@ -174,7 +185,7 @@ func (s *UploadService) SaveLocal(userID string, scene, filename string, size in
 // SaveAdminLocal 管理端本地上传（/api/admin/system/upload）：签名/公章/头像/公告附件/设备维保登记照片。
 func (s *UploadService) SaveAdminLocal(userID string, scene, filename string, size int64, r io.Reader) (gin.H, *errs.Error) {
 	switch scene {
-	case "signature", "seal", "avatar", "notice", "equipment":
+	case "signature", "seal", "avatar", "notice", "equipment", "workorder", "acceptance", "doc_template":
 	default:
 		return nil, errs.ErrParam.WithMsg("scene 取值非法")
 	}
@@ -183,8 +194,11 @@ func (s *UploadService) SaveAdminLocal(userID string, scene, filename string, si
 	}
 	var ext string
 	var be *errs.Error
-	if scene == "notice" {
+	if scene == "notice" || scene == "doc_template" {
 		ext, be = checkNoticeExt(filename)
+		if scene == "doc_template" && ext != "docx" {
+			return nil, errs.ErrUploadType.WithMsg("母版仅支持 DOCX 文件")
+		}
 	} else {
 		ext, be = s.store.CheckExt(filename)
 	}
@@ -198,6 +212,9 @@ func (s *UploadService) SaveAdminLocal(userID string, scene, filename string, si
 	if err != nil || int64(len(data)) > s.store.MaxFileSize() {
 		return nil, errs.ErrUploadTooLarge
 	}
+	if be := validateUploadContent(scene, ext, data); be != nil {
+		return nil, be
+	}
 	if existing, ok := s.FindReusable(scene, storage.MD5Hex(data), int64(len(data)), s.UserTenantID(userID), userID); ok {
 		return gin.H{"file_id": existing.ID, "url": existing.URL}, nil
 	}
@@ -207,15 +224,19 @@ func (s *UploadService) SaveAdminLocal(userID string, scene, filename string, si
 		return nil, errs.ErrInternal
 	}
 	mime := "image/" + ext
-	if scene == "notice" && !noticeImageExts[ext] {
+	if (scene == "notice" || scene == "doc_template") && !noticeImageExts[ext] {
 		mime = "application/octet-stream"
 	}
 	rec := sysmodel.UploadFile{
 		TenantID: s.UserTenantID(userID), StorageKey: key, Scene: scene, UserID: userID,
 		MimeType: mime, URL: url,
 		Name: filepath.Base(filename), MD5: md5, Size: int64(len(data)), Storage: s.store.DriverName(),
+		EvidenceRole: "original", SHA256: sha256Hex(data), DerivativeMeta: types.JSONMap{},
 	}
 	if err := s.db.Create(&rec).Error; err != nil {
+		return nil, errs.ErrInternal
+	}
+	if err := s.createCleanedDerivative(&rec, data); err != nil {
 		return nil, errs.ErrInternal
 	}
 	return gin.H{"file_id": rec.ID, "url": url}, nil
@@ -241,12 +262,18 @@ func (s *UploadService) FindReusable(scene, md5 string, size int64, tenantID *st
 }
 
 func (s *UploadService) AuthorizeScene(userID, scene string) *errs.Error {
-	if scene != "seal" && scene != "notice" {
+	if scene != "seal" && scene != "notice" && scene != "workorder" && scene != "doc_template" {
 		return nil
 	}
 	perms := []string{"system:signasset:create"}
 	if scene == "notice" {
 		perms = []string{"system:notice:create", "system:notice:update"}
+	}
+	if scene == "workorder" {
+		perms = []string{"workorder:finish"}
+	}
+	if scene == "doc_template" {
+		perms = []string{"report:template:update"}
 	}
 	ok, err := authz.EnforceAny(userID, perms...)
 	if err != nil {
@@ -331,11 +358,16 @@ func (s *UploadService) Callback(c *gin.Context, body []byte) (int, any) {
 		if md5hex == "" {
 			md5hex = strings.ToLower(strings.Trim(form.ETag, `"`))
 		}
-		if form.MD5 != "" {
-			data, err := s.store.ReadFile(form.Object)
-			if err != nil || int64(len(data)) != form.Size || storage.MD5Hex(data) != md5hex {
-				return 400, gin.H{"Status": "MD5Mismatch"}
-			}
+		data, err := s.store.ReadFile(form.Object)
+		if err != nil || int64(len(data)) != form.Size {
+			return 400, gin.H{"Status": "ContentMismatch"}
+		}
+		if form.MD5 != "" && storage.MD5Hex(data) != md5hex {
+			return 400, gin.H{"Status": "MD5Mismatch"}
+		}
+		ext := strings.TrimPrefix(strings.ToLower(filepath.Ext(parts[3])), ".")
+		if be := validateUploadContent(form.Scene, ext, data); be != nil {
+			return 400, gin.H{"Status": "InvalidContent"}
 		}
 		if existing, ok := s.FindReusable(form.Scene, md5hex, form.Size, &tenantID, form.UID); ok {
 			if err := s.store.Delete(form.Object); err != nil {
@@ -347,18 +379,24 @@ func (s *UploadService) Callback(c *gin.Context, body []byte) (int, any) {
 			TenantID: &tenantID, StorageKey: form.Object, Scene: form.Scene, UserID: form.UID,
 			MimeType: form.MimeType, URL: s.store.URL(form.Object),
 			Name: filepath.Base(form.Name), MD5: md5hex, Size: form.Size, Storage: s.store.DriverName(),
+			EvidenceRole: "original", SHA256: sha256Hex(data), DerivativeMeta: types.JSONMap{},
 		}
 		if rec.Scene == "" {
 			rec.Scene = "checkin"
 		}
-		s.db.Create(&rec)
+		if err := s.db.Create(&rec).Error; err != nil {
+			return 500, gin.H{"Status": "MetadataFailed"}
+		}
+		if err := s.createCleanedDerivative(&rec, data); err != nil {
+			return 500, gin.H{"Status": "DerivativeFailed"}
+		}
 	}
 	return 200, gin.H{"Status": "OK"}
 }
 
 func isUploadScene(scene string) bool {
 	switch scene {
-	case "checkin", "avatar", "signature", "seal", "notice":
+	case "checkin", "avatar", "signature", "seal", "notice", "workorder":
 		return true
 	default:
 		return false

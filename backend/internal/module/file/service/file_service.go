@@ -14,11 +14,13 @@ import (
 
 	"anxuncloud/internal/middleware"
 	"anxuncloud/internal/module/file/dto"
+	filemodel "anxuncloud/internal/module/file/model"
 	sysmodel "anxuncloud/internal/module/system/model"
 	"anxuncloud/internal/pkg/authz"
 	"anxuncloud/internal/pkg/errs"
 	"anxuncloud/internal/pkg/exifutil"
 	"anxuncloud/internal/pkg/storage"
+	"anxuncloud/internal/pkg/types"
 	"anxuncloud/internal/pkg/uploadfile"
 )
 
@@ -35,7 +37,7 @@ func NewFileService(db *gorm.DB, store *storage.Storage, upload *UploadService) 
 
 // 上传 scene 白名单（各端合集）：图片类走全局扩展名，notice 放宽到办公文档
 var uploadScenes = map[string]bool{
-	"checkin": true, "avatar": true, "signature": true, "seal": true, "notice": true,
+	"checkin": true, "avatar": true, "signature": true, "seal": true, "notice": true, "doc_template": true,
 }
 
 var noticeExts = map[string]bool{
@@ -64,10 +66,10 @@ func (s *FileService) Upload(c *gin.Context, scene, filename string, size int64,
 	}
 	var ext string
 	var be *errs.Error
-	if scene == "notice" {
+	if scene == "notice" || scene == "doc_template" {
 		ext = strings.TrimPrefix(strings.ToLower(filepath.Ext(filename)), ".")
-		if !noticeExts[ext] {
-			return nil, errs.ErrUploadType.WithMsg("公告附件仅支持图片与 pdf/word/excel/ppt/txt/zip")
+		if !noticeExts[ext] || (scene == "doc_template" && ext != "docx") {
+			return nil, errs.ErrUploadType.WithMsg("母版仅支持 DOCX 文件")
 		}
 	} else {
 		ext, be = s.store.CheckExt(filename)
@@ -86,6 +88,9 @@ func (s *FileService) Upload(c *gin.Context, scene, filename string, size int64,
 	if err != nil || int64(len(data)) > s.store.MaxFileSize() {
 		return nil, errs.ErrUploadTooLarge
 	}
+	if be := validateUploadContent(scene, ext, data); be != nil {
+		return nil, be
+	}
 	tenantID := s.upload.UserTenantID(uid)
 	if existing, ok := s.upload.FindReusable(scene, storage.MD5Hex(data), int64(len(data)), tenantID, uid); ok {
 		return gin.H{"file_id": existing.ID, "url": existing.URL, "name": existing.Name, "md5": existing.MD5}, nil
@@ -95,7 +100,7 @@ func (s *FileService) Upload(c *gin.Context, scene, filename string, size int64,
 		return nil, errs.ErrInternal
 	}
 	mime := "image/" + ext
-	if scene == "notice" && !imageExts[ext] {
+	if (scene == "notice" || scene == "doc_template") && !imageExts[ext] {
 		mime = mimeByExt(ext)
 	}
 	var exifTime *time.Time
@@ -106,15 +111,18 @@ func (s *FileService) Upload(c *gin.Context, scene, filename string, size int64,
 		TenantID: tenantID, StorageKey: key, Scene: scene, UserID: uid,
 		MimeType: mime, URL: url, ExifTime: exifTime,
 		Name: filepath.Base(filename), MD5: md5, Size: int64(len(data)), Storage: s.store.DriverName(),
+		EvidenceRole: "original", SHA256: sha256Hex(data), DerivativeMeta: types.JSONMap{},
 	}
 	if err := s.db.Create(&rec).Error; err != nil {
+		return nil, errs.ErrInternal
+	}
+	if err := s.upload.createCleanedDerivative(&rec, data); err != nil {
 		return nil, errs.ErrInternal
 	}
 	return gin.H{"file_id": rec.ID, "url": url, "name": rec.Name, "md5": rec.MD5}, nil
 }
 
-// Download 统一下载/预览：查元数据 → scene 权限 → local 流式返回（原始文件名）/ 云存储 302。
-// 返回 data（local 文件字节）或 redirect（云存储访问地址）；name 为原始文件名。
+// Download 统一下载/预览：支持文件 UUID 或存储键，完成租户和业务授权后读取受控字节。
 func (s *FileService) Download(c *gin.Context, key string) (data []byte, redirect, name, mime string, be *errs.Error) {
 	key = strings.TrimPrefix(key, "/")
 	if key == "" || strings.Contains(key, "..") {
@@ -122,39 +130,66 @@ func (s *FileService) Download(c *gin.Context, key string) (data []byte, redirec
 	}
 	rec, err := uploadfile.ByID(s.db, key)
 	if err != nil {
-		return nil, "", "", "", errs.ErrNotFound
+		if err := s.db.Where("storage_key = ?", key).First(&rec).Error; err != nil {
+			return nil, "", "", "", errs.ErrNotFound
+		}
 	}
 	if be := s.checkRead(c, &rec); be != nil {
 		return nil, "", "", "", be
+	}
+	if rec.EvidenceRole == "original" {
+		if c.Query("original") == "1" {
+			identity := middleware.CurrentIdentity(c)
+			allowed, err := authz.EnforceAny(identity.UserID, "file:evidence:download")
+			if err != nil {
+				return nil, "", "", "", errs.ErrInternal
+			}
+			if !allowed {
+				return nil, "", "", "", errs.ErrNoPerm
+			}
+		} else {
+			var derivative sysmodel.UploadFile
+			if err := s.db.Where("parent_file_id = ? AND evidence_role IN ?", rec.ID, []string{"watermarked", "cleaned"}).
+				Order("CASE evidence_role WHEN 'watermarked' THEN 0 ELSE 1 END").Order("created_at DESC").First(&derivative).Error; err == nil {
+				if be := s.checkRead(c, &derivative); be != nil {
+					return nil, "", "", "", be
+				}
+				rec = derivative
+			}
+		}
 	}
 	mime = rec.MimeType
 	if mime == "" {
 		mime = mimeByExt(strings.TrimPrefix(strings.ToLower(filepath.Ext(rec.StorageKey)), "."))
 	}
-	fileKey := rec.StorageKey
-	if s.store.IsLocal() {
-		data, err := s.store.ReadFile(fileKey)
-		if err != nil {
-			return nil, "", "", "", errs.ErrNotFound
-		}
-		return data, "", rec.Name, mime, nil
+	data, err = s.store.ReadFile(rec.StorageKey)
+	if err != nil {
+		return nil, "", "", "", errs.ErrNotFound
 	}
-	// 云存储：重定向到对象访问地址（后续接 COS 签名 URL 在此扩展）
-	return nil, s.store.URL(fileKey), rec.Name, mime, nil
+	return data, "", rec.Name, mime, nil
 }
 
-// checkRead 按 scene 的读权限规则：
-// - export/{reports,stats,qrcode}：对应权限点（报告下载/统计导出/点位二维码）；
-// - signature/seal：本人或签章/报告相关权限；
-// - 其余（checkin/avatar/notice）：同租户登录可读；租户为空的文件仅限上传者本人（或超管）。
 func (s *FileService) checkRead(c *gin.Context, rec *sysmodel.UploadFile) *errs.Error {
 	id := middleware.CurrentIdentity(c)
 	if id == nil {
 		return errs.ErrUnauthorized
 	}
+	tenantID := id.TenantID
 	if id.SuperAdmin {
-		return nil
+		var be *errs.Error
+		tenantID, be = middleware.ExplicitTenantID(c, s.db)
+		if be != nil {
+			return be
+		}
 	}
+	if tenantID == "" || rec.TenantID == nil || *rec.TenantID != tenantID {
+		return errs.ErrDataScope
+	}
+	allowedObject, be := s.checkObjectScope(c, rec)
+	if be != nil {
+		return be
+	}
+	owned := rec.UserID != "" && rec.UserID == id.UserID
 	allow := func(perms ...string) *errs.Error {
 		ok, err := authz.EnforceAny(id.UserID, perms...)
 		if err != nil {
@@ -167,38 +202,66 @@ func (s *FileService) checkRead(c *gin.Context, rec *sysmodel.UploadFile) *errs.
 	}
 	switch rec.Scene {
 	case "export":
-		sub := ""
-		parts := strings.Split(rec.StorageKey, "/")
-		if len(parts) > 1 {
-			sub = parts[1]
-		}
-		switch sub {
-		case "reports":
-			return allow("report:download")
-		case "stats":
-			return allow("stats:export")
-		case "qrcode":
-			return allow("inspection:point:qrcode")
-		}
-		return allow("report:download", "stats:export", "inspection:point:qrcode")
-	case "signature", "seal":
-		if rec.UserID != "" && rec.UserID == id.UserID {
-			return nil
-		}
-		return allow("system:signasset:list", "report:list", "report:download")
-	case "checkin", "avatar", "notice":
-		if rec.TenantID != nil && *rec.TenantID != "" {
-			if *rec.TenantID != id.TenantID {
-				return errs.ErrDataScope
-			}
-			return nil
-		}
-		// 空租户文件不做租户比对，仅限上传者本人可读（超管已在上方放行），防止跨租户猜测下载
-		if rec.UserID == "" || rec.UserID != id.UserID {
+		if !allowedObject {
 			return errs.ErrDataScope
 		}
+		parts := strings.Split(rec.StorageKey, "/")
+		if len(parts) > 1 {
+			switch parts[1] {
+			case "reports":
+				return allow("report:download")
+			case "stats":
+				return allow("stats:export")
+			case "qrcode":
+				return allow("inspection:point:qrcode")
+			}
+		}
+		return errs.ErrDataScope
+	case "signature", "seal":
+		if owned {
+			return nil
+		}
+		return allow("system:signasset:list")
+	case "workorder":
+		if !allowedObject && !owned {
+			return errs.ErrDataScope
+		}
+		return allow("workorder:list")
+	case "acceptance":
+		if !allowedObject && !owned {
+			return errs.ErrDataScope
+		}
+		return allow("acceptance:list")
+	case "checkin":
+		if !allowedObject && !owned {
+			return errs.ErrDataScope
+		}
+		return nil
+	case "equipment":
+		if !allowedObject && !owned {
+			return errs.ErrDataScope
+		}
+		return allow("equipment:list", "equipment:maintenance")
+	case "doc_template":
+		return allow("report:template:list")
+	case "avatar", "notice":
+		return nil
+	default:
+		return errs.ErrDataScope
 	}
-	return nil
+}
+
+func (s *FileService) checkObjectScope(c *gin.Context, rec *sysmodel.UploadFile) (bool, *errs.Error) {
+	var refs []filemodel.ObjectRef
+	if err := s.db.Where("file_id = ? AND tenant_id = ?", rec.ID, *rec.TenantID).Find(&refs).Error; err != nil {
+		return false, errs.ErrInternal
+	}
+	for _, ref := range refs {
+		if middleware.CheckCommunity(s.db, c, ref.CommunityID) == nil {
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 // mimeByExt 常见扩展名 → MIME（登记缺失时兜底）。

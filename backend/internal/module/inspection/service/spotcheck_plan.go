@@ -101,12 +101,13 @@ func (s *PlanService) generateSpotTasks(p *model.InspectionPlan, date time.Time)
 		task := model.InspectionTask{
 			TenantID:    p.TenantID, // 冗余列随计划快照（=所属小区租户）
 			PlanID:      p.ID,
+			TemplateIDs: p.TemplateIDs,
 			CommunityID: p.CommunityID,
 			InspectorID: inspectorID,
 			PatrolType:  p.PatrolType, // 巡查类型随任务快照
 			TaskDate:    date,
 			RoundName:   model.SpotRoundName,
-			TimeWindow:  p.TimeWindow,
+			TimeWindow:  model.PlanDefaultWindow(p),
 			PointIDs:    sampled,
 			DueDate:     &due,
 			Status:      model.TaskPending,
@@ -114,6 +115,9 @@ func (s *PlanService) generateSpotTasks(p *model.InspectionPlan, date time.Time)
 		}
 		if err := s.db.Create(&task).Error; err != nil {
 			continue // uk_task_plan_date_inspector（含轮次维度）兜底，冲突即跳过
+		}
+		if err := SyncTaskProjection(s.db, task.ID); err != nil {
+			return created
 		}
 		created++
 	}

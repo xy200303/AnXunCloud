@@ -1,7 +1,10 @@
 // Package dto 巡检模块请求结构。
 package dto
 
-import "anxuncloud/internal/pkg/response"
+import (
+	"anxuncloud/internal/module/inspection/model"
+	"anxuncloud/internal/pkg/response"
+)
 
 // ========== 检查项模板 ==========
 
@@ -9,33 +12,38 @@ type TemplateListQuery struct {
 	response.PageQuery
 	Name      string `form:"name"`
 	PointType string `form:"point_type"`
+	Purpose   string `form:"purpose"`
 	Status    string `form:"status"`
 }
 
 type TemplateSaveReq struct {
 	Name      string `json:"name" binding:"required"`
-	PointType string `json:"point_type"` // 空为通用模板
+	PointType string `json:"point_type" binding:"required"`
+	Purpose   string `json:"purpose"`
 	Sort      int    `json:"sort"`
-	Status    *int   `json:"status"`
+	Status    string `json:"status"`
 	Remark    string `json:"remark"`
 }
 
-// TemplateItemSaveReq 项级粒度新增/修改单个检查项。
+// TemplateItemSaveReq 项级新增/修改；code 创建后不可修改。
 type TemplateItemSaveReq struct {
-	Name          string `json:"name" binding:"required"`
-	Required      bool   `json:"required"`
-	Requirement   string `json:"requirement"`
-	AIHint        string `json:"ai_hint"` // AI 识别要点（可空；空=该项不带识别要点）
-	PhotoRequired string `json:"photo_required"`
-	// JudgeType 判定类型（非法值服务端归一为 general）；JudgeConfig 判定参数（metric 需 metric/unit/min/max）
-	JudgeType   string         `json:"judge_type"`
-	JudgeConfig map[string]any `json:"judge_config"`
-	// Tags 观察点 tag 数组（一项一张照片，tag 不带图；服务端 trim/去重/限量）
-	Tags []string `json:"tags"`
-	// Guide 拍照引导语（可空；巡检员视角拍摄指引，服务端 trim 限 200 字；不进打卡快照）
-	Guide string `json:"guide"`
-	// Sort 排序号；新增时缺省（nil）追加到末尾，修改时缺省保持不变
-	Sort *int `json:"sort"`
+	Code          string             `json:"code" binding:"required"`
+	Name          string             `json:"name" binding:"required"`
+	Standard      string             `json:"standard"`
+	StandardNo    string             `json:"standard_no"`
+	ValueType     string             `json:"value_type" binding:"required,oneof=ok number date text enum"`
+	Unit          string             `json:"unit"`
+	ValueMin      *float64           `json:"value_min"`
+	ValueMax      *float64           `json:"value_max"`
+	EnumOptions   []model.EnumOption `json:"enum_options"`
+	AIHint        string             `json:"ai_hint"`
+	AIPromptKind  string             `json:"ai_prompt_kind"`
+	AIEnabled     bool               `json:"ai_enabled"`
+	PhotoRequired string             `json:"photo_required"`
+	NoteRequired  bool               `json:"note_required"`
+	Tags          []string           `json:"tags"`
+	Guide         string             `json:"guide"`
+	Sort          *int               `json:"sort"`
 }
 
 // ========== 点位 ==========
@@ -137,12 +145,12 @@ type PlanSaveReq struct {
 	Name         string         `json:"name" binding:"required"`
 	PatrolType   string         `json:"patrol_type"` // 巡查类型，缺省 safety（安全巡查）
 	PointIDs     []string       `json:"point_ids"`   // explicit 模式必填（service 校验）；by_point_types 模式可空
+	TemplateIDs  []string       `json:"template_ids" binding:"required,min=1,dive,uuid"`
 	CycleType    string         `json:"cycle_type" binding:"required,oneof=daily weekly monthly"`
 	CycleConfig  map[string]any `json:"cycle_config"`
 	InspectorIDs []string       `json:"inspector_ids" binding:"required,min=1"`
 	StartDate    string         `json:"start_date" binding:"required"`
 	EndDate      string         `json:"end_date"`
-	TimeWindow   string         `json:"time_window"` // 未配 rounds 时必填（service 校验）；配了 rounds 可留空
 	// SelectionMode 点位圈选模式（缺省 explicit）；PointTypes 为 by_point_types 模式的圈选类型
 	SelectionMode string   `json:"selection_mode"`
 	PointTypes    []string `json:"point_types"`

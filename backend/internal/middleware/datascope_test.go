@@ -69,24 +69,34 @@ func superAdminContext(path string) *gin.Context {
 	return c
 }
 
-// 超管未指定租户（前端「当前公司=默认租户」不带 X-Tenant-Id）：按默认租户隔离（与 EffectiveTenantID 同规）
 func TestSuperAdminCommunityScopeWithoutTenantContext(t *testing.T) {
 	db := newDataScopeTestDB(t)
 	c := superAdminContext("/api/app/communities/tree")
 
 	var count int64
 	ApplyCommunityFilter(db.Model(&sysmodel.Community{}), c, "id").Count(&count)
-	if count != 1 {
-		t.Fatalf("超级管理员未指定租户时应只看到默认租户小区，实际 %d", count)
+	if count != 0 {
+		t.Fatalf("超级管理员未指定租户时必须 fail closed，实际可见 %d", count)
 	}
-	if be := CheckCommunity(db, c, datascopeCommunityDefault); be != nil {
-		t.Fatalf("超级管理员访问默认租户小区不应被拒绝: %v", be)
+	for _, communityID := range []string{datascopeCommunityA, datascopeCommunityB, datascopeCommunityDefault} {
+		if be := CheckCommunity(db, c, communityID); be == nil {
+			t.Fatal("超级管理员未指定租户时不得访问任何小区")
+		}
+	}
+}
+
+func TestCommunityScopeWithoutIdentityFailsClosed(t *testing.T) {
+	db := newDataScopeTestDB(t)
+	c, _ := gin.CreateTestContext(httptest.NewRecorder())
+	c.Request = httptest.NewRequest("GET", "/api/app/communities/tree", nil)
+
+	var count int64
+	ApplyCommunityFilter(db.Model(&sysmodel.Community{}), c, "id").Count(&count)
+	if count != 0 {
+		t.Fatalf("缺少身份时必须 fail closed，实际可见 %d", count)
 	}
 	if be := CheckCommunity(db, c, datascopeCommunityA); be == nil {
-		t.Fatal("超级管理员未指定租户时不应访问租户A小区（缺省=默认租户）")
-	}
-	if be := CheckCommunity(db, c, datascopeCommunityB); be == nil {
-		t.Fatal("超级管理员未指定租户时不应访问租户B小区（缺省=默认租户）")
+		t.Fatal("缺少身份时不得访问小区")
 	}
 }
 

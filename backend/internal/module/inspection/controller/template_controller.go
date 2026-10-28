@@ -1,8 +1,14 @@
 package controller
 
 import (
+	"bytes"
+	"io"
+	"path/filepath"
+	"strings"
+
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
+	"github.com/xuri/excelize/v2"
 
 	"anxuncloud/internal/module/inspection/dto"
 	"anxuncloud/internal/module/inspection/service"
@@ -139,4 +145,75 @@ func (ctl *TemplateController) DeleteItem(c *gin.Context) {
 		return
 	}
 	write(c, nil, ctl.templates.DeleteItem(c, id, itemID))
+}
+
+func (ctl *TemplateController) DownloadImportTemplate(c *gin.Context) {
+	book, err := templateImportWorkbookForController()
+	if err != nil {
+		response.Fail(c, errs.ErrInternal)
+		return
+	}
+	c.Header("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+	c.Header("Content-Disposition", `attachment; filename="check-item-import.xlsx"`)
+	if err := book.Write(c.Writer); err != nil {
+		response.Fail(c, errs.ErrInternal)
+	}
+}
+
+func templateImportWorkbookForController() (*excelize.File, error) {
+	return service.TemplateImportWorkbook(true)
+}
+
+func (ctl *TemplateController) PreviewImport(c *gin.Context) {
+	header, err := c.FormFile("file")
+	if err != nil {
+		response.Fail(c, errs.ErrParam.WithMsg("请选择要上传的文件"))
+		return
+	}
+	file, err := header.Open()
+	if err != nil {
+		response.Fail(c, errs.ErrParam.WithMsg("无法读取上传文件"))
+		return
+	}
+	defer file.Close()
+	data, err := io.ReadAll(io.LimitReader(file, 2<<20+1))
+	if err != nil || len(data) > 2<<20 {
+		response.Fail(c, errs.ErrParam.WithMsg("文件不能超过 2 MiB"))
+		return
+	}
+	rows, be := ctl.templates.ParseImport(bytes.NewReader(data), strings.ToLower(filepath.Ext(header.Filename)))
+	if be != nil {
+		response.Fail(c, be)
+		return
+	}
+	result, be := ctl.templates.PreviewImport(c, rows)
+	write(c, result, be)
+}
+
+func (ctl *TemplateController) ApplyImport(c *gin.Context) {
+	var req dto.TemplateImportApplyReq
+	if be := bind.JSON(c, &req); be != nil {
+		response.Fail(c, be)
+		return
+	}
+	result, be := ctl.templates.ApplyImport(c, req.Rows)
+	write(c, result, be)
+}
+
+func (ctl *TemplateController) ExportImportFailures(c *gin.Context) {
+	var req dto.TemplateImportFailureExportReq
+	if be := bind.JSON(c, &req); be != nil {
+		response.Fail(c, be)
+		return
+	}
+	book, err := service.TemplateImportFailureWorkbook(req.Rows)
+	if err != nil {
+		response.Fail(c, errs.ErrInternal)
+		return
+	}
+	c.Header("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+	c.Header("Content-Disposition", `attachment; filename="check-item-import-failures.xlsx"`)
+	if err := book.Write(c.Writer); err != nil {
+		response.Fail(c, errs.ErrInternal)
+	}
 }

@@ -20,7 +20,7 @@ func NewMaintenanceController(maintenance *service.MaintenanceService) *Maintena
 }
 
 // Register POST /equipment/maintenance（admin 端登记；与 mp 登记共用同一 service）
-// v2.0 同步化：AI 核验可信即自动生效（confirm_status=confirmed），否则 pending 进确认链。
+// 登记先进入 pending，AI 只提供核验建议，最终由人工审核生效。
 func (ctl *MaintenanceController) Register(c *gin.Context) {
 	var req dto.MaintenanceRegisterReq
 	if be := bind.JSON(c, &req); be != nil {
@@ -76,6 +76,35 @@ func (ctl *MaintenanceController) Reject(c *gin.Context) {
 		return
 	}
 	write(c, nil, ctl.maintenance.Reject(c, &req))
+}
+
+func (ctl *MaintenanceController) PreviewBatch(c *gin.Context) {
+	var req service.MaintenanceBatchPreviewReq
+	if be := bind.JSON(c, &req); be != nil {
+		response.Fail(c, be)
+		return
+	}
+	data, be := ctl.maintenance.PreviewMaintenanceBatch(c, &req)
+	write(c, data, be)
+}
+
+func (ctl *MaintenanceController) CreateBatch(c *gin.Context) {
+	data, be := ctl.maintenance.CreateMaintenanceBatch(c, c.Param("token"))
+	write(c, data, be)
+}
+
+func (ctl *MaintenanceController) ConfirmBatch(c *gin.Context) {
+	data, be := ctl.maintenance.ConfirmMaintenanceBatch(c, c.Param("id"))
+	write(c, data, be)
+}
+
+func (ctl *MaintenanceController) RejectBatch(c *gin.Context) {
+	var req dto.RejectReq
+	if be := bind.JSON(c, &req); be != nil {
+		response.Fail(c, be)
+		return
+	}
+	write(c, nil, ctl.maintenance.RejectMaintenanceBatch(c, c.Param("id"), req.Reason))
 }
 
 // History GET /equipment/:id/maintenances（某设备维保历史，含确认状态）

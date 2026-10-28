@@ -56,6 +56,9 @@
                 >照片（{{ p.checkin.photos.length }}）</el-button>
                 <span v-if="p.checkin.remark" class="text-secondary">备注：{{ p.checkin.remark }}</span>
               </template>
+              <el-tooltip v-else-if="p.status === 'blocked_by_config'" :content="p.block_reason" placement="top">
+                <el-tag type="danger" size="small">配置缺陷</el-tag>
+              </el-tooltip>
               <template v-else-if="p.status === 'doing'">
                 <el-tag type="warning" size="small">巡检中 {{ p.item_done }}/{{ p.item_total }} 项</el-tag>
                 <el-tag v-if="p.item_recognizing" type="primary" size="small" effect="plain">AI 识别中 {{ p.item_recognizing }}</el-tag>
@@ -80,7 +83,7 @@
         <!-- 任务汇总条（后端全量聚合，不随分页变化） -->
         <div class="task-summary">
           任务汇总：已检 {{ detail.stats.done }} · 正常 {{ detail.stats.normal }} · 异常 {{ detail.stats.abnormal }} ·
-          疑似作弊 {{ detail.stats.suspect }} · 巡检中 {{ detail.stats.doing }} · 未打卡 {{ detail.stats.pending }}
+          疑似作弊 {{ detail.stats.suspect }} · 巡检中 {{ detail.stats.doing }} · 未打卡 {{ detail.stats.pending }} · 配置缺陷 {{ detail.stats.blocked }}
         </div>
       </div>
     </template>

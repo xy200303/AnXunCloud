@@ -14,15 +14,12 @@ export interface CommunityItem {
   created_at: string
 }
 
-// ===== 项目岗位编制 / 职责槽位绑定（设计方案 §3.2；名单制授权） =====
-export interface PostDictItem {
+export interface RoleOption {
   id: string
   code: string
   name: string
-  line: string // 业务线（safety/engineering/environment/service/general）
+  scope_level: 'platform' | 'tenant' | 'project'
   is_supervisor: boolean
-  status: number // 1 启用 / 0 停用（sysmodel.StatusInt）
-  remark: string
 }
 
 export interface StaffItem {
@@ -32,28 +29,25 @@ export interface StaffItem {
   user_name: string
   phone: string
   avatar: string
-  posts: string[] // post_dict.code
-  post_names: string[]
+  role_id: string | null
   building_ids: string[]
   building_names: string[]
+  effective_from?: string | null
+  effective_to?: string | null
+  delegate_user_id?: string | null
+  delegate_until?: string | null
   status: number
   created_at: string
 }
 
 export interface StaffForm {
   user_id: string
-  posts: string[]
   building_ids?: string[]
+  effective_from?: string | null
+  effective_to?: string | null
+  delegate_user_id?: string | null
+  delegate_until?: string | null
   status?: number
-}
-
-// 职责槽位绑定视图：source=platform 平台默认 / project 项目级覆盖
-export interface DutyBindingItem {
-  slot: string
-  name: string
-  post_codes: string[]
-  post_names: string[]
-  source: 'platform' | 'project'
 }
 
 // 楼管员岗位 code（选此岗位时需圈定责任楼栋）
@@ -72,35 +66,57 @@ export interface BuildingItem {
 // ===== 检查项模板 =====
 export type PhotoRequired = 'none' | 'optional' | 'required'
 
+export type CheckItemValueType = 'ok' | 'number' | 'date' | 'text' | 'enum'
+
+export interface CheckItemEnumOption {
+  value: string
+  label: string
+  result: 'normal' | 'abnormal'
+}
+
 export interface TemplateCheckItem {
+  id?: string
+  code: string
   name: string
-  required: boolean
-  // 检查标准要求文本（可选）
-  requirement?: string
-  // 拍照要求：none 无需 / optional 选拍 / required 必拍（缺省 none）
+  standard?: string
+  standard_no?: string
+  value_type: CheckItemValueType
+  unit?: string
+  value_min?: number | null
+  value_max?: number | null
+  enum_options?: CheckItemEnumOption[]
   photo_required?: PhotoRequired
-  // 观察点标签（细分观察点，如"水带在位"；服务端 trim/去重/限 20 个每个≤30 字）
+  note_required?: boolean
+  ai_enabled?: boolean
+  ai_prompt_kind?: string
+  ai_hint?: string | null
   tags?: string[]
-  // 拍照引导语：巡检员打卡时优先显示；留空则显示"拍「项名」照片"（服务端 trim 限 200 字）
   guide?: string | null
 }
 
+export type TemplatePurpose = 'patrol' | 'spot' | 'verify'
+export type TemplateStatus = 'draft' | 'enabled'
+
 export interface TemplateItem {
   id: string
+  code: string
   name: string
-  point_type: string // 空表示通用（所有类型）
+  point_type: string
+  purpose: TemplatePurpose
   items: TemplateCheckItem[]
   sort: number
-  status: number
+  status: TemplateStatus
   remark: string
   created_at: string
+  updated_at: string
 }
 
 export interface TemplateForm {
   name: string
   point_type: string
+  purpose: TemplatePurpose
   sort: number
-  status: number
+  status: TemplateStatus
   remark: string
 }
 
@@ -193,6 +209,8 @@ export interface PlanItem {
   spotcheck_config?: SpotcheckConfig | null
   patrol_type: PatrolType
   point_count: number
+  template_ids: string[]
+  template_names?: string[]
   selection_mode?: PlanSelectionMode
   point_types?: string[] | null
   cycle_type: 'daily' | 'weekly' | 'monthly'
@@ -219,6 +237,7 @@ export interface PlanForm {
   patrol_type: PatrolType
   selection_mode?: PlanSelectionMode
   point_ids?: string[]
+  template_ids: string[]
   point_types?: string[]
   cycle_type: string
   cycle_config: PlanCycleConfig
@@ -226,7 +245,6 @@ export interface PlanForm {
   inspector_ids: string[]
   start_date: string
   end_date: string
-  time_window?: string
   status: number
 }
 
@@ -249,6 +267,7 @@ export interface TaskItem {
   status: 'pending' | 'doing' | 'done' | 'overdue'
   total_points: number
   done_points: number
+  blocked_points?: number
   progress: number
   abnormal_count: number
   suspect_count: number
@@ -273,7 +292,8 @@ export interface TaskPointDetail {
   sort: number
   credential: 'qrcode' | 'nfc' | 'none'
   require_fence: boolean
-  status: 'done' | 'doing' | 'pending'
+  status: 'done' | 'doing' | 'pending' | 'blocked_by_config'
+  block_reason?: string
   /** 项级进度（观测层，从过程草稿派生）：item_total=模板项数；doing 时带 done/recognizing/failed */
   item_total?: number
   item_done?: number
@@ -300,6 +320,7 @@ export interface TaskDetailStats {
   done: number
   doing: number
   pending: number
+  blocked: number
   normal: number
   abnormal: number
   suspect: number
@@ -358,23 +379,19 @@ export interface CheckinCheckItem {
   // 逐项结论三态：normal 正常 / abnormal 异常 / escaped 无法检查（逃生，根本没检成）
   result: 'normal' | 'abnormal' | 'escaped'
   note: string
-  // 打卡当时的检查标准快照（可选，后端 v18 起返回）
-  requirement?: string
-  // 该项照片 URL 列表（可空，后端并行开发中）
+  template_id?: string | null
+  item_code: string
+  equipment_id?: string | null
+  builtin_kind?: string
+  standard?: string
+  value_num?: number | null
+  value_date?: string | null
+  value_text?: string | null
   photo_urls?: string[]
-  // 逐项 AI 初判（仅管理端展示）：ai_hint 识别要点快照，ai_verdict pass/review/error，空=未送 AI
-  ai_hint?: string
   ai_verdict?: 'pass' | 'review' | 'error' | ''
   ai_reason?: string
-  // 表计读数类检查项的 AI 读数（其余类型为空）
   ai_reading?: string | null
-  /** 逃生具体类型（仅 escaped 态有意义）：设备不存在/无法拍摄/相机故障/标签磨损无法辨认 */
   exception_type?: 'device_missing' | 'unable_to_capture' | 'camera_broken' | 'label_missing' | ''
-  // 打卡当时的判定类型快照
-  judge_type?: string
-  judge_config?: Record<string, unknown> | null
-  // 观察点标签快照及本次判定为异常的标签子集
-  tags?: string[]
   abnormal_tags?: string[]
   // 照片拍摄时空信息（防作弊 §14.3，可空=未上报）
   shoot_lng?: number | null

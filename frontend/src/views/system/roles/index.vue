@@ -31,8 +31,8 @@
         <el-table-column prop="code" label="角色编码" min-width="140" show-overflow-tooltip />
         <el-table-column label="数据范围" width="110" align="center">
           <template #default="{ row }">
-            <el-tag :type="dataScopeMetaOf(row.data_scope).type" size="small">
-              {{ dataScopeMetaOf(row.data_scope).label }}
+            <el-tag :type="dataScopeMetaOf(row.scope_level).type" size="small">
+              {{ dataScopeMetaOf(row.scope_level).label }}
             </el-tag>
           </template>
         </el-table-column>
@@ -103,18 +103,7 @@
         />
 
         <el-form label-width="88px">
-          <el-form-item label="数据范围">
-            <el-radio-group v-model="permForm.data_scope" :disabled="isReadonly" @change="dirty = true">
-              <el-radio value="all">全部数据</el-radio>
-              <el-radio value="project">所在项目</el-radio>
-              <el-radio value="self">仅本人</el-radio>
-            </el-radio-group>
-          </el-form-item>
-          <el-form-item v-if="permForm.data_scope === 'project'" label="项目范围">
-            <span class="text-secondary">
-              按项目过滤时，以各用户在项目「岗位编制」内的在职名单为准（在小区管理 · 编制中维护）
-            </span>
-          </el-form-item>
+
           <el-form-item label="菜单权限">
             <div class="menu-tree-wrap">
               <div class="menu-tree-toolbar">
@@ -169,12 +158,21 @@
         <el-form-item label="角色编码" prop="code">
           <el-input v-model="roleForm.code" :disabled="!!roleForm.id" placeholder="如：manager" />
         </el-form-item>
-        <el-form-item label="数据范围" prop="data_scope">
-          <el-radio-group v-model="roleForm.data_scope">
-            <el-radio value="all">全部数据</el-radio>
-            <el-radio value="project">所在项目</el-radio>
-            <el-radio value="self">仅本人</el-radio>
+        <el-form-item label="作用域" prop="scope_level">
+          <el-radio-group v-model="roleForm.scope_level">
+            <el-radio value="platform">平台</el-radio>
+            <el-radio value="tenant">本租户</el-radio>
+            <el-radio value="project">任职小区</el-radio>
           </el-radio-group>
+        </el-form-item>
+        <el-form-item label="主管角色">
+          <el-switch v-model="roleForm.is_supervisor" />
+        </el-form-item>
+        <el-form-item label="可抢工单">
+          <el-select v-model="roleForm.claim_work_types" multiple clearable style="width: 100%">
+            <el-option label="巡检整改" value="inspection_fix" />
+            <el-option label="计划维保" value="maintenance" />
+          </el-select>
         </el-form-item>
         <el-form-item label="状态">
           <el-radio-group v-model="roleForm.status">
@@ -201,26 +199,24 @@ import { Plus, RefreshRight } from '@element-plus/icons-vue'
 import { listRoles, getRole, createRole, updateRole, deleteRole, assignRoleMenus } from '@/api/role'
 import { listMenus } from '@/api/menu'
 import { useUserStore } from '@/store/user'
-import type { RoleItem, MenuNode, DataScope } from '@/api/types'
+import type { RoleItem, MenuNode, ScopeLevel } from '@/api/types'
 
 const userStore = useUserStore()
 
-// 内置角色编码（tenant_id 为空的平台共享角色，与后端 seed 一致；列表接口不下发 is_builtin，按 code 判定）
-const BUILTIN_ROLE_CODES = ['super_admin', 'tenant_admin', 'project_admin', 'field_staff']
+const BUILTIN_ROLE_CODES = ['super_admin', 'tenant_admin', 'project_manager', 'quality_supervisor', 'engineer_supervisor', 'inspector', 'maintainer', 'building_manager', 'fire_duty']
 
 function isBuiltinRole(role: RoleItem) {
   return BUILTIN_ROLE_CODES.includes(role.code)
 }
 
-// 数据范围三档（all 全部 / project 所在项目 / self 仅本人；迁移后字典同步）
-const dataScopeMeta: Record<DataScope, { label: string; type: 'success' | 'primary' | 'info' }> = {
-  all: { label: '全部数据', type: 'success' },
-  project: { label: '所在项目', type: 'primary' },
-  self: { label: '仅本人', type: 'info' }
+const dataScopeMeta: Record<ScopeLevel, { label: string; type: 'success' | 'primary' | 'info' }> = {
+  platform: { label: '平台', type: 'info' },
+  tenant: { label: '本租户', type: 'success' },
+  project: { label: '任职小区', type: 'primary' }
 }
 
 function dataScopeMetaOf(scope: string) {
-  return dataScopeMeta[scope as DataScope] || { label: scope, type: 'info' as const }
+  return dataScopeMeta[scope as ScopeLevel] || { label: scope, type: 'info' as const }
 }
 
 // ===== 角色列表 =====
@@ -270,7 +266,7 @@ const currentRole = ref<RoleItem | null>(null)
 const menuTree = ref<MenuNode[]>([])
 const menuTreeRef = ref<TreeInstance>()
 const checkedMenuIds = ref<string[]>([])
-const permForm = reactive({ data_scope: 'all' as DataScope })
+const permForm = reactive({ scope_level: 'platform' as ScopeLevel })
 
 // 超管角色权限树恒只读（后端禁止改，防误锁死）；其余内置角色仅超管可维护，非超管只读
 const isReadonly = computed(() => {
@@ -310,7 +306,7 @@ async function openPermDrawer(role: RoleItem) {
   detailLoading.value = true
   try {
     const detail = await getRole(role.id)
-    permForm.data_scope = detail.data_scope
+    permForm.scope_level = detail.scope_level
     // el-tree 勾选：仅回显叶子，父级由联动推导
     await nextTick()
     checkedMenuIds.value = detail.menu_ids || []
@@ -363,10 +359,7 @@ async function handleSavePerms() {
   syncChecked()
   saving.value = true
   try {
-    await assignRoleMenus(currentRole.value.id, {
-      menu_ids: checkedMenuIds.value,
-      data_scope: permForm.data_scope
-    })
+    await assignRoleMenus(currentRole.value.id, { menu_ids: checkedMenuIds.value })
     ElMessage.success('权限已保存')
     dirty.value = false
     permVisible.value = false
@@ -384,7 +377,9 @@ const roleForm = reactive({
   id: '',
   name: '',
   code: '',
-  data_scope: 'all' as DataScope,
+  scope_level: 'project' as ScopeLevel,
+  is_supervisor: false,
+  claim_work_types: [] as string[],
   status: 1,
   remark: ''
 })
@@ -395,14 +390,14 @@ const roleFormRules: FormRules = {
     { required: true, message: '请输入角色编码', trigger: 'blur' },
     { pattern: /^[a-z][a-z0-9_]{1,31}$/, message: '小写字母开头，仅含小写字母数字下划线', trigger: 'blur' }
   ],
-  data_scope: [{ required: true, message: '请选择数据范围', trigger: 'change' }]
+  scope_level: [{ required: true, message: '请选择作用域', trigger: 'change' }]
 }
 
 function openRoleForm(role?: RoleItem) {
   roleFormRef.value?.clearValidate()
   Object.assign(roleForm, role
-    ? { id: role.id, name: role.name, code: role.code, data_scope: role.data_scope, status: role.status, remark: role.remark }
-    : { id: '', name: '', code: '', data_scope: 'all', status: 1, remark: '' })
+    ? { id: role.id, name: role.name, code: role.code, scope_level: role.scope_level, is_supervisor: role.is_supervisor, claim_work_types: role.claim_work_types || [], status: role.status, remark: role.remark }
+    : { id: '', name: '', code: '', scope_level: 'project', is_supervisor: false, claim_work_types: [], status: 1, remark: '' })
   roleFormVisible.value = true
 }
 

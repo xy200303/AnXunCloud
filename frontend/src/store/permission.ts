@@ -79,16 +79,40 @@ export const usePermissionStore = defineStore('permission', {
       // 隐藏路由：不进侧边菜单，由列表页跳转进入
       const hiddenRoutes: RouteRecordRaw[] = [
         {
+          path: '/community/onboarding',
+          component: viewModules['../views/community/onboarding/index.vue'],
+          name: '/community/onboarding',
+          meta: { title: '新项目上线' }
+        },
+        {
+          path: '/templates/check/import',
+          component: viewModules['../views/templates/check/import/index.vue'],
+          name: '/templates/check/import',
+          meta: { title: '检查项批量录入' }
+        },
+        {
           path: '/inspection/tasks/detail/:id',
           component: viewModules['../views/inspection/tasks/detail/index.vue'],
           name: '/inspection/tasks/detail',
           meta: { title: '任务明细' }
         },
         {
-          path: '/inspection/templates/:id/items',
-          component: viewModules['../views/inspection/templates/items/index.vue'],
-          name: '/inspection/templates/items',
+          path: '/templates/check/:id/items',
+          component: viewModules['../views/templates/check/items/index.vue'],
+          name: '/templates/check/items',
           meta: { title: '检查项配置' }
+        },
+        {
+          path: '/acceptance/batches/:id',
+          component: viewModules['../views/acceptance/batches/detail/index.vue'],
+          name: '/acceptance/batches/detail',
+          meta: { title: '承接查验批次详情' }
+        },
+        {
+          path: '/templates/output/:code/editor',
+          component: viewModules['../views/templates/output/editor/index.vue'],
+          name: '/templates/output/editor',
+          meta: { title: '输出模板版式' }
         },
         {
           path: '/platform/dicts/data/:typeCode',

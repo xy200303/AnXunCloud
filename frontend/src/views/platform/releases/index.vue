@@ -1,5 +1,8 @@
 <template>
   <div class="app-container">
+    <el-tabs v-model="activeTab">
+      <el-tab-pane label="上线预置包" name="presets"><PresetPackManager v-if="activeTab === 'presets'" /></el-tab-pane>
+      <el-tab-pane label="应用发布物" name="releases">
     <!-- 发布物管理（App 安装包 / 小程序码；官网下载页与 App 检查更新共用此列表） -->
     <div class="table-card">
       <div class="table-toolbar">
@@ -44,6 +47,8 @@
       </el-table>
       <div class="table-tip">每个平台只生效最新上传的一条：官网下载页展示它，App 启动检查更新也对齐它（强制更新不可跳过）。</div>
     </div>
+      </el-tab-pane>
+    </el-tabs>
 
     <!-- 上传对话框 -->
     <el-dialog v-model="uploadVisible" title="上传发布物" width="520px" :close-on-click-modal="false">
@@ -104,6 +109,9 @@ import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox, type UploadFile, type UploadFiles, type UploadInstance } from 'element-plus'
 import { Plus, RefreshRight, UploadFilled } from '@element-plus/icons-vue'
 import { listReleases, uploadRelease, deleteRelease, type AppRelease } from '@/api/site'
+import PresetPackManager from './PresetPackManager.vue'
+
+const activeTab = ref('presets')
 
 // ========== 发布物列表 ==========
 const releases = ref<AppRelease[]>([])

@@ -10,7 +10,6 @@ const STORAGE_KEY = 'anxun.simple-mode'
 /** 简洁模式下隐藏的菜单路径（目录前缀整体隐藏） */
 const ADVANCED_PATHS = new Set([
   '/system/roles',        // 角色管理（内置角色已够用）
-  '/system/posts',        // 岗位管理（预置岗位模板已够用）
   '/system/sign-assets',  // 签章管理
   '/system/review-flow',  // 审批流程（默认链已够用）
   '/system/brand',        // 企业品牌

@@ -138,6 +138,10 @@ export function getTypeSchema(type: string) {
   return request<EquipmentTypeSchema | null>({ url: '/equipment/type-schemas', method: 'get', params: { type } })
 }
 
+export function saveTypeSchema(type: string, data: { config: EquipmentTypeSchema['config'] }) {
+  return request<EquipmentTypeSchema>({ url: `/equipment/type-schemas/${type}`, method: 'put', data })
+}
+
 // ===== 维保登记 / 确认链 =====
 
 export interface MaintenancePhoto {

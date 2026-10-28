@@ -50,7 +50,7 @@ export function deleteReportPlan(id: string) {
 
 // 手动触发：立即按周期规则生成上一份完整周期报告
 export function runReportPlan(id: string) {
-  return request<{ id: string; title: string; status: string; regenerated: boolean }>({
+  return request<{ id: string; title: string; status: string; generation_status: 'running' }>({
     url: `/reports/plans/${id}/run`, method: 'post'
   })
 }

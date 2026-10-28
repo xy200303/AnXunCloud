@@ -21,7 +21,7 @@ export interface RoleBrief {
   name: string
 }
 
-export type DataScope = 'all' | 'project' | 'self'
+export type ScopeLevel = 'platform' | 'tenant' | 'project'
 
 export interface UserInfo {
   id: string
@@ -30,7 +30,7 @@ export interface UserInfo {
   phone: string
   avatar: string
   roles: RoleBrief[]
-  data_scope: DataScope
+  scope_level: ScopeLevel
   perms: string[]
   // 个人中心扩展字段（后端并行开发中，可能缺省）
   signature_url?: string // 手写签名图 URL（月报签字栏用，可空）
@@ -76,9 +76,7 @@ export interface UserItem {
   avatar: string
   openid: string
   roles?: RoleBrief[]
-  /** 岗位带入角色（在职编制岗位绑定角色，只读展示；不含已手动分配的角色） */
-  post_roles?: RoleBrief[]
-  role_ids?: string[]
+  role_id?: string
   status: number
   is_builtin?: boolean
   last_login_at: string
@@ -90,7 +88,7 @@ export interface UserForm {
   password?: string
   name: string
   phone: string
-  role_ids: string[]
+  role_id: string
   status: number
 }
 
@@ -98,7 +96,9 @@ export interface RoleItem {
   id: string
   code: string
   name: string
-  data_scope: DataScope
+  scope_level: ScopeLevel
+  is_supervisor: boolean
+  claim_work_types: string[]
   remark: string
   status: number
   user_count: number
@@ -186,4 +186,5 @@ export interface DashboardData {
   trend_7d: { date: string; total: number; done: number; rate: number }[]
   community_rank: { community_id: string; community_name: string; total: number; done: number; rate: number }[]
   task_timeline: { time: string; inspector_name: string; task_id: string; task_name: string; action: string }[]
+  config_alerts: { point_id: string; point_name: string; community_id: string; community_name: string; reason: string; started_at: string }[]
 }

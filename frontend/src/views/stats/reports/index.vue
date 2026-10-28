@@ -249,18 +249,42 @@
           <!-- 动态审核进度 -->
           <div class="section-title">审核进度</div>
           <el-steps :active="signActive" align-center finish-status="success" class="sign-steps">
-            <el-step v-for="step in detail.review_steps" :key="step.slot" :title="step.name" :description="stepDescription(step)" />
+            <el-step v-for="step in detail.review_steps" :key="step.role_code" :title="step.name" :description="stepDescription(step)" />
           </el-steps>
 
-          <div v-for="step in detail.review_steps" :key="`sign-${step.slot}`" class="sign-block">
+          <div v-for="step in detail.review_steps" :key="`sign-${step.role_code}`" class="sign-block">
             <div class="sign-block-title">{{ step.name }}（{{ step.mode === 'all' ? '全部签署' : '任一签署' }}）</div>
             <div v-if="step.users?.length" class="inspector-list">
               <div v-for="p in step.users" :key="p.user_id" class="inspector-item"><span>{{ p.name }}</span><el-tag :type="p.signed ? 'success' : 'info'" size="small">{{ p.signed ? `已签 ${p.signed_at || ''}` : '待签' }}</el-tag></div>
             </div>
-            <div v-else class="text-secondary">该步骤无候选人，已自动跳过</div>
+            <div v-else class="text-secondary">该步骤无候选人，流程已挂起</div>
           </div>
 
           <!-- 签字操作区 -->
+          <div class="section-title">报告文件</div>
+          <el-table :data="detail.files" size="small">
+            <el-table-column prop="volume_name" label="册别" min-width="130" />
+            <el-table-column label="阶段" width="100">
+              <template #default="{ row }">{{ { frozen: '冻结待审', archived: '最终归档', legacy_archive: '历史归档', preview: '预览' }[row.stage as string] || row.stage }}</template>
+            </el-table-column>
+            <el-table-column label="格式" width="75">
+              <template #default="{ row }">{{ row.format.toUpperCase() }}</template>
+            </el-table-column>
+            <el-table-column label="摘要" min-width="150">
+              <template #default="{ row }">{{ row.sha256 || '—' }}</template>
+            </el-table-column>
+            <el-table-column label="状态" min-width="110">
+              <template #default="{ row }">
+                <el-tag v-if="row.status === 'ready'" type="success">已生成</el-tag>
+                <template v-else-if="row.status === 'failed'">
+                  <el-tag type="danger">{{ row.error_message || '生成失败' }}</el-tag>
+                  <el-button v-perms="'report:generate'" link type="primary" @click="retryFile(row.id)">重试</el-button>
+                </template>
+                <el-tag v-else type="warning">生成中</el-tag>
+              </template>
+            </el-table-column>
+          </el-table>
+
           <div v-if="showSignAction || separationHint" class="sign-actions">
             <el-button v-if="showSignAction" type="primary" :icon="CircleCheck" :loading="signing" @click="handleApprove">{{ currentStep?.name || '签字' }}</el-button>
             <el-button v-if="showRejectBtn" type="danger" :loading="signing" @click="handleReject">驳回</el-button>
@@ -286,12 +310,6 @@
 
     <!-- 生成报告对话框 -->
     <el-dialog v-model="generateVisible" title="生成报告" width="520px" :close-on-click-modal="false">
-      <el-alert
-        type="info"
-        :closable="false"
-        title="同一小区同一期间已存在报告时将重新统计并重置签字流程（已通过不可重算）"
-        class="generate-tip"
-      />
       <el-form ref="generateFormRef" :model="generateForm" :rules="generateRules" label-width="98px">
         <el-form-item label="小区" prop="community_id">
           <el-select
@@ -337,14 +355,12 @@
           </el-radio-group>
           <div class="form-tip">点位量大时选「仅异常点位」可大幅压缩报告页数（汇总统计不受影响）</div>
         </el-form-item>
-        <el-form-item v-for="step in candidateSteps" :key="step.slot" :label="step.name">
-          <el-select v-model="selectedCandidates[step.slot]" multiple collapse-tags collapse-tags-tooltip :placeholder="step.mode === 'all' ? '选择全部签字人' : '选择任一签字人'" :loading="candidatesLoading" style="width: 100%">
+        <el-form-item v-for="step in candidateSteps" :key="step.role_code" :label="step.name">
+          <el-select v-model="selectedCandidates[step.role_code]" multiple collapse-tags collapse-tags-tooltip :placeholder="step.mode === 'all' ? '选择全部签字人' : '选择任一签字人'" :loading="candidatesLoading" style="width: 100%">
             <el-option v-for="p in step.users" :key="p.id" :label="p.name" :value="p.id" />
           </el-select>
         </el-form-item>
-        <div class="signer-tip text-secondary">
-          审核步骤和候选人由后端审核链配置返回，可按企业需要配置任意级数；清空步骤候选人表示自动跳过。
-        </div>
+
       </el-form>
       <template #footer>
         <el-button @click="generateVisible = false">取消</el-button>
@@ -369,6 +385,7 @@ import {
   getSignCandidates,
   signStep,
   voidReport,
+  retryReportFile,
   type ReportItem,
   type ReportDetail,
   type ReportRecord,
@@ -656,13 +673,24 @@ async function handleVoid(row: ReportItem) {
   }
 }
 
-// ===== PDF 下载 =====
+async function retryFile(fileId: string) {
+  if (!detail.value) return
+  await retryReportFile(detail.value.id, fileId)
+  detail.value = await getReport(detail.value.id)
+}
+
 const downloading = ref(false)
 
 async function handleDownload(row: { id: string; title: string }) {
   downloading.value = true
   try {
-    await downloadFile(`/reports/${row.id}/pdf`, undefined, `${row.title}.pdf`)
+    const detail = await getReport(row.id)
+    const file = detail.files.find((item) => item.stage === 'archived' && item.status === 'ready') || detail.files.find((item) => item.stage === 'frozen' && item.status === 'ready')
+    if (!file) {
+      ElMessage.warning('报告文件尚未生成完成')
+      return
+    }
+    await downloadFile(`/reports/${row.id}/files/${file.id}/download`, undefined, `${file.volume_name}-${file.stage}.${file.format}`)
   } catch {
     // 拦截器已提示
   } finally {
@@ -687,7 +715,7 @@ const generateRules: FormRules = {
 
 // 签字候选人（选定小区后加载；候选人和默认值由后端动态审核链解析）
 const candidatesLoading = ref(false)
-const candidateSteps = ref<{ slot: string; name: string; mode: 'any' | 'all'; users: SignCandidate[]; default_candidate_ids: string[] }[]>([])
+const candidateSteps = ref<{ role_code: string; name: string; mode: 'any' | 'all'; users: SignCandidate[]; default_candidate_ids: string[] }[]>([])
 const selectedCandidates = reactive<Record<string, string[]>>({})
 
 async function loadCandidates() {
@@ -699,7 +727,7 @@ async function loadCandidates() {
     // 专项报告的主管级默认名单取该类型汇报线槽位（如消防→工程主管）
     const data = await getSignCandidates(generateForm.community_id, generateForm.patrol_type || undefined)
     candidateSteps.value = data.steps
-    data.steps.forEach((step) => { selectedCandidates[step.slot] = [...step.default_candidate_ids] })
+    data.steps.forEach((step) => { selectedCandidates[step.role_code] = [...step.default_candidate_ids] })
   } finally {
     candidatesLoading.value = false
   }
@@ -724,9 +752,9 @@ async function submitGenerate() {
       period: generateForm.period!,
       patrol_type: generateForm.patrol_type || undefined,
       detail_mode: generateForm.detail_mode,
-      sign_steps: candidateSteps.value.filter((step) => step.users.length > 0).map((step) => ({ slot: step.slot, candidate_ids: selectedCandidates[step.slot] || [] }))
+      sign_steps: candidateSteps.value.filter((step) => step.users.length > 0).map((step) => ({ role_code: step.role_code, candidate_ids: selectedCandidates[step.role_code] || [] }))
     })
-    ElMessage.success(data.regenerated ? `「${data.title}」已重新统计并重置签字流程` : `「${data.title}」已生成`)
+    ElMessage.success(`「${data.title}」已生成，冻结文件正在生成`)
     generateVisible.value = false
     handleSearch()
   } catch {

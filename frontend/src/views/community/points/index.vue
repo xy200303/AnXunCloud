@@ -540,7 +540,7 @@ onMounted(() => {
   fetchTree()
   fetchList()
   // 启用中的检查项模板
-  listTemplates({ page: 1, page_size: 100, status: 1 }).then((d) => {
+  listTemplates({ page: 1, page_size: 100, status: 'enabled', purpose: 'patrol' }).then((d) => {
     templates.value = d.list
   })
 })

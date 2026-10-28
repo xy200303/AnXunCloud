@@ -1,13 +1,14 @@
 // 检查项模板接口（v10 检查项与记录审核）
 import { request, type PageResult } from '@/utils/request'
-import type { TemplateItem, TemplateForm, PhotoRequired } from './biz-types'
+import type { TemplateItem, TemplateForm, TemplatePurpose, TemplateStatus, PhotoRequired, CheckItemValueType, CheckItemEnumOption } from './biz-types'
 
 export interface TemplateQuery {
   page?: number
   page_size?: number
   name?: string
   point_type?: string
-  status?: number | ''
+  purpose?: TemplatePurpose | ''
+  status?: TemplateStatus | ''
 }
 
 export function listTemplates(params: TemplateQuery) {
@@ -30,38 +31,44 @@ export function deleteTemplate(id: string) {
   return request<null>({ url: `/inspection/templates/${id}`, method: 'delete' })
 }
 
-// ===== 项级粒度：检查项按行增删改 =====
-
-// AI 判定类型配置：metric 为 {metric,unit,min,max}，state/indicator 为 {expected}，其余为 null
-export type JudgeConfig = Record<string, unknown> | null
-
-// 项级接口返回的检查项行（含 id/sort，区别于模板内嵌 items 快照）
 export interface TemplateItemRow {
   id: string
+  code: string
   name: string
-  requirement: string | null
-  required: boolean
+  standard: string
+  standard_no?: string
+  value_type: CheckItemValueType
+  unit?: string
+  value_min?: number | null
+  value_max?: number | null
+  enum_options?: CheckItemEnumOption[]
   photo_required: PhotoRequired
+  note_required: boolean
+  ai_enabled: boolean
+  ai_prompt_kind: string
   ai_hint?: string | null
-  judge_type?: string
-  judge_config?: JudgeConfig
   tags?: string[]
   guide?: string | null
   sort: number
   created_at: string
 }
 
-// 新增/修改单个检查项；sort 缺省时新增追加到末尾、修改保持不变
 export interface TemplateItemForm {
+  code: string
   name: string
-  requirement?: string
-  required: boolean
+  standard?: string
+  standard_no?: string
+  value_type: CheckItemValueType
+  unit?: string
+  value_min?: number | null
+  value_max?: number | null
+  enum_options?: CheckItemEnumOption[]
   photo_required?: PhotoRequired
-  judge_type?: string
-  judge_config?: JudgeConfig
-  // 观察点标签（服务端 trim/去重/限 20 个每个≤30 字）
+  note_required?: boolean
+  ai_enabled: boolean
+  ai_prompt_kind: string
+  ai_hint?: string
   tags?: string[]
-  // 拍照引导语（服务端 trim 限 200 字）
   guide?: string
   sort?: number
 }
@@ -80,4 +87,43 @@ export function updateTemplateItem(templateId: string, itemId: string, data: Tem
 
 export function deleteTemplateItem(templateId: string, itemId: string) {
   return request<null>({ url: `/inspection/templates/${templateId}/items/${itemId}`, method: 'delete' })
+}
+
+export interface TemplateImportRow {
+  row: number
+  point_type: string
+  template_name: string
+  purpose: string
+  item_code: string
+  item_name: string
+  value_type: string
+  standard: string
+  photo_required: string
+  unit: string
+  value_min: string
+  value_max: string
+  enum_options: string
+  note_required: string
+  ai_prompt_kind: string
+  ai_enabled: string
+  tags: string
+  guide: string
+  standard_no: string
+  ai_hint: string
+}
+
+export interface TemplateImportResultRow extends TemplateImportRow {
+  valid: boolean
+  errors: { cell: string; message: string }[]
+  template_id?: string
+}
+
+export function previewTemplateImport(file: File) {
+  const data = new FormData()
+  data.append('file', file)
+  return request<{ rows: TemplateImportResultRow[]; valid: number; invalid: number }>({ url: '/inspection/templates/import/preview', method: 'post', data })
+}
+
+export function applyTemplateImport(rows: TemplateImportRow[]) {
+  return request<{ created_templates: number; created_items: number; failed: TemplateImportResultRow[]; template_id: string }>({ url: '/inspection/templates/import/apply', method: 'post', data: { rows } })
 }

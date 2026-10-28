@@ -14,7 +14,7 @@ export interface ReportSignEntry {
   proxy_reason?: string
 }
 
-export interface ReportReviewStep { slot: string; name: string; mode: 'any' | 'all'; candidate_ids: string[]; users?: { user_id: string; name: string; signed: boolean; signed_at?: string; signature_url?: string | null }[]; signed: ReportSignEntry[] }
+export interface ReportReviewStep { role_code: string; name: string; mode: 'any' | 'all'; candidate_ids: string[]; users?: { user_id: string; name: string; signed: boolean; signed_at?: string; signature_url?: string | null }[]; signed: ReportSignEntry[] }
 
 export interface ReportItem {
   id: string
@@ -69,6 +69,21 @@ export interface ReportRecord {
   photos: { url: string }[]
 }
 
+export interface ReportFile {
+  id: string
+  doc_kind: 'monthly_report' | 'acceptance' | 'maintenance_ledger'
+  volume_code: string
+  volume_name: string
+  stage: 'preview' | 'frozen' | 'archived' | 'legacy_archive'
+  format: 'docx' | 'pdf' | 'xlsx' | 'png'
+  file_id: string | null
+  sha256: string
+  generation_batch: string
+  status: 'pending' | 'running' | 'ready' | 'failed'
+  error_message: string
+  created_at: string
+}
+
 export interface ReportDetail {
   id: string
   community_id: string
@@ -91,8 +106,7 @@ export interface ReportDetail {
   voided_by: string | null
   voided_by_name: string
   voided_at: string | null
-  file_id: string
-  file_url: string | null
+  files: ReportFile[]
   created_at: string
   updated_at: string
 }
@@ -127,9 +141,9 @@ export function generateReport(data: {
   period: string
   patrol_type?: string; detail_mode?: string
   plan_id?: string
-  sign_steps?: { slot: string; candidate_ids: string[] }[]
+  sign_steps?: { role_code: string; candidate_ids: string[] }[]
 }) {
-  return request<{ id: string; title: string; status: ReportStatus; regenerated: boolean }>({
+  return request<{ id: string; title: string; status: ReportStatus; generation_status: 'running' }>({
     url: '/reports/generate',
     method: 'post',
     data
@@ -144,7 +158,7 @@ export interface SignCandidate {
 
 export function getSignCandidates(communityId: string, patrolType?: string) {
   return request<{
-    steps: { index: number; slot: string; name: string; mode: 'any' | 'all'; users: SignCandidate[]; default_candidate_ids: string[] }[]
+    steps: { index: number; role_code: string; name: string; mode: 'any' | 'all'; users: SignCandidate[]; default_candidate_ids: string[] }[]
   }>({
     url: '/reports/sign-candidates',
     method: 'get',
@@ -168,4 +182,8 @@ export function signStep(id: string, step: number, data: SignBody) {
 // 作废报告（归档留痕：记录保留不可再签/重算，原因必填；作废后同期间可重新生成新报告）
 export function voidReport(id: string, reason: string) {
   return request<null>({ url: `/reports/${id}/void`, method: 'post', data: { reason } })
+}
+
+export function retryReportFile(reportId: string, fileId: string) {
+  return request<{ generation_status: 'running' }>({ url: `/reports/${reportId}/files/${fileId}/retry`, method: 'post' })
 }

@@ -68,16 +68,12 @@
             <el-table-column label="检查项" min-width="140">
               <template #default="{ row: item }">
                 <div>{{ item.name }}</div>
-                <div v-if="item.requirement" class="item-requirement">{{ item.requirement }}</div>
-                <div v-if="item.ai_hint" class="item-ai-hint">AI 要点：{{ item.ai_hint }}</div>
-                <!-- 观察点标签快照：异常标签红色，其余灰色 -->
-                <div v-if="item.tags?.length" class="item-tags">
-                  <el-tag
-                    v-for="t in item.tags"
-                    :key="t"
-                    :type="item.abnormal_tags?.includes(t) ? 'danger' : 'info'"
-                    size="small"
-                  >{{ t }}</el-tag>
+                <div v-if="item.standard" class="item-requirement">{{ item.standard }}</div>
+                <div v-if="item.value_num != null || item.value_date || item.value_text" class="item-requirement">
+                  填报值：{{ item.value_num ?? item.value_date ?? item.value_text }}
+                </div>
+                <div v-if="item.abnormal_tags?.length" class="item-tags">
+                  <el-tag v-for="t in item.abnormal_tags" :key="t" type="danger" size="small">{{ t }}</el-tag>
                 </div>
                 <!-- 时空一致性可疑标记（防作弊 §14.3：标记不拒收，悬浮查看原因） -->
                 <el-tooltip v-if="item.suspicious" :content="item.suspicious_reason || '照片时空信息可疑'" placement="top">

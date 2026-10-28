@@ -150,7 +150,7 @@
     <el-dialog v-model="formVisible" :title="`${form.id ? '编辑' : '新增'}${isSpotcheck ? '抽查计划' : '巡检计划'}`" width="640px" :close-on-click-modal="false">
       <el-form ref="formRef" :model="form" :rules="formRules" label-width="96px">
         <el-form-item label="计划类型">
-          <el-radio-group v-model="form.plan_kind">
+          <el-radio-group v-model="form.plan_kind" @change="form.template_ids = []">
             <el-radio value="patrol">巡检计划</el-radio>
             <el-radio value="spotcheck">抽查计划</el-radio>
           </el-radio-group>
@@ -273,6 +273,12 @@
           </div>
         </el-form-item>
 
+        <el-form-item label="检查模板" prop="template_ids">
+          <el-select v-model="form.template_ids" multiple collapse-tags collapse-tags-tooltip placeholder="选择本次任务使用的模板" style="width: 100%" :loading="templateLoading">
+            <el-option v-for="template in templateOptions" :key="template.id" :label="`${template.name}（${pointTypeName(template.point_type)}）`" :value="template.id" />
+          </el-select>
+        </el-form-item>
+
         <!-- 抽查计划：周期锁定每月，只需配置生成日（复用每月 days 选择器） -->
         <el-form-item v-if="isSpotcheck" label="生成日期" prop="cycle_type">
           <el-select
@@ -385,7 +391,7 @@
           </div>
         </el-form-item>
 
-        <!-- 轮次设置（仅每天/每周）：配了轮次后计划级执行时段忽略 -->
+        <!-- 轮次设置（仅每天/每周）：配了轮次后单轮执行时段忽略 -->
         <el-form-item v-if="form.cycle_type !== 'monthly'" label="轮次设置">
           <div class="rounds-editor">
             <div class="rounds-toolbar">
@@ -450,7 +456,7 @@
           <span class="text-secondary rounds-hint">每日达标轮次线（履约考核用），留空不考核；巡更达成率报表按此判定标红</span>
         </el-form-item>
 
-        <!-- 计划级执行时段：配了轮次则忽略 -->
+        <!-- 单轮执行时段：配了轮次则忽略 -->
         <el-form-item v-if="!roundsEnabled" label="执行时段" prop="timeRange">
           <el-time-picker
             v-model="form.timeRange"
@@ -527,13 +533,14 @@ import {
 import { listPlans, getPlan, createPlan, updatePlan, deletePlan, updatePlanStatus, previewPlanPoints } from '@/api/plan'
 import { generateTasks } from '@/api/task'
 import { listPoints } from '@/api/point'
+import { listTemplates } from '@/api/template'
 import { useUserStore } from '@/store/user'
 import { usePatrolTypes } from '@/composables/usePatrolTypes'
 import { useCommunities } from '@/composables/useCommunities'
 import { useInspectors } from '@/composables/useInspectors'
 import { useDictOptions } from '@/composables/useDictOptions'
 import { usePagedList } from '@/composables/usePagedList'
-import type { PlanItem, PlanCycleConfig, PlanSelectionMode, PlanAssignMode, PlanKind, SpotcheckConfig, PointItem, PatrolType } from '@/api/biz-types'
+import type { PlanItem, PlanCycleConfig, PlanSelectionMode, PlanAssignMode, PlanKind, SpotcheckConfig, PointItem, PatrolType, TemplateItem } from '@/api/biz-types'
 
 const userStore = useUserStore()
 // 巡查类型字典（按大类分组：日常巡逻/专项检查）
@@ -558,6 +565,7 @@ const { loading, list, total, query, fetchList, handleSearch, handleReset } = us
 
 onMounted(() => {
   fetchList()
+  loadTemplateOptions()
 })
 
 // keep-alive 下由 plans/index.vue 在再次激活时调用（onActivated 不穿透子组件）
@@ -668,6 +676,7 @@ const form = reactive({
   patrol_type: 'safety' as PatrolType,
   selection_mode: 'explicit' as PlanSelectionMode,
   point_ids: [] as string[],
+  template_ids: [] as string[],
   point_types: [] as string[],
   cycle_type: 'daily',
   cycle_config: {} as PlanCycleConfig,
@@ -690,6 +699,18 @@ const form = reactive({
 })
 
 const isSpotcheck = computed(() => form.plan_kind === 'spotcheck')
+const templateOptions = ref<TemplateItem[]>([])
+const templateLoading = ref(false)
+async function loadTemplateOptions() {
+  templateLoading.value = true
+  try {
+    const result = await listTemplates({ purpose: isSpotcheck.value ? 'spot' : 'patrol', status: 'enabled', page: 1, page_size: 100 })
+    templateOptions.value = result.list
+  } finally {
+    templateLoading.value = false
+  }
+}
+watch(() => form.plan_kind, loadTemplateOptions)
 
 // 切到抽查计划：周期锁每月（生成日配置），轮次/达标线/均分等巡检语义字段清空隐藏
 watch(isSpotcheck, (on) => {
@@ -701,7 +722,7 @@ watch(isSpotcheck, (on) => {
   }
 })
 
-// 配了轮次（每天/每周）时忽略计划级执行时段
+// 配了轮次（每天/每周）时忽略单轮执行时段
 const roundsEnabled = computed(() => form.cycle_type !== 'monthly' && form.rounds.length > 0)
 
 // ===== 周期快捷选择 =====
@@ -765,6 +786,7 @@ const formRules: FormRules = {
   name: [{ required: true, message: '请输入计划名称', trigger: 'blur' }],
   community_id: [{ required: true, message: '请选择小区', trigger: 'change' }],
   patrol_type: [{ required: true, message: '请选择巡查类型', trigger: 'change' }],
+  template_ids: [{ required: true, type: 'array', min: 1, message: '请选择检查模板', trigger: 'change' }],
   point_types: [
     {
       validator: (_r, v: string[], cb) =>
@@ -847,6 +869,7 @@ function searchCandidates() {
 
 async function handleFormCommunityChange() {
   form.point_ids = []
+  form.template_ids = []
   checkedCandidateIds.value = []
   selectedPointMap.value = {}
   candidateKeyword.value = ''
@@ -1001,6 +1024,7 @@ async function openForm(row?: PlanItem) {
       patrol_type: detail.patrol_type || 'safety',
       selection_mode: detail.selection_mode || 'explicit',
       point_ids: (detail.points || []).sort((a, b) => a.sort - b.sort).map((p) => p.id),
+      template_ids: [...(detail.template_ids || [])],
       point_types: [...(detail.point_types || [])],
       cycle_type: detail.cycle_type,
       cycle_config: { ...detail.cycle_config },
@@ -1011,7 +1035,7 @@ async function openForm(row?: PlanItem) {
         return { name: r.name, start, end }
       }),
       daily_min_rounds: detail.cycle_config?.daily_min_rounds ?? null,
-      timeRange: detail.time_window ? (detail.time_window.split('-') as [string, string]) : null,
+      timeRange: detail.time_window ? (detail.time_window.split('-') as [string, string]) : ['08:00', '18:00'],
       inspector_ids: [...detail.inspector_ids],
       dateRange: [detail.start_date, detail.end_date],
       status: detail.status
@@ -1036,7 +1060,7 @@ async function openForm(row?: PlanItem) {
   } else {
     Object.assign(form, {
       id: '', name: '', community_id: null, plan_kind: 'patrol' as PlanKind, patrol_type: 'safety', selection_mode: 'explicit' as PlanSelectionMode,
-      point_ids: [], point_types: [], cycle_type: 'daily', cycle_config: {}, assign_mode: 'split' as PlanAssignMode, rounds: [], daily_min_rounds: null,
+      point_ids: [], template_ids: [], point_types: [], cycle_type: 'daily', cycle_config: {}, assign_mode: 'split' as PlanAssignMode, rounds: [], daily_min_rounds: null,
       timeRange: null, inspector_ids: [], dateRange: null, status: 1,
       spot_mode: 'ratio' as const, spot: { ratio_percent: 20, fixed_count: 1, strategy: 'longest_unseen' as SpotcheckConfig['strategy'], no_repeat: true, due_day: -1 }
     })
@@ -1073,16 +1097,17 @@ async function handleSubmit() {
   }
   // 轮次校验（仅每天/每周）
   if (form.cycle_type !== 'monthly' && form.rounds.length && !validateRounds()) return
-  // 组装 cycle_config：每周/每月保留原有明细；每天/每周附加轮次与达标线
+  // 单时段也固化为一个无名轮次，任务只从轮次快照读取执行窗口。
   const cycle_config: PlanCycleConfig = {}
   if (form.cycle_type === 'weekly') cycle_config.weekdays = form.cycle_config.weekdays
   if (form.cycle_type === 'monthly') cycle_config.days = form.cycle_config.days
   if (form.cycle_type !== 'monthly' && form.rounds.length) {
-    // 起止留空 = 自由时段（window 空串）
     cycle_config.rounds = form.rounds.map((r) => ({
       name: r.name.trim(),
       window: r.start && r.end ? `${r.start}-${r.end}` : ''
     }))
+  } else {
+    cycle_config.rounds = [{ name: '', window: `${form.timeRange![0]}-${form.timeRange![1]}` }]
   }
   if (form.cycle_type === 'daily' && form.daily_min_rounds != null) {
     cycle_config.daily_min_rounds = form.daily_min_rounds
@@ -1105,6 +1130,7 @@ async function handleSubmit() {
     patrol_type: form.patrol_type,
     selection_mode: form.selection_mode,
     point_ids: form.selection_mode === 'explicit' ? form.point_ids : [],
+    template_ids: form.template_ids,
     point_types: form.selection_mode === 'by_point_types' ? form.point_types : [],
     cycle_type: form.cycle_type,
     cycle_config,
@@ -1112,8 +1138,6 @@ async function handleSubmit() {
     inspector_ids: form.inspector_ids,
     start_date: form.dateRange![0],
     end_date: form.dateRange![1],
-    // 配了轮次顶层 time_window 留空
-    time_window: roundsEnabled.value ? '' : `${form.timeRange![0]}-${form.timeRange![1]}`,
     status: form.status
   }
   submitting.value = true

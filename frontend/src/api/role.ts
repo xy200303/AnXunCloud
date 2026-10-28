@@ -23,7 +23,6 @@ export function deleteRole(id: string) {
   return request<null>({ url: `/system/roles/${id}`, method: 'delete' })
 }
 
-// 分配权限：菜单树勾选 + 数据范围
-export function assignRoleMenus(id: string, data: { menu_ids: string[]; data_scope: string }) {
+export function assignRoleMenus(id: string, data: { menu_ids: string[] }) {
   return request<null>({ url: `/system/roles/${id}/menus`, method: 'put', data })
 }

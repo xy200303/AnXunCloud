@@ -1,6 +1,6 @@
 <!-- 审批流程设计器（钉钉/飞书式约束结构布局，纯 DOM 垂直链）：开始 → 环节卡片 → … → 结束，连线上「⊕」插入环节。
      AI 环节卡片下半部分为三分支泳道（无异常/有异常/存疑失败），点泳道弹出去向配置（finish/next/reject/goto:N，仅可向后跳到人工环节）；
-     goto 泳道 hover 高亮目标环节卡。环节分人工（引用职责槽位）与 AI 审核闸门；报告签字链不支持 AI 环节与跳转，仅 name+slot+mode。
+     goto 泳道 hover 高亮目标环节卡。人工环节直接绑定角色；报告与工单链只允许人工环节。
      租户级 / 平台模板 / 项目级三处共用。 -->
 <template>
   <div class="flow-editor">
@@ -10,8 +10,6 @@
         {{ sourceLabel }}
       </el-tag>
     </div>
-    <el-alert type="info" :closable="false" :title="tip" class="flow-tip" />
-
     <div v-loading="loading" class="flow-canvas">
       <div v-if="canEdit" class="flow-toolbar">
         <el-dropdown v-if="allowAi" trigger="click" @command="(c: string) => insertStep(steps.length, c as 'manual' | 'ai')">
@@ -66,7 +64,7 @@
           <!-- 人工环节：岗位名（报告链带签字方式 tag）+ 生效名单预览 -->
           <div v-if="step.kind !== 'ai'" class="card-body">
             <div class="human-line">
-              <span>{{ slotLabel(step.slot) }}</span>
+              <span>{{ roleLabel(step.role_code) }}</span>
               <el-tag v-if="kind === 'report'" size="small" effect="plain">{{ step.mode === 'all' ? '全部人' : '任一人' }}</el-tag>
             </div>
             <div v-if="previewApi" class="voter-line">
@@ -78,7 +76,7 @@
                     title="该成员不在本小区数据可见范围内，能审但看不到待审数据，请调整其岗位或角色数据权限"
                   >{{ v.name }}（不可见）</span><template v-else>{{ v.name }}</template><template v-if="vi < previewSteps[idx].voters!.length - 1">、</template></template>
                 </span>
-                <span v-else class="voter-empty">当前无人能审（{{ emptyReasonLabel(previewSteps[idx].empty_reason) }}），该环节将自动跳过</span>
+                <span v-else class="voter-empty">当前无人能审，该环节将挂起，请补充任职或调整角色</span>
                 <div v-if="(previewSteps[idx].hidden_count ?? 0) > 0" class="voter-warn">
                   {{ previewSteps[idx].hidden_count }} 名成员看不到本小区数据（能审必能看）：请调整其岗位编制或角色数据权限
                 </div>
@@ -159,8 +157,8 @@
           </el-form-item>
           <template v-if="editingStep.kind !== 'ai'">
             <el-form-item label="审核人（按岗位）">
-              <el-select v-model="editingStep.slot" placeholder="选择职责槽位" style="width: 100%">
-                <el-option v-for="s in slotOptions" :key="s.slot" :label="s.name" :value="s.slot" />
+              <el-select v-model="editingStep.role_code" placeholder="选择职责槽位" style="width: 100%">
+                <el-option v-for="s in slotOptions" :key="s.role_code" :label="s.name" :value="s.role_code" />
               </el-select>
             </el-form-item>
             <el-form-item v-if="kind === 'report'" label="签字方式">
@@ -191,7 +189,7 @@
 
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
-import { ElMessage, ElMessageBox } from 'element-plus'
+import { ElMessage } from 'element-plus'
 import { Top, Bottom, Delete, Plus, User, Cpu, EditPen } from '@element-plus/icons-vue'
 import { useUserStore } from '@/store/user'
 import type { ReviewFlowStep, ReviewFlowView } from '@/api/post'
@@ -202,9 +200,10 @@ const props = defineProps<{
     listFlow: () => Promise<ReviewFlowView>
     saveFlow: (steps: ReviewFlowStep[]) => Promise<unknown>
   }
-  slotOptions: { slot: string; name: string }[]
+  slotOptions: { role_code: string; name: string }[]
   savePerm: string
   kind?: 'checkin' | 'report' | 'maint'
+  title?: string
   /** 选项卡内使用时隐藏标题（标签页已承担命名），仅保留来源徽标 */
   hideTitle?: boolean
   /** 项目级生效名单预览（小区编制弹窗传入）：每环节显示实际审核人/空名单警示 */
@@ -217,27 +216,8 @@ const kind = computed(() => props.kind || 'checkin')
 const allowAi = computed(() => kind.value !== 'report')
 const MAX_STEPS = 5
 
-const title = computed(() => (kind.value === 'report' ? '报告签字流程' : kind.value === 'maint' ? '维保审核流程' : '打卡审批流程'))
-const tip = computed(() => {
-  if (kind.value === 'report') {
-    return '报告生成后按环节顺序签字审核；每个环节可要求任一人或全部人员完成。保存空流程表示报告生成后直接归档。'
-  }
-  const lane = canEdit.value ? '；点击 AI 卡片上的分支泳道可直接配置该分支去向' : ''
-  if (kind.value === 'maint') {
-    return '维保登记按环节顺序逐级审核：空流程 = 登记即生效；AI 环节 = 标签核对结果分流（无异常 / 有异常 / 存疑各配去向，可跳到后续人工环节）；人工环节审核人 = 负责岗位在该项目编制里的在职成员' + lane + '。'
-  }
-  return '打卡记录按环节顺序逐级审核：当前环节名单成员通过后进入下一环节，末环节通过才生效；驳回即退回。空流程 = 打卡默认通过；AI 环节 = 按结果分流（无异常 / 有异常 / 存疑各配去向，可跳到后续人工环节）；人工环节审核人 = 负责岗位在该项目编制里的在职成员' + lane + '。'
-})
-const emptyText = computed(() =>
-  kind.value === 'report' ? '未配置环节 —— 报告生成后将直接归档' : kind.value === 'maint' ? '未配置环节 —— 维保登记将登记即生效' : '未配置环节 —— 打卡记录将默认通过'
-)
-const emptySaveConfirm = computed(() =>
-  kind.value === 'report'
-    ? '当前流程为空，保存后报告生成后将直接归档，确定保存吗？'
-    : kind.value === 'maint'
-      ? '当前流程为空，保存后维保登记将登记即生效，确定保存吗？'
-      : '当前流程为空，保存后打卡记录将默认通过，确定保存吗？'
-)
+const title = computed(() => props.title || '审批流程')
+const emptyText = '尚未添加人工审核环节'
 
 const loading = ref(false)
 const saving = ref(false)
@@ -258,7 +238,7 @@ async function fetchFlow() {
     const data = await props.api.listFlow()
     steps.value = data.steps.map((s) =>
       s.kind === 'ai'
-        ? { slot: '', name: s.name, kind: 'ai' as const, on_pass: s.on_pass || 'finish', on_abnormal: s.on_abnormal || 'finish', on_review: s.on_review || 'next' }
+        ? { role_code: '', name: s.name, kind: 'ai' as const, on_pass: s.on_pass || 'finish', on_abnormal: s.on_abnormal || 'finish', on_review: s.on_review || 'next' }
         : { ...s }
     )
     source.value = data.source
@@ -267,8 +247,8 @@ async function fetchFlow() {
   }
 }
 
-function slotLabel(slot: string) {
-  return props.slotOptions.find((s) => s.slot === slot)?.name || (slot ? `未知槽位（${slot}）` : '未选择审核人')
+function roleLabel(roleCode: string) {
+  return props.slotOptions.find((s) => s.role_code === roleCode)?.name || roleCode || '未选择角色'
 }
 
 // ===== 生效名单预览（项目级；每环节实际审核人 + 空名单警示） =====
@@ -388,8 +368,8 @@ function insertStep(at: number, type: 'manual' | 'ai') {
   }
   const step: ReviewFlowStep =
     type === 'ai'
-      ? { slot: '', name: '', kind: 'ai', on_pass: 'finish', on_abnormal: 'next', on_review: 'next' }
-      : { slot: '', name: '', ...(kind.value === 'report' ? { mode: 'any' as const } : {}) }
+      ? { role_code: '', name: '', kind: 'ai', on_pass: 'finish', on_abnormal: 'next', on_review: 'next' }
+      : { role_code: '', name: '', ...(kind.value === 'report' ? { mode: 'any' as const } : {}) }
   steps.value.splice(at, 0, step)
   remapGoto((old) => (old < at ? old : old + 1))
   openEdit(at)
@@ -454,7 +434,7 @@ function branchOptions(field: BranchField) {
 function serializeStep(s: ReviewFlowStep): ReviewFlowStep {
   if (s.kind === 'ai') {
     return {
-      slot: '',
+      role_code: '',
       name: s.name.trim() || 'AI 审核',
       kind: 'ai',
       on_pass: s.on_pass || 'finish',
@@ -462,21 +442,15 @@ function serializeStep(s: ReviewFlowStep): ReviewFlowStep {
       on_review: s.on_review || 'next'
     }
   }
-  const base: ReviewFlowStep = { slot: s.slot, name: s.name.trim() }
+  const base: ReviewFlowStep = { role_code: s.role_code, name: s.name.trim() }
   if (kind.value === 'report') base.mode = s.mode || 'any'
   return base
 }
 
 async function handleSave() {
   if (!steps.value.length) {
-    const ok = await ElMessageBox.confirm(emptySaveConfirm.value, '保存空流程', {
-      confirmButtonText: '保存',
-      cancelButtonText: '取消',
-      type: 'warning'
-    })
-      .then(() => true)
-      .catch(() => false)
-    if (!ok) return
+    ElMessage.warning(emptyText)
+    return
   }
   for (let i = 0; i < steps.value.length; i++) {
     const s = steps.value[i]
@@ -486,13 +460,13 @@ async function handleSave() {
         ElMessage.warning(`第 ${i + 1} 个环节「${s.name}」存在非法的跳转目标：只能跳到之后的人工环节`)
         return
       }
-      // 「有异常」去向为进入下一环节但后面没有任何人工环节时，异常记录会无人复核直接到底（默认通过），拦截
-      const abnRoute = s.on_abnormal || 'next'
-      if (abnRoute === 'next' && !steps.value.slice(i + 1).some((t) => t.kind !== 'ai')) {
-        ElMessage.warning(`第 ${i + 1} 个环节「${s.name}」：请为「有异常」分支配置后续人工环节，或将其去向改为通过并生效`)
-        return
+      for (const field of ['on_abnormal', 'on_review'] as const) {
+        if ((s[field] || 'next') === 'next' && !steps.value.slice(i + 1).some((t) => t.kind !== 'ai')) {
+          ElMessage.warning(`第 ${i + 1} 个环节「${s.name}」：转人工前必须添加后续人工环节`)
+          return
+        }
       }
-    } else if (!s.name.trim() || !s.slot) {
+    } else if (!s.name.trim() || !s.role_code) {
       ElMessage.warning(`第 ${i + 1} 个人工环节须填写名称并选择审核人`)
       return
     }

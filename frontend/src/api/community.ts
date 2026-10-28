@@ -1,7 +1,7 @@
 // 小区/楼栋接口（接口文档 §2.10）
 import { request, type PageResult } from '@/utils/request'
-import type { CommunityItem, BuildingItem, PostDictItem, StaffItem, StaffForm, DutyBindingItem } from './biz-types'
-import type { ReviewFlowView, ReviewFlowStep } from './post'
+import type { CommunityItem, BuildingItem, RoleOption, StaffItem, StaffForm } from './biz-types'
+import type { ReviewFlowView, ReviewFlowStep, FlowCode } from './post'
 
 export function listCommunities(params?: { page?: number; page_size?: number; name?: string; status?: number | '' }) {
   return request<PageResult<CommunityItem>>({ url: '/communities', method: 'get', params })
@@ -47,11 +47,8 @@ export function deleteBuilding(id: string) {
   return request<null>({ url: `/buildings/${id}`, method: 'delete' })
 }
 
-// ===== 岗位字典 / 项目编制 / 职责槽位绑定（名单制授权，设计方案 §3.2） =====
-
-// 岗位字典（必传 community_id：按小区所属租户返回岗位，含停用与业务线；前端按 status===1 过滤启用项）
-export function listPostDict(communityId: string) {
-  return request<PostDictItem[]>({ url: '/post-dict', method: 'get', params: { community_id: communityId } })
+export function listRoleOptions(communityId: string) {
+  return request<RoleOption[]>({ url: '/role-options', method: 'get', params: { community_id: communityId } })
 }
 
 export function listStaff(communityId: string) {
@@ -70,40 +67,12 @@ export function deleteStaff(communityId: string, staffId: string) {
   return request<null>({ url: `/communities/${communityId}/staff/${staffId}`, method: 'delete' })
 }
 
-export function listDutyBindings(communityId: string) {
-  return request<DutyBindingItem[]>({ url: `/communities/${communityId}/duty-bindings`, method: 'get' })
+export function getProjectFlow(communityId: string, code: FlowCode) {
+  return request<ReviewFlowView>({ url: `/communities/${communityId}/review-flows/${code}`, method: 'get' })
 }
 
-// 项目级槽位绑定整体保存（upsert 语义；post_codes 空数组 = 本项目该环节跳过）
-export function saveDutyBindings(communityId: string, bindings: { slot: string; post_codes: string[] }[]) {
-  return request<null>({ url: `/communities/${communityId}/duty-bindings`, method: 'put', data: { bindings } })
-}
-
-// 项目级打卡审核链（扩展方案 §3；source 为 project/tenant/platform/default）
-export function getReviewFlow(communityId: string) {
-  return request<ReviewFlowView>({ url: `/communities/${communityId}/review-flow`, method: 'get' })
-}
-
-export function saveReviewFlow(communityId: string, steps: ReviewFlowStep[]) {
-  return request<null>({ url: `/communities/${communityId}/review-flow`, method: 'put', data: { steps } })
-}
-
-// 项目级报告签字审核链（项目级覆盖；空链表示报告生成后直接归档）
-export function getReportReviewFlow(communityId: string) {
-  return request<ReviewFlowView>({ url: `/communities/${communityId}/report-review-flow`, method: 'get' })
-}
-
-export function saveReportReviewFlow(communityId: string, steps: ReviewFlowStep[]) {
-  return request<null>({ url: `/communities/${communityId}/report-review-flow`, method: 'put', data: { steps } })
-}
-
-// 项目级维保审核链（空链 = 维保登记即生效；支持 AI 闸门环节）
-export function getMaintReviewFlow(communityId: string) {
-  return request<ReviewFlowView>({ url: `/communities/${communityId}/maint-review-flow`, method: 'get' })
-}
-
-export function saveMaintReviewFlow(communityId: string, steps: ReviewFlowStep[]) {
-  return request<null>({ url: `/communities/${communityId}/maint-review-flow`, method: 'put', data: { steps } })
+export function saveProjectFlow(communityId: string, code: FlowCode, steps: ReviewFlowStep[]) {
+  return request<null>({ url: `/communities/${communityId}/review-flows/${code}`, method: 'put', data: { steps } })
 }
 
 // 审批链名单预览（GET /communities/:id/flow-preview）：每环节实际审核人+来源+空态原因，配置显性化用
@@ -112,18 +81,54 @@ export interface FlowPreviewStep {
   name: string
   kind?: string
   mode?: string
-  slot?: string
+  role_code?: string
   voters?: { id: string; name: string; can_see?: boolean }[]
   voter_source?: string
-  empty_reason?: '' | 'unconfigured' | 'no_member' | 'skipped'
+  empty_reason?: '' | 'no_member'
   voter_note?: string
-  // 名单中对本小区无数据可见性的成员数（报告链按单据实例授权，恒为 0）
   hidden_count?: number
 }
 export interface FlowPreviewView {
   source: string
   steps: FlowPreviewStep[]
 }
-export function getFlowPreview(communityId: string, flowCode: 'checkin_review' | 'maint_review' | 'report_review') {
+export function getFlowPreview(communityId: string, flowCode: FlowCode) {
   return request<FlowPreviewView>({ url: `/communities/${communityId}/flow-preview`, method: 'get', params: { flow_code: flowCode } })
+}
+
+export interface PresetPackSummary {
+  code: string
+  name: string
+  description: string
+  status: string
+}
+
+export interface PresetPack extends PresetPackSummary {
+  payload: {
+    point_types: { type_code: string; label: string; value: string; sort: number; status: number; attrs?: Record<string, string> }[]
+    templates: import('./template').TemplateImportRow[]
+    equipment_schemas: { type: string; config: import('./equipment').EquipmentTypeSchema['config'] }[]
+    flows: { flow_code: FlowCode; steps: ReviewFlowStep[] }[]
+    doc_templates: import('./docTemplate').DocTemplate[]
+  }
+}
+
+export function listPresetPacks() {
+  return request<PresetPackSummary[]>({ url: '/community/preset-packs', method: 'get' })
+}
+
+export function getPresetPack(code: string) {
+  return request<PresetPack>({ url: `/community/preset-packs/${code}`, method: 'get' })
+}
+
+export function listPlatformPresetPacks() {
+  return request<PresetPackSummary[]>({ url: '/platform/preset-packs', method: 'get' })
+}
+
+export function getPlatformPresetPack(code: string) {
+  return request<PresetPack>({ url: `/platform/preset-packs/${code}`, method: 'get' })
+}
+
+export function savePlatformPresetPack(code: string, data: { name: string; description: string; payload: PresetPack['payload']; status: string }) {
+  return request<null>({ url: `/platform/preset-packs/${code}`, method: 'put', data })
 }

@@ -63,6 +63,15 @@
       </el-col>
     </el-row>
 
+    <el-alert v-if="data?.config_alerts?.length" type="error" :closable="false" class="block-row" show-icon>
+      <template #title>有 {{ data.config_alerts.length }} 个点位存在配置缺陷，已从未完成考核中剔除</template>
+      <div v-for="alert in data.config_alerts" :key="alert.point_id">
+        <el-button link type="danger" @click="drill('/inspection/points?community_id=' + alert.community_id + '&name=' + encodeURIComponent(alert.point_name))">
+          {{ alert.community_name }} · {{ alert.point_name }}：{{ alert.reason }}
+        </el-button>
+      </div>
+    </el-alert>
+
     <!-- 第二行：趋势 + 小区排行 -->
     <el-row :gutter="16" class="block-row">
       <el-col :xs="24" :md="12">

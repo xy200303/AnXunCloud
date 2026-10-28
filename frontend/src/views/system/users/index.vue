@@ -47,16 +47,8 @@
         <el-table-column prop="phone" label="手机号" min-width="120" />
         <el-table-column label="角色" min-width="200">
           <template #default="{ row }">
-            <template v-if="(row.roles?.length || 0) + (row.post_roles?.length || 0) > 0">
+            <template v-if="row.roles?.length">
               <el-tag v-for="r in row.roles" :key="r.id" size="small" class="role-tag">{{ r.name }}</el-tag>
-              <el-tooltip
-                v-for="r in row.post_roles"
-                :key="r.id"
-                content="由在职岗位绑定角色自动获得，随编制变动实时生效，无需手动分配"
-                placement="top"
-              >
-                <el-tag size="small" type="info" effect="plain" class="role-tag">{{ r.name }}</el-tag>
-              </el-tooltip>
             </template>
             <span v-else>--</span>
           </template>
@@ -142,8 +134,8 @@
             </el-form-item>
           </el-col>
         </el-row>
-        <el-form-item label="角色" prop="role_ids">
-          <el-select v-model="form.role_ids" multiple placeholder="选择角色（可空，权限可由岗位绑定角色获得）" style="width: 100%">
+        <el-form-item label="角色" prop="role_id">
+          <el-select v-model="form.role_id" placeholder="选择一个角色" style="width: 100%">
             <el-option v-for="r in roleOptions" :key="r.id" :label="r.name" :value="r.id" />
           </el-select>
         </el-form-item>
@@ -356,7 +348,7 @@ const form = reactive({
   password: '',
   name: '',
   phone: '',
-  role_ids: [] as string[],
+  role_id: '',
   status: 1
 })
 
@@ -386,13 +378,13 @@ function openForm(row?: UserItem) {
       password: '',
       name: row.name,
       phone: row.phone,
-      role_ids: row.roles?.map((r) => r.id) || [],
+      role_id: row.roles?.[0]?.id || '',
       status: row.status
     })
   } else {
     Object.assign(form, {
       id: '', username: '', password: '', name: '', phone: '',
-      role_ids: [], status: 1
+      role_id: '', status: 1
     })
   }
   formVisible.value = true
@@ -405,14 +397,14 @@ async function handleSubmit() {
     if (form.id) {
       await updateUser(form.id, {
         name: form.name, phone: form.phone,
-        role_ids: form.role_ids, status: form.status
+        role_id: form.role_id, status: form.status
       })
       ElMessage.success('用户已更新')
     } else {
       // 新增用户由后端自动归属当前上下文租户
       await createUser({
         username: form.username, password: form.password, name: form.name,
-        phone: form.phone, role_ids: form.role_ids, status: form.status
+        phone: form.phone, role_id: form.role_id, status: form.status
       })
       ElMessage.success('用户已创建')
     }

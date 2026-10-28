@@ -1,0 +1,73 @@
+<div class="qcard" style="padding:12px 16px;display:flex;align-items:center;gap:10px">
+  <span style="font-size:13px;color:#606266">类型名称</span>
+  <span class="einput ph" style="min-width:180px">类型名称</span>
+  <span style="font-size:13px;color:#606266">类型编码</span>
+  <span class="einput ph" style="min-width:180px">如 point_type</span>
+  <span class="ebtn">查询</span><span class="ebtn-w">重置</span>
+</div>
+
+<div class="qcard" style="padding:0">
+  <div style="display:flex;align-items:center;gap:10px;padding:12px 16px">
+    <span class="ebtn">＋ 新增类型</span>
+    <span class="einput" style="margin-left:6px;background:#ecf1ff;border-color:#b3c6ff;color:#2b5aed">☑ 含平台默认</span>
+    <span class="etag etag-blue">本期新增筛选</span>
+    <span style="margin-left:auto;display:inline-flex;align-items:center;justify-content:center;width:30px;height:30px;border:1px solid #dcdfe6;border-radius:50%;color:#606266;font-size:13px">⟳</span>
+  </div>
+
+  <table class="etable">
+    <tr>
+      <th>类型名称</th><th>编码</th>
+      <th style="text-align:center">字典数据</th>
+      <th>来源 <span class="etag etag-blue" style="font-weight:400">本期新增</span></th>
+      <th>创建时间</th><th>操作</th>
+    </tr>
+    <tr>
+      <td style="color:#303133">点位类型</td>
+      <td style="font-family:Consolas,monospace;font-size:12px">point_type</td>
+      <td style="text-align:center">12</td>
+      <td><span class="etag etag-gray">继承平台默认</span></td>
+      <td style="font-size:12px">2025-08-01 09:12</td>
+      <td><span class="elink">字典数据</span><span class="elink">本租户覆盖</span></td>
+    </tr>
+    <tr class="stripe">
+      <td style="color:#303133">设备类型</td>
+      <td style="font-family:Consolas,monospace;font-size:12px">equipment_type</td>
+      <td style="text-align:center">18</td>
+      <td><span class="etag etag-blue">本租户覆盖</span></td>
+      <td style="font-size:12px">2026-02-11 14:30</td>
+      <td><span class="elink">字典数据</span><span class="elink">编辑</span><span class="elink">恢复默认</span></td>
+    </tr>
+    <tr>
+      <td style="color:#303133">异常观察点</td>
+      <td style="font-family:Consolas,monospace;font-size:12px">abnormal_tag</td>
+      <td style="text-align:center">34</td>
+      <td><span class="etag etag-gray">继承平台默认</span></td>
+      <td style="font-size:12px">2025-08-01 09:12</td>
+      <td><span class="elink">字典数据</span><span class="elink">本租户覆盖</span></td>
+    </tr>
+    <tr class="stripe">
+      <td style="color:#303133">无法检查原因</td>
+      <td style="font-family:Consolas,monospace;font-size:12px">uncheckable_reason</td>
+      <td style="text-align:center">4</td>
+      <td><span class="etag etag-gray">继承平台默认</span></td>
+      <td style="font-size:12px">2025-08-01 09:12</td>
+      <td><span class="elink">字典数据</span><span class="elink">本租户覆盖</span></td>
+    </tr>
+    <tr>
+      <td style="color:#303133">工单类型</td>
+      <td style="font-family:Consolas,monospace;font-size:12px">workorder_type</td>
+      <td style="text-align:center;color:#909399">0</td>
+      <td><span class="etag etag-gray">继承平台默认</span></td>
+      <td style="font-size:12px">2026-10-20 10:02</td>
+      <td><span class="elink">字典数据</span><span class="elink">本租户覆盖</span></td>
+    </tr>
+  </table>
+
+  <div class="pager"><span>共 5 条</span><span class="pg">20/页 ▾</span><span class="pg">‹</span><span class="pg on">1</span><span class="pg">›</span></div>
+
+  <div style="padding:10px 16px;font-size:12px;color:#909399;line-height:1.8">
+    「字典数据」跳<b style="color:#606266">独立子页</b>维护条目（现有 <code>goData</code> 路由跳转，不是抽屉）；类型编码创建后不可改。<br>
+    <span style="color:#2b5aed">本期按 13 §4.2.1 加 <code>scope</code> 两列</span>：继承行只读、操作为「字典数据 / 本租户覆盖」；覆盖行可编辑、可「恢复默认」（删本层行，不是把值改回去）。稀疏覆盖——与继承值相同不落行。<br>
+    删除类型前须确认无业务引用（<code>point_type</code> 被 L1 检查项模板引用、<code>equipment_type</code> 被 L2 字段方案引用），有引用改为停用并提示影响范围。
+  </div>
+</div>

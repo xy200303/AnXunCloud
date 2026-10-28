@@ -1,0 +1,122 @@
+<div class="qcard" style="padding:0">
+  <div style="display:flex;gap:22px;padding:0 16px;border-bottom:1px solid #ebeef5;font-size:13px;color:#606266">
+    <span style="padding:12px 0">模型供应商</span>
+    <span style="padding:12px 0">能力绑定</span>
+    <span style="padding:12px 0;border-bottom:2px solid #2b5aed;color:#2b5aed;font-weight:600">助手与 Agent</span>
+    <span style="padding:12px 0">MCP 接入</span>
+    <span style="padding:12px 0">配额与用量</span>
+  </div>
+
+  <div style="display:flex;align-items:center;gap:8px;padding:12px 16px;background:#f7f9ff;border-bottom:1px solid #d9e1ff;font-size:12px;color:#606266;line-height:1.7">
+    <span style="color:#2b5aed">ⓘ</span>
+    <span><b style="color:#303133">工具注册表在代码里、不落库</b>（12 §2）——工具是编译期能力，落库会出现"库里有、代码里没有"的漂移。本页只配<b style="color:#303133">运行期数据</b>：每个消费方用哪个模型、开哪些工具、限流档。</span>
+  </div>
+
+  <table class="etable">
+    <tr>
+      <th>消费方</th><th style="text-align:center">启用</th>
+      <th>绑定模型<div style="font-weight:400;color:#c0c4cc;font-size:11px">须带「工具调用」能力</div></th>
+      <th style="text-align:right">可用工具</th><th>限流档</th><th>来源</th><th>操作</th>
+    </tr>
+    <tr>
+      <td><div style="color:#303133;font-weight:600">助手对话</div><div style="font-size:11px;color:#909399">App 与 PC 智能助手 Tab</div></td>
+      <td style="text-align:center"><span class="sw on"></span></td>
+      <td><span class="einput" style="min-width:200px;background:#ecf1ff;border-color:#b3c6ff;color:#2b5aed">百炼 / 通义千问 Max ▾</span></td>
+      <td style="text-align:right">18 / 24</td>
+      <td><span class="einput" style="min-width:90px">标准 ▾</span></td>
+      <td><span class="etag etag-blue">本租户覆盖</span></td>
+      <td><span class="elink">配工具</span><span class="elink">测试</span></td>
+    </tr>
+    <tr class="stripe">
+      <td><div style="color:#303133;font-weight:600">agent 预审节点</div><div style="font-size:11px;color:#909399">审批链上的 agent 环节</div></td>
+      <td style="text-align:center"><span class="sw on"></span></td>
+      <td><span class="einput" style="min-width:200px">百炼 / 通义千问 Max ▾</span></td>
+      <td style="text-align:right">9 / 24</td>
+      <td><span class="einput" style="min-width:90px">批量 ▾</span></td>
+      <td><span class="etag etag-gray">继承平台默认</span></td>
+      <td><span class="elink">配工具</span><span class="elink">测试</span></td>
+    </tr>
+    <tr>
+      <td><div style="color:#303133;font-weight:600">Skills 执行</div><div style="font-size:11px;color:#909399">周报 / 派单 / 台账问答 / 批量预审</div></td>
+      <td style="text-align:center"><span class="sw on"></span></td>
+      <td><span class="einput ph" style="min-width:200px">跟随助手对话 ▾</span></td>
+      <td style="text-align:right">按 Skill 各自声明</td>
+      <td><span class="einput ph" style="min-width:90px">跟随 ▾</span></td>
+      <td><span class="etag etag-gray">继承平台默认</span></td>
+      <td><span class="elink">管理 Skills</span></td>
+    </tr>
+  </table>
+
+  <div style="padding:10px 16px;font-size:12px;color:#909399;line-height:1.8">
+    下拉<b style="color:#606266">只列带「工具调用」能力的模型</b>；选不到就先去「模型供应商」注册。<br>
+    <b style="color:#606266">agent 不可用/超时等同节点断链</b>：挂起 + 告警，不得跳过或默认通过（03 §5）。
+  </div>
+</div>
+
+<div class="qcard" style="padding:0">
+  <div style="display:flex;align-items:center;gap:10px;padding:12px 16px;border-bottom:1px solid #ebeef5">
+    <b style="font-size:14px">助手对话 · 可用工具</b>
+    <span style="font-size:12px;color:#909399">18 / 24 已开</span>
+    <span class="etag etag-gray" style="margin-left:auto">工具清单由代码注册，此处只能启停与调限流</span>
+  </div>
+  <table class="etable">
+    <tr>
+      <th>工具</th><th>说明</th>
+      <th style="text-align:center">读写</th><th style="text-align:center">形态</th>
+      <th>所需权限点</th><th style="text-align:center">启用</th>
+    </tr>
+    <tr>
+      <td style="font-family:Consolas,monospace;font-size:12px;color:#303133">inspection.query_records</td>
+      <td>按小区/时间/状态查巡检记录</td>
+      <td style="text-align:center"><span class="etag etag-gray">只读</span></td>
+      <td style="text-align:center"><span class="etag etag-gray">sync</span></td>
+      <td style="font-size:11px">inspection:record:list</td>
+      <td style="text-align:center"><span class="sw on"></span></td>
+    </tr>
+    <tr class="stripe">
+      <td style="font-family:Consolas,monospace;font-size:12px;color:#303133">equipment.query_ledger</td>
+      <td>设备台账问答（到期/换粉/标签缺失）</td>
+      <td style="text-align:center"><span class="etag etag-gray">只读</span></td>
+      <td style="text-align:center"><span class="etag etag-gray">sync</span></td>
+      <td style="font-size:11px">equipment:list</td>
+      <td style="text-align:center"><span class="sw on"></span></td>
+    </tr>
+    <tr>
+      <td style="font-family:Consolas,monospace;font-size:12px;color:#303133">ai.inspect_image</td>
+      <td>对话里直接发照片做识别</td>
+      <td style="text-align:center"><span class="etag etag-gray">只读</span></td>
+      <td style="text-align:center"><span class="etag etag-blue">async_job</span></td>
+      <td style="font-size:11px">—</td>
+      <td style="text-align:center"><span class="sw on"></span></td>
+    </tr>
+    <tr class="stripe">
+      <td style="font-family:Consolas,monospace;font-size:12px;color:#303133">workorder.dispatch</td>
+      <td>派单给指定人员</td>
+      <td style="text-align:center"><span class="etag etag-orange">写</span></td>
+      <td style="text-align:center"><span class="etag etag-gray">sync</span></td>
+      <td style="font-size:11px">workorder:dispatch</td>
+      <td style="text-align:center"><span class="sw on"></span></td>
+    </tr>
+    <tr>
+      <td style="font-family:Consolas,monospace;font-size:12px;color:#303133">report.generate</td>
+      <td>生成指定小区月报</td>
+      <td style="text-align:center"><span class="etag etag-orange">写</span></td>
+      <td style="text-align:center"><span class="etag etag-blue">async_job</span></td>
+      <td style="font-size:11px">report:generate</td>
+      <td style="text-align:center"><span class="sw on"></span></td>
+    </tr>
+    <tr class="stripe">
+      <td style="font-family:Consolas,monospace;font-size:12px;color:#303133">checkin.approve</td>
+      <td>审核通过打卡记录</td>
+      <td style="text-align:center"><span class="etag etag-orange">写</span></td>
+      <td style="text-align:center"><span class="etag etag-gray">sync</span></td>
+      <td style="font-size:11px;color:#909399">按候选人判定，无独立权限点</td>
+      <td style="text-align:center"><span class="sw"></span></td>
+    </tr>
+  </table>
+  <div style="padding:10px 16px;font-size:12px;color:#606266;line-height:1.8;background:#fdf6ec;border-top:1px solid #f5dab1">
+    <b style="color:#e6a23c">写工具一律经人确认</b>（12 §2）：agent 提议 → 确认条展示"将要做什么、影响几条" → 人点确认才执行，可反悔。<br>
+    <b style="color:#303133">Skill 内的写工具同样要确认</b>，不能把多个写操作串成"一次确认全执行"。<br>
+    工具不绕过接口鉴权：即使在此启用，调用仍按调用者的岗位权限与任职范围过滤，<b style="color:#303133">agent 看不到用户本人看不到的数据</b>。
+  </div>
+</div>

@@ -1,0 +1,156 @@
+<div style="position:relative;min-height:700px">
+  <div class="qcard" style="padding:0;opacity:.3">
+    <div style="display:flex;gap:22px;padding:0 16px;border-bottom:1px solid #ebeef5;font-size:13px;color:#606266">
+      <span style="padding:12px 0">待接单 <span class="etag etag-red" style="margin-left:2px">18</span></span>
+      <span style="padding:12px 0;border-bottom:2px solid #2b5aed;color:#2b5aed;font-weight:600">整改中 <span class="etag etag-gray" style="margin-left:2px">9</span></span>
+      <span style="padding:12px 0">待审核 <span class="etag etag-orange" style="margin-left:2px">4</span></span>
+      <span style="padding:12px 0">已完成</span>
+    </div>
+    <div style="display:flex;align-items:center;gap:10px;padding:12px 16px">
+      <span class="ebtn-w">批量派单</span>
+      <span class="ebtn-w">导出</span>
+    </div>
+    <table class="etable">
+      <tr><th>单号</th><th>类型</th><th>小区</th><th>事项</th><th>执行人</th><th>期限</th><th>状态</th><th>操作</th></tr>
+      <tr class="sel">
+        <td style="font-family:Consolas,monospace;font-size:12px;color:#303133">WO-20261023-0007</td>
+        <td><span class="etag etag-blue">巡检整改</span></td><td>戎安华府</td>
+        <td>3 项</td><td>老王</td>
+        <td style="font-size:12px;color:#e6a23c">10-25 18:00</td>
+        <td><span class="etag etag-blue">进行中</span></td>
+        <td><span class="elink">详情</span><span class="elink">改派</span></td>
+      </tr>
+      <tr class="stripe">
+        <td style="font-family:Consolas,monospace;font-size:12px;color:#303133">WO-20261023-0011</td>
+        <td><span class="etag etag-orange">维保执行</span></td><td>锦绣华庭</td>
+        <td>18 台</td><td>小张</td>
+        <td style="font-size:12px">10-30 18:00</td>
+        <td><span class="etag etag-blue">进行中</span></td>
+        <td><span class="elink">详情</span><span class="elink">改派</span></td>
+      </tr>
+      <tr>
+        <td style="font-family:Consolas,monospace;font-size:12px;color:#303133">WO-20261022-0003</td>
+        <td><span class="etag etag-blue">巡检整改</span></td><td>戎安华府</td>
+        <td>1 项</td><td>老周</td>
+        <td style="font-size:12px;color:#f56c6c">已逾期 1 天</td>
+        <td><span class="etag etag-blue">进行中</span></td>
+        <td><span class="elink">详情</span><span class="elink">改派</span></td>
+      </tr>
+    </table>
+    <div class="pager"><span>共 12 条</span><span class="pg">20/页 ▾</span><span class="pg">‹</span><span class="pg on">1</span><span class="pg">›</span></div>
+  </div>
+
+  <div style="position:fixed;inset:0;background:rgba(0,0,0,.18);z-index:40"></div>
+  <div style="position:fixed;top:0;right:0;bottom:0;width:760px;background:#fff;box-shadow:-8px 0 24px rgba(0,0,0,.12);z-index:50;display:flex;flex-direction:column">
+
+    <div style="height:52px;display:flex;align-items:center;gap:10px;padding:0 18px;border-bottom:1px solid #ebeef5">
+      <b style="font-size:15px">WO-20261023-0007</b>
+      <span class="etag etag-blue">巡检整改</span>
+      <span class="etag etag-orange">待审核</span>
+      <span style="font-size:12px;color:#909399">整改已提交 3/3 项</span>
+      <span style="margin-left:auto;color:#909399">×</span>
+    </div>
+
+    <div style="padding:16px 18px;overflow:auto">
+
+      <table class="etable" style="margin-bottom:14px">
+        <tr><th style="width:84px;background:#fafafa">小区</th><td>戎安华府</td><th style="width:84px;background:#fafafa">执行人</th><td>老王 <span class="etag etag-gray">第 2 任</span></td></tr>
+        <tr><th style="background:#fafafa">优先级</th><td>普通</td><th style="background:#fafafa">期限</th><td style="color:#e6a23c">10-25 18:00</td></tr>
+        <tr><th style="background:#fafafa">接单方式</th><td>指定派单</td><th style="background:#fafafa">建单人</th><td>严勇 · 10-23 17:20</td></tr>
+      </table>
+
+      <div style="display:flex;align-items:center;gap:0;margin:16px 0 14px">
+        <span class="stp done"><span class="n">✓</span>待接单</span>
+        <span class="sline" style="background:#2b5aed"></span>
+        <span class="stp done"><span class="n">✓</span>整改中</span>
+        <span class="sline" style="background:#2b5aed"></span>
+        <span class="stp cur"><span class="n">3</span>待审核</span>
+        <span class="sline"></span>
+        <span class="stp"><span class="n">4</span>已闭环</span>
+      </div>
+
+      <div style="font-size:13px;font-weight:600;color:#303133;margin:16px 0 8px">整改事项 <span style="font-weight:400;color:#909399">3 项</span></div>
+
+      <div style="border:1px solid #ebeef5;border-radius:4px;margin-bottom:10px">
+        <div style="display:flex;align-items:center;gap:8px;padding:10px 12px;background:#fafbfc;border-bottom:1px solid #ebeef5">
+          <b style="font-size:13px;color:#303133">1栋3楼通道消火栓</b>
+          <span style="font-size:12px;color:#909399">水带破损 · 枪头缺失</span>
+          <span class="etag etag-green" style="margin-left:auto">已提交整改</span>
+        </div>
+        <div style="display:flex;gap:18px;padding:12px">
+          <div style="flex:1">
+            <div style="font-size:12px;color:#909399;margin-bottom:6px">问题照片 · 巡检时</div>
+            <div style="display:flex;gap:6px">
+              <span style="width:68px;height:68px;border-radius:3px;background:#e4e7ed;display:inline-block"></span>
+              <span style="width:68px;height:68px;border-radius:3px;background:#e4e7ed;display:inline-block"></span>
+            </div>
+          </div>
+          <div style="flex:1">
+            <div style="font-size:12px;color:#2b5aed;margin-bottom:6px">整改照片 · 第 1 轮</div>
+            <div style="display:flex;gap:6px">
+              <span style="width:68px;height:68px;border-radius:3px;background:#dbe4ff;display:inline-block"></span>
+              <span style="width:68px;height:68px;border-radius:3px;background:#dbe4ff;display:inline-block"></span>
+            </div>
+          </div>
+        </div>
+        <div style="padding:0 12px 12px;font-size:12px;color:#606266;line-height:1.7">
+          <b style="color:#303133">整改说明：</b>已更换水带 1 条、枪头 1 个，箱内复位并锁闭。<br>
+          <b style="color:#303133">耗材：</b>消防水带 DN65 25m ×1 · 直流水枪 ×1
+        </div>
+      </div>
+
+      <div style="border:1px solid #ebeef5;border-radius:4px;margin-bottom:10px">
+        <div style="display:flex;align-items:center;gap:8px;padding:10px 12px;background:#fafbfc;border-bottom:1px solid #ebeef5">
+          <b style="font-size:13px;color:#303133">1栋负一层消火栓</b>
+          <span style="font-size:12px;color:#909399">箱门锁损坏</span>
+          <span class="etag etag-green" style="margin-left:auto">已提交整改</span>
+        </div>
+        <div style="display:flex;gap:18px;padding:12px">
+          <div style="flex:1">
+            <div style="font-size:12px;color:#909399;margin-bottom:6px">问题照片 · 巡检时</div>
+            <span style="width:68px;height:68px;border-radius:3px;background:#e4e7ed;display:inline-block"></span>
+          </div>
+          <div style="flex:1">
+            <div style="font-size:12px;color:#2b5aed;margin-bottom:6px">整改照片 · 第 2 轮 <span class="etag etag-orange" style="font-size:10px">曾被驳回</span></div>
+            <span style="width:68px;height:68px;border-radius:3px;background:#dbe4ff;display:inline-block"></span>
+          </div>
+        </div>
+        <div style="padding:0 12px 12px;font-size:12px;color:#606266;line-height:1.7">
+          <b style="color:#303133">整改说明：</b>已更换锁芯并配两把钥匙，交消控室存放。<br>
+          <span style="color:#909399">第 1 轮被驳回（照片看不清锁芯型号），<b style="color:#606266">前轮证据保留不覆盖</b>。</span>
+        </div>
+      </div>
+
+      <div style="border:1px dashed #dcdfe6;border-radius:4px;margin-bottom:14px">
+        <div style="display:flex;align-items:center;gap:8px;padding:10px 12px;background:#fafbfc;border-bottom:1px dashed #dcdfe6">
+          <b style="font-size:13px;color:#303133">1栋2单元灭火器</b>
+          <span style="font-size:12px;color:#909399">压力表指针入红区</span>
+          <span class="etag etag-green" style="margin-left:auto">已提交整改</span>
+        </div>
+        <div style="padding:12px;font-size:12px;color:#606266">整改说明：已更换压力表并完成校验，整改照片 2 张。</div>
+      </div>
+
+      <div style="font-size:13px;font-weight:600;color:#303133;margin:16px 0 8px">操作时间线</div>
+      <div style="font-size:13px;color:#606266">
+        <div style="display:flex;gap:10px;padding:5px 0"><span style="color:#909399;flex:none;width:86px">10-24 14:12</span><span style="width:7px;height:7px;border-radius:50%;background:#2b5aed;flex:none;margin-top:6px"></span><span>老王 提交「1栋负一层消火栓」第 2 轮整改</span></div>
+        <div style="display:flex;gap:10px;padding:5px 0"><span style="color:#909399;flex:none;width:86px">10-24 10:30</span><span style="width:7px;height:7px;border-radius:50%;background:#f56c6c;flex:none;margin-top:6px"></span><span style="color:#f56c6c">李敏 驳回「1栋负一层消火栓」：照片看不清锁芯型号</span></div>
+        <div style="display:flex;gap:10px;padding:5px 0"><span style="color:#909399;flex:none;width:86px">10-24 09:05</span><span style="width:7px;height:7px;border-radius:50%;background:#2b5aed;flex:none;margin-top:6px"></span><span>老王 提交「1栋3楼通道消火栓」整改</span></div>
+        <div style="display:flex;gap:10px;padding:5px 0"><span style="color:#909399;flex:none;width:86px">10-23 17:25</span><span style="width:7px;height:7px;border-radius:50%;background:#909399;flex:none;margin-top:6px"></span><span>严勇 改派给 老王（原执行人 老周 请假）</span></div>
+        <div style="display:flex;gap:10px;padding:5px 0"><span style="color:#909399;flex:none;width:86px">10-23 17:20</span><span style="width:7px;height:7px;border-radius:50%;background:#909399;flex:none;margin-top:6px"></span><span>严勇 打包 3 项事项建单并派给 老周</span></div>
+      </div>
+
+      <div style="margin-top:14px;padding:10px 12px;background:#fafbfc;border:1px solid #ebeef5;border-radius:4px;font-size:12px;color:#606266;line-height:1.8">
+        改派<b style="color:#303133">必填原因</b>，历任执行人与各轮证据都保留，不覆盖。<br>
+        主管审核通过即完成闭环；涉及维保有效期的设备，在同一审核生效点按设备规则回写日期。
+      </div>
+    </div>
+
+    <div style="display:flex;align-items:center;gap:10px;padding:14px 18px;border-top:1px solid #ebeef5">
+      <span style="font-size:12px;color:#909399">3 项整改均已提交，主管审核后闭环</span>
+      <span style="margin-left:auto;display:flex;gap:10px">
+        <span class="ebtn-w" style="color:#f56c6c;border-color:#fbc4c4">驳回整改</span>
+        <span class="ebtn">审核通过</span>
+      </span>
+    </div>
+  </div>
+</div>

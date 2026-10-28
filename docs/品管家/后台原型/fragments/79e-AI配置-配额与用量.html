@@ -1,0 +1,113 @@
+<div class="qcard" style="padding:0">
+  <div style="display:flex;gap:22px;padding:0 16px;border-bottom:1px solid #ebeef5;font-size:13px;color:#606266">
+    <span style="padding:12px 0">模型供应商</span>
+    <span style="padding:12px 0">能力绑定</span>
+    <span style="padding:12px 0">助手与 Agent</span>
+    <span style="padding:12px 0">MCP 接入</span>
+    <span style="padding:12px 0;border-bottom:2px solid #2b5aed;color:#2b5aed;font-weight:600">配额与用量</span>
+  </div>
+
+  <div style="display:flex;gap:12px;padding:14px 16px">
+    <div style="flex:1;border:1px solid #ebeef5;border-radius:4px;padding:12px 14px">
+      <div style="font-size:12px;color:#909399;margin-bottom:6px">本租户并发</div>
+      <div style="font-size:24px;font-weight:700;color:#303133">4 <span style="font-size:14px;color:#909399;font-weight:400">/ 8</span></div>
+    </div>
+    <div style="flex:1;border:1px solid #ebeef5;border-radius:4px;padding:12px 14px">
+      <div style="font-size:12px;color:#909399;margin-bottom:6px">本月调用量</div>
+      <div style="font-size:24px;font-weight:700;color:#303133">12,480</div>
+    </div>
+    <div style="flex:1;border:1px solid #f5dab1;border-radius:4px;padding:12px 14px;background:#fdf6ec">
+      <div style="font-size:12px;color:#e6a23c;margin-bottom:6px">队列等待 P95</div>
+      <div style="font-size:24px;font-weight:700;color:#e6a23c">38s</div>
+    </div>
+    <div style="flex:1;border:1px solid #ebeef5;border-radius:4px;padding:12px 14px">
+      <div style="font-size:12px;color:#909399;margin-bottom:6px">死信 discarded</div>
+      <div style="font-size:24px;font-weight:700;color:#303133">3 <span style="font-size:12px;color:#2b5aed;font-weight:400">查看</span></div>
+    </div>
+  </div>
+
+  <div style="padding:0 16px 14px;font-size:12px;color:#909399;line-height:1.7">
+    数值来自 River 的 <code>ai</code> 与 <code>render</code> 队列运行态（09 §5.2），只读。<span style="color:#e6a23c">默认值须按现有 8 worker / 180s 基线实测后决定</span>，当前不是已验证的 SLA。
+  </div>
+</div>
+
+<div class="qcard" style="padding:0">
+  <div style="display:flex;align-items:center;gap:10px;padding:12px 16px;border-bottom:1px solid #ebeef5">
+    <b style="font-size:14px">限流与配额</b>
+    <span class="etag etag-blue" style="margin-left:auto">本租户覆盖</span>
+    <span class="ebtn">保存</span>
+  </div>
+  <div style="padding:16px">
+    <div style="display:flex;align-items:flex-start;gap:12px;margin-bottom:14px">
+      <span style="width:120px;flex:none;text-align:right;font-size:13px;color:#606266;padding-top:6px">并发上限</span>
+      <div style="flex:1">
+        <span class="einput" style="min-width:110px">8</span>
+        <div style="font-size:11px;color:#909399;margin-top:4px;line-height:1.6">本租户同时在跑的 AI 任务数。<b style="color:#606266">全局资源与厂商配额上限在平台层设</b>，租户值不得超过它——两者取小。</div>
+      </div>
+    </div>
+    <div style="display:flex;align-items:flex-start;gap:12px;margin-bottom:14px">
+      <span style="width:120px;flex:none;text-align:right;font-size:13px;color:#606266;padding-top:6px">速率上限</span>
+      <div style="flex:1">
+        <span class="einput" style="min-width:110px">60 次/分</span>
+        <div style="font-size:11px;color:#909399;margin-top:4px">超出即排队，不丢任务</div>
+      </div>
+    </div>
+    <div style="display:flex;align-items:flex-start;gap:12px;margin-bottom:14px">
+      <span style="width:120px;flex:none;text-align:right;font-size:13px;color:#606266;padding-top:6px">月调用量配额</span>
+      <div style="flex:1">
+        <span class="einput ph" style="min-width:110px">不限</span>
+        <div style="font-size:11px;color:#909399;margin-top:4px;line-height:1.6">独立部署时一般留空（资源是客户自己的机器）；共享部署按合同填。</div>
+      </div>
+    </div>
+    <div style="display:flex;align-items:flex-start;gap:12px">
+      <span style="width:120px;flex:none;text-align:right;font-size:13px;color:#606266;padding-top:6px">配额耗尽时</span>
+      <div style="flex:1">
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          <span class="einput" style="background:#ecf1ff;border-color:#b3c6ff;color:#2b5aed">排队等待</span>
+          <span class="einput ph">拒绝并提示人工填</span>
+          <span class="einput ph" style="background:#fafafa;color:#c0c4cc">默认放行</span>
+        </div>
+        <div style="font-size:12px;color:#f56c6c;margin-top:6px">第三项不可启用：配额耗尽不得伪装成识别通过（09 §2.3）。无论选哪项，结果都是<b>明确失败状态</b>，再按 03 §3 的人工出口处理。</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="qcard" style="padding:0">
+  <div style="display:flex;align-items:center;gap:10px;padding:12px 16px;border-bottom:1px solid #ebeef5">
+    <b style="font-size:14px">按任务类型用量</b>
+    <span style="font-size:12px;color:#909399">近 30 天</span>
+    <span class="ebtn-w" style="margin-left:auto">导出</span>
+  </div>
+  <table class="etable">
+    <tr>
+      <th>任务类型</th><th>绑定模型</th>
+      <th style="text-align:right">调用量</th><th style="text-align:right">成功率</th>
+      <th style="text-align:right">P95 耗时</th><th style="text-align:right">error 终态</th><th style="text-align:right">死信</th>
+    </tr>
+    <tr>
+      <td style="color:#303133">巡检照片识别</td><td style="font-size:12px">百炼 / 通义千问 VL Max</td>
+      <td style="text-align:right">9,214</td><td style="text-align:right;color:#67c23a">98.2%</td>
+      <td style="text-align:right">12.4s</td><td style="text-align:right">166</td><td style="text-align:right">2</td>
+    </tr>
+    <tr class="stripe">
+      <td style="color:#303133">表计读数</td><td style="font-size:12px">百炼 / 通义千问 VL Plus</td>
+      <td style="text-align:right">2,180</td><td style="text-align:right;color:#67c23a">96.5%</td>
+      <td style="text-align:right">9.1s</td><td style="text-align:right">76</td><td style="text-align:right">0</td>
+    </tr>
+    <tr>
+      <td style="color:#303133">标签日期识别</td><td style="font-size:12px">百炼 / 通义千问 VL Plus</td>
+      <td style="text-align:right">936</td><td style="text-align:right;color:#e6a23c">89.7%</td>
+      <td style="text-align:right">7.8s</td><td style="text-align:right">96</td><td style="text-align:right">1</td>
+    </tr>
+    <tr class="stripe">
+      <td style="color:#303133">助手对话</td><td style="font-size:12px">百炼 / 通义千问 Max</td>
+      <td style="text-align:right">150</td><td style="text-align:right;color:#67c23a">99.3%</td>
+      <td style="text-align:right">3.2s</td><td style="text-align:right">1</td><td style="text-align:right">0</td>
+    </tr>
+  </table>
+  <div style="padding:10px 16px;font-size:12px;color:#909399;line-height:1.8">
+    <b style="color:#606266">成功率 ≠ 判定正确率</b>：这里只统计调用是否正常返回。判定准确性看巡检记录里的<b style="color:#606266">人工改判率</b>（绩效页）。<br>
+    <b style="color:#606266">死信可重放</b>，重放属高危操作、记审计（09 §4.4）；重放前确认旧识别不会覆盖已重拍的新照片（<code>retake_seq</code> 条件更新，03 §3.4）。
+  </div>
+</div>

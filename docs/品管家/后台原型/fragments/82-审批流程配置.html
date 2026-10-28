@@ -1,0 +1,144 @@
+<div class="qcard" style="padding:0">
+  <div style="display:flex;align-items:center;gap:10px;padding:12px 16px;border-bottom:1px solid #ebeef5">
+    <b style="font-size:15px">审批流程</b>
+    <span class="etag etag-gray">沿用现有设计器（约束结构布局，不是自由画布）</span>
+    <span style="margin-left:auto;display:flex;gap:8px"><span class="ebtn-w">从平台预置重置</span><span class="ebtn">保存</span></span>
+  </div>
+
+  <div style="display:flex;gap:22px;padding:0 16px;border-bottom:1px solid #ebeef5;font-size:13px;color:#606266">
+    <span style="padding:12px 0;border-bottom:2px solid #2b5aed;color:#2b5aed;font-weight:600">打卡审核链</span>
+    <span style="padding:12px 0">维保登记审核链</span>
+    <span style="padding:12px 0">报告审核链</span>
+    <span style="padding:12px 0">工单复查链</span>
+    <span style="padding:12px 0">承接查验审核链</span>
+  </div>
+
+  <div style="display:flex;align-items:center;gap:10px;padding:12px 16px;background:#fafbfc;border-bottom:1px solid #ebeef5">
+    <span style="font-size:12px;color:#909399">作用范围</span>
+    <span class="einput" style="background:#ecf1ff;border-color:#b3c6ff;color:#2b5aed">租户默认（全部小区）</span>
+    <span class="einput ph">戎安华府（覆盖）</span>
+    <span class="einput ph">＋ 为某小区建覆盖</span>
+    <span style="font-size:12px;color:#909399">名单预览按</span>
+    <span class="einput" style="min-width:140px">戎安华府 ▾</span>
+    <span style="font-size:12px;color:#909399;margin-left:auto">平台预置链在开通租户时实例化成本行，之后各租户独立维护</span>
+  </div>
+
+  <div style="padding:20px 16px">
+    <div class="nchain">
+      <span class="nend">开始</span>
+      <span class="nconn"></span><span class="nplus">＋</span><span class="nconn"></span>
+
+      <div class="ncard ai">
+        <div class="nhead ai">
+          <span>◎</span>
+          <span class="t">AI 初判</span>
+          <span class="q">环节1 · AI 闸门</span>
+          <span class="ops"><span>↑</span><span>↓</span><span style="color:#f56c6c">✕</span></span>
+        </div>
+        <div class="lanes">
+          <div class="lane"><span class="lt">无异常</span><span class="lv">结束</span></div>
+          <div class="lane"><span class="lt">有异常</span><span class="lv">下一环节</span></div>
+          <div class="lane"><span class="lt">存疑 / 失败</span><span class="lv">下一环节</span></div>
+        </div>
+      </div>
+
+      <span class="nconn"></span><span class="nplus">＋</span><span class="nconn"></span>
+
+      <div class="ncard ai">
+        <div class="nhead ai">
+          <span>◎</span>
+          <span class="t">agent 预审</span>
+          <span class="q">环节2 · agent</span>
+          <span class="ops"><span>↑</span><span>↓</span><span style="color:#f56c6c">✕</span></span>
+        </div>
+        <div class="nbody" style="font-size:12px;color:#909399;line-height:1.7">
+          产出建议结论与依据供后续人工环节参考，<b style="color:#303133">不直接置通过</b>；agent 不可用或超时等同断链，挂起告警。
+        </div>
+      </div>
+
+      <span class="nconn"></span><span class="nplus">＋</span><span class="nconn"></span>
+
+      <div class="ncard">
+        <div class="nhead">
+          <span>◉</span>
+          <span class="t">打卡复核</span>
+          <span class="q">环节3 · 人工</span>
+          <span class="ops"><span>↑</span><span>↓</span><span style="color:#f56c6c">✕</span></span>
+        </div>
+        <div class="nbody">
+          <div style="display:flex;align-items:center;gap:8px">
+            <span class="einput" style="min-width:150px;background:#ecf1ff;border-color:#b3c6ff;color:#2b5aed">品质主管 ▾</span>
+            <span class="etag etag-gray">任一人通过</span>
+          </div>
+          <div class="vline">实际审核人：<b>李敏、周强</b></div>
+        </div>
+      </div>
+
+      <span class="nconn"></span><span class="nplus">＋</span><span class="nconn"></span>
+
+      <div class="ncard bad">
+        <div class="nhead bad">
+          <span>◉</span>
+          <span class="t" style="color:#f56c6c">维保生效确认</span>
+          <span class="q">环节4 · 人工</span>
+          <span class="ops"><span>↑</span><span>↓</span><span style="color:#f56c6c">✕</span></span>
+        </div>
+        <div class="nbody">
+          <div style="display:flex;align-items:center;gap:8px">
+            <span class="einput" style="min-width:150px;background:#fef0f0;border-color:#fbc4c4;color:#f56c6c">工程主管 ▾</span>
+            <span class="etag etag-gray">任一人通过</span>
+          </div>
+          <div class="vline vbad">
+            当前无人能审（本小区无在职工程主管）——<b style="color:#f56c6c">该环节将挂起并告警，不会自动通过</b>
+          </div>
+          <div style="margin-top:8px;display:flex;gap:8px">
+            <span class="ebtn-w" style="font-size:12px;padding:5px 12px">去配人员</span>
+            <span class="ebtn-w" style="font-size:12px;padding:5px 12px">为本小区改绑岗位</span>
+          </div>
+        </div>
+      </div>
+
+      <span class="nconn"></span><span class="nplus">＋</span><span class="nconn"></span>
+
+      <div class="ncard">
+        <div class="nhead">
+          <span>◉</span>
+          <span class="t">月报审批</span>
+          <span class="q">环节5 · 人工</span>
+          <span class="ops"><span>↑</span><span>↓</span><span style="color:#f56c6c">✕</span></span>
+        </div>
+        <div class="nbody">
+          <div style="display:flex;align-items:center;gap:8px">
+            <span class="einput" style="min-width:150px">项目经理 ▾</span>
+            <span class="etag etag-gray">任一人通过</span>
+          </div>
+          <div class="vline">实际审核人：<b>严勇</b></div>
+          <div class="vline" style="color:#2b5aed">跨小区报告：本环节会解析出各小区各自的项目经理，都进候选名单</div>
+        </div>
+      </div>
+
+      <span class="nconn"></span><span class="nplus">＋</span><span class="nconn"></span>
+      <span class="nend">结束</span>
+    </div>
+  </div>
+
+  <div style="padding:0 16px 16px">
+    <div style="display:flex;gap:12px">
+      <div class="res" style="flex:1">
+        <div class="res-h">本链改造要点（相对现有设计器）</div>
+        <div class="res-r"><span class="nm">环节引用对象：职责槽位 → <b>直接绑岗位</b></span><span class="etag etag-blue">14 §1.5</span></div>
+        <div class="res-r"><span class="nm">环节命名：按职责，不按岗位（"月报审批"不叫"经理确认"）</span><span class="etag etag-blue">14 §1.5.1</span></div>
+        <div class="res-r bad"><span class="nm">无人能审：<b>自动跳过 → 挂起 + 告警 + 修复入口</b></span><span class="etag etag-red">14 §4.6</span></div>
+        <div class="res-r"><span class="nm">"能审但看不到数据"的警告不再需要（候选即可读该记录）</span><span class="etag etag-blue">14 §1.5.3</span></div>
+        <div class="res-r"><span class="nm">名单预览支持跨小区对象（报告覆盖多小区）</span><span class="etag etag-blue">14 §1.5.2</span></div>
+      </div>
+      <div class="res" style="width:330px;flex:none">
+        <div class="res-h">为什么不换成自由画布（VueFlow）</div>
+        <div style="font-size:12px;color:#606266;line-height:1.8;padding:4px 0">
+          现有「约束结构布局」已是直观与可校验的平衡点：垂直链 + <b>goto 只能向后跳到人工环节</b>，因此"所有可达路径必经人工环节"可静态校验，环节增删后序号自动重映射、目标失效标红。<br>
+          自由画布会引入不可达环节、环、死胡同，而<b>异常/存疑/改判/AI失败/无法检查必须经人工环节</b>这类硬不变量在任意图上很难保证。真出现按金额/风险分流的条件分支需求时再评估。
+        </div>
+      </div>
+    </div>
+  </div>
+</div>

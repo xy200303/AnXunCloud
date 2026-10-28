@@ -1,0 +1,92 @@
+<div style="position:relative;min-height:700px">
+  <div class="qcard" style="padding:0;opacity:.3">
+    <div style="display:flex;align-items:center;gap:10px;padding:12px 16px;flex-wrap:wrap">
+      <span style="font-size:13px;color:#606266">小区</span><span class="einput ph" style="min-width:140px">全部小区 ▾</span>
+      <span style="font-size:13px;color:#606266">期间</span><span class="einput ph" style="min-width:120px">2026-09</span>
+      <span style="font-size:13px;color:#606266">报告类型</span><span class="einput ph" style="min-width:150px">全部类型 ▾</span>
+      <span class="einput ph">☐ 只看待我签</span>
+      <span class="ebtn">查询</span>
+    </div>
+    <div style="display:flex;align-items:center;gap:10px;padding:0 16px 12px"><span class="ebtn">＋ 生成报告</span></div>
+    <table class="etable">
+      <tr><th>报告标题</th><th>小区</th><th>期间</th><th>状态</th><th>审核链</th><th>操作</th></tr>
+      <tr><td style="color:#303133">2026年9月巡检月报</td><td>戎安华府</td><td>2026-09</td><td><span class="etag etag-blue">待审核</span></td><td style="font-size:12px">品质初审 → 月报审批</td><td><span class="elink">详情</span></td></tr>
+      <tr class="stripe"><td style="color:#303133">2026年9月巡检月报</td><td>锦绣华庭</td><td>2026-09</td><td><span class="etag etag-green">已通过</span></td><td style="font-size:12px">品质初审 → 月报审批</td><td><span class="elink">详情</span></td></tr>
+    </table>
+  </div>
+
+  <div style="position:fixed;inset:0;background:rgba(0,0,0,.35);z-index:60"></div>
+  <div style="position:fixed;left:50%;top:60px;transform:translateX(-50%);width:560px;background:#fff;border-radius:4px;box-shadow:0 12px 32px rgba(0,0,0,.18);z-index:70">
+    <div style="display:flex;align-items:center;justify-content:space-between;padding:14px 18px;border-bottom:1px solid #ebeef5">
+      <b style="font-size:15px">生成报告</b><span style="color:#909399">×</span>
+    </div>
+
+    <div style="padding:16px 18px 4px">
+      <div style="display:flex;align-items:center;gap:8px;padding:9px 12px;background:#f7f9ff;border:1px solid #d9e1ff;border-radius:4px;font-size:12px;color:#606266;line-height:1.7;margin-bottom:16px">
+        <span style="color:#2b5aed">ⓘ</span>
+        <span>同一小区同一期间已存在报告时将<b style="color:#303133">重新统计并重置签字流程</b>；已通过的不可重算，需作废后重出。</span>
+      </div>
+
+      <div style="display:flex;align-items:flex-start;gap:12px;margin-bottom:14px">
+        <span style="width:92px;flex:none;text-align:right;font-size:13px;color:#606266;padding-top:6px"><span style="color:#f56c6c">*</span> 小区</span>
+        <div style="flex:1"><span class="einput" style="width:100%;box-sizing:border-box">金源世纪城 ▾</span></div>
+      </div>
+      <div style="display:flex;align-items:flex-start;gap:12px;margin-bottom:14px">
+        <span style="width:92px;flex:none;text-align:right;font-size:13px;color:#606266;padding-top:6px"><span style="color:#f56c6c">*</span> 期间</span>
+        <div style="flex:1"><span class="einput" style="width:100%;box-sizing:border-box">2026-09 ▾</span></div>
+      </div>
+      <div style="display:flex;align-items:flex-start;gap:12px;margin-bottom:14px">
+        <span style="width:92px;flex:none;text-align:right;font-size:13px;color:#606266;padding-top:6px">报告类型</span>
+        <div style="flex:1">
+          <span class="einput" style="width:100%;box-sizing:border-box">综合月报 ▾</span>
+          <div style="font-size:11px;color:#909399;margin-top:4px">专项类型按 <code>patrolTypeGroups</code> 分组；选专项时提示其数据口径与综合月报不同</div>
+        </div>
+      </div>
+
+      <div style="display:flex;align-items:flex-start;gap:12px;margin-bottom:14px">
+        <span style="width:92px;flex:none;text-align:right;font-size:13px;color:#606266;padding-top:6px">明细范围</span>
+        <div style="flex:1">
+          <div style="display:flex;gap:8px;flex-wrap:wrap">
+            <span class="einput" style="background:#ecf1ff;border-color:#b3c6ff;color:#2b5aed">全部点位</span>
+            <span class="einput ph">仅异常点位</span>
+            <span class="einput ph" style="border-style:dashed">正常代表样本 <span class="etag etag-blue" style="margin-left:2px">本期新增</span></span>
+          </div>
+          <div style="font-size:11px;color:#909399;margin-top:4px;line-height:1.6">点位量大时选「仅异常点位」可大幅压缩页数（汇总统计不受影响）。<span style="color:#2b5aed">第三档为本期新增（02 §6）：抽正常点位的代表样本入册，兼顾页数与举证完整性。</span></div>
+        </div>
+      </div>
+
+      <div style="height:1px;background:#ebeef5;margin:4px 0 14px"></div>
+
+      <div style="display:flex;align-items:flex-start;gap:12px;margin-bottom:14px">
+        <span style="width:92px;flex:none;text-align:right;font-size:13px;color:#606266;padding-top:6px">品质初审</span>
+        <div style="flex:1">
+          <span class="einput" style="width:100%;box-sizing:border-box;background:#ecf1ff;border-color:#b3c6ff;color:#2b5aed">李敏 ×　周强 ×</span>
+          <div style="font-size:11px;color:#909399;margin-top:4px">任一签署</div>
+        </div>
+      </div>
+      <div style="display:flex;align-items:flex-start;gap:12px;margin-bottom:14px">
+        <span style="width:92px;flex:none;text-align:right;font-size:13px;color:#606266;padding-top:6px">月报审批</span>
+        <div style="flex:1">
+          <span class="einput" style="width:100%;box-sizing:border-box;background:#ecf1ff;border-color:#b3c6ff;color:#2b5aed">严勇 ×</span>
+          <div style="font-size:11px;color:#909399;margin-top:4px">任一签署</div>
+        </div>
+      </div>
+      <div style="display:flex;align-items:flex-start;gap:12px;margin-bottom:10px">
+        <span style="width:92px;flex:none;text-align:right;font-size:13px;color:#f56c6c;padding-top:6px">移交方确认</span>
+        <div style="flex:1">
+          <span class="einput ph" style="width:100%;box-sizing:border-box;border-color:#fbc4c4;background:#fef0f0;color:#f56c6c">本小区该岗位无在职人员</span>
+          <div style="font-size:11px;color:#f56c6c;margin-top:4px;line-height:1.6"><b>不再是"清空候选人 = 自动跳过"</b>：该环节将挂起并告警，报告停在此步不会自动通过（14 §4.6）。<span class="elink">去编制名单加人</span></div>
+        </div>
+      </div>
+
+      <div style="font-size:12px;color:#909399;line-height:1.7;padding:10px 0 4px">
+        审核步骤与候选人由审核链配置返回，<b style="color:#606266">可配任意级数</b>；候选人按自然人去重，同一人的多个账号不得互签（14 §2.1）。
+      </div>
+    </div>
+
+    <div style="display:flex;align-items:center;gap:10px;padding:14px 18px;border-top:1px solid #ebeef5">
+      <span style="font-size:12px;color:#f56c6c">有 1 个环节无候选人，生成后将挂起</span>
+      <span style="margin-left:auto;display:flex;gap:10px"><span class="ebtn-w">取 消</span><span class="ebtn">生 成</span></span>
+    </div>
+  </div>
+</div>

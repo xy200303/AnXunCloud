@@ -1,0 +1,117 @@
+<div class="qcard" style="padding:0">
+  <div style="display:flex;gap:22px;padding:0 16px;border-bottom:1px solid #ebeef5;font-size:13px;color:#606266">
+    <span style="padding:12px 0">模型供应商</span>
+    <span style="padding:12px 0;border-bottom:2px solid #2b5aed;color:#2b5aed;font-weight:600">能力绑定</span>
+    <span style="padding:12px 0">助手与 Agent</span>
+    <span style="padding:12px 0">MCP 接入</span>
+    <span style="padding:12px 0">配额与用量</span>
+  </div>
+
+  <div style="display:flex;align-items:center;gap:8px;padding:12px 16px;background:#f7f9ff;border-bottom:1px solid #d9e1ff;font-size:12px;color:#606266;line-height:1.7">
+    <span style="color:#2b5aed">ⓘ</span>
+    <span>每个任务类型<b style="color:#303133">只选一个已注册的模型</b>，协议、地址、密钥都跟着供应商走，此处不重复配置。任务类型由代码注册（L0 能力目录），不能在后台新建。</span>
+  </div>
+
+  <div style="display:flex;align-items:center;gap:14px;padding:12px 16px;border-bottom:1px solid #ebeef5">
+    <span style="font-size:13px;color:#606266">AI 总开关</span>
+    <span class="sw on"></span>
+    <span style="font-size:12px;color:#909399">关闭后本租户所有任务类型停用；与检查项的 <code>ai_enabled</code> 是 AND 关系</span>
+    <span class="ebtn" style="margin-left:auto">保存</span>
+  </div>
+
+  <table class="etable">
+    <tr>
+      <th>任务类型</th><th style="text-align:center">启用</th>
+      <th>绑定模型</th><th style="text-align:right">超时</th><th style="text-align:right">重试</th>
+      <th>近 7 日成功率<div style="font-weight:400;color:#c0c4cc;font-size:11px">P95 耗时</div></th>
+      <th>来源</th><th>操作</th>
+    </tr>
+    <tr>
+      <td><div style="color:#303133;font-weight:600">巡检照片识别</div><div style="font-size:11px;color:#909399">image_inspection · 需视觉</div></td>
+      <td style="text-align:center"><span class="sw on"></span></td>
+      <td><span class="einput" style="min-width:210px;background:#ecf1ff;border-color:#b3c6ff;color:#2b5aed">百炼 / 通义千问 VL Max ▾</span></td>
+      <td style="text-align:right">180s</td><td style="text-align:right">3</td>
+      <td><span style="color:#67c23a;font-weight:600">98.2%</span><div style="font-size:11px;color:#909399">12.4s</div></td>
+      <td><span class="etag etag-blue">租户覆盖</span></td>
+      <td><span class="elink">高级</span><span class="elink">测试</span></td>
+    </tr>
+    <tr class="stripe">
+      <td><div style="color:#303133;font-weight:600">表计读数</div><div style="font-size:11px;color:#909399">meter_reading · 需视觉</div></td>
+      <td style="text-align:center"><span class="sw on"></span></td>
+      <td><span class="einput" style="min-width:210px">百炼 / 通义千问 VL Plus ▾</span></td>
+      <td style="text-align:right">120s</td><td style="text-align:right">3</td>
+      <td><span style="color:#67c23a;font-weight:600">96.5%</span><div style="font-size:11px;color:#909399">9.1s</div></td>
+      <td><span class="etag etag-gray">继承平台默认</span></td>
+      <td><span class="elink">高级</span><span class="elink">测试</span></td>
+    </tr>
+    <tr>
+      <td><div style="color:#303133;font-weight:600">标签日期识别</div><div style="font-size:11px;color:#909399">label_date_ocr · 需视觉</div></td>
+      <td style="text-align:center"><span class="sw on"></span></td>
+      <td><span class="einput" style="min-width:210px">百炼 / 通义千问 VL Plus ▾</span></td>
+      <td style="text-align:right">90s</td><td style="text-align:right">2</td>
+      <td><span style="color:#e6a23c;font-weight:600">89.7%</span><div style="font-size:11px;color:#909399">7.8s</div></td>
+      <td><span class="etag etag-gray">继承平台默认</span></td>
+      <td><span class="elink">高级</span><span class="elink">测试</span></td>
+    </tr>
+    <tr class="stripe">
+      <td><div style="color:#303133;font-weight:600">资料扫描提取</div><div style="font-size:11px;color:#909399">doc_scan_extract · 需视觉</div></td>
+      <td style="text-align:center"><span class="sw"></span></td>
+      <td><span class="einput ph" style="min-width:210px">未绑定 ▾</span></td>
+      <td style="text-align:right;color:#a8abb2">—</td><td style="text-align:right;color:#a8abb2">—</td>
+      <td style="color:#a8abb2">—</td>
+      <td><span class="etag etag-gray">未启用</span></td>
+      <td><span class="elink">高级</span></td>
+    </tr>
+    <tr>
+      <td><div style="color:#303133;font-weight:600">卷宗自动归类</div><div style="font-size:11px;color:#909399">doc_classify · 文本即可</div></td>
+      <td style="text-align:center"><span class="sw"></span></td>
+      <td><span class="einput ph" style="min-width:210px">未绑定 ▾</span></td>
+      <td style="text-align:right;color:#a8abb2">—</td><td style="text-align:right;color:#a8abb2">—</td>
+      <td style="color:#a8abb2">—</td>
+      <td><span class="etag etag-gray">未启用</span></td>
+      <td><span class="elink">高级</span></td>
+    </tr>
+  </table>
+
+  <div style="padding:10px 16px;font-size:12px;color:#909399;line-height:1.8">
+    <b style="color:#606266">下拉只列能力匹配的模型</b>：标「需视觉」的任务类型，候选里只有带<b style="color:#606266">视觉</b>能力的模型；选不到就先去「模型供应商」注册。<br>
+    「高级」配该任务的超时、重试、并发与自定义判定规则（留空用内置，填写后整体替换但 <code>expected_schema</code> 不变）。<br>
+    <b style="color:#606266">逐项的判定维度 <code>ai_prompt_kind</code>（11 种通用维度）在检查项模板 L1 配</b>，不在本页；停用某任务类型不影响已入队任务。
+  </div>
+</div>
+
+<div class="qcard" style="padding:0">
+  <div style="display:flex;align-items:center;gap:10px;padding:12px 16px;border-bottom:1px solid #ebeef5">
+    <b style="font-size:14px">其他 AI 消费方（同样引用上面的模型，不重复配置）</b>
+  </div>
+  <table class="etable">
+    <tr><th>消费方</th><th>绑定模型</th><th>要求能力</th><th>配置位置</th></tr>
+    <tr>
+      <td style="color:#303133">助手 Agent（App / PC 对话）</td>
+      <td><span class="einput" style="min-width:200px">百炼 / 通义千问 Max ▾</span></td>
+      <td><span class="etag etag-blue">工具调用</span></td>
+      <td><span class="elink">助手与 Agent Tab</span></td>
+    </tr>
+    <tr class="stripe">
+      <td style="color:#303133">agent 预审节点（审批链）</td>
+      <td><span class="einput" style="min-width:200px">百炼 / 通义千问 Max ▾</span></td>
+      <td><span class="etag etag-blue">工具调用</span></td>
+      <td><span class="elink">助手与 Agent Tab</span></td>
+    </tr>
+    <tr>
+      <td style="color:#303133">Skills（预置工作流）</td>
+      <td style="color:#909399">跟随助手 Agent</td>
+      <td><span class="etag etag-blue">工具调用</span></td>
+      <td><span class="elink">助手与 Agent Tab</span></td>
+    </tr>
+    <tr class="stripe">
+      <td style="color:#303133">外部 MCP 客户端</td>
+      <td style="color:#909399">用调用方自己的模型</td>
+      <td style="color:#a8abb2">—</td>
+      <td><span class="elink">MCP 接入 Tab</span></td>
+    </tr>
+  </table>
+  <div style="padding:10px 16px;font-size:12px;color:#909399;line-height:1.8">
+    MCP 是把本系统的能力暴露给外部 AI 客户端，模型在对方那边，本系统只管 token 范围与审计（12 §3）。
+  </div>
+</div>

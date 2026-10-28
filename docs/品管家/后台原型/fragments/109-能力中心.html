@@ -1,0 +1,99 @@
+<div class="qcard" style="padding:0">
+  <div style="display:flex;gap:22px;padding:0 16px;border-bottom:1px solid #ebeef5;font-size:13px;color:#606266">
+    <span style="padding:12px 0;border-bottom:2px solid #2b5aed;color:#2b5aed;font-weight:600">工具注册表</span>
+    <span style="padding:12px 0">AI 任务类型</span>
+    <span style="padding:12px 0">协议适配器</span>
+    <span style="padding:12px 0">输出引擎</span>
+  </div>
+
+  <div style="display:flex;align-items:center;gap:8px;padding:12px 16px;background:#fdf6ec;border-bottom:1px solid #f5dab1;font-size:12px;color:#606266;line-height:1.7">
+    <span style="color:#e6a23c">⚠</span>
+    <span><b style="color:#303133">L0 能力目录由代码注册、本页只读</b>——没有「新增」按钮，也不该有。后台凭空加一条声明会造出<b style="color:#303133">"配置里有、代码里没有"的幽灵能力</b>：agent 会去选它、MCP 会列出它，调用时失败。启停与调参在「AI 配置 → 能力绑定」与「助手与 Agent」（L1）。</span>
+  </div>
+
+  <div style="display:flex;align-items:center;gap:10px;padding:12px 16px;flex-wrap:wrap">
+    <span style="font-size:13px;color:#606266">工具名</span>
+    <span class="einput ph" style="min-width:180px">如 workorder.dispatch</span>
+    <span style="font-size:13px;color:#606266">读写</span>
+    <span class="einput ph" style="min-width:110px">全部 ▾</span>
+    <span style="font-size:13px;color:#606266">被 Skill 引用</span>
+    <span class="einput ph" style="min-width:150px">全部 ▾</span>
+    <span class="ebtn">查询</span><span class="ebtn-w">重置</span>
+    <span style="margin-left:auto;font-size:12px;color:#909399">24 个工具 · 21 启用 · 1 deprecated</span>
+  </div>
+
+  <table class="etable">
+    <tr>
+      <th>工具</th><th>说明</th>
+      <th style="text-align:center">读写</th><th style="text-align:center">形态</th>
+      <th>入参 Schema</th><th>所需权限点</th>
+      <th style="text-align:center">版本</th><th style="text-align:center">被 Skill 引用</th>
+    </tr>
+    <tr>
+      <td style="font-family:Consolas,monospace;font-size:12px;color:#303133">inspection.get_stats</td>
+      <td>按小区/期间取巡检统计</td>
+      <td style="text-align:center"><span class="etag etag-gray">只读</span></td>
+      <td style="text-align:center"><span class="etag etag-gray">sync</span></td>
+      <td><span class="elink">查看</span></td>
+      <td style="font-size:11px;font-family:Consolas,monospace">inspection:record:list</td>
+      <td style="text-align:center">v1</td>
+      <td style="text-align:center">2</td>
+    </tr>
+    <tr class="stripe">
+      <td style="font-family:Consolas,monospace;font-size:12px;color:#303133">equipment.query_due</td>
+      <td>查到期/临期设备</td>
+      <td style="text-align:center"><span class="etag etag-gray">只读</span></td>
+      <td style="text-align:center"><span class="etag etag-gray">sync</span></td>
+      <td><span class="elink">查看</span></td>
+      <td style="font-size:11px;font-family:Consolas,monospace">equipment:list</td>
+      <td style="text-align:center">v1</td>
+      <td style="text-align:center">1</td>
+    </tr>
+    <tr>
+      <td style="font-family:Consolas,monospace;font-size:12px;color:#303133">ai.inspect_image</td>
+      <td>照片识别（返回 job 句柄）</td>
+      <td style="text-align:center"><span class="etag etag-gray">只读</span></td>
+      <td style="text-align:center"><span class="etag etag-blue">async_job</span></td>
+      <td><span class="elink">查看</span></td>
+      <td style="font-size:11px;color:#909399">同业务主流程口径</td>
+      <td style="text-align:center">v1</td>
+      <td style="text-align:center">1</td>
+    </tr>
+    <tr class="stripe">
+      <td style="font-family:Consolas,monospace;font-size:12px;color:#303133">workorder.create_workorder</td>
+      <td>建工单（需确认条）</td>
+      <td style="text-align:center"><span class="etag etag-orange">写</span></td>
+      <td style="text-align:center"><span class="etag etag-gray">sync</span></td>
+      <td><span class="elink">查看</span></td>
+      <td style="font-size:11px;font-family:Consolas,monospace">workorder:create</td>
+      <td style="text-align:center">v1</td>
+      <td style="text-align:center">1</td>
+    </tr>
+    <tr>
+      <td style="font-family:Consolas,monospace;font-size:12px;color:#303133">report.generate</td>
+      <td>生成月报（返回 job 句柄）</td>
+      <td style="text-align:center"><span class="etag etag-orange">写</span></td>
+      <td style="text-align:center"><span class="etag etag-blue">async_job</span></td>
+      <td><span class="elink">查看</span></td>
+      <td style="font-size:11px;font-family:Consolas,monospace">report:generate</td>
+      <td style="text-align:center">v1</td>
+      <td style="text-align:center">1</td>
+    </tr>
+    <tr class="stripe">
+      <td style="font-family:Consolas,monospace;font-size:12px;color:#909399;text-decoration:line-through">report.export_pdf_legacy</td>
+      <td style="color:#909399">旧导出，改用 report.generate</td>
+      <td style="text-align:center"><span class="etag etag-orange">写</span></td>
+      <td style="text-align:center"><span class="etag etag-gray">sync</span></td>
+      <td><span class="elink">查看</span></td>
+      <td style="font-size:11px;font-family:Consolas,monospace">report:download</td>
+      <td style="text-align:center"><span class="etag etag-gray">deprecated</span></td>
+      <td style="text-align:center;color:#909399">0</td>
+    </tr>
+  </table>
+
+  <div style="padding:10px 16px;font-size:12px;color:#909399;line-height:1.8">
+    内部 agent 与外部 MCP <b style="color:#606266">共用这一张注册表</b>，只是传输与认证不同——不存在"内部一套接口、外部另一套"。<br>
+    <b style="color:#606266">工具只加不删</b>，废弃标 deprecated 并保留调用路径；MCP <code>tools/list</code> 直接映射本表，只读工具对写操作不可见。<br>
+    L1（启停/限流/绑定模型）在「AI 配置」，L2（Provider 账号、MCP token、签章资产）<b style="color:#606266">只显掩码、不回显明文</b>、撤销即时生效。
+  </div>
+</div>

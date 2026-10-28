@@ -1,0 +1,19 @@
+<div style="position:relative;min-height:620px">
+  <div class="qcard" style="opacity:.45">
+    <div style="display:flex;justify-content:space-between;align-items:center"><b>检查项模板</b><span class="ebtn">＋ 新建检查项模板</span></div>
+    <table class="etable" style="margin-top:12px"><tr><th>模板名称</th><th>点位类型</th><th>用途</th><th>检查项数</th><th>状态</th></tr><tr><td>消火栓箱巡检模板</td><td>消火栓</td><td>日常巡检</td><td>7 项</td><td>启用</td></tr><tr class="stripe"><td>灭火器巡检模板</td><td>灭火器</td><td>日常巡检</td><td>5 项</td><td>启用</td></tr></table>
+  </div>
+  <div style="position:fixed;inset:0;background:rgba(0,0,0,.35);display:flex;align-items:center;justify-content:center;z-index:50">
+    <div style="width:560px;background:#fff;border-radius:8px;box-shadow:0 12px 32px rgba(0,0,0,.18);overflow:hidden">
+      <div style="height:52px;display:flex;align-items:center;justify-content:space-between;padding:0 18px;border-bottom:1px solid #ebeef5"><b>新建检查项模板</b><span style="color:#909399">×</span></div>
+      <div style="padding:18px">
+        <div class="flabel">模板名称（必填）</div><div class="einput ph" style="width:100%">请输入名称</div>
+        <div class="flabel">点位类型 point_type（必填，字典选择）</div><div class="einput ph" style="width:100%">选择检查点/场所类型</div>
+        <div class="flabel">用途 purpose（必填）</div><span class="etag etag-blue">patrol 巡检</span> <span class="etag etag-gray">spot 专项抽查</span> <span class="etag etag-gray">verify 承接查验</span>
+        <div class="flabel">检查项</div>
+        <div style="padding:22px;text-align:center;background:#f5f7fa;color:#606266;border-radius:4px">保存草稿后逐条添加，或从 Excel 批量录入<br>也可在列表中复制一套已有模板作为起点</div>
+      </div>
+      <div style="display:flex;justify-content:flex-end;gap:10px;padding:14px 18px;border-top:1px solid #ebeef5"><span class="ebtn-w">取消</span><span class="ebtn-w" style="color:#909399">填写必填项后保存草稿</span></div>
+    </div>
+  </div>
+</div>

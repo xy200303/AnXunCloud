@@ -1,0 +1,30 @@
+<div style="position:relative;min-height:620px">
+  <div class="qcard" style="opacity:.45">
+    <div style="display:flex;align-items:center;gap:10px;padding:12px 16px">
+      <span class="einput ph" style="min-width:180px">批次名称/小区</span>
+      <span class="einput ph" style="min-width:130px">台账类型 ▾</span>
+      <span class="einput ph" style="min-width:110px">状态 ▾</span>
+      <span class="ebtn">查询</span>
+      <span class="ebtn" style="margin-left:auto">＋ 新建批次</span>
+    </div>
+    <table class="etable">
+      <tr><th>批次名称</th><th>小区</th><th>台账类型</th><th>查验进度</th><th>状态</th><th>负责人</th><th>操作</th></tr>
+      <tr><td style="color:#303133;font-weight:600">戎安华府·承接查验</td><td>戎安华府</td><td>机构更迭</td><td>23 / 58 项</td><td><span class="etag etag-blue">进行中</span></td><td>严勇</td><td><span class="elink">详情</span><span class="elink">分工</span></td></tr>
+      <tr class="stripe"><td style="color:#303133;font-weight:600">锦绣花园二期·承接查验</td><td>锦绣花园</td><td>机构更迭</td><td>0 / 64 项</td><td><span class="etag etag-orange">待交接</span></td><td>王经理</td><td><span class="elink">详情</span><span class="elink">分工</span></td></tr>
+      <tr><td style="color:#303133;font-weight:600">滨河壹号·承接查验</td><td>滨河壹号</td><td>机构更迭 + 分户验收</td><td>58 / 58 项</td><td><span class="etag etag-green">已完成</span></td><td>严勇</td><td><span class="elink">详情</span><span class="elink">归档</span></td></tr>
+    </table>
+    <div style="padding:10px 16px;font-size:12px;color:#909399">项目经理只为自己管辖小区建批次；租户管理员可看本租户全部小区并建批次。</div>
+  </div>
+  <div style="position:fixed;inset:0;background:rgba(0,0,0,.35);display:flex;align-items:center;justify-content:center;z-index:50">
+    <div style="width:600px;background:#fff;border-radius:8px;box-shadow:0 12px 32px rgba(0,0,0,.18);overflow:hidden">
+      <div style="height:52px;display:flex;align-items:center;justify-content:space-between;padding:0 18px;border-bottom:1px solid #ebeef5"><b>新建查验批次</b><span style="color:#909399">×</span></div>
+      <div style="padding:18px">
+        <div class="flabel">批次名称（必填）</div><div class="einput ph" style="width:100%">如：戎安华府·承接查验</div>
+        <div style="display:flex;gap:10px"><div style="flex:1"><div class="flabel">小区</div><div class="einput ph" style="width:100%">选择管辖小区 ▾</div></div><div style="flex:1"><div class="flabel">台账类型</div><div class="einput ph" style="width:100%">机构更迭 / 分户验收 ▾</div></div></div>
+        <div class="flabel">查验对象</div><div class="einput ph" style="width:100%;min-height:56px">资料集合、楼栋/单元/房屋、区域、设备（多选）</div>
+        <div style="font-size:12px;color:#909399;line-height:1.7;margin-top:10px">创建后自动带出对应类别结构（机构更迭六类别 / 分户六类别）；新建物业承接查验母版待甲方提供后开放。创建编辑类操作一律弹窗，不跳页。</div>
+      </div>
+      <div style="display:flex;justify-content:flex-end;gap:10px;padding:14px 18px;border-top:1px solid #ebeef5"><span class="ebtn-w">取消</span><span class="ebtn">创建并进入分工</span></div>
+    </div>
+  </div>
+</div>

@@ -1,0 +1,87 @@
+<div class="qcard" style="padding:0">
+  <div style="display:flex;gap:22px;padding:0 16px;border-bottom:1px solid #ebeef5;font-size:13px;color:#606266">
+    <span style="padding:12px 0;border-bottom:2px solid #2b5aed;color:#2b5aed;font-weight:600">操作日志</span>
+    <span style="padding:12px 0">登录日志</span>
+    <span style="padding:12px 0;color:#2b5aed">高危审计 <span class="etag etag-blue" style="margin-left:2px">本期新增</span></span>
+  </div>
+
+  <div style="display:flex;align-items:center;gap:10px;padding:12px 16px;flex-wrap:wrap;border-bottom:1px solid #ebeef5">
+    <span style="font-size:13px;color:#606266">操作人</span>
+    <span class="einput ph" style="min-width:130px">操作人账号</span>
+    <span style="font-size:13px;color:#606266">模块</span>
+    <span class="einput ph" style="min-width:120px">全部模块 ▾</span>
+    <span style="font-size:13px;color:#606266">动作</span>
+    <span class="einput ph" style="min-width:120px">全部动作 ▾</span>
+    <span style="font-size:13px;color:#606266">状态</span>
+    <span class="einput ph" style="min-width:100px">全部 ▾</span>
+    <span style="font-size:13px;color:#606266">时间</span>
+    <span class="einput ph" style="min-width:230px">开始时间 至 结束时间</span>
+    <span class="ebtn">查询</span><span class="ebtn-w">重置</span>
+  </div>
+
+  <div style="display:flex;align-items:center;gap:10px;padding:12px 16px">
+    <span class="ebtn-w">导出</span>
+    <span class="einput" style="background:#ecf1ff;border-color:#b3c6ff;color:#2b5aed">☐ 只看高危操作</span>
+    <span style="margin-left:auto;display:inline-flex;align-items:center;justify-content:center;width:30px;height:30px;border:1px solid #dcdfe6;border-radius:50%;color:#606266;font-size:13px">⟳</span>
+  </div>
+
+  <table class="etable">
+    <tr>
+      <th>时间</th><th>操作人</th><th>模块</th><th>动作</th>
+      <th style="text-align:center">请求方式</th><th>路径</th><th>IP</th>
+      <th style="text-align:right">耗时</th><th style="text-align:center">状态</th>
+      <th style="color:#2b5aed">对象 / 范围</th><th>操作</th>
+    </tr>
+    <tr>
+      <td style="font-size:12px">10-24 09:12:40</td><td>wangjl</td>
+      <td>系统管理</td><td>修改</td>
+      <td style="text-align:center">PUT</td>
+      <td style="font-family:Consolas,monospace;font-size:11px">/api/system/roles/3/perms</td>
+      <td style="font-size:12px">10.0.3.41</td>
+      <td style="text-align:right">86ms</td>
+      <td style="text-align:center"><span class="etag etag-green">成功</span></td>
+      <td style="font-size:12px"><span class="etag etag-red">高危</span> 岗位·品质主管</td>
+      <td><span class="elink">详情</span></td>
+    </tr>
+    <tr class="stripe">
+      <td style="font-size:12px">10-24 09:05:11</td><td>limin</td>
+      <td>统计分析</td><td>导出</td>
+      <td style="text-align:center">GET</td>
+      <td style="font-family:Consolas,monospace;font-size:11px">/api/stats/inspection/export</td>
+      <td style="font-size:12px">10.0.3.77</td>
+      <td style="text-align:right">1240ms</td>
+      <td style="text-align:center"><span class="etag etag-green">成功</span></td>
+      <td style="font-size:12px;color:#909399">戎安华府 / 2026-09</td>
+      <td><span class="elink">详情</span></td>
+    </tr>
+    <tr>
+      <td style="font-size:12px">10-23 18:40:02</td><td>yanyong</td>
+      <td>小区管理</td><td>删除</td>
+      <td style="text-align:center">DELETE</td>
+      <td style="font-family:Consolas,monospace;font-size:11px">/api/community/staff/88</td>
+      <td style="font-size:12px">10.0.3.12</td>
+      <td style="text-align:right">54ms</td>
+      <td style="text-align:center"><span class="etag etag-red">失败</span></td>
+      <td style="font-size:12px"><span class="etag etag-red">高危</span> 编制·老王</td>
+      <td><span class="elink">详情</span></td>
+    </tr>
+    <tr class="stripe">
+      <td style="font-size:12px">10-23 17:22:19</td><td>wangjl</td>
+      <td>小程序</td><td>消息推送</td>
+      <td style="text-align:center">POST</td>
+      <td style="font-family:Consolas,monospace;font-size:11px">/api/mp/push/send</td>
+      <td style="font-size:12px">10.0.3.41</td>
+      <td style="text-align:right">310ms</td>
+      <td style="text-align:center"><span class="etag etag-green">成功</span></td>
+      <td style="font-size:12px;color:#909399">全员公告</td>
+      <td><span class="elink">详情</span></td>
+    </tr>
+  </table>
+  <div class="pager"><span>共 1,284 条</span><span class="pg">20/页 ▾</span><span class="pg">‹</span><span class="pg on">1</span><span class="pg">2</span><span class="pg">›</span></div>
+
+  <div style="padding:10px 16px;font-size:12px;color:#909399;line-height:1.8">
+    只读表格，无新增/编辑/删除入口；空态「该条件下暂无操作日志」。模块与动作为固定枚举（系统管理/小区管理/巡检管理/统计分析/小程序/消息推送；新增·修改·删除·导出·导入·重置密码·修改密码·生成任务·派单·验收·消息推送）。登录类动作已由后端从操作日志剔除，归「登录日志」Tab。<br>
+    「详情」为 560px 弹窗：操作人/时间/模块/动作/请求/IP 六项 + 请求参数 JSON。<br>
+    <span style="color:#2b5aed">本期新增（09 §4.4）</span>：现有 <code>sys_operation_log</code> 只有 who/when/where，缺 <b style="color:#606266">tenant / scope / target / correlation_id / 前后摘要</b> 五项，无法回答"改了什么、改前是什么"。补齐后：列表加「对象/范围」列与「只看高危」筛选，详情弹窗加<b style="color:#606266">变更前后摘要</b>与关联 ID。高危清单固定为——模板与默认库发布、模板包导入、报告冻结/签字/归档/作废、文件证据下载、权限变更、租户操作、死信重放、迁移清理。<code>audit_log</code> 待收口，不是从无日志。
+  </div>
+</div>

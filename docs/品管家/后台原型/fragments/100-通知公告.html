@@ -1,0 +1,54 @@
+<div class="qcard" style="padding:0">
+  <div style="display:flex;align-items:center;gap:10px;padding:12px 16px;border-bottom:1px solid #ebeef5">
+    <span style="font-size:13px;color:#606266">标题</span>
+    <span class="einput ph" style="min-width:170px">公告标题</span>
+    <span style="font-size:13px;color:#606266">状态</span>
+    <span class="einput ph" style="min-width:120px">全部状态 ▾</span>
+    <span class="ebtn">查询</span><span class="ebtn-w">重置</span>
+  </div>
+
+  <div style="display:flex;align-items:center;gap:10px;padding:12px 16px">
+    <span class="ebtn">＋ 发布公告</span>
+    <span style="margin-left:auto;display:inline-flex;align-items:center;justify-content:center;width:30px;height:30px;border:1px solid #dcdfe6;border-radius:50%;color:#606266;font-size:13px">⟳</span>
+  </div>
+
+  <table class="etable">
+    <tr>
+      <th>标题</th><th>内容摘要</th>
+      <th style="color:#2b5aed">推送范围</th>
+      <th>发布人</th><th>发布时间</th>
+      <th style="text-align:center">状态</th><th style="text-align:center">操作</th>
+    </tr>
+    <tr>
+      <td style="color:#303133">10 月消防设施专项检查安排</td>
+      <td style="font-size:12px;color:#606266">各项目于 10 月 28 日前完成消火栓、灭火器专项排查，异常项当日提报…</td>
+      <td style="font-size:12px"><span class="etag etag-gray">全员</span></td>
+      <td>王经理</td><td style="font-size:12px">2026-10-21 09:00</td>
+      <td style="text-align:center"><span class="etag etag-green">已发布</span></td>
+      <td style="text-align:center"><span class="elink">预览</span><span class="elink">编辑</span><span class="elink">更多 ▾</span></td>
+    </tr>
+    <tr class="stripe">
+      <td style="color:#303133">关于国庆期间值班安排的通知</td>
+      <td style="font-size:12px;color:#606266">9 月 30 日至 10 月 7 日消控值班按双岗执行，交接班须留影像记录…</td>
+      <td style="font-size:12px"><span class="etag etag-gray">全员</span></td>
+      <td>王经理</td><td style="font-size:12px">2026-09-28 16:30</td>
+      <td style="text-align:center"><span class="etag etag-orange">已下线</span></td>
+      <td style="text-align:center"><span class="elink">预览</span><span class="elink">编辑</span><span class="elink">更多 ▾</span></td>
+    </tr>
+    <tr>
+      <td style="color:#303133">新版巡检 App 升级说明（草稿）</td>
+      <td style="font-size:12px;color:#606266">表单式打卡上线，原逐项向导下线；升级后请重新登录…</td>
+      <td style="font-size:12px;color:#a8abb2">--</td>
+      <td>系统管理员</td><td style="color:#a8abb2">--</td>
+      <td style="text-align:center"><span class="etag etag-gray">草稿</span></td>
+      <td style="text-align:center"><span class="elink">预览</span><span class="elink">编辑</span><span class="elink">更多 ▾</span></td>
+    </tr>
+  </table>
+  <div class="pager"><span>共 3 条</span><span class="pg">20/页 ▾</span><span class="pg">‹</span><span class="pg on">1</span><span class="pg">›</span></div>
+
+  <div style="padding:10px 16px;font-size:12px;color:#909399;line-height:1.8">
+    三态：草稿 / 已发布 / 已下线。「更多」下拉按状态与权限显隐：未发布给「发布」、已发布给「下线」、有 <code>system:notice:delete</code> 给「删除」（红字）。空态「暂无公告」内嵌发布按钮。<br>
+    发布弹窗 560px：标题（≤64 字，带字数）、正文纯文本（http(s) 链接 App 端自动识别为可点）、附件（图片与 pdf/word/excel/ppt/txt/zip）；底部两个动作——<b style="color:#606266">存草稿</b> 与 <b style="color:#606266">发布并推送</b>。「预览」弹窗按小程序消息页样式渲染。<br>
+    <span style="color:#2b5aed">本期新增「推送范围」列与发布时的范围选择</span>：现状<b style="color:#606266">发布即推送全员</b>，无法按小区或岗位定向——管多个小区的租户给单个项目发通知时会打扰全部人员。范围选项须落在既有模型上（按<b style="color:#606266">小区</b>选 = 该小区有任职的人，按<b style="color:#606266">岗位</b>选 = 持该岗位者），不另立通讯组。<span style="color:#e6a23c">该缺口 13 未提及，属本次读代码新发现，需确认后再实现。</span>
+  </div>
+</div>

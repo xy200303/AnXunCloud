@@ -1,0 +1,21 @@
+<div class="qcard" style="padding:0">
+  <div style="display:flex;gap:24px;padding:0 16px;border-bottom:1px solid #ebeef5;font-size:14px">
+    <a href="79-AI配置-模型供应商.html" style="padding:12px 0">模型供应商</a><a href="79c-AI配置-能力绑定.html" style="padding:12px 0">能力绑定</a><a href="79d-AI配置-助手与Agent.html" style="padding:12px 0">助手与 Agent</a><span style="padding:12px 0;border-bottom:2px solid #2b5aed;color:#2b5aed;font-weight:600">用量</span><a href="79g-AI配置-配额.html" style="padding:12px 0">配额</a>
+  </div>
+  <div style="display:flex;gap:16px;padding:16px">
+    <div style="flex:1;border:1px solid #ebeef5;border-radius:6px;padding:16px"><div style="font-size:13px;color:#6b7385">本租户并发</div><div style="font-size:28px;font-weight:600;margin-top:8px">4 <span style="font-size:14px;color:#6b7385">/ 8</span></div></div>
+    <div style="flex:1;border:1px solid #ebeef5;border-radius:6px;padding:16px"><div style="font-size:13px;color:#6b7385">本月调用量</div><div style="font-size:28px;font-weight:600;margin-top:8px">12,480</div></div>
+    <div style="flex:1;border:1px solid #f5dab1;border-radius:6px;padding:16px;background:#fdf6ec"><div style="font-size:13px;color:#ed7b2f">队列等待 P95</div><div style="font-size:28px;font-weight:600;margin-top:8px;color:#ed7b2f">38s</div></div>
+    <div style="flex:1;border:1px solid #ebeef5;border-radius:6px;padding:16px"><div style="font-size:13px;color:#6b7385">死信 discarded</div><div style="font-size:28px;font-weight:600;margin-top:8px">3 <span class="elink" style="font-size:14px">查看</span></div></div>
+  </div>
+</div>
+<div class="qcard" style="padding:0">
+  <div style="display:flex;align-items:center;padding:16px;border-bottom:1px solid #ebeef5"><b style="font-size:16px">按任务类型用量</b><span style="font-size:13px;color:#6b7385;margin-left:12px">近 30 天</span><span class="ebtn-w" style="margin-left:auto">导出</span></div>
+  <table class="etable">
+    <tr><th>任务类型</th><th>绑定模型</th><th style="text-align:right">调用量</th><th style="text-align:right">成功率</th><th style="text-align:right">P95 耗时</th><th style="text-align:right">error 终态</th><th style="text-align:right">死信</th></tr>
+    <tr><td>巡检照片识别</td><td>百炼 / 通义千问 VL Max</td><td style="text-align:right">9,214</td><td style="text-align:right;color:#2ba471">98.2%</td><td style="text-align:right">12.4s</td><td style="text-align:right">166</td><td style="text-align:right">2</td></tr>
+    <tr class="stripe"><td>表计读数</td><td>百炼 / 通义千问 VL Plus</td><td style="text-align:right">2,180</td><td style="text-align:right;color:#2ba471">96.5%</td><td style="text-align:right">9.1s</td><td style="text-align:right">76</td><td style="text-align:right">0</td></tr>
+    <tr><td>标签日期识别</td><td>百炼 / 通义千问 VL Plus</td><td style="text-align:right">936</td><td style="text-align:right;color:#ed7b2f">89.7%</td><td style="text-align:right">7.8s</td><td style="text-align:right">96</td><td style="text-align:right">1</td></tr>
+    <tr class="stripe"><td>助手对话</td><td>百炼 / 通义千问 Max</td><td style="text-align:right">150</td><td style="text-align:right;color:#2ba471">99.3%</td><td style="text-align:right">3.2s</td><td style="text-align:right">1</td><td style="text-align:right">0</td></tr>
+  </table>
+</div>

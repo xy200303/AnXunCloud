@@ -1,0 +1,145 @@
+<div style="position:relative;min-height:700px">
+  <div class="qcard" style="padding:0;opacity:.3">
+    <table class="etable">
+      <tr><th>小区名称</th><th>负责人</th><th>楼栋数</th><th>点位数</th><th>状态</th><th>操作</th></tr>
+      <tr><td style="color:#303133">戎安华府</td><td>严勇</td><td style="text-align:right">2</td><td style="text-align:right">36</td><td><span class="etag etag-green">启用</span></td><td><span class="elink">编制</span><span class="elink">编辑</span><span class="elink" style="color:#f56c6c">删除</span></td></tr>
+      <tr class="stripe"><td style="color:#303133">锦绣华庭</td><td>王经理</td><td style="text-align:right">6</td><td style="text-align:right">3494</td><td><span class="etag etag-green">启用</span></td><td><span class="elink">编制</span><span class="elink">编辑</span><span class="elink" style="color:#f56c6c">删除</span></td></tr>
+    </table>
+  </div>
+
+  <div style="position:fixed;inset:0;background:rgba(0,0,0,.18);z-index:40"></div>
+  <div style="position:fixed;top:0;right:0;bottom:0;width:760px;background:#fff;box-shadow:-8px 0 24px rgba(0,0,0,.12);z-index:50;display:flex;flex-direction:column">
+
+    <div style="padding:14px 18px 0;border-bottom:1px solid #ebeef5">
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px">
+        <b style="font-size:15px">岗位编制 · 戎安华府</b>
+        <span class="etag etag-green">已启用</span>
+        <span style="margin-left:auto;color:#909399">×</span>
+      </div>
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px">
+        <span style="font-size:12px;color:#909399">开通完整度</span>
+        <span class="comp">
+          <span class="c ok"><span class="dot"></span>点位 36</span>
+          <span class="c ok"><span class="dot"></span>人员 3</span>
+          <span class="c miss"><span class="dot"></span>流程 断链 1</span>
+          <span class="c ok"><span class="dot"></span>模板 4</span>
+          <span class="c miss"><span class="dot"></span>签署未配</span>
+        </span>
+        <span class="etag etag-blue">本期新增</span>
+      </div>
+      <div style="display:flex;gap:20px;font-size:13px;color:#606266">
+        <span style="padding:12px 0;border-bottom:2px solid #2b5aed;color:#2b5aed;font-weight:600">编制名单</span>
+        <span style="padding:12px 0">打卡审批流程</span>
+        <span style="padding:12px 0">维保审核流程</span>
+        <span style="padding:12px 0">报告签字流程 <span class="etag etag-red" style="margin-left:2px">1</span></span>
+      </div>
+    </div>
+
+    <div style="padding:14px 18px;overflow:auto;display:flex;gap:16px">
+      <div style="flex:1;min-width:0">
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">
+          <span class="ebtn">＋ 新增成员</span>
+          <span style="font-size:12px;color:#909399">名单即授权：名单内的人可承担对应岗位职责</span>
+        </div>
+
+        <table class="etable">
+          <tr><th>姓名</th><th>手机号</th><th>岗位</th><th>责任楼栋</th><th>状态</th><th>操作</th></tr>
+          <tr>
+            <td style="color:#303133">严勇</td><td>13800000001</td>
+            <td><span class="etag etag-blue">项目经理</span></td>
+            <td style="color:#a8abb2">--</td>
+            <td><span class="etag etag-green">在职</span></td>
+            <td><span class="elink">编辑</span><span class="elink" style="color:#f56c6c">删除</span></td>
+          </tr>
+          <tr class="stripe">
+            <td style="color:#303133">小张</td><td>13800000002</td>
+            <td><span class="etag etag-blue">巡检员</span></td>
+            <td style="color:#a8abb2">--</td>
+            <td><span class="etag etag-green">在职</span></td>
+            <td><span class="elink">编辑</span><span class="elink" style="color:#f56c6c">删除</span></td>
+          </tr>
+          <tr>
+            <td style="color:#303133">老周</td><td>13800000005</td>
+            <td><span class="etag etag-blue">楼管员</span></td>
+            <td>1 栋、2 栋</td>
+            <td><span class="etag etag-green">在职</span></td>
+            <td><span class="elink">编辑</span><span class="elink" style="color:#f56c6c">删除</span></td>
+          </tr>
+        </table>
+        <div style="font-size:11px;color:#909399;margin-top:8px;line-height:1.7">
+          <b style="color:#606266">责任楼栋只对楼管员显示</b>，其他岗位为 <code>--</code>（它是分派筛选，不是权限边界，14 §1.7）。<br>
+          空态："该项目暂无编制成员"。
+        </div>
+      </div>
+
+      <div style="width:250px;flex:none">
+        <div class="res">
+          <div class="res-h">本小区审批环节候选人 <span class="etag etag-blue" style="font-weight:400">本期新增</span></div>
+          <div class="res-r"><span class="nm">打卡复核</span><span class="cnt">2 人</span></div>
+          <div class="res-r bad"><span class="nm">维保生效确认</span><span class="cnt">0 人</span><span class="elink">去配</span></div>
+          <div class="res-r"><span class="nm">月报审批</span><span class="cnt">1 人</span></div>
+          <div style="font-size:11px;color:#909399;padding-top:8px;line-height:1.7">
+            只读摘要，<b style="color:#606266">配置入口在各流程 Tab 的环节卡上</b>，不在此页改。
+          </div>
+        </div>
+
+        <div class="qcard" style="margin-top:12px;padding:12px 14px;box-shadow:none;background:#f7f9ff;border:1px solid #d9e1ff">
+          <div style="font-size:12px;color:#2b5aed;font-weight:600;margin-bottom:6px">「环节分工」Tab 已取消</div>
+          <div style="font-size:12px;color:#606266;line-height:1.8">
+            原 Tab 把<b>职责槽位</b>绑到岗位（含"岗位留空 = 本小区该环节跳过"）。14 将审批环节改为<b>直接绑岗位</b>、<code>duty_binding</code> 整表删除，该 Tab 失去配置对象；绑定改在各流程 Tab 的环节卡上完成，"留空跳过"语义改为<b style="color:#f56c6c">挂起 + 告警</b>。
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div style="display:flex;align-items:center;gap:10px;padding:14px 18px;border-top:1px solid #ebeef5">
+      <span style="font-size:12px;color:#909399">保存将影响 2 条未送审记录的审核人名单</span>
+      <span style="margin-left:auto;display:flex;gap:10px"><span class="ebtn-w">取消</span><span class="ebtn">保存</span></span>
+    </div>
+  </div>
+
+  <div style="position:fixed;inset:0;background:rgba(0,0,0,.35);z-index:60"></div>
+  <div style="position:fixed;left:50%;top:132px;transform:translateX(-50%);width:480px;background:#fff;border-radius:4px;box-shadow:0 12px 32px rgba(0,0,0,.18);z-index:70">
+    <div style="display:flex;align-items:center;justify-content:space-between;padding:14px 18px;border-bottom:1px solid #ebeef5">
+      <b style="font-size:15px">新增成员</b>
+      <span style="color:#909399">×</span>
+    </div>
+    <div style="padding:18px 18px 4px">
+      <div style="display:flex;align-items:flex-start;gap:12px;margin-bottom:14px">
+        <span style="width:78px;flex:none;text-align:right;font-size:13px;color:#606266;padding-top:6px">所属小区</span>
+        <div style="flex:1"><span class="einput" style="width:100%;color:#a8abb2;box-sizing:border-box">戎安华府</span></div>
+      </div>
+      <div style="display:flex;align-items:flex-start;gap:12px;margin-bottom:14px">
+        <span style="width:78px;flex:none;text-align:right;font-size:13px;color:#606266;padding-top:6px"><span style="color:#f56c6c">*</span> 成员</span>
+        <div style="flex:1">
+          <span class="einput ph" style="width:100%;box-sizing:border-box">搜索姓名 / 手机号 ▾</span>
+          <div style="font-size:11px;color:#909399;margin-top:4px;line-height:1.6">同人同项目仅一条编制；编辑时不可换绑其他人</div>
+        </div>
+      </div>
+      <div style="display:flex;align-items:flex-start;gap:12px;margin-bottom:14px">
+        <span style="width:78px;flex:none;text-align:right;font-size:13px;color:#606266;padding-top:6px"><span style="color:#f56c6c">*</span> 岗位</span>
+        <div style="flex:1">
+          <span class="einput ph" style="width:100%;box-sizing:border-box">请选择岗位 ▾</span>
+          <div style="font-size:11px;color:#909399;margin-top:4px;line-height:1.6">按业务线分组（安全 / 工程 / 综合）；<span style="color:#2b5aed">一人一岗 → 由多选改为单选</span></div>
+        </div>
+      </div>
+      <div style="display:flex;align-items:flex-start;gap:12px;margin-bottom:14px">
+        <span style="width:78px;flex:none;text-align:right;font-size:13px;color:#606266;padding-top:6px">责任楼栋</span>
+        <div style="flex:1">
+          <span class="einput ph" style="width:100%;box-sizing:border-box;color:#c0c4cc">仅楼管员可填</span>
+          <div style="font-size:11px;color:#909399;margin-top:4px;line-height:1.6">不选则为全部楼栋</div>
+        </div>
+      </div>
+      <div style="display:flex;align-items:flex-start;gap:12px;margin-bottom:14px">
+        <span style="width:78px;flex:none;text-align:right;font-size:13px;color:#606266;padding-top:6px">状态</span>
+        <div style="flex:1;display:flex;gap:18px;font-size:13px;color:#606266;padding-top:6px">
+          <span style="display:inline-flex;align-items:center;gap:5px"><span style="width:13px;height:13px;border-radius:50%;border:4px solid #2b5aed;background:#fff;display:inline-block"></span>在职</span>
+          <span style="display:inline-flex;align-items:center;gap:5px"><span style="width:13px;height:13px;border-radius:50%;border:1px solid #dcdfe6;background:#fff;display:inline-block"></span>停用</span>
+        </div>
+      </div>
+    </div>
+    <div style="display:flex;justify-content:flex-end;gap:10px;padding:14px 18px;border-top:1px solid #ebeef5">
+      <span class="ebtn-w">取 消</span><span class="ebtn">确 定</span>
+    </div>
+  </div>
+</div>

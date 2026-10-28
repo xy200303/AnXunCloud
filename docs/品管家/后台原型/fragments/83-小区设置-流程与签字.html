@@ -1,0 +1,108 @@
+<div style="position:relative;min-height:700px">
+  <div class="qcard" style="padding:0;opacity:.3">
+    <table class="etable">
+      <tr><th>小区名称</th><th>负责人</th><th>楼栋数</th><th>点位数</th><th>状态</th><th>操作</th></tr>
+      <tr><td style="color:#303133">戎安华府</td><td>严勇</td><td style="text-align:right">2</td><td style="text-align:right">36</td><td><span class="etag etag-green">启用</span></td><td><span class="elink">编制</span><span class="elink">编辑</span><span class="elink" style="color:#f56c6c">删除</span></td></tr>
+      <tr class="stripe"><td style="color:#303133">锦绣华庭</td><td>王经理</td><td style="text-align:right">6</td><td style="text-align:right">3494</td><td><span class="etag etag-green">启用</span></td><td><span class="elink">编制</span><span class="elink">编辑</span><span class="elink" style="color:#f56c6c">删除</span></td></tr>
+    </table>
+  </div>
+
+  <div style="position:fixed;inset:0;background:rgba(0,0,0,.18);z-index:40"></div>
+  <div style="position:fixed;top:0;right:0;bottom:0;width:760px;background:#fff;box-shadow:-8px 0 24px rgba(0,0,0,.12);z-index:50;display:flex;flex-direction:column">
+
+    <div style="padding:14px 18px 0;border-bottom:1px solid #ebeef5">
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px">
+        <b style="font-size:15px">岗位编制 · 戎安华府</b>
+        <span class="etag etag-green">已启用</span>
+        <span style="margin-left:auto;color:#909399">×</span>
+      </div>
+      <div style="display:flex;gap:20px;font-size:13px;color:#606266">
+        <span style="padding:12px 0">编制名单</span>
+        <span style="padding:12px 0;border-bottom:2px solid #2b5aed;color:#2b5aed;font-weight:600">打卡审批流程</span>
+        <span style="padding:12px 0">维保审核流程</span>
+        <span style="padding:12px 0">报告签字流程 <span class="etag etag-red" style="margin-left:2px">1</span></span>
+      </div>
+    </div>
+
+    <div style="padding:14px 18px;overflow:auto">
+
+      <div style="display:flex;align-items:center;gap:8px;padding:9px 12px;background:#f7f9ff;border:1px solid #d9e1ff;border-radius:4px;font-size:12px;color:#606266;margin-bottom:14px;line-height:1.7">
+        <span style="color:#2b5aed">ⓘ</span>
+        <span>本小区的审批链<b style="color:#303133">覆盖租户默认</b>；环节的增删与职责名在系统管理 → 审批流程统一维护，此处改绑定岗位与签署方式。</span>
+      </div>
+
+      <div class="nchain">
+        <span class="nend">开始</span>
+        <span class="nconn"></span><span class="nplus">＋</span><span class="nconn"></span>
+
+        <div class="ncard ai" style="width:620px">
+          <div class="nhead ai">
+            <span>◎</span><span class="t">AI 初判</span><span class="q">环节1 · AI 闸门</span>
+            <span class="ops"><span>↑</span><span>↓</span><span style="color:#f56c6c">✕</span></span>
+          </div>
+          <div class="lanes">
+            <div class="lane"><span class="lt">无异常</span><span class="lv">结束</span></div>
+            <div class="lane"><span class="lt">有异常</span><span class="lv">下一环节</span></div>
+            <div class="lane"><span class="lt">存疑 / 失败</span><span class="lv">下一环节</span></div>
+          </div>
+        </div>
+
+        <span class="nconn"></span><span class="nplus">＋</span><span class="nconn"></span>
+
+        <div class="ncard" style="width:620px">
+          <div class="nhead">
+            <span>◉</span><span class="t">打卡复核</span><span class="q">环节2 · 人工</span>
+            <span class="ops"><span>↑</span><span>↓</span><span style="color:#f56c6c">✕</span></span>
+          </div>
+          <div class="nbody">
+            <div style="display:flex;align-items:center;gap:8px">
+              <span class="einput" style="min-width:150px;background:#ecf1ff;border-color:#b3c6ff;color:#2b5aed">品质主管 ▾</span>
+              <span class="etag etag-gray">任一人</span>
+            </div>
+            <div class="vline">实际审核人：<b>李敏、周强</b></div>
+          </div>
+        </div>
+
+        <span class="nconn"></span><span class="nplus">＋</span><span class="nconn"></span>
+
+        <div class="ncard bad" style="width:620px">
+          <div class="nhead bad">
+            <span>◉</span><span class="t" style="color:#f56c6c">项目复核</span><span class="q">环节3 · 人工</span>
+            <span class="ops"><span>↑</span><span>↓</span><span style="color:#f56c6c">✕</span></span>
+          </div>
+          <div class="nbody">
+            <div style="display:flex;align-items:center;gap:8px">
+              <span class="einput" style="min-width:150px;background:#fef0f0;border-color:#fbc4c4;color:#f56c6c">工程主管 ▾</span>
+              <span class="etag etag-gray">任一人</span>
+            </div>
+            <div class="vline vbad">当前无人能审（<b>no_member</b>：本小区无在职工程主管）——<b style="color:#f56c6c">挂起并告警，不自动跳过</b></div>
+            <div style="margin-top:8px;display:flex;gap:8px">
+              <span class="ebtn-w" style="font-size:12px;padding:5px 12px">去编制名单加人</span>
+              <span class="ebtn-w" style="font-size:12px;padding:5px 12px">改绑其他岗位</span>
+            </div>
+          </div>
+        </div>
+
+        <span class="nconn"></span><span class="nplus">＋</span><span class="nconn"></span>
+        <span class="nend">结束</span>
+      </div>
+
+      <div style="margin-top:16px;padding:12px 14px;background:#fafbfc;border:1px solid #ebeef5;border-radius:4px;font-size:12px;color:#606266;line-height:1.8">
+        <b style="color:#303133">本抽屉直接复用 <code>ReviewFlowEditor</code> 组件</b>（与系统管理 → 审批流程同一个设计器，传 <code>:preview-api</code> 按本小区解析名单）：垂直链 + 连线「⊕」插入环节 + AI 环节三分支泳道 + 上移/下移/删除 + goto 目标卡高亮 + 环节增删后序号自动重映射。<br>
+        名单预览<b style="color:#303133">内联在每张环节卡内</b>（实际审核人姓名、不可见成员标红并提示"能审但看不到待审数据"、hidden_count 警告、voter_note），不挪到侧边面板。<br>
+        空名单原因三态文案不同：<code>unconfigured</code> 未配置岗位 / <code>no_member</code> 岗位无在职成员 / <code>skipped</code> 已跳过。<br>
+        <b style="color:#303133">报告签字流程（kind=report）不支持 AI 环节与跳转</b>，只有职责名 + 绑定岗位 + 签署方式（任一/全部）。
+      </div>
+
+      <div style="margin-top:14px;padding:12px 14px;background:#f7f9ff;border:1px solid #d9e1ff;border-radius:4px;font-size:12px;color:#606266;line-height:1.8">
+        <b style="color:#2b5aed">本期改动（14）</b>：① 环节引用对象由<b>职责槽位 → 直接绑岗位</b>，<code>duty_binding</code> 与「环节分工」Tab 随之取消；② 环节<b>按职责命名</b>（"打卡复核"，不叫"项目复核"）；③ 无人能审由<b>自动跳过 → 挂起 + 告警 + 修复入口</b>；④ "能审但看不到数据"的警告不再需要（候选即可读该记录）；⑤ 名单预览支持跨小区对象（报告覆盖多小区时解析各地同岗位人员）。<br>
+        <b style="color:#909399">现有只有三条链</b>（打卡 / 维保 / 报告签字）；工单复查链与承接查验审核链<b>后端尚无 API</b>，属待建（04 / 05），不在本抽屉显示。承接签署主体在「编制名单」Tab 之外的小区设置里配。
+      </div>
+    </div>
+
+    <div style="display:flex;align-items:center;gap:10px;padding:14px 18px;border-top:1px solid #ebeef5">
+      <span style="font-size:12px;color:#f56c6c">环节 3 在本小区无候选人，保存后其记录将挂起并告警</span>
+      <span style="margin-left:auto;display:flex;gap:10px"><span class="ebtn-w">取消</span><span class="ebtn">保存</span></span>
+    </div>
+  </div>
+</div>

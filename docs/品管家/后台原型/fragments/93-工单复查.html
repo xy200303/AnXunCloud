@@ -1,0 +1,140 @@
+<div style="position:relative;min-height:700px">
+  <div class="qcard" style="padding:0;opacity:.3">
+    <div style="display:flex;gap:22px;padding:0 16px;border-bottom:1px solid #ebeef5;font-size:13px;color:#606266">
+      <span style="padding:12px 0">待打包散件 <span class="etag etag-red" style="margin-left:2px">23</span></span>
+      <span style="padding:12px 0">待接单 <span class="etag etag-gray" style="margin-left:2px">8</span></span>
+      <span style="padding:12px 0">进行中 <span class="etag etag-gray" style="margin-left:2px">12</span></span>
+      <span style="padding:12px 0;border-bottom:2px solid #2b5aed;color:#2b5aed;font-weight:600">待复查 <span class="etag etag-orange" style="margin-left:2px">5</span></span>
+      <span style="padding:12px 0">已闭环</span>
+    </div>
+    <div style="display:flex;align-items:center;gap:10px;padding:12px 16px">
+      <span class="einput" style="background:#ecf1ff;border-color:#b3c6ff;color:#2b5aed">☑ 只看待我复查</span>
+      <span style="font-size:12px;color:#909399">按风险排序：安全相关 → 逾期 → AI 异常 → 人工改判 → 无法检查</span>
+    </div>
+    <table class="etable">
+      <tr><th>单号</th><th>类型</th><th>小区</th><th>事项进度</th><th>执行人</th><th>提交时间</th><th>风险</th><th>操作</th></tr>
+      <tr class="sel">
+        <td style="font-family:Consolas,monospace;font-size:12px;color:#303133">WO-20261022-0005</td>
+        <td><span class="etag etag-blue">巡检整改</span></td><td>戎安华府</td>
+        <td>已复查 2/5 项</td><td>老王</td>
+        <td style="font-size:12px">10-24 15:40</td>
+        <td><span class="etag etag-red">安全 · 逾期</span></td>
+        <td><span class="elink">复查</span></td>
+      </tr>
+      <tr class="stripe">
+        <td style="font-family:Consolas,monospace;font-size:12px;color:#303133">WO-20261023-0009</td>
+        <td><span class="etag etag-blue">巡检整改</span></td><td>锦绣华庭</td>
+        <td>1 项</td><td>小张</td>
+        <td style="font-size:12px">10-24 11:02</td>
+        <td><span class="etag etag-orange">AI 异常</span></td>
+        <td><span class="elink">复查</span></td>
+      </tr>
+      <tr>
+        <td style="font-family:Consolas,monospace;font-size:12px;color:#303133">WO-20261023-0012</td>
+        <td><span class="etag etag-blue">巡检整改</span></td><td>戎安华府</td>
+        <td>2 项</td><td>李敏</td>
+        <td style="font-size:12px">10-24 09:18</td>
+        <td><span class="etag etag-gray">普通</span></td>
+        <td><span class="elink" style="color:#c0c4cc">本人提交</span></td>
+      </tr>
+    </table>
+    <div class="pager"><span>共 5 条</span><span class="pg">20/页 ▾</span><span class="pg">‹</span><span class="pg on">1</span><span class="pg">›</span></div>
+  </div>
+
+  <div style="position:fixed;inset:0;background:rgba(0,0,0,.18);z-index:40"></div>
+  <div style="position:fixed;top:0;right:0;bottom:0;width:760px;background:#fff;box-shadow:-8px 0 24px rgba(0,0,0,.12);z-index:50;display:flex;flex-direction:column">
+
+    <div style="height:52px;display:flex;align-items:center;gap:10px;padding:0 18px;border-bottom:1px solid #ebeef5">
+      <b style="font-size:15px">复查 · WO-20261022-0005</b>
+      <span class="etag etag-red">安全 · 逾期</span>
+      <span style="font-size:12px;color:#909399">已复查 2/5 项</span>
+      <span style="margin-left:auto;color:#909399">×</span>
+    </div>
+
+    <div style="padding:16px 18px;overflow:auto">
+
+      <div style="display:flex;align-items:center;gap:8px;padding:9px 12px;background:#f7f9ff;border:1px solid #d9e1ff;border-radius:4px;font-size:12px;color:#606266;margin-bottom:14px;line-height:1.7">
+        <span style="color:#2b5aed">ⓘ</span>
+        <span><b style="color:#303133">逐项给结论，不是整单一次过</b>。通过的事项立刻定格，<b style="color:#303133">不会因为同单其他项被驳回而退回重拍</b>；只有被驳回的那项回到整改。</span>
+      </div>
+
+      <div style="border:1px solid #c2e7b0;border-radius:4px;margin-bottom:10px">
+        <div style="display:flex;align-items:center;gap:8px;padding:10px 12px;background:#f0f9eb;border-bottom:1px solid #c2e7b0">
+          <b style="font-size:13px;color:#303133">1栋3楼通道消火栓</b>
+          <span style="font-size:12px;color:#909399">水带破损 · 枪头缺失</span>
+          <span class="etag etag-green" style="margin-left:auto">已通过 · 定格</span>
+        </div>
+        <div style="padding:10px 12px;font-size:12px;color:#909399">李敏 10-24 16:02 通过</div>
+      </div>
+
+      <div style="border:1px solid #c2e7b0;border-radius:4px;margin-bottom:10px">
+        <div style="display:flex;align-items:center;gap:8px;padding:10px 12px;background:#f0f9eb;border-bottom:1px solid #c2e7b0">
+          <b style="font-size:13px;color:#303133">1栋负一层消火栓</b>
+          <span style="font-size:12px;color:#909399">箱门锁损坏</span>
+          <span class="etag etag-green" style="margin-left:auto">已通过 · 定格</span>
+        </div>
+        <div style="padding:10px 12px;font-size:12px;color:#909399">李敏 10-24 16:03 通过（第 2 轮证据）</div>
+      </div>
+
+      <div style="border:2px solid #2b5aed;border-radius:4px;margin-bottom:10px">
+        <div style="display:flex;align-items:center;gap:8px;padding:10px 12px;background:#ecf1ff;border-bottom:1px solid #b3c6ff">
+          <b style="font-size:13px;color:#303133">1栋2单元灭火器</b>
+          <span style="font-size:12px;color:#909399">压力表指针入红区</span>
+          <span class="etag etag-blue" style="margin-left:auto">待复查 · 当前</span>
+        </div>
+        <div style="display:flex;gap:18px;padding:12px">
+          <div style="flex:1">
+            <div style="font-size:12px;color:#909399;margin-bottom:6px">问题照片 · 巡检时</div>
+            <div style="display:flex;gap:6px">
+              <span style="width:84px;height:84px;border-radius:3px;background:#e4e7ed;display:inline-block"></span>
+              <span style="width:84px;height:84px;border-radius:3px;background:#e4e7ed;display:inline-block"></span>
+            </div>
+          </div>
+          <div style="flex:1">
+            <div style="font-size:12px;color:#2b5aed;margin-bottom:6px">整改照片 · 第 1 轮</div>
+            <div style="display:flex;gap:6px">
+              <span style="width:84px;height:84px;border-radius:3px;background:#dbe4ff;display:inline-block"></span>
+              <span style="width:84px;height:84px;border-radius:3px;background:#dbe4ff;display:inline-block"></span>
+            </div>
+          </div>
+        </div>
+        <div style="padding:0 12px 10px;font-size:12px;color:#606266;line-height:1.7">
+          <b style="color:#303133">整改说明：</b>已送检充压，压力表回绿区，瓶体与铅封完好。<br>
+          <b style="color:#303133">耗材：</b>干粉充装 4kg ×1
+        </div>
+        <div style="display:flex;align-items:center;gap:10px;padding:10px 12px;border-top:1px solid #ebeef5;background:#fafbfc">
+          <span class="einput ph" style="flex:1">驳回时必填原因</span>
+          <span class="ebtn-w" style="color:#f56c6c;border-color:#fbc4c4">驳回本项</span>
+          <span class="ebtn">本项通过</span>
+        </div>
+      </div>
+
+      <div style="border:1px dashed #dcdfe6;border-radius:4px;margin-bottom:10px">
+        <div style="display:flex;align-items:center;gap:8px;padding:10px 12px">
+          <b style="font-size:13px;color:#606266">2栋1单元应急照明</b>
+          <span style="font-size:12px;color:#909399">蓄电池不蓄电</span>
+          <span class="etag etag-gray" style="margin-left:auto">待复查</span>
+        </div>
+      </div>
+
+      <div style="border:1px dashed #dcdfe6;border-radius:4px;margin-bottom:14px">
+        <div style="display:flex;align-items:center;gap:8px;padding:10px 12px">
+          <b style="font-size:13px;color:#606266">地下车库疏散指示</b>
+          <span style="font-size:12px;color:#909399">灯具不亮</span>
+          <span class="etag etag-gray" style="margin-left:auto">待复查</span>
+        </div>
+      </div>
+
+      <div style="padding:10px 12px;background:#fafbfc;border:1px solid #ebeef5;border-radius:4px;font-size:12px;color:#606266;line-height:1.8">
+        <b style="color:#303133">复查人不得是本单任何整改执行人或提交人</b>，超管也不例外；候选名单为空或只剩本人时<b style="color:#f56c6c">挂起并升级</b>，不自动通过——复查复用审批基础设施，但不继承旧空链的跳过语义。<br>
+        <b style="color:#303133">复查通过不改原始巡检事实，也不改设备维保有效日期</b>：涉及寿命或有效期的动作仍须走维保生效确认，由 equipment 域事务回写。<br>
+        全部事项都有结论且无驳回时工单才整体闭环；关闭工单不等于整改完成，统计不并入已闭环。
+      </div>
+    </div>
+
+    <div style="display:flex;align-items:center;gap:10px;padding:14px 18px;border-top:1px solid #ebeef5">
+      <span style="font-size:12px;color:#909399">还有 3 项未给结论，整单暂不闭环</span>
+      <span style="margin-left:auto;display:flex;gap:10px"><span class="ebtn-w">关闭</span></span>
+    </div>
+  </div>
+</div>

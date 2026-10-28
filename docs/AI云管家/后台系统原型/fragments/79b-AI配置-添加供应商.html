@@ -1,0 +1,126 @@
+<div style="position:relative;min-height:700px">
+  <div class="qcard" style="padding:0;opacity:.3">
+    <div style="display:flex;gap:22px;padding:0 16px;border-bottom:1px solid #ebeef5;font-size:13px;color:#606266">
+      <span style="padding:12px 0;border-bottom:2px solid #2b5aed;color:#2b5aed;font-weight:600">模型供应商</span>
+      <span style="padding:12px 0">能力绑定</span>
+      <span style="padding:12px 0">助手与 Agent</span>
+      <span style="padding:12px 0">MCP 接入</span>
+      <span style="padding:12px 0">配额与用量</span>
+    </div>
+    <table class="etable">
+      <tr><th>供应商</th><th>API 协议</th><th>Base URL</th><th>模型</th><th>状态</th><th>操作</th></tr>
+      <tr><td style="color:#303133">阿里云百炼</td><td>openai_chat</td><td style="font-size:11px">dashscope.aliyuncs.com/…</td><td>4</td><td><span class="etag etag-green">启用</span></td><td><span class="elink">编辑</span></td></tr>
+      <tr class="stripe"><td style="color:#303133">DeepSeek</td><td>openai_chat</td><td style="font-size:11px">api.deepseek.com/v1</td><td>2</td><td><span class="etag etag-green">启用</span></td><td><span class="elink">编辑</span></td></tr>
+    </table>
+  </div>
+
+  <div style="position:fixed;inset:0;background:rgba(0,0,0,.18);z-index:40"></div>
+  <div style="position:fixed;top:0;right:0;bottom:0;width:760px;background:#fff;box-shadow:-8px 0 24px rgba(0,0,0,.12);z-index:50;display:flex;flex-direction:column">
+
+    <div style="height:52px;display:flex;align-items:center;gap:10px;padding:0 18px;border-bottom:1px solid #ebeef5">
+      <span style="color:#909399">←</span>
+      <b style="font-size:15px">添加供应商</b>
+      <span style="margin-left:auto;color:#909399">×</span>
+    </div>
+
+    <div style="padding:16px 18px;overflow:auto">
+
+      <div class="flabel" style="margin-top:0">选择预设</div>
+      <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:16px">
+        <span class="einput" style="background:#ecf1ff;border-color:#b3c6ff;color:#2b5aed">阿里云百炼</span>
+        <span class="einput ph">腾讯混元</span>
+        <span class="einput ph">DeepSeek</span>
+        <span class="einput ph">Kimi（Moonshot）</span>
+        <span class="einput ph">智谱 GLM</span>
+        <span class="einput ph">OpenAI</span>
+        <span class="einput ph">Google Gemini</span>
+        <span class="einput ph">Anthropic Claude</span>
+        <span class="einput ph">从 models.dev 添加</span>
+        <span class="einput ph">自定义</span>
+      </div>
+      <div style="font-size:11px;color:#909399;margin:-8px 0 16px;line-height:1.6">选中预设自动回填 API 协议与 Base URL，并带出该服务商的常用模型；仍可逐项手改。</div>
+
+      <div style="display:flex;align-items:flex-start;gap:12px;margin-bottom:14px">
+        <span style="width:84px;flex:none;text-align:right;font-size:13px;color:#606266;padding-top:6px"><span style="color:#f56c6c">*</span> 名称</span>
+        <div style="flex:1"><span class="einput" style="width:100%;box-sizing:border-box">阿里云百炼</span></div>
+      </div>
+
+      <div style="display:flex;align-items:flex-start;gap:12px;margin-bottom:14px">
+        <span style="width:84px;flex:none;text-align:right;font-size:13px;color:#606266;padding-top:6px"><span style="color:#f56c6c">*</span> API 协议</span>
+        <div style="flex:1">
+          <span class="einput" style="width:100%;box-sizing:border-box">OpenAI 对话（openai_chat） ▾</span>
+          <div style="font-size:11px;color:#909399;margin-top:4px">openai_chat / openai_responses / gemini / claude</div>
+        </div>
+      </div>
+
+      <div style="display:flex;align-items:flex-start;gap:12px;margin-bottom:14px">
+        <span style="width:84px;flex:none;text-align:right;font-size:13px;color:#606266;padding-top:6px"><span style="color:#f56c6c">*</span> API Key</span>
+        <div style="flex:1">
+          <span class="einput ph" style="width:100%;box-sizing:border-box">sk-…</span>
+          <div style="font-size:11px;color:#909399;margin-top:4px">保存后只显掩码、不回显明文；明文走 env/KMS 引用（09 §4.2）</div>
+        </div>
+      </div>
+
+      <div style="display:flex;align-items:flex-start;gap:12px;margin-bottom:16px">
+        <span style="width:84px;flex:none;text-align:right;font-size:13px;color:#606266;padding-top:6px"><span style="color:#f56c6c">*</span> Base URL</span>
+        <div style="flex:1"><span class="einput" style="width:100%;box-sizing:border-box;font-family:Consolas,monospace;font-size:12px">https://dashscope.aliyuncs.com/compatible-mode/v1</span></div>
+      </div>
+
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">
+        <span style="font-size:13px;color:#606266"><span style="color:#f56c6c">*</span> 模型</span>
+        <span style="font-size:12px;color:#909399">4 个模型</span>
+        <span class="elink" style="margin-left:auto">获取模型列表</span>
+        <span class="elink">＋ 手动添加</span>
+      </div>
+
+      <table class="etable">
+        <tr>
+          <th><span style="color:#f56c6c">*</span> 模型 ID</th>
+          <th style="text-align:right"><span style="color:#f56c6c">*</span> 上下文</th>
+          <th>显示名</th>
+          <th>能力</th>
+          <th style="width:40px"></th>
+        </tr>
+        <tr>
+          <td style="font-family:Consolas,monospace;font-size:12px;color:#303133">qwen-vl-max-latest</td>
+          <td style="text-align:right">32768</td>
+          <td>通义千问 VL Max</td>
+          <td><span class="etag etag-blue">视觉</span><span class="etag etag-gray">文本</span></td>
+          <td style="color:#f56c6c">🗑</td>
+        </tr>
+        <tr class="stripe">
+          <td style="font-family:Consolas,monospace;font-size:12px;color:#303133">qwen-vl-plus</td>
+          <td style="text-align:right">8192</td>
+          <td>通义千问 VL Plus</td>
+          <td><span class="etag etag-blue">视觉</span><span class="etag etag-gray">文本</span></td>
+          <td style="color:#f56c6c">🗑</td>
+        </tr>
+        <tr>
+          <td style="font-family:Consolas,monospace;font-size:12px;color:#303133">qwen-max</td>
+          <td style="text-align:right">32768</td>
+          <td>通义千问 Max</td>
+          <td><span class="etag etag-gray">文本</span><span class="etag etag-blue">工具调用</span></td>
+          <td style="color:#f56c6c">🗑</td>
+        </tr>
+        <tr class="stripe">
+          <td style="font-family:Consolas,monospace;font-size:12px;color:#303133">qwen-turbo</td>
+          <td style="text-align:right">131072</td>
+          <td>通义千问 Turbo</td>
+          <td><span class="etag etag-gray">文本</span></td>
+          <td style="color:#f56c6c">🗑</td>
+        </tr>
+      </table>
+
+      <div style="margin-top:10px;padding:10px 12px;background:#f7f9ff;border:1px solid #d9e1ff;border-radius:4px;font-size:12px;color:#606266;line-height:1.8">
+        <b style="color:#303133">能力标记决定可被哪些场景引用</b>：<b style="color:#606266">视觉</b> → 巡检照片识别 / 表计读数 / 标签日期 / 资料扫描；<b style="color:#606266">工具调用</b> → 助手 Agent 与 Skills；纯文本 → 文字生成类。<br>
+        「获取模型列表」从服务商接口拉取并自动判断能力；手动添加时需自行勾选，<b style="color:#606266">勾错会导致绑定后调用失败</b>，保存前可用「测试」验证一次。
+      </div>
+    </div>
+
+    <div style="display:flex;justify-content:flex-end;gap:10px;padding:14px 18px;border-top:1px solid #ebeef5">
+      <span class="ebtn-w">测试连接</span>
+      <span class="ebtn-w">取消</span>
+      <span class="ebtn">保存</span>
+    </div>
+  </div>
+</div>

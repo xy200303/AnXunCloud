@@ -1,0 +1,101 @@
+<div style="position:relative;min-height:700px">
+  <div class="qcard" style="padding:0;opacity:.3">
+    <div style="display:flex;align-items:center;gap:12px;padding:12px 16px">
+      <b style="font-size:15px">发布物管理</b>
+      <span class="ebtn">＋ 上传发布物</span>
+      <span style="margin-left:auto;display:inline-flex;align-items:center;justify-content:center;width:30px;height:30px;border:1px solid #dcdfe6;border-radius:50%;color:#606266;font-size:13px">⟳</span>
+    </div>
+
+    <table class="etable">
+      <tr>
+        <th>平台</th><th>版本</th><th>文件名</th><th>大小</th><th>备注</th><th>上传时间</th><th>操作</th>
+      </tr>
+      <tr>
+        <td><span class="etag etag-green">Android</span></td>
+        <td>1.4.2 <span class="etag etag-red">强制</span></td>
+        <td>aixunyun-1.4.2.apk</td>
+        <td>38.6 MB</td>
+        <td>表单式巡检上线</td>
+        <td style="font-size:12px">2026-10-20 17:22</td>
+        <td><span class="elink">下载</span><span class="elink" style="color:#f56c6c">删除</span></td>
+      </tr>
+      <tr class="stripe">
+        <td><span class="etag etag-green">Android</span></td>
+        <td>1.4.1</td>
+        <td>aixunyun-1.4.1.apk</td>
+        <td>38.2 MB</td>
+        <td style="color:#a8abb2">--</td>
+        <td style="font-size:12px">2026-09-28 10:05</td>
+        <td><span class="elink">下载</span><span class="elink" style="color:#f56c6c">删除</span></td>
+      </tr>
+      <tr>
+        <td><span class="etag etag-blue">HarmonyOS</span></td>
+        <td>1.4.0</td>
+        <td>aixunyun-1.4.0.hap</td>
+        <td>41.3 MB</td>
+        <td style="color:#a8abb2">--</td>
+        <td style="font-size:12px">2026-09-12 14:48</td>
+        <td><span class="elink">下载</span><span class="elink" style="color:#f56c6c">删除</span></td>
+      </tr>
+      <tr class="stripe">
+        <td><span class="etag etag-orange">小程序码</span></td>
+        <td style="color:#a8abb2">--</td>
+        <td>mp-qrcode.png</td>
+        <td>86 KB</td>
+        <td>官网下载页用</td>
+        <td style="font-size:12px">2026-08-30 09:31</td>
+        <td><span class="elink">查看</span><span class="elink" style="color:#f56c6c">删除</span></td>
+      </tr>
+    </table>
+    <div style="padding:10px 16px;font-size:12px;color:#909399">每个平台只生效最新上传的一条：官网下载页展示它，App 启动检查更新也对齐它（强制更新不可跳过）。</div>
+  </div>
+
+  <div style="position:fixed;inset:0;background:rgba(0,0,0,.35);z-index:60"></div>
+  <div style="position:fixed;left:50%;top:120px;transform:translateX(-50%);width:520px;background:#fff;border-radius:4px;box-shadow:0 12px 32px rgba(0,0,0,.18);z-index:70">
+    <div style="display:flex;align-items:center;justify-content:space-between;padding:14px 18px;border-bottom:1px solid #ebeef5">
+      <b style="font-size:15px">上传发布物</b><span style="color:#909399">×</span>
+    </div>
+    <div style="padding:16px 18px 4px">
+      <div style="display:flex;align-items:flex-start;gap:12px;margin-bottom:14px">
+        <span style="width:76px;flex:none;text-align:right;font-size:13px;color:#606266;padding-top:6px"><span style="color:#f56c6c">*</span> 平台</span>
+        <div style="flex:1;display:flex;gap:0">
+          <span class="einput" style="border-radius:4px 0 0 4px;background:#2b5aed;border-color:#2b5aed;color:#fff">Android</span>
+          <span class="einput ph" style="border-radius:0;border-left:none">HarmonyOS</span>
+          <span class="einput ph" style="border-radius:0;border-left:none">iOS</span>
+          <span class="einput ph" style="border-radius:0 4px 4px 0;border-left:none">小程序码</span>
+        </div>
+      </div>
+      <div style="display:flex;align-items:flex-start;gap:12px;margin-bottom:14px">
+        <span style="width:76px;flex:none;text-align:right;font-size:13px;color:#606266;padding-top:6px"><span style="color:#f56c6c">*</span> 版本号</span>
+        <div style="flex:1"><span class="einput ph" style="min-width:200px">如 1.0.0</span></div>
+      </div>
+      <div style="display:flex;align-items:flex-start;gap:12px;margin-bottom:14px">
+        <span style="width:76px;flex:none;text-align:right;font-size:13px;color:#606266;padding-top:6px">备注</span>
+        <div style="flex:1"><span class="einput ph" style="width:100%;box-sizing:border-box">选填，如更新内容说明</span></div>
+      </div>
+      <div style="display:flex;align-items:flex-start;gap:12px;margin-bottom:14px">
+        <span style="width:76px;flex:none;text-align:right;font-size:13px;color:#606266;padding-top:6px">更新方式</span>
+        <div style="flex:1">
+          <div style="display:flex;gap:18px;font-size:13px;color:#606266;padding-top:6px">
+            <span style="display:inline-flex;align-items:center;gap:5px"><span style="width:13px;height:13px;border-radius:50%;border:4px solid #2b5aed;background:#fff;display:inline-block"></span>弱更新</span>
+            <span style="display:inline-flex;align-items:center;gap:5px"><span style="width:13px;height:13px;border-radius:50%;border:1px solid #dcdfe6;background:#fff;display:inline-block"></span>强制更新</span>
+          </div>
+          <div style="font-size:11px;color:#909399;margin-top:5px;line-height:1.6">弱更新：App 弹窗可「以后再说」；强制更新：弹窗不可跳过，必须更新后才能使用</div>
+        </div>
+      </div>
+      <div style="display:flex;align-items:flex-start;gap:12px;margin-bottom:10px">
+        <span style="width:76px;flex:none;text-align:right;font-size:13px;color:#606266;padding-top:6px"><span style="color:#f56c6c">*</span> 文件</span>
+        <div style="flex:1">
+          <div style="border:1px dashed #dcdfe6;border-radius:6px;padding:26px;text-align:center;background:#fafbfc">
+            <div style="font-size:26px;color:#2b5aed;line-height:1">⬆</div>
+            <div style="font-size:13px;color:#606266;margin-top:8px">拖拽文件到此处，或 <span style="color:#2b5aed">点击选择</span></div>
+          </div>
+          <div style="font-size:11px;color:#909399;margin-top:5px">仅支持 .apk，单文件不超过 200 MB</div>
+        </div>
+      </div>
+    </div>
+    <div style="display:flex;justify-content:flex-end;gap:10px;padding:14px 18px;border-top:1px solid #ebeef5">
+      <span class="ebtn-w">取 消</span><span class="ebtn">开始上传</span>
+    </div>
+  </div>
+</div>

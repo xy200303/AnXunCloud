@@ -1,0 +1,23 @@
+<div style="position:relative;min-height:680px">
+  <div class="qcard" style="padding:0">
+    <div style="display:flex;gap:24px;padding:0 16px;border-bottom:1px solid #ebeef5;font-size:14px"><span style="padding:12px 0">工具与 Skills</span><span style="padding:12px 0;border-bottom:2px solid #2b5aed;color:#2b5aed;font-weight:600">MCP 接入</span></div>
+    <div style="display:flex;align-items:center;gap:8px;padding:16px"><span class="ebtn">＋ 签发 token</span><span class="ebtn-w">调用审计</span><span style="margin-left:auto;font-size:13px;color:#6b7385">3 个 token · 2 有效 · 1 已撤销</span></div>
+    <table class="etable"><tr><th>名称 / 用途</th><th>绑定用户</th><th>数据范围</th><th>工具范围</th><th>限流档</th><th>最近调用</th><th>状态</th><th>操作</th></tr>
+      <tr><td>BI 看板取数</td><td>李敏（品质主管）</td><td>戎安华府、锦绣华庭</td><td>4 只读</td><td>读 60/分</td><td>10-24 08:40</td><td><span class="etag etag-green">有效</span></td><td><span class="elink">审计</span><span class="elink" style="color:#d54941">撤销</span></td></tr>
+      <tr class="stripe"><td>甲方巡检问答</td><td>严勇（项目经理）</td><td>戎安华府</td><td>4 只读</td><td>读 30/分</td><td>10-23 19:02</td><td><span class="etag etag-orange">范围已收窄</span></td><td><span class="elink">审计</span><span class="elink" style="color:#d54941">撤销</span></td></tr>
+      <tr><td>外包商派单接入</td><td>王工（已离职）</td><td>金源世纪城</td><td>3 读 + 1 写</td><td>—</td><td>10-11 14:20</td><td><span class="etag etag-gray">已撤销</span></td><td><span class="elink">审计</span></td></tr>
+    </table>
+  </div>
+  <div style="position:fixed;inset:0;background:rgba(0,0,0,.3);z-index:60"></div>
+  <div style="position:fixed;left:50%;top:110px;transform:translateX(-50%);width:560px;background:#fff;border-radius:6px;box-shadow:0 4px 16px rgba(0,0,0,.08);z-index:70">
+    <div style="height:48px;display:flex;align-items:center;justify-content:space-between;padding:0 16px;border-bottom:1px solid #ebeef5"><b style="font-size:20px">签发 MCP token</b><span style="color:#6b7385;font-size:20px">×</span></div>
+    <div style="padding:16px;display:grid;grid-template-columns:96px 1fr;gap:16px 12px;align-items:center">
+      <span>名称 / 用途</span><span class="einput ph">如：BI 看板取数</span>
+      <span>绑定用户</span><span class="einput">李敏（品质主管） ▾</span>
+      <span>数据范围</span><span class="einput">戎安华府、锦绣华庭</span>
+      <span>工具范围</span><span style="display:flex;flex-wrap:wrap;gap:8px"><span class="einput">☑ inspection.get_stats</span><span class="einput">☑ equipment.query_due</span><span class="einput ph">☐ workorder.create</span></span>
+      <span>限流档</span><span class="einput" style="width:200px">读 60/分 · 写 5/分 ▾</span>
+    </div>
+    <div style="height:64px;display:flex;justify-content:flex-end;align-items:center;gap:8px;padding:0 16px;border-top:1px solid #ebeef5"><span class="ebtn-w">取消</span><span class="ebtn">签发</span></div>
+  </div>
+</div>

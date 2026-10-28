@@ -1,0 +1,120 @@
+<div class="qcard" style="padding:0">
+  <div style="display:flex;gap:22px;padding:0 16px;border-bottom:1px solid #ebeef5;font-size:13px;color:#606266">
+    <span style="padding:12px 0;border-bottom:2px solid #2b5aed;color:#2b5aed;font-weight:600">模型供应商</span>
+    <span style="padding:12px 0">能力绑定</span>
+    <span style="padding:12px 0">助手与 Agent</span>
+    <span style="padding:12px 0">MCP 接入</span>
+    <span style="padding:12px 0">配额与用量</span>
+  </div>
+
+  <div style="display:flex;align-items:center;gap:8px;padding:12px 16px;background:#f7f9ff;border-bottom:1px solid #d9e1ff;font-size:12px;color:#606266;line-height:1.7">
+    <span style="color:#2b5aed">ⓘ</span>
+    <span>供应商与模型<b style="color:#303133">在此注册一次</b>，巡检识别、助手 Agent、Skills、MCP 等所有用到 AI 的地方<b style="color:#303133">直接引用</b>，不各自重配协议与密钥。<b style="color:#303133">本页在平台管理与系统管理下各有一份</b>（同一组件、同一张表，用 <code>scope</code> 区分层级）——平台层维护默认供应商，租户层按需覆盖或新增。</span>
+  </div>
+
+  <div style="display:flex;align-items:center;gap:10px;padding:12px 16px">
+    <span class="ebtn">＋ 添加供应商</span>
+    <span class="ebtn-w">从 models.dev 导入</span>
+    <span class="einput" style="margin-left:6px;background:#ecf1ff;border-color:#b3c6ff;color:#2b5aed">☑ 含平台默认</span>
+    <span style="margin-left:auto;font-size:12px;color:#909399">共 3 个供应商（2 个继承自平台 · 1 个本租户新增）· 9 个模型</span>
+  </div>
+
+  <table class="etable">
+    <tr>
+      <th>供应商</th><th>API 协议</th><th>Base URL</th><th>API Key</th>
+      <th style="text-align:right">模型</th><th style="text-align:center">状态</th>
+      <th>来源</th><th>最近校验</th><th>操作</th>
+    </tr>
+    <tr>
+      <td><div style="color:#303133;font-weight:600">阿里云百炼</div><div style="font-size:11px;color:#909399">bailian</div></td>
+      <td><span class="etag etag-gray">openai_chat</span></td>
+      <td style="font-family:Consolas,monospace;font-size:11px;color:#606266">dashscope.aliyuncs.com/compatible-mode/v1</td>
+      <td style="color:#a8abb2;font-family:Consolas,monospace;font-size:11px">sk-••••3f2a</td>
+      <td style="text-align:right">4</td>
+      <td style="text-align:center"><span class="etag etag-green">启用</span></td>
+      <td><span class="etag etag-gray">继承平台默认</span></td>
+      <td style="font-size:12px"><span style="color:#67c23a">通过</span> 10-24 09:12</td>
+      <td><span class="elink">查看</span><span class="elink">测试</span><span class="elink">本租户覆盖</span></td>
+    </tr>
+    <tr class="stripe">
+      <td><div style="color:#303133;font-weight:600">DeepSeek</div><div style="font-size:11px;color:#909399">deepseek</div></td>
+      <td><span class="etag etag-gray">openai_chat</span></td>
+      <td style="font-family:Consolas,monospace;font-size:11px;color:#606266">api.deepseek.com/v1</td>
+      <td style="color:#a8abb2;font-family:Consolas,monospace;font-size:11px">sk-••••91b7</td>
+      <td style="text-align:right">2</td>
+      <td style="text-align:center"><span class="etag etag-green">启用</span></td>
+      <td><span class="etag etag-blue">本租户覆盖</span></td>
+      <td style="font-size:12px"><span style="color:#67c23a">通过</span> 10-24 09:12</td>
+      <td><span class="elink">编辑</span><span class="elink">测试</span><span class="elink">恢复默认</span></td>
+    </tr>
+    <tr>
+      <td><div style="color:#303133;font-weight:600">Kimi（Moonshot）</div><div style="font-size:11px;color:#909399">kimi</div></td>
+      <td><span class="etag etag-gray">openai_chat</span></td>
+      <td style="font-family:Consolas,monospace;font-size:11px;color:#606266">api.moonshot.cn/v1</td>
+      <td style="color:#a8abb2;font-family:Consolas,monospace;font-size:11px">sk-••••c403</td>
+      <td style="text-align:right">3</td>
+      <td style="text-align:center"><span class="etag etag-orange">停用</span></td>
+      <td><span class="etag etag-gray">继承平台默认</span></td>
+      <td style="font-size:12px;color:#f56c6c">鉴权失败 10-23 18:40</td>
+      <td><span class="elink">查看</span><span class="elink">测试</span><span class="elink">本租户覆盖</span></td>
+    </tr>
+  </table>
+
+  <div style="padding:10px 16px;font-size:12px;color:#909399;line-height:1.8">
+    <b style="color:#606266">「来源」列区分继承与覆盖</b>（13 §4.2.1）：继承行只读、操作为「查看 / 本租户覆盖」；覆盖行可编辑、可「恢复默认」（= 删除本层覆盖行，不是把值改回去）。<br>
+    <b style="color:#606266">稀疏覆盖</b>：只有值与继承值不同才落行，避免平台改默认后租户留着陈旧覆盖。平台可对某供应商标「不允许下级覆盖」，此时租户侧只读并说明原因。<br>
+    <b style="color:#606266">覆盖粒度按行</b>：为换自己的 Key 而覆盖某供应商，<b style="color:#303133">其下模型仍继承平台的</b>，不需要重新登记一遍；只在想改某个具体模型时才落那一行。<br>
+    <span style="color:#e6a23c">密钥是否允许租户自带（BYOK）尚待确认</span>——现有规则是"密钥类配置永不下放租户"，确认前租户层只能选用平台已注册的供应商、不能填自己的 Key（10 §2 第 29 项）。
+  </div>
+</div>
+
+<div class="qcard" style="padding:0">
+  <div style="display:flex;align-items:center;gap:10px;padding:12px 16px;border-bottom:1px solid #ebeef5">
+    <b style="font-size:14px">阿里云百炼 · 模型</b>
+    <span style="font-size:12px;color:#909399">4 个</span>
+    <span style="margin-left:auto;display:flex;gap:8px"><span class="ebtn-w">获取模型列表</span><span class="ebtn-w">＋ 手动添加</span></span>
+  </div>
+  <table class="etable">
+    <tr>
+      <th>模型 ID</th><th>显示名</th>
+      <th style="text-align:right">上下文</th><th style="text-align:right">最大输出</th>
+      <th>能力</th><th style="text-align:center">可用于</th><th>操作</th>
+    </tr>
+    <tr>
+      <td style="font-family:Consolas,monospace;font-size:12px;color:#303133">qwen-vl-max-latest</td>
+      <td>通义千问 VL Max</td>
+      <td style="text-align:right">32K</td><td style="text-align:right">2K</td>
+      <td><span class="etag etag-blue">视觉</span><span class="etag etag-gray">文本</span></td>
+      <td style="text-align:center"><span class="etag etag-green">识别 · 对话</span></td>
+      <td><span class="elink">高级</span><span class="elink" style="color:#f56c6c">移除</span></td>
+    </tr>
+    <tr class="stripe">
+      <td style="font-family:Consolas,monospace;font-size:12px;color:#303133">qwen-vl-plus</td>
+      <td>通义千问 VL Plus</td>
+      <td style="text-align:right">8K</td><td style="text-align:right">1.5K</td>
+      <td><span class="etag etag-blue">视觉</span><span class="etag etag-gray">文本</span></td>
+      <td style="text-align:center"><span class="etag etag-green">识别 · 对话</span></td>
+      <td><span class="elink">高级</span><span class="elink" style="color:#f56c6c">移除</span></td>
+    </tr>
+    <tr>
+      <td style="font-family:Consolas,monospace;font-size:12px;color:#303133">qwen-max</td>
+      <td>通义千问 Max</td>
+      <td style="text-align:right">32K</td><td style="text-align:right">8K</td>
+      <td><span class="etag etag-gray">文本</span><span class="etag etag-blue">工具调用</span></td>
+      <td style="text-align:center"><span class="etag etag-gray">对话 · Agent</span></td>
+      <td><span class="elink">高级</span><span class="elink" style="color:#f56c6c">移除</span></td>
+    </tr>
+    <tr class="stripe">
+      <td style="font-family:Consolas,monospace;font-size:12px;color:#303133">qwen-turbo</td>
+      <td>通义千问 Turbo</td>
+      <td style="text-align:right">128K</td><td style="text-align:right">8K</td>
+      <td><span class="etag etag-gray">文本</span></td>
+      <td style="text-align:center"><span class="etag etag-gray">对话</span></td>
+      <td><span class="elink">高级</span><span class="elink" style="color:#f56c6c">移除</span></td>
+    </tr>
+  </table>
+  <div style="padding:10px 16px;font-size:12px;color:#909399;line-height:1.8">
+    <b style="color:#606266">「能力」决定这个模型能被哪些场景引用</b>：只有带<b style="color:#606266">视觉</b>的模型才出现在巡检照片识别、表计读数、标签日期、资料扫描的可选列表里；只有带<b style="color:#606266">工具调用</b>的才能用于助手 Agent。能力可由「获取模型列表」自动带出，也可手动勾选。<br>
+    「高级」里配单模型的温度、最大输出、超时、并发、是否流式等；<b style="color:#606266">配额与速率限制在「配额与用量」Tab 统一管</b>，不在这里逐个填。
+  </div>
+</div>

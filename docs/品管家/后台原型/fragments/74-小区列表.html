@@ -1,0 +1,98 @@
+<div class="clayout">
+  <div class="tcard">
+    <div class="ttitle">组织架构</div>
+    <div class="tnode on"><span class="cv">▾</span>全部小区</div>
+    <div class="tnode" style="padding-left:20px"><span class="cv">▾</span>戎安华府</div>
+    <div class="tnode" style="padding-left:38px"><span class="cv"></span>1 栋 <span class="etag etag-blue" style="font-size:10px;padding:0 4px">楼栋</span></div>
+    <div class="tnode" style="padding-left:38px"><span class="cv"></span>2 栋 <span class="etag etag-blue" style="font-size:10px;padding:0 4px">楼栋</span></div>
+    <div class="tnode" style="padding-left:38px"><span class="cv"></span>地下车库 <span class="etag etag-orange" style="font-size:10px;padding:0 4px">区域</span></div>
+    <div class="tnode" style="padding-left:20px"><span class="cv">▸</span>锦绣华庭</div>
+    <div class="tnode" style="padding-left:20px"><span class="cv">▸</span>金源世纪城</div>
+    <div class="tnode" style="padding-left:20px"><span class="cv">▸</span>阳光栖谷</div>
+  </div>
+
+  <div class="cmain">
+    <div class="ctxbar">
+      <span class="ctxpath">全部小区</span>
+    </div>
+
+    <div class="qcard" style="padding:12px 16px;margin-bottom:12px">
+      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+        <span style="font-size:13px;color:#606266">小区名称</span>
+        <span class="einput ph" style="min-width:160px">小区名称</span>
+        <span style="font-size:13px;color:#606266">负责人</span>
+        <span class="einput ph" style="min-width:120px">全部 ▾</span>
+        <span style="font-size:13px;color:#606266">配置完整度</span>
+        <span class="einput ph" style="min-width:150px">全部 ▾</span>
+        <span style="font-size:13px;color:#606266">状态</span>
+        <span class="einput ph" style="min-width:110px">全部状态 ▾</span>
+        <span class="ebtn">查询</span><span class="ebtn-w">重置</span>
+      </div>
+      <div style="font-size:11px;color:#2b5aed;margin-top:8px">新增筛选：负责人、配置完整度（缺人/断链/未配签署）、在编人数区间（13 §7）</div>
+    </div>
+
+    <div class="qcard" style="padding:0">
+      <div style="display:flex;align-items:center;gap:10px;padding:12px 16px">
+        <span class="ebtn">＋ 新增小区</span>
+        <span class="ebtn-w">批量启停</span>
+        <span class="ebtn-w">批量下发流程/模板</span>
+        <span style="margin-left:auto;display:inline-flex;align-items:center;justify-content:center;width:30px;height:30px;border:1px solid #dcdfe6;border-radius:50%;color:#606266;font-size:13px">⟳</span>
+      </div>
+
+      <table class="etable">
+        <tr>
+          <th style="width:36px"></th>
+          <th>小区名称</th><th>地址</th><th>负责人</th>
+          <th style="text-align:right">楼栋数</th><th style="text-align:right">点位数</th>
+          <th style="text-align:right">在编</th>
+          <th>配置完整度</th>
+          <th style="text-align:center">状态</th><th>操作</th>
+        </tr>
+        <tr>
+          <td>☐</td>
+          <td style="color:#303133">戎安华府</td>
+          <td>洪山区××路 8 号</td><td>严勇</td>
+          <td style="text-align:right">2</td><td style="text-align:right">36</td><td style="text-align:right">3</td>
+          <td><span class="etag etag-red">审批断链 1</span></td>
+          <td style="text-align:center"><span class="etag etag-green">启用</span></td>
+          <td><span class="elink">编制</span><span class="elink">编辑</span><span class="elink" style="color:#f56c6c">删除</span></td>
+        </tr>
+        <tr class="stripe">
+          <td>☐</td>
+          <td style="color:#303133">锦绣华庭</td>
+          <td>江汉区××街 12 号</td><td>王经理</td>
+          <td style="text-align:right">6</td><td style="text-align:right">3494</td><td style="text-align:right">8</td>
+          <td><span class="etag etag-green">配置完整</span></td>
+          <td style="text-align:center"><span class="etag etag-green">启用</span></td>
+          <td><span class="elink">编制</span><span class="elink">编辑</span><span class="elink" style="color:#f56c6c">删除</span></td>
+        </tr>
+        <tr>
+          <td>☐</td>
+          <td style="color:#303133">金源世纪城</td>
+          <td style="color:#a8abb2">--</td><td style="color:#a8abb2">--</td>
+          <td style="text-align:right">4</td><td style="text-align:right">512</td><td style="text-align:right;color:#f56c6c">0</td>
+          <td><span class="etag etag-red">缺项目经理</span></td>
+          <td style="text-align:center"><span class="etag etag-green">启用</span></td>
+          <td><span class="elink">编制</span><span class="elink">编辑</span><span class="elink" style="color:#f56c6c">删除</span></td>
+        </tr>
+        <tr class="stripe">
+          <td>☐</td>
+          <td style="color:#303133">阳光栖谷</td>
+          <td>东湖区××路 66 号</td><td>李敏</td>
+          <td style="text-align:right">3</td><td style="text-align:right;color:#909399">0</td><td style="text-align:right">1</td>
+          <td><span class="comp" style="font-size:11px"><span class="c ok"><span class="dot"></span>人员</span><span class="c ok"><span class="dot"></span>流程</span><span class="c miss"><span class="dot"></span>点位 0</span><span class="c miss"><span class="dot"></span>模板</span></span></td>
+          <td style="text-align:center"><span class="etag etag-orange">未启用</span></td>
+          <td><span class="elink">继续向导</span><span class="elink">编制</span><span class="elink">编辑</span></td>
+        </tr>
+      </table>
+
+      <div class="pager"><span>共 4 条</span><span class="pg">10/页 ▾</span><span class="pg">‹</span><span class="pg on">1</span><span class="pg">›</span></div>
+    </div>
+
+    <div style="font-size:12px;color:#909399;margin:10px 4px;line-height:1.8">
+      <b style="color:#606266">整页为左树右表</b>：点树上的小区 → 右侧切「楼栋/区域列表」，点楼栋 → 切「点位列表」，context-bar 显示当前位置；三态各有空态（"暂无小区"内嵌新增按钮）。<br>
+      操作列保留<b style="color:#606266">编制 / 编辑 / 删除</b>三个（各带 v-perms），"编制"进岗位编制抽屉。<br>
+      <span style="color:#2b5aed">本期新增（叠加，不替换上述能力）</span>：配置完整度列与筛选、在编人数、未启用态与「继续向导」、批量启停与批量下发；<b style="color:#606266">断链与缺配置在列表直接可见</b>，不用逐个点进去查。
+    </div>
+  </div>
+</div>

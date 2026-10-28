@@ -1,0 +1,32 @@
+<div style="display:flex;gap:14px">
+  <div class="qcard" style="width:200px;flex:none;padding:12px 0">
+    <div style="padding:0 14px 8px;font-size:13px;font-weight:600;color:#303133">小区/楼栋</div>
+    <div style="font-size:13px">
+      <div style="padding:7px 14px;color:#2b5aed;background:#f0f5ff">戎安华府</div>
+      <div style="padding:7px 14px 7px 28px;color:#606266">1 栋 <span style="font-size:11px;color:#909399">18 点位</span></div>
+      <div style="padding:7px 14px 7px 28px;color:#606266">2 栋 <span style="font-size:11px;color:#909399">18 点位</span></div>
+      <div style="padding:7px 14px 7px 28px;color:#606266">A 区公共区域 <span style="font-size:11px;color:#909399">6</span></div>
+      <div style="padding:7px 14px 7px 28px;color:#606266">地下车库 <span style="font-size:11px;color:#909399">8</span></div>
+    </div>
+  </div>
+  <div style="flex:1;min-width:0">
+    <div class="qcard" style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+      <span class="einput ph" style="min-width:140px">点位名称</span>
+      <span class="einput ph" style="min-width:110px">类型 ▾</span>
+      <span class="einput ph" style="min-width:100px">状态 ▾</span>
+      <span class="ebtn">查询</span><span class="ebtn-w">重置</span>
+      <span style="flex:1"></span>
+      <span class="ebtn">＋ 新增点位</span><span class="ebtn-w">批量建点</span><span class="ebtn-w">批量生成二维码</span><span class="ebtn-w">批量导入</span>
+    </div>
+    <div class="qcard" style="padding:0 0 12px">
+      <table class="etable">
+        <tr><th>点位名称</th><th>楼栋/区域</th><th>类型</th><th>二维码/NFC 编号</th><th>打卡方式</th><th>模板</th><th>围栏半径</th><th>状态</th><th>操作</th></tr>
+        <tr><td style="color:#303133;font-weight:600">1栋1楼大厅消火栓</td><td>1 栋</td><td>普通点位</td><td>P024530</td><td>NFC</td><td>消火栓箱</td><td>12 m</td><td><span class="etag etag-green">启用</span></td><td><span class="elink">编辑</span><span class="elink">关联设备</span><span class="elink">删除</span></td></tr>
+        <tr class="stripe"><td style="color:#303133;font-weight:600">1栋3楼通道消火栓</td><td>1 栋</td><td>普通点位</td><td>P024532</td><td>NFC</td><td>消火栓箱</td><td>12 m</td><td><span class="etag etag-green">启用</span></td><td><span class="elink">编辑</span><span class="elink">关联设备</span><span class="elink">删除</span></td></tr>
+        <tr><td style="color:#303133;font-weight:600">1栋3楼通道灭火器</td><td>1 栋</td><td>消防设施</td><td>P024533</td><td>NFC</td><td>灭火器</td><td>3 m</td><td><span class="etag etag-green">启用</span></td><td><span class="elink">编辑</span><span class="elink">关联设备</span><span class="elink">删除</span></td></tr>
+        <tr class="stripe"><td style="color:#303133;font-weight:600">地下车库 B 区消防水泵房</td><td>地下车库</td><td>水泵房</td><td>P024601</td><td>扫码</td><td>生活水泵房巡检</td><td>—</td><td><span class="etag etag-orange">围栏未配</span></td><td><span class="elink">编辑</span><span class="elink">关联设备</span><span class="elink">删除</span></td></tr>
+      </table>
+      <div style="padding:10px 16px;font-size:12px;color:#909399;line-height:1.8">点位维护归小区管理（项目初始化与结构维护）；巡检管理只做执行视角：计划圈范围、任务执行、记录与审核。模板/关联设备点击后跳转对应域，不复制一套配置。围栏未配等配置缺陷标橙，计入管理端告警，不计巡检员未完成。</div>
+    </div>
+  </div>
+</div>

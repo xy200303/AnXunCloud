@@ -1,0 +1,104 @@
+<div class="qcard" style="padding:12px 16px;display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+  <span style="font-size:13px;color:#606266">参数名称</span>
+  <span class="einput ph" style="min-width:160px">参数名称</span>
+  <span style="font-size:13px;color:#606266">键名</span>
+  <span class="einput ph" style="min-width:200px">如 inspection.fence_default_radius</span>
+  <span style="font-size:13px;color:#606266">作用域</span>
+  <span class="einput" style="min-width:150px;background:#ecf1ff;border-color:#b3c6ff;color:#2b5aed">平台默认 + 本租户覆盖 ▾</span>
+  <span class="etag etag-blue">本期新增</span>
+  <span class="ebtn">查询</span><span class="ebtn-w">重置</span>
+</div>
+
+<div class="qcard" style="padding:0">
+  <div style="display:flex;gap:22px;padding:0 16px;border-bottom:1px solid #ebeef5;font-size:13px;color:#606266">
+    <span style="padding:12px 0;border-bottom:2px solid #2b5aed;color:#2b5aed;font-weight:600">全部</span>
+    <span style="padding:12px 0">系统</span>
+    <span style="padding:12px 0">巡检</span>
+    <span style="padding:12px 0">文件</span>
+    <span style="padding:12px 0">通知</span>
+    <span style="padding:12px 0;color:#c0c4cc;text-decoration:line-through">AI</span>
+    <span style="padding:12px 0;align-self:center;font-size:11px;color:#2b5aed">AI 分组整组移出 → 「AI 配置」菜单</span>
+  </div>
+
+  <div style="display:flex;align-items:center;gap:10px;padding:12px 16px">
+    <span class="ebtn">＋ 新增配置</span>
+    <span style="margin-left:auto;display:inline-flex;align-items:center;justify-content:center;width:30px;height:30px;border:1px solid #dcdfe6;border-radius:50%;color:#606266;font-size:13px">⟳</span>
+  </div>
+
+  <table class="etable">
+    <tr>
+      <th>配置名称</th><th>键名</th><th>分组</th><th>配置值</th>
+      <th style="text-align:center">可被下级覆盖 <span class="etag etag-blue" style="font-weight:400">新</span></th>
+      <th style="text-align:center">密钥 <span class="etag etag-blue" style="font-weight:400">新</span></th>
+      <th>来源 <span class="etag etag-blue" style="font-weight:400">新</span></th>
+      <th>更新时间</th><th>操作</th>
+    </tr>
+    <tr>
+      <td style="color:#303133">围栏默认半径（米）</td>
+      <td style="font-family:Consolas,monospace;font-size:12px">inspection.fence_default_radius</td>
+      <td><span class="etag etag-gray">巡检</span></td>
+      <td>50</td>
+      <td style="text-align:center"><span class="sw on"></span></td>
+      <td style="text-align:center"><span class="sw"></span></td>
+      <td><span class="etag etag-blue">本租户覆盖</span></td>
+      <td style="font-size:12px">10-21 15:02</td>
+      <td><span class="elink">编辑</span><span class="elink">恢复默认</span></td>
+    </tr>
+    <tr class="stripe">
+      <td style="color:#303133">单次上传最大张数</td>
+      <td style="font-family:Consolas,monospace;font-size:12px">file.max_upload_count</td>
+      <td><span class="etag etag-gray">文件</span></td>
+      <td>9</td>
+      <td style="text-align:center"><span class="sw on"></span></td>
+      <td style="text-align:center"><span class="sw"></span></td>
+      <td><span class="etag etag-gray">继承平台默认</span></td>
+      <td style="font-size:12px">2025-08-01 09:12</td>
+      <td><span class="elink">查看</span><span class="elink">本租户覆盖</span></td>
+    </tr>
+    <tr>
+      <td style="color:#303133">会话超时（分钟）</td>
+      <td style="font-family:Consolas,monospace;font-size:12px">system.session_timeout</td>
+      <td><span class="etag etag-gray">系统</span></td>
+      <td>120</td>
+      <td style="text-align:center"><span class="sw"></span></td>
+      <td style="text-align:center"><span class="sw"></span></td>
+      <td><span class="etag etag-gray">继承平台默认</span></td>
+      <td style="font-size:12px">2025-08-01 09:12</td>
+      <td><span class="elink">查看</span><span class="elink" style="color:#c0c4cc">不可覆盖</span></td>
+    </tr>
+    <tr class="stripe">
+      <td style="color:#303133">短信网关密钥</td>
+      <td style="font-family:Consolas,monospace;font-size:12px">notice.sms_credential_ref</td>
+      <td><span class="etag etag-gray">通知</span></td>
+      <td style="color:#a8abb2;font-family:Consolas,monospace;font-size:11px">env:SMS_KEY ••••</td>
+      <td style="text-align:center"><span class="sw"></span></td>
+      <td style="text-align:center"><span class="sw on"></span></td>
+      <td><span class="etag etag-gray">继承平台默认</span></td>
+      <td style="font-size:12px">2026-06-03 10:40</td>
+      <td><span class="elink">查看</span><span class="elink" style="color:#c0c4cc">不可覆盖</span></td>
+    </tr>
+    <tr>
+      <td style="color:#303133">AI 总开关</td>
+      <td style="font-family:Consolas,monospace;font-size:12px">ai.enabled</td>
+      <td><span class="etag etag-gray">系统</span></td>
+      <td>true</td>
+      <td style="text-align:center"><span class="sw on"></span></td>
+      <td style="text-align:center"><span class="sw"></span></td>
+      <td><span class="etag etag-gray">继承平台默认</span></td>
+      <td style="font-size:12px">2026-10-24 09:12</td>
+      <td><span class="elink">查看</span><span class="elink">本租户覆盖</span></td>
+    </tr>
+  </table>
+
+  <div class="pager"><span>共 23 条</span><span class="pg">20/页 ▾</span><span class="pg">‹</span><span class="pg on">1</span><span class="pg">2</span><span class="pg">›</span></div>
+</div>
+
+<div class="qcard" style="padding:12px 16px;background:#f7f9ff;border:1px solid #d9e1ff;box-shadow:none">
+  <div style="font-size:12px;color:#606266;line-height:1.9">
+    <b style="color:#2b5aed">本期改动（13 §4.2.1）</b>：<code>tenant_config</code> 并入 <code>sys_config</code> 更名 <code>config</code>，用 <code>scope</code>(platform/tenant/project) + <code>scope_id</code> <b style="color:#303133">两列 NOT NULL</b> 跨层，唯一键 <code>(scope, scope_id, key)</code>。键值型与结构型从此同一形态。<br>
+    <b style="color:#303133">「可被下级覆盖」「密钥」两列是本期从代码搬到数据的</b>——原先硬编码在 <code>TenantService</code> 的白名单与"密钥类 <code>ai.*</code> 永不下放租户"规则，后台看不见、改要发版；现在是 <code>allow_tenant_override</code> / <code>is_secret</code> 两列。<br>
+    这两列连同 <code>name</code>/<code>config_group</code>/<code>remark</code> 是<b style="color:#303133">键级属性，用 CHECK 锁在 platform 行</b>（写在租户行上自相矛盾：「租户自己说租户不许覆盖」谁赢？），租户侧只读并显示「不可覆盖」。<br>
+    <b style="color:#303133">回落逻辑收口为一处</b>：现有三处各写一遍（<code>ConfigService.Resolve</code>、<code>TenantService.GetConfig</code>、品牌页占位）。写路径已是"行存在=有覆盖"（存空值即删行），<code>Resolve</code> 里的 <code>value != ""</code> 是冗余防御、不是 bug；收口时两端须同改，否则"清除覆盖"会静默变成"覆盖为空"。<br>
+    <b style="color:#303133">AI 分组整组移出</b>：14 个 <code>ai.*</code> 键里，供应商/模型/绑定进 <code>ai_provider</code>/<code>ai_model</code>/<code>ai_task_binding</code> 三张结构化表，业务规则进「巡检规则」，此处只留 <code>ai.enabled</code> 与全局并发上限这类单值。
+  </div>
+</div>

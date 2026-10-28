@@ -1,0 +1,150 @@
+<div style="position:relative;min-height:700px">
+  <div class="qcard" style="padding:0 16px;opacity:.3">
+    <div style="display:flex;gap:22px;font-size:13px;color:#606266">
+      <span style="padding:12px 0">全部记录</span>
+      <span style="padding:12px 0;border-bottom:2px solid #2b5aed;color:#2b5aed;font-weight:600">待审核 <span class="etag etag-red" style="margin-left:2px">12</span></span>
+      <span style="padding:12px 0">已审核</span>
+    </div>
+  </div>
+
+  <div class="qcard" style="padding:12px 16px;opacity:.3">
+    <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+      <span style="font-size:13px;color:#606266">小区</span><span class="einput ph" style="min-width:140px">全部小区 ▾</span>
+      <span style="font-size:13px;color:#606266">巡检员</span><span class="einput ph" style="min-width:120px">全部 ▾</span>
+      <span style="font-size:13px;color:#606266">结果</span><span class="einput ph" style="min-width:100px">全部 ▾</span>
+      <span style="font-size:13px;color:#606266">异常类型</span><span class="einput ph" style="min-width:120px">全部 ▾</span>
+      <span class="einput ph">☐ 仅看疑似</span>
+      <span class="einput ph">☐ 仅看强制提交</span>
+      <span class="einput ph">☐ 仅看存疑/失败</span>
+      <span style="font-size:13px;color:#606266">打卡时间</span><span class="einput ph" style="min-width:190px">开始 至 结束</span>
+      <span class="ebtn">查询</span><span class="ebtn-w">重置</span>
+    </div>
+  </div>
+
+  <div class="qcard" style="padding:0;opacity:.3">
+    <div style="display:flex;align-items:center;gap:10px;padding:12px 16px">
+      <span class="ebtn" style="background:#67c23a">批量通过（3）</span>
+      <span style="font-size:12px;color:#909399">已选 3 条</span>
+      <span class="ebtn">发起抽查</span>
+      <span class="ebtn-w">导出</span>
+    </div>
+    <table class="etable">
+      <tr>
+        <th style="width:36px">☐</th><th>打卡时间</th><th>巡检员</th><th>小区</th><th>点位</th>
+        <th style="text-align:center">方式</th><th style="text-align:right">距点位</th>
+        <th style="text-align:center">结果</th><th style="text-align:center">AI 结论</th>
+        <th style="text-align:center">审核</th><th style="text-align:right">照片数</th><th>操作</th>
+      </tr>
+      <tr class="sel">
+        <td>☑</td><td style="font-size:12px">10-24 09:41</td><td>小张</td><td>戎安华府</td><td>1栋3楼通道消火栓</td>
+        <td style="text-align:center"><span class="etag etag-gray">NFC</span></td><td style="text-align:right">12m</td>
+        <td style="text-align:center"><span class="etag etag-green">正常</span></td>
+        <td style="text-align:center"><span class="etag etag-green">AI 通过</span></td>
+        <td style="text-align:center"><span class="etag etag-blue">待审核</span></td>
+        <td style="text-align:right">3</td>
+        <td><span class="elink">详情</span><span class="elink" style="color:#67c23a">通过</span><span class="elink" style="color:#f56c6c">驳回</span></td>
+      </tr>
+      <tr class="stripe">
+        <td>☐</td><td style="font-size:12px">10-24 09:28</td><td>老王</td><td>戎安华府</td><td>2栋消防泵房</td>
+        <td style="text-align:center"><span class="etag etag-gray">扫码</span></td><td style="text-align:right">4m</td>
+        <td style="text-align:center"><span class="etag etag-red">异常</span></td>
+        <td style="text-align:center"><span class="etag etag-orange">AI 存疑</span></td>
+        <td style="text-align:center"><span class="etag etag-blue">待审核</span></td>
+        <td style="text-align:right">5</td>
+        <td><span class="elink">详情</span><span class="elink" style="color:#67c23a">通过</span><span class="elink" style="color:#f56c6c">驳回</span></td>
+      </tr>
+      <tr>
+        <td style="color:#c0c4cc">☐</td><td style="font-size:12px">10-24 09:02</td><td>李敏</td><td>锦绣华庭</td><td>1栋水泵房</td>
+        <td style="text-align:center"><span class="etag etag-gray">NFC</span></td><td style="text-align:right">8m</td>
+        <td style="text-align:center"><span class="etag etag-green">正常</span></td>
+        <td style="text-align:center"><span class="etag etag-gray">AI 识别失败</span></td>
+        <td style="text-align:center"><span class="etag etag-blue">待审核</span></td>
+        <td style="text-align:right">2</td>
+        <td style="color:#909399;font-size:12px">待授权人处理</td>
+      </tr>
+    </table>
+    <div class="pager"><span>共 12 条</span><span class="pg">20/页 ▾</span><span class="pg">‹</span><span class="pg on">1</span><span class="pg">›</span></div>
+  </div>
+
+  <div style="position:fixed;inset:0;background:rgba(0,0,0,.18);z-index:40"></div>
+  <div style="position:fixed;top:0;right:0;bottom:0;width:620px;background:#fff;box-shadow:-8px 0 24px rgba(0,0,0,.12);z-index:50;display:flex;flex-direction:column">
+    <div style="height:52px;display:flex;align-items:center;justify-content:space-between;padding:0 18px;border-bottom:1px solid #ebeef5">
+      <b style="font-size:15px">打卡详情</b><span style="color:#909399">×</span>
+    </div>
+
+    <div style="padding:16px 18px;overflow:auto">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:14px">
+        <b style="font-size:15px;color:#303133">2栋消防泵房</b>
+        <span class="etag etag-red">异常</span>
+        <span class="etag etag-orange">强制提交</span>
+      </div>
+
+      <div style="font-size:13px;font-weight:600;color:#303133;margin:0 0 8px">基本信息</div>
+      <table class="etable" style="margin-bottom:14px">
+        <tr><th style="width:92px;background:#fafafa">打卡时间</th><td>10-24 09:28</td><th style="width:92px;background:#fafafa">巡检员</th><td>老王</td></tr>
+        <tr><th style="background:#fafafa">打卡方式</th><td>扫码</td><th style="background:#fafafa">照片数</th><td>5 张</td></tr>
+      </table>
+
+      <div style="font-size:13px;font-weight:600;color:#303133;margin:14px 0 8px">定位与校验</div>
+      <table class="etable" style="margin-bottom:14px">
+        <tr><th style="width:100px;background:#fafafa">坐标</th><td style="font-family:Consolas,monospace;font-size:12px">30.512xx, 114.401xx</td></tr>
+        <tr><th style="background:#fafafa">距点位</th><td>4m</td></tr>
+        <tr><th style="background:#fafafa">服务端时间</th><td>2026-10-24 09:28:14</td></tr>
+        <tr><th style="background:#fafafa">客户端时间</th><td>2026-10-24 09:28:11</td></tr>
+        <tr><th style="background:#fafafa">备注</th><td>压力表读数越界，已报工程</td></tr>
+      </table>
+
+      <div style="font-size:13px;font-weight:600;color:#303133;margin:14px 0 8px">AI 质量校验</div>
+      <div style="padding:9px 12px;background:#f0f9eb;border:1px solid #c2e7b0;border-radius:4px;font-size:12px;color:#606266;margin-bottom:14px">照片清晰度与点位匹配度通过</div>
+
+      <div style="font-size:13px;font-weight:600;color:#303133;margin:14px 0 8px">检查项结果</div>
+      <table class="etable">
+        <tr><th>检查项</th><th style="width:88px">照片</th><th style="width:76px;text-align:center">结果</th><th style="width:108px;text-align:center">AI 初判</th></tr>
+        <tr>
+          <td><div style="color:#303133">泵房整体环境</div><div style="font-size:11px;color:#909399">无积水、无杂物堆放</div></td>
+          <td><span style="display:inline-block;width:38px;height:38px;background:#f2f3f5;border-radius:3px"></span></td>
+          <td style="text-align:center"><span class="etag etag-green">正常</span></td>
+          <td style="text-align:center"><span class="etag etag-green">AI 通过</span></td>
+        </tr>
+        <tr class="stripe">
+          <td>
+            <div style="color:#303133">消防泵压力表读数</div>
+            <div style="font-size:11px;color:#909399">0.35~0.55 MPa</div>
+            <div style="margin-top:3px"><span class="etag etag-red" style="font-size:10px">压力越界</span></div>
+          </td>
+          <td><span style="display:inline-block;width:38px;height:38px;background:#f2f3f5;border-radius:3px"></span></td>
+          <td style="text-align:center"><span class="etag etag-red">异常</span></td>
+          <td style="text-align:center"><span class="etag etag-orange">AI 存疑</span><div style="font-size:11px;color:#909399;margin-top:2px">读数：0.21</div></td>
+        </tr>
+        <tr>
+          <td><div style="color:#303133">阀门开闭状态</div><div style="font-size:11px;color:#909399">常开阀应处于全开位</div></td>
+          <td><span style="display:inline-block;width:38px;height:38px;background:#f2f3f5;border-radius:3px"></span></td>
+          <td style="text-align:center"><span class="etag etag-green">正常</span></td>
+          <td style="text-align:center"><span class="etag etag-gray">AI 识别失败</span></td>
+        </tr>
+      </table>
+
+      <div style="font-size:13px;font-weight:600;color:#303133;margin:14px 0 8px">全景照片（水印缩略图，点击查看原图）</div>
+      <div style="display:flex;gap:8px;margin-bottom:14px">
+        <span style="display:inline-block;width:72px;height:72px;background:#f2f3f5;border-radius:4px"></span>
+        <span style="display:inline-block;width:72px;height:72px;background:#f2f3f5;border-radius:4px"></span>
+      </div>
+
+      <div style="font-size:13px;font-weight:600;color:#303133;margin:14px 0 8px">审核信息</div>
+      <table class="etable">
+        <tr><th style="width:100px;background:#fafafa">审核状态</th><td><span class="etag etag-blue">待审核</span></td></tr>
+        <tr><th style="background:#fafafa">AI 结论</th><td><span class="etag etag-orange">存疑</span></td></tr>
+        <tr><th style="background:#fafafa">当前环节</th><td>打卡复核 <span class="etag etag-blue" style="margin-left:4px">本期新增</span> <span style="font-size:11px;color:#909399">候选人：李敏、周强</span></td></tr>
+      </table>
+      <div style="margin-top:10px;padding:10px 12px;background:#fdf6ec;border:1px solid #f5dab1;border-radius:4px;font-size:12px;color:#606266;line-height:1.7">
+        <b style="color:#e6a23c">AI 存疑 / 识别失败 / 人工改判 / 异常 / 无法检查</b> 五类<b style="color:#303133">强制人工审核</b>，流程配置不得直通（03 §3）。<br>
+        <span style="color:#f56c6c">本期必改</span>：若当前环节无候选人，现有实现会跳过并走到链尾自动通过（<code>flow_service.go:139</code>）——改为<b style="color:#303133">挂起 + 告警 + 修复入口</b>（14 §4.6）。
+      </div>
+    </div>
+
+    <div style="display:flex;justify-content:flex-end;gap:10px;padding:14px 18px;border-top:1px solid #ebeef5">
+      <span class="ebtn-w" style="color:#f56c6c;border-color:#fbc4c4">驳回</span>
+      <span class="ebtn" style="background:#67c23a">通过</span>
+    </div>
+  </div>
+</div>

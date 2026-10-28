@@ -1,0 +1,25 @@
+<div class="qcard" style="padding:0">
+  <div style="display:flex;gap:24px;padding:0 16px;border-bottom:1px solid #ebeef5;font-size:14px">
+    <span style="padding:12px 0;border-bottom:2px solid #2b5aed;color:#2b5aed;font-weight:600">模型供应商</span><a href="79c-AI配置-能力绑定.html" style="padding:12px 0">能力绑定</a><a href="79d-AI配置-助手与Agent.html" style="padding:12px 0">助手与 Agent</a><a href="79e-AI配置-配额与用量.html" style="padding:12px 0">用量</a><a href="79g-AI配置-配额.html" style="padding:12px 0">配额</a>
+  </div>
+  <div style="display:flex;align-items:center;gap:8px;padding:16px"><a class="ebtn" href="79b-AI配置-添加供应商.html">＋ 添加供应商</a><span class="ebtn-w">从 models.dev 导入</span><span class="einput" style="background:#ecf1ff;border-color:#b3c6ff;color:#2b5aed">☑ 含平台默认</span><span style="margin-left:auto;font-size:13px;color:#6b7385">共 3 个供应商</span></div>
+  <table class="etable">
+    <tr><th>供应商</th><th>API 协议</th><th>Base URL</th><th>API Key</th><th>模型</th><th>状态</th><th>来源</th><th>最近校验</th><th style="width:190px">操作</th></tr>
+    <tr><td><div style="color:#1f2329;font-weight:600">阿里云百炼</div><div style="font-size:12px;color:#6b7385">bailian</div></td><td><span class="etag etag-gray">openai_chat</span></td><td style="font-family:Consolas,monospace;font-size:12px">dashscope.aliyuncs.com/compatible-mode/v1</td><td style="font-family:Consolas,monospace;font-size:12px">sk-••••3f2a</td><td><a class="elink" href="#provider-models">4 个</a></td><td><span class="etag etag-green">启用</span></td><td><span class="etag etag-gray">继承平台默认</span></td><td>通过 · 10-24 09:12</td><td><a class="elink" href="#provider-models">模型</a><span class="elink">测试</span><span class="elink">编辑</span></td></tr>
+    <tr class="stripe"><td><div style="color:#1f2329;font-weight:600">DeepSeek</div><div style="font-size:12px;color:#6b7385">deepseek</div></td><td><span class="etag etag-gray">openai_chat</span></td><td style="font-family:Consolas,monospace;font-size:12px">api.deepseek.com/v1</td><td style="font-family:Consolas,monospace;font-size:12px">sk-••••91b7</td><td><a class="elink" href="#provider-models">2 个</a></td><td><span class="etag etag-green">启用</span></td><td><span class="etag etag-blue">本租户覆盖</span></td><td>通过 · 10-24 09:12</td><td><a class="elink" href="#provider-models">模型</a><span class="elink">测试</span><span class="elink">编辑</span></td></tr>
+    <tr><td><div style="color:#1f2329;font-weight:600">Kimi（Moonshot）</div><div style="font-size:12px;color:#6b7385">kimi</div></td><td><span class="etag etag-gray">openai_chat</span></td><td style="font-family:Consolas,monospace;font-size:12px">api.moonshot.cn/v1</td><td style="font-family:Consolas,monospace;font-size:12px">sk-••••c403</td><td><a class="elink" href="#provider-models">3 个</a></td><td><span class="etag etag-orange">停用</span></td><td><span class="etag etag-gray">继承平台默认</span></td><td style="color:#d54941">鉴权失败 · 10-23 18:40</td><td><a class="elink" href="#provider-models">模型</a><span class="elink">测试</span><span class="elink">编辑</span></td></tr>
+  </table>
+</div>
+<div id="provider-models" style="display:none;position:fixed;inset:0;z-index:60">
+  <a href="#" style="position:absolute;inset:0;background:rgba(0,0,0,.18)"></a>
+  <div style="position:absolute;top:0;right:0;bottom:0;width:760px;background:#fff;box-shadow:0 4px 16px rgba(0,0,0,.08);display:flex;flex-direction:column">
+    <div style="height:48px;display:flex;align-items:center;justify-content:space-between;padding:0 16px;border-bottom:1px solid #ebeef5"><b style="font-size:20px">阿里云百炼 · 模型 4 个</b><a href="#" style="font-size:20px;color:#6b7385">×</a></div>
+    <div style="display:flex;justify-content:flex-end;gap:8px;padding:16px"><span class="ebtn-w">获取模型列表</span><span class="ebtn-w">＋ 手动添加</span></div>
+    <table class="etable"><tr><th>模型 ID</th><th>显示名</th><th>上下文</th><th>最大输出</th><th>能力</th><th>操作</th></tr>
+      <tr><td>qwen-vl-max-latest</td><td>通义千问 VL Max</td><td>32K</td><td>2K</td><td><span class="etag etag-blue">视觉</span><span class="etag etag-gray">文本</span></td><td><span class="elink">高级</span><span class="elink">移除</span></td></tr>
+      <tr class="stripe"><td>qwen-vl-plus</td><td>通义千问 VL Plus</td><td>8K</td><td>1.5K</td><td><span class="etag etag-blue">视觉</span><span class="etag etag-gray">文本</span></td><td><span class="elink">高级</span><span class="elink">移除</span></td></tr>
+      <tr><td>qwen-max</td><td>通义千问 Max</td><td>32K</td><td>8K</td><td><span class="etag etag-gray">文本</span><span class="etag etag-blue">工具调用</span></td><td><span class="elink">高级</span><span class="elink">移除</span></td></tr>
+      <tr class="stripe"><td>qwen-turbo</td><td>通义千问 Turbo</td><td>128K</td><td>8K</td><td><span class="etag etag-gray">文本</span></td><td><span class="elink">高级</span><span class="elink">移除</span></td></tr>
+    </table>
+  </div>
+</div>

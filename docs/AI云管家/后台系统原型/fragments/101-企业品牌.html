@@ -1,0 +1,69 @@
+<div class="qcard" style="padding:0">
+  <div style="display:flex;align-items:center;gap:8px;padding:9px 12px;margin:14px 16px 0;background:#f7f9ff;border:1px solid #d9e1ff;border-radius:4px;font-size:13px;color:#606266">
+    <span style="color:#2b5aed">ⓘ</span>
+    <span>留空保存即<b style="color:#303133">清除该项覆盖</b>，回落平台默认值。</span>
+  </div>
+
+  <div style="padding:16px;max-width:760px">
+    <div style="display:flex;align-items:flex-start;gap:12px;margin-bottom:14px">
+      <span style="width:92px;flex:none;text-align:right;font-size:13px;color:#606266;padding-top:6px">公司名称</span>
+      <div style="flex:1">
+        <span class="einput" style="width:100%;box-sizing:border-box">武汉一品行物业有限公司</span>
+        <div style="font-size:11px;margin-top:4px"><span class="etag etag-blue">本租户覆盖</span> <span style="color:#909399">平台默认：AI云管家</span></div>
+      </div>
+    </div>
+
+    <div style="display:flex;align-items:flex-start;gap:12px;margin-bottom:14px">
+      <span style="width:92px;flex:none;text-align:right;font-size:13px;color:#606266;padding-top:6px">标语</span>
+      <div style="flex:1">
+        <span class="einput ph" style="width:100%;box-sizing:border-box;min-height:40px">平台默认：让每一次巡检都有据可查</span>
+        <div style="font-size:11px;margin-top:4px"><span class="etag etag-gray">继承平台默认</span></div>
+      </div>
+    </div>
+
+    <div style="display:flex;align-items:flex-start;gap:12px;margin-bottom:14px">
+      <span style="width:92px;flex:none;text-align:right;font-size:13px;color:#606266;padding-top:6px">主题色</span>
+      <div style="flex:1;display:flex;align-items:center;gap:12px">
+        <span style="width:32px;height:32px;border-radius:4px;background:#2b5aed;border:1px solid #dcdfe6;flex:none"></span>
+        <span class="einput" style="min-width:130px">#2B5AED</span>
+        <span style="font-size:11px;color:#909399">平台默认 #409EFF</span>
+        <span class="etag etag-blue">本租户覆盖</span>
+      </div>
+    </div>
+
+    <div style="display:flex;align-items:flex-start;gap:12px;margin-bottom:14px">
+      <span style="width:92px;flex:none;text-align:right;font-size:13px;color:#606266;padding-top:6px">页脚文案</span>
+      <div style="flex:1">
+        <span class="einput ph" style="width:100%;box-sizing:border-box;min-height:40px">平台默认未配置，留空不覆盖</span>
+        <div style="font-size:11px;margin-top:4px"><span class="etag etag-gray">未配置</span></div>
+      </div>
+    </div>
+
+    <div style="display:flex;align-items:flex-start;gap:12px;margin-bottom:14px">
+      <span style="width:92px;flex:none;text-align:right;font-size:13px;color:#606266;padding-top:6px">联系电话</span>
+      <div style="flex:1">
+        <span class="einput" style="width:100%;box-sizing:border-box">027-8888 6666</span>
+        <div style="font-size:11px;margin-top:4px"><span class="etag etag-blue">本租户覆盖</span> <span style="color:#909399">平台默认未配置</span></div>
+      </div>
+    </div>
+
+    <div style="display:flex;align-items:flex-start;gap:12px;margin-bottom:16px">
+      <span style="width:92px;flex:none;text-align:right;font-size:13px;color:#606266;padding-top:6px">联系邮箱</span>
+      <div style="flex:1">
+        <span class="einput ph" style="width:100%;box-sizing:border-box">平台默认未配置，留空不覆盖</span>
+        <div style="font-size:11px;margin-top:4px"><span class="etag etag-gray">未配置</span></div>
+      </div>
+    </div>
+
+    <div style="display:flex;align-items:center;gap:12px;padding-left:104px">
+      <span class="ebtn">保存配置</span>
+      <span style="font-size:12px;color:#909399">保存后该租户的品牌展示立即生效</span>
+    </div>
+  </div>
+
+  <div style="padding:10px 16px 14px;font-size:12px;color:#909399;line-height:1.8;border-top:1px solid #ebeef5">
+    六项白名单：公司名称 / 标语 / 主题色 / 页脚文案 / 联系电话 / 联系邮箱。主题色须 <code>#RRGGBB</code>，各项 ≤200 字符；保存按 <code>tenant:config</code> 鉴权。<br>
+    <b style="color:#67c23a">本页是现有实现里「继承 + 覆盖」的样板</b>：每项都给出平台默认作占位、留空即删除覆盖行回落——正是 13 §4.2.1 要求的"显示有效值与来源"。<b style="color:#606266">AI 配置、审批流程等其余分层配置照此做</b>，不要各发明一套表达。<br>
+    <span style="color:#2b5aed">本期改动</span>：白名单当前<b style="color:#606266">硬编码在 <code>TenantService.tenantConfigWhitelist</code></b>（后台看不见、增项要发版），迁为 <code>config</code> 表的 <code>allow_tenant_override</code> 列后，本页改为按该列动态渲染；密钥类（<code>ai.*</code>/存储）由 <code>is_secret</code> 列挡住，永不进入本页。
+  </div>
+</div>

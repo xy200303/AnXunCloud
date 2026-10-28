@@ -1,0 +1,106 @@
+<div style="position:relative;min-height:700px">
+  <div class="qcard" style="padding:0;opacity:.35">
+    <div style="display:flex;align-items:center;gap:10px;padding:12px 16px;border-bottom:1px solid #ebeef5">
+      <b style="font-size:15px">岗位（角色）</b>
+      <span style="margin-left:auto;display:flex;gap:8px"><span class="ebtn-w">从平台预置复制</span><span class="ebtn">＋ 新增岗位</span></span>
+    </div>
+    <div style="display:flex;align-items:center;gap:10px;padding:12px 16px">
+      <span style="font-size:13px;color:#606266">岗位名称</span>
+      <span class="einput ph" style="min-width:180px">名称 / 编码</span>
+      <span class="ebtn">查询</span><span class="ebtn-w">重置</span>
+    </div>
+    <table class="etable">
+      <tr><th>岗位名称</th><th>编码</th><th>作用域</th><th>可见深度</th><th>持有人</th><th>被审批环节引用</th><th>操作</th></tr>
+      <tr><td style="color:#303133;font-weight:600">超级管理员 <span class="etag etag-gray">内置</span></td><td>super_admin</td><td><span class="etag etag-red">platform</span></td><td>全部</td><td>1 人</td><td>—</td><td><span class="elink">配置权限</span></td></tr>
+      <tr class="stripe"><td style="color:#303133;font-weight:600">租户管理员 <span class="etag etag-gray">内置</span></td><td>tenant_admin</td><td><span class="etag etag-orange">tenant</span></td><td>全部</td><td>1 人</td><td>0</td><td><span class="elink">配置权限</span><span class="elink">编辑</span></td></tr>
+      <tr><td style="color:#303133;font-weight:600">项目经理 <span class="etag etag-gray">内置</span></td><td>project_manager</td><td><span class="etag etag-blue">project</span></td><td>全项目</td><td>4 人</td><td>3 个环节</td><td><span class="elink">配置权限</span><span class="elink">编辑</span></td></tr>
+      <tr class="stripe sel"><td style="color:#303133;font-weight:600">品质主管 <span class="etag etag-gray">内置</span></td><td>quality_supervisor</td><td><span class="etag etag-blue">project</span></td><td>全项目</td><td>3 人</td><td>2 个环节</td><td><span class="elink">配置权限</span><span class="elink">编辑</span></td></tr>
+      <tr><td style="color:#303133;font-weight:600">工程主管 <span class="etag etag-gray">内置</span></td><td>engineer_supervisor</td><td><span class="etag etag-blue">project</span></td><td>全项目</td><td><span style="color:#f56c6c">0 人</span></td><td><span style="color:#f56c6c">1 个环节</span></td><td><span class="elink">配置权限</span><span class="elink">编辑</span></td></tr>
+      <tr class="stripe"><td style="color:#303133;font-weight:600">巡检员 <span class="etag etag-gray">内置</span></td><td>inspector</td><td><span class="etag etag-blue">project</span></td><td>仅本人</td><td>12 人</td><td>1 个环节</td><td><span class="elink">配置权限</span><span class="elink">编辑</span></td></tr>
+      <tr><td style="color:#303133;font-weight:600">维保工 <span class="etag etag-gray">内置</span></td><td>maintainer</td><td><span class="etag etag-blue">project</span></td><td>仅本人</td><td>6 人</td><td>0</td><td><span class="elink">配置权限</span><span class="elink">编辑</span></td></tr>
+      <tr class="stripe"><td style="color:#303133;font-weight:600">楼管员 <span class="etag etag-gray">内置</span></td><td>building_manager</td><td><span class="etag etag-blue">project</span></td><td>仅本人</td><td>5 人</td><td>0</td><td><span class="elink">配置权限</span><span class="elink">编辑</span></td></tr>
+      <tr><td style="color:#303133;font-weight:600">消控值班 <span class="etag etag-gray">内置</span></td><td>fire_duty</td><td><span class="etag etag-blue">project</span></td><td>仅本人</td><td>4 人</td><td>0</td><td><span class="elink">配置权限</span><span class="elink">编辑</span></td></tr>
+    </table>
+  </div>
+
+  <div style="position:fixed;inset:0;background:rgba(0,0,0,.18);z-index:40"></div>
+  <div style="position:fixed;top:0;right:0;bottom:0;width:720px;background:#fff;box-shadow:-8px 0 24px rgba(0,0,0,.12);z-index:50;display:flex;flex-direction:column">
+
+    <div style="height:52px;display:flex;align-items:center;justify-content:space-between;padding:0 18px;border-bottom:1px solid #ebeef5">
+      <b style="font-size:15px">配置权限 · 品质主管</b>
+      <span style="color:#909399">×</span>
+    </div>
+
+    <div style="padding:16px 18px;overflow:auto">
+
+      <div style="display:flex;align-items:flex-start;gap:14px;margin-bottom:14px">
+        <span style="font-size:13px;color:#606266;width:84px;flex:none;text-align:right;padding-top:2px">数据可见</span>
+        <div>
+          <div style="display:flex;gap:18px;font-size:13px;color:#606266">
+            <span style="display:inline-flex;align-items:center;gap:5px"><span style="width:13px;height:13px;border-radius:50%;border:4px solid #2b5aed;background:#fff;display:inline-block"></span>全项目</span>
+            <span style="display:inline-flex;align-items:center;gap:5px"><span style="width:13px;height:13px;border-radius:50%;border:1px solid #dcdfe6;background:#fff;display:inline-block"></span>仅本人</span>
+          </div>
+        </div>
+      </div>
+
+      <div style="display:flex;align-items:flex-start;gap:14px;margin-bottom:14px">
+        <span style="font-size:13px;color:#606266;width:84px;flex:none;text-align:right;padding-top:2px">可抢工单</span>
+        <div style="display:flex;flex-wrap:wrap;gap:8px">
+          <span class="einput" style="background:#ecf1ff;border-color:#b3c6ff;color:#2b5aed">☑ 巡检整改</span>
+          <span class="einput ph">☐ 换粉</span>
+          <span class="einput ph">☐ 水压试验</span>
+          <span class="einput ph">☐ 电梯（需资质）</span>
+        </div>
+      </div>
+
+      <div style="display:flex;align-items:flex-start;gap:14px">
+        <span style="font-size:13px;color:#606266;width:84px;flex:none;text-align:right;padding-top:2px">菜单权限</span>
+        <div style="flex:1;min-width:0">
+          <div style="display:flex;align-items:center;gap:10px;margin-bottom:6px">
+            <span style="display:inline-flex;align-items:center;gap:5px;font-size:13px;color:#606266"><span class="cb half"></span>全选</span>
+            <span style="font-size:12px;color:#909399">父子联动勾选，按钮级为叶子节点</span>
+          </div>
+          <div class="tree">
+            <div class="tn2"><span class="arw"></span><span class="cb on"></span>运营看板</div>
+
+            <div class="tn2"><span class="arw">▾</span><span class="cb half"></span>巡检管理 <span class="ntag">目录</span></div>
+            <div class="tn2" style="padding-left:28px"><span class="arw">▾</span><span class="cb half"></span>巡检记录</div>
+            <div class="tn2" style="padding-left:50px"><span class="arw"></span><span class="cb on"></span>记录检索 <span class="ntag">按钮</span></div>
+            <div class="tn2" style="padding-left:50px"><span class="arw"></span><span class="cb on"></span>记录导出 <span class="ntag">按钮</span></div>
+            <div class="tn2" style="padding-left:50px"><span class="arw"></span><span class="cb"></span>删除记录 <span class="ntag">按钮</span></div>
+            <div class="tn2" style="padding-left:28px"><span class="arw">▾</span><span class="cb on"></span>计划任务</div>
+            <div class="tn2" style="padding-left:50px"><span class="arw"></span><span class="cb on"></span>新增计划 <span class="ntag">按钮</span></div>
+            <div class="tn2" style="padding-left:50px"><span class="arw"></span><span class="cb on"></span>编辑计划 <span class="ntag">按钮</span></div>
+            <div class="tn2" style="padding-left:50px"><span class="arw"></span><span class="cb on"></span>停用计划 <span class="ntag">按钮</span></div>
+            <div class="tn2" style="padding-left:28px"><span class="arw">▾</span><span class="cb half"></span>任务监控</div>
+            <div class="tn2" style="padding-left:50px"><span class="arw"></span><span class="cb on"></span>任务列表 <span class="ntag">按钮</span></div>
+            <div class="tn2" style="padding-left:50px"><span class="arw"></span><span class="cb on"></span>批量改派 <span class="ntag">按钮</span></div>
+            <div class="tn2" style="padding-left:50px"><span class="arw"></span><span class="cb"></span>手动生成任务 <span class="ntag">按钮</span></div>
+            <div class="tn2" style="padding-left:28px"><span class="arw">▸</span><span class="cb"></span>设备台账</div>
+
+            <div class="tn2"><span class="arw">▾</span><span class="cb half"></span>工单管理 <span class="ntag">目录</span></div>
+            <div class="tn2" style="padding-left:28px"><span class="arw">▾</span><span class="cb half"></span>工单池</div>
+            <div class="tn2" style="padding-left:50px"><span class="arw"></span><span class="cb on"></span>查看工单 <span class="ntag">按钮</span></div>
+            <div class="tn2" style="padding-left:50px"><span class="arw"></span><span class="cb on"></span>派单 <span class="ntag">按钮</span></div>
+            <div class="tn2" style="padding-left:50px"><span class="arw"></span><span class="cb on"></span>合并打包 <span class="ntag">按钮</span></div>
+            <div class="tn2" style="padding-left:50px"><span class="arw"></span><span class="cb"></span>关闭工单 <span class="ntag">按钮</span></div>
+
+            <div class="tn2"><span class="arw">▸</span><span class="cb half"></span>报告中心 <span class="ntag">目录</span></div>
+            <div class="tn2"><span class="arw">▸</span><span class="cb"></span>模板中心 <span class="ntag">目录</span></div>
+            <div class="tn2"><span class="arw">▸</span><span class="cb"></span>承接查验 <span class="ntag">目录</span></div>
+            <div class="tn2"><span class="arw">▸</span><span class="cb"></span>系统管理 <span class="ntag">目录</span></div>
+          </div>
+
+          <div style="margin-top:10px;padding:10px 12px;background:#f0f9eb;border:1px solid #c2e7b0;border-radius:4px;font-size:12px;color:#606266;line-height:1.7">
+            <b style="color:#67c23a">树里没有「审核/签字」类权限点</b>：能否审某条记录由"是否为该记录当前审批环节的候选人"唯一判定，候选即可读该记录；本岗位被任一环节绑定时，审核入口自动可见（14 §1.5.3）。此处只配<b style="color:#303133">能进哪些功能区、能点哪些按钮</b>。
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div style="display:flex;align-items:center;gap:10px;padding:14px 18px;border-top:1px solid #ebeef5">
+      <span style="font-size:12px;color:#909399">保存后，被影响的 3 名用户将在下次刷新或重新登录时生效；收窄权限属高危变更，记入审计</span>
+      <span style="margin-left:auto;display:flex;gap:10px"><span class="ebtn-w">取消</span><span class="ebtn">保存权限</span></span>
+    </div>
+  </div>
+</div>

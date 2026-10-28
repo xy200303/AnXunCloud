@@ -45,17 +45,43 @@ services:
       POSTGRES_HOST: postgres
       POSTGRES_PORT: "5432"
       REDIS_ADDR: redis:6379
+      LIBREOFFICE_MODE: worker
+      LIBREOFFICE_WORKER_DIR: /render
     ports:
       - "8091:8090"           # 主机侧避开 8090（与其他项目 dev 容器冲突）
     volumes:
       - ./backend:/app                 # 挂载源码，air 监听变更热编译
       - gomodcache:/go/pkg/mod         # 依赖缓存，加速重编译
       - gobuildcache:/root/.cache/go-build
+      - render_dev:/render
     depends_on:
       postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
+      report-renderer:
+        condition: service_started
+
+  report-renderer:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: report-renderer
+    container_name: anxuncloud-dev-report-renderer
+    network_mode: none
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=256m
+    mem_limit: 1g
+    cpus: 1.0
+    pids_limit: 128
+    volumes:
+      - render_dev:/render
+    restart: unless-stopped
 
   frontend:
     build:
@@ -78,3 +104,4 @@ volumes:
   redisdata_dev:
   gomodcache:
   gobuildcache:
+  render_dev:

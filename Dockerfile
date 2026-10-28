@@ -53,7 +53,8 @@ COPY backend/go.mod backend/go.sum ./
 RUN go mod download
 COPY backend/ ./
 RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -o /out/server ./cmd/server \
-    && CGO_ENABLED=0 GOOS=linux go build -trimpath -o /out/seed-demo ./cmd/seed-demo
+    && CGO_ENABLED=0 GOOS=linux go build -trimpath -o /out/seed-demo ./cmd/seed-demo \
+    && CGO_ENABLED=0 GOOS=linux go build -trimpath -o /out/report-worker ./cmd/report-worker
 
 # ========== 生产：最终运行镜像（二进制 + dist + 中文字体） ==========
 FROM alpine:3.20 AS prod
@@ -77,3 +78,20 @@ EXPOSE 8080
 # 不以 USER 指令降权：entrypoint 需要 root 完成挂载卷 chown，随后 su-exec 降为 appuser
 ENTRYPOINT ["/app/docker-entrypoint.sh"]
 CMD ["/app/server"]
+
+# ========== 独立报告转换镜像：仅 worker + LibreOffice + 字体 + PDF 校验 ==========
+FROM debian:bookworm-slim AS report-renderer
+ARG DEBIAN_MIRROR=mirrors.aliyun.com
+RUN sed -i "s|http://deb.debian.org|http://$DEBIAN_MIRROR|g; s|http://security.debian.org|http://$DEBIAN_MIRROR|g" /etc/apt/sources.list.d/debian.sources \
+    && apt-get update \
+    && apt-get install -y --no-install-recommends libreoffice-writer poppler-utils fontconfig \
+    && rm -rf /var/lib/apt/lists/* \
+    && useradd --uid 10001 --create-home appuser \
+    && mkdir -p /render /usr/share/fonts/noto \
+    && chown -R appuser:appuser /render
+COPY --from=be /be/fonts/ /usr/share/fonts/noto/
+RUN fc-cache -f && soffice --version && pdfinfo -v
+COPY --from=be /out/report-worker /app/report-worker
+ENV LANG=C.UTF-8 HOME=/tmp LIBREOFFICE_WORKER_DIR=/render
+USER 10001:10001
+CMD ["/app/report-worker"]

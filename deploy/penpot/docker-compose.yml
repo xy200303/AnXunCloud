@@ -1,0 +1,84 @@
+# Penpot 自托管部署（独立于主站，不改动 docker-compose.dev/prod.yml）
+# 用法见同目录 README.md；所有密钥走 penpot.env，不入库。
+
+services:
+  penpot-frontend:
+    image: "penpotapp/frontend:${PENPOT_VERSION:-latest}"
+    restart: always
+    ports:
+      - "127.0.0.1:${PENPOT_HTTP_PORT:-9001}:8080"
+    volumes:
+      - penpot_assets:/opt/data/assets
+    depends_on:
+      - penpot-backend
+      - penpot-exporter
+      - penpot-mcp
+    env_file:
+      - penpot.env
+    environment:
+      PENPOT_FLAGS: "${PENPOT_FRONTEND_FLAGS:-enable-login-with-password disable-registration enable-mcp enable-smtp}"
+
+  penpot-backend:
+    image: "penpotapp/backend:${PENPOT_VERSION:-latest}"
+    restart: always
+    volumes:
+      - penpot_assets:/opt/data/assets
+    depends_on:
+      penpot-postgres:
+        condition: service_healthy
+      penpot-redis:
+        condition: service_started
+    env_file:
+      - penpot.env
+    environment:
+      PENPOT_FLAGS: "${PENPOT_BACKEND_FLAGS:-enable-login-with-password disable-registration disable-email-verification disable-telemetry enable-mcp enable-smtp}"
+      PENPOT_HTTP_SERVER_MAX_BODY_SIZE: "367001600"
+      PENPOT_HTTP_SERVER_MAX_MULTIPART_BODY_SIZE: "367001600"
+      PENPOT_DATABASE_URI: "postgresql://penpot-postgres/penpot"
+      PENPOT_DATABASE_USERNAME: "${PENPOT_DB_USER:-penpot}"
+      PENPOT_DATABASE_PASSWORD: "${PENPOT_DB_PASSWORD:?PENPOT_DB_PASSWORD 未设置}"
+      PENPOT_REDIS_URI: "redis://penpot-redis/0"
+      PENPOT_ASSETS_STORAGE_BACKEND: "assets-fs"
+      PENPOT_STORAGE_ASSETS_FS_DIRECTORY: "/opt/data/assets"
+      PENPOT_TELEMETRY: "false"
+
+  penpot-mcp:
+    image: "penpotapp/mcp:${PENPOT_VERSION:-latest}"
+    restart: always
+
+  penpot-exporter:
+    image: "penpotapp/exporter:${PENPOT_VERSION:-latest}"
+    restart: always
+    depends_on:
+      - penpot-redis
+    env_file:
+      - penpot.env
+    environment:
+      PENPOT_PUBLIC_URI: "http://penpot-frontend:8080"
+      PENPOT_REDIS_URI: "redis://penpot-redis/0"
+      PENPOT_SECRET_KEY: "${PENPOT_SECRET_KEY:?PENPOT_SECRET_KEY 未设置}"
+
+  penpot-postgres:
+    image: "postgres:15"
+    restart: always
+    stop_grace_period: "1m"
+    volumes:
+      - penpot_postgres:/var/lib/postgresql/data
+    environment:
+      POSTGRES_INITDB_ARGS: "--data-checksums"
+      POSTGRES_USER: "${PENPOT_DB_USER:-penpot}"
+      POSTGRES_PASSWORD: "${PENPOT_DB_PASSWORD:?PENPOT_DB_PASSWORD 未设置}"
+      POSTGRES_DB: "penpot"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${PENPOT_DB_USER:-penpot} -d penpot"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  penpot-redis:
+    image: "redis:7"
+    restart: always
+
+volumes:
+  penpot_postgres:
+  penpot_assets:

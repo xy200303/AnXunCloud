@@ -49,15 +49,21 @@ services:
       target: prod
     container_name: anxuncloud-prod-app
     env_file: .env.prod
+    environment:
+      LIBREOFFICE_MODE: worker
+      LIBREOFFICE_WORKER_DIR: /render
     ports:
       - "18080:8080"                   # 唯一对外端口（避开本机 8080 占用）
     volumes:
       - uploads_prod:/app/uploads      # local 上传模式下的文件持久化（含官网发布物）
+      - render_prod:/render
     depends_on:
       postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
+      report-renderer:
+        condition: service_started
     restart: unless-stopped
     logging:
       driver: json-file
@@ -65,7 +71,34 @@ services:
         max-size: "50m"
         max-file: "3"
 
+  report-renderer:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: report-renderer
+    container_name: anxuncloud-prod-report-renderer
+    network_mode: none
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=256m
+    mem_limit: 1g
+    cpus: 1.0
+    pids_limit: 128
+    volumes:
+      - render_prod:/render
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "20m"
+        max-file: "2"
+
 volumes:
   pgdata_prod:
   redisdata_prod:
   uploads_prod:
+  render_prod:

@@ -22,3 +22,10 @@ backend/uploads/
 
 # 甲方测试照片（真实巡检图像，不入库）
 docs/测试图像/
+
+# Penpot 自托管真实密钥（模板 penpot.env.example 可入库）
+deploy/penpot/penpot.env
+
+# 大体积原始台账与评审压缩包（不入库）
+docs/模板/承接查验/纱帽街民康园A区 \[日常检查\].xlsx
+品管家-方案评审包-v*.zip
